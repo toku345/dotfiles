@@ -1,0 +1,38 @@
+[user]
+    name = Fumitaka Tokumitsu
+    email = toku345@gmail.com
+[color]
+    ui = auto
+[core]
+[core]
+    editor = emacsclient -c
+    excludesfile = /Users/toku345/.gitignore_global
+[alias]
+    co = checkout
+    st = status
+    ci = commit
+    br = branch
+    hist = log --pretty=format:'%h %ad | %s%d [%an]' --graph --date=short
+    type = cat-file -t
+    type = cat-file -p
+    ignore = !"f() { local s=$1; shift; \
+      while [ $# -gt 0 ]; do s="$s,$1"; shift; done;\
+        curl "https://www.gitignore.io/api/$s"; }; f"
+    see = browse
+    delete-merged-branches = !git branch --merged | grep -v \\* | xargs -I % git branch -d %
+    lg = log --graph --all --decorate --abbrev-commit --branches --date=short --pretty=format:\"%C(red)%h%C(reset) %C(green)[%ad]%C(reset) %s %C(cyan)@%an%C(reset) %C(yellow)%d%C(reset)\"
+
+[difftool "sourcetree"]
+	cmd = opendiff \"$LOCAL\" \"$REMOTE\"
+	path = 
+
+[mergetool "sourcetree"]
+	cmd = /opt/homebrew-cask/Caskroom/sourcetree/2.0.4/SourceTree.app/Contents/Resources/opendiff-w.sh \"$LOCAL\" \"$REMOTE\" -ancestor \"$BASE\" -merge \"$MERGED\"
+	trustExitCode = true
+
+[push]
+    default = simple
+
+[filter "media"]
+    clean = git-media-clean %f
+    smudge = git-media-smudge %f
