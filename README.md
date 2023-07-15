@@ -21,3 +21,9 @@ Set the following value in iTerm2 preferences.
   - `/User/<username>/.config/iterm2`
 
 ![iterm2](images/iterm2_preferences.jpg)
+
+### Starship
+
+A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal.
+
+- https://starship.rs/guide/#prerequisites
