@@ -1,15 +1,13 @@
 
 set -x LC_ALL en_US.UTF-8
 
-set -q XDG_CONFIG_HOME; and set -gx XDG_CONFIG_HOME $HOME/.config
-
 fish_add_path ~/.local/bin
 
 ## starship
 starship init fish | source
 
 ## iTerm2
-test -e {$XDG_CONFIG_HOME}/item2/shell_integration.fish; and source {$XDG_CONFIG_HOME}/iterm2/shell_integration.fish
+test -e {$HOME}/.config/item2/shell_integration.fish; and source {$HOME}/.config/iterm2/shell_integration.fish
 
 ## Rust
 # https://www.rust-lang.org/tools/install
