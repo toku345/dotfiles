@@ -27,3 +27,9 @@ Set the following value in iTerm2 preferences.
 A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal.
 
 - https://starship.rs/guide/#prerequisites
+
+### Google Japanese Input
+
+Import `~/.config/google_ime/google_ime_dictionary.txt`
+
+![google_japanese_input](images/google_ime.jpg)
