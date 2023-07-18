@@ -1,0 +1,67 @@
+[user]
+    name = Fumitaka Tokumitsu
+    email = 3142849+toku345@users.noreply.github.com
+
+[init]
+	templateDir = /Users/toku345/.git-templates/git-secrets
+	defaultBranch = main
+
+[core]
+    # editor = emacsclient -c
+    editor = nano
+    pager = delta
+
+[push]
+    default = simple
+
+[merge]
+    conflictstyle = diff3
+
+[pull]
+    rebase = false
+
+[diff]
+    colorMoved = default
+
+[interactive]
+    diffFilter = delta --color-only
+
+[delta]
+    navigatge = true
+    light = false
+    side-by-side = true
+    line-numbers = true
+
+[alias]
+    co = checkout
+    st = status
+    ci = commit
+    br = branch
+    # type = cat-file -t
+    # type = cat-file -p
+    ignore = "!gi() { curl -sL https://www.toptal.com/developers/gitignore/api/$@ ;}; gi"
+    delete-merged-branches = !git branch --merged | grep -v \\* | xargs -I % git branch -d %
+    hist = log --pretty=format:'%h %ad | %s%d [%an]' --graph --date=short
+    lg = log --graph --all --decorate --abbrev-commit --branches --date=short --pretty=format:\"%C(red)%h%C(reset) %C(green)[%ad]%C(reset) %s %C(cyan)@%an%C(reset) %C(yellow)%d%C(reset)\"
+    push-f = push --force-with-lease
+
+[color]
+    ui = auto
+
+[magit]
+    hideCampaign = true
+
+[filter "lfs"]
+    clean = git-lfs clean -- %f
+    smudge = git-lfs smudge -- %f
+    process = git-lfs filter-process
+    required = true
+
+[secrets]
+    providers = git secrets --aws-provider
+    patterns = [A-Z0-9]{20}
+    patterns = (\"|')?(AWS|aws|Aws)?_?(SECRET|secret|Secret)?_?(ACCESS|access|Access)?_?(KEY|key|Key)(\"|')?\\s*(:|=>|=)\\s*(\"|')?[A-Za-z0-9/\\+=]{40}(\"|')?
+    patterns = (\"|')?(AWS|aws|Aws)?_?(ACCOUNT|account|Account)_?(ID|id|Id)?(\"|')?\\s*(:|=>|=)\\s*(\"|')?[0-9]{4}\\-?[0-9]{4}\\-?[0-9]{4}(\"|')?
+    allowed = AKIAIOSFODNN7EXAMPLE
+    allowed = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    patterns = (A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}

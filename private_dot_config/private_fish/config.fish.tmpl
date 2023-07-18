@@ -1,0 +1,120 @@
+
+set -x LC_ALL en_US.UTF-8
+
+fish_add_path ~/.local/bin
+
+## starship
+type -q starship; and starship init fish | source
+
+## iTerm2
+test -e {$HOME}/.config/item2/shell_integration.fish; and source {$HOME}/.config/iterm2/shell_integration.fish
+
+## Rust
+# https://www.rust-lang.org/tools/install
+fish_add_path ~/.cargo/bin
+## Enable tab completion for Fish
+# https://rust-lang.github.io/rustup/installation/index.html?highlight=fish#enable-tab-completion-for-bash-fish-zsh-or-powershell
+
+## go
+# fish_add_path ~/go/bin
+
+## openjdk
+# fish_add_path /usr/local/opt/openjdk@17/binc
+
+## asdf
+set -gx ASDF_CONFIG_FILE {$HOME}/.config/asdf/.asdfrc
+source (brew --prefix asdf)/libexec/asdf.fish
+# source ~/.asdf/plugins/dotnet-core/set-dotnet-home.fish
+
+## direnv
+# https://github.com/direnv/direnv/blob/master/docs/hook.md#fish
+type -q direnv; and direnv hook fish | source
+
+## shadowenv
+# https://shopify.github.io/shadowenv/getting-started/#add-to-your-shell-profile
+type -q shadowenv; and shadowenv init fish | source
+
+## peco
+function peco_select_history
+    if test (count $argv) = 0
+        # set peco_flags --layout=bottom-up
+        set peco_flags --layout=top-down
+    else
+        set peco_flags --layout=top-down --query "$argv"
+    end
+
+    history | peco $peco_flags | read selected
+
+    if [ $selected ]
+        commandline $selected
+    else
+        commandline ''
+    end
+end
+
+# set key bindings
+function fish_user_key_bindings
+    bind \cr 'peco_select_history (commandline -b)'
+end
+
+function fd-peco
+    if test (count $argv) = 0
+        # set peco_flags --layout=bottom-up
+        set peco_flags --layout=top-down
+    else
+        set peco_flags --layout=top-down --query "$argv"
+    end
+
+    fd -t d -I -H -E ".git" | peco $peco_flags | read selected
+
+    if [ $selected ]
+        cd $selected
+    else
+        commandline ''
+    end
+end
+
+## alias functions
+function l --description 'exa -ahl --git'
+    exa -ahl --git $argv
+end
+
+function ll --description 'ls -ahl'
+    ls -ahl $argv
+end
+
+function tree --description 'altanative tree command: exa -T'
+    exa -T $argv
+end
+
+function gc --description 'alias: git checkout'
+    git checkout $argv
+end
+
+function gp --description 'alias: git push'
+    git push $argv
+end
+
+function gd --description 'alias: git diff'
+    git diff $argv
+end
+
+function gst --description 'alias: git status'
+    git status $argv
+end
+
+function d --description 'alias: docker'
+    docker $argv
+end
+
+function dc --description 'alias: docker-compose'
+    docker compose $argv
+end
+
+function be --description 'alias: bundle exec'
+    bundle exec $argv
+end
+
+function rd --description 'alias: git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R'
+    git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R
+end

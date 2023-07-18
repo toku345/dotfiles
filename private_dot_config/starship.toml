@@ -1,0 +1,25 @@
+# Get editor completions based on the config schema
+"$schema" = 'https://starship.rs/config-schema.json'
+
+add_newline = true
+scan_timeout = 100
+command_timeout = 5000
+
+[character]
+success_symbol = "[➜](bold green)"
+error_symbol = "[✗](bold red) "
+
+# # Disable the package module, hiding it from the prompt completely
+# [package]
+# disabled = true
+
+[hostname]
+disabled = false
+ssh_only = true
+format = "[$ssh_symbol](bold blue) on [$hostname](bold red) "
+
+[memory_usage]
+disabled = false
+symbol = " "
+threshold = -1
+style = "bold dimmed green"
