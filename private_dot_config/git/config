@@ -3,7 +3,7 @@
     email = 3142849+toku345@users.noreply.github.com
 
 [init]
-	templateDir = /Users/toku345/.git-templates/git-secrets
+	templateDir = ~/.git-templates/git-secrets
 	defaultBranch = main
 
 [core]
