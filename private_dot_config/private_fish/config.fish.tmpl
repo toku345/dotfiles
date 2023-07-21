@@ -1,7 +1,9 @@
-
 set -x LC_ALL en_US.UTF-8
 
 fish_add_path ~/.local/bin
+
+## homebrew
+test -e /opt/homebrew/bin/brew; and eval (/opt/homebrew/bin/brew shellenv)
 
 ## starship
 type -q starship; and starship init fish | source
