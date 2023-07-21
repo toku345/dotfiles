@@ -23,6 +23,11 @@ fish_add_path ~/.cargo/bin
 ## openjdk
 # fish_add_path /usr/local/opt/openjdk@17/binc
 
+## mysql
+if test -e /opt/homebrew/opt/mysql-client@5.7/bin
+    fish_add_path /opt/homebrew/opt/mysql-client@5.7/bin
+end
+
 ## asdf
 set -gx ASDF_CONFIG_FILE {$HOME}/.config/asdf/.asdfrc
 source (brew --prefix asdf)/libexec/asdf.fish
