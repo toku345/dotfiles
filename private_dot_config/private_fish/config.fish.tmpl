@@ -20,8 +20,10 @@ fish_add_path ~/.cargo/bin
 ## go
 # fish_add_path ~/go/bin
 
-## openjdk
-# fish_add_path /usr/local/opt/openjdk@17/binc
+## java
+if test -e {$HOME}/.asdf/plugins/java/set-java-home.fish
+    . ~/.asdf/plugins/java/set-java-home.fish
+end
 
 ## mysql
 if test -e /opt/homebrew/opt/mysql-client@5.7/bin
