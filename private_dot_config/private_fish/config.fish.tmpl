@@ -25,6 +25,11 @@ if test -e {$HOME}/.asdf/plugins/java/set-java-home.fish
     . ~/.asdf/plugins/java/set-java-home.fish
 end
 
+## OCaml
+if test -e {$HOME}/.opam/opam-init/init.fish
+    source {$HOME}/.opam/opam-init/init.fish >/dev/null 2>/dev/null; or true
+end
+
 ## mysql
 if test -e /opt/homebrew/opt/mysql-client@5.7/bin
     fish_add_path /opt/homebrew/opt/mysql-client@5.7/bin
