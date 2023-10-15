@@ -5,6 +5,11 @@ fish_add_path ~/.local/bin
 ## homebrew
 test -e /opt/homebrew/bin/brew; and eval (/opt/homebrew/bin/brew shellenv)
 
+## asdf
+set -gx ASDF_CONFIG_FILE {$HOME}/.config/asdf/.asdfrc
+source (brew --prefix asdf)/libexec/asdf.fish
+# source ~/.asdf/plugins/dotnet-core/set-dotnet-home.fish
+
 ## starship
 type -q starship; and starship init fish | source
 
@@ -37,11 +42,6 @@ end
 if test -e /opt/homebrew/opt/mysql-client@5.7/bin
     fish_add_path /opt/homebrew/opt/mysql-client@5.7/bin
 end
-
-## asdf
-set -gx ASDF_CONFIG_FILE {$HOME}/.config/asdf/.asdfrc
-source (brew --prefix asdf)/libexec/asdf.fish
-# source ~/.asdf/plugins/dotnet-core/set-dotnet-home.fish
 
 ## direnv
 # https://github.com/direnv/direnv/blob/master/docs/hook.md#fish
