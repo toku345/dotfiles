@@ -25,6 +25,9 @@ if test -e {$HOME}/.asdf/plugins/java/set-java-home.fish
     . ~/.asdf/plugins/java/set-java-home.fish
 end
 
+## Scala
+fish_add_path "$HOME/Library/Application Support/Coursier/bin"
+
 ## OCaml
 if test -e {$HOME}/.opam/opam-init/init.fish
     source {$HOME}/.opam/opam-init/init.fish >/dev/null 2>/dev/null; or true
