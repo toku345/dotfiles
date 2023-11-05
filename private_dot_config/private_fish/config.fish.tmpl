@@ -38,6 +38,9 @@ if test -e {$HOME}/.opam/opam-init/init.fish
     source {$HOME}/.opam/opam-init/init.fish >/dev/null 2>/dev/null; or true
 end
 
+## Haskell
+fish_add_path {$HOME}/.ghcup/bin
+
 ## mysql
 if test -e /opt/homebrew/opt/mysql-client@5.7/bin
     fish_add_path /opt/homebrew/opt/mysql-client@5.7/bin
