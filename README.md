@@ -5,7 +5,12 @@ toku345's dotfiles managed by chezmoi.
 ## Setup
 
 1. Install [chezmoi](https://www.chezmoi.io/install/)
-2. Initialize chezmoi
+2. Install age
+   
+   ```sh
+   brew install age
+   ```
+4. Initialize chezmoi
 
    ```sh
    chezmoi init --apply toku345
