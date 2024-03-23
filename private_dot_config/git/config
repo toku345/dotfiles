@@ -27,7 +27,7 @@
     diffFilter = delta --color-only
 
 [delta]
-    navigatge = true
+    navigate = true
     light = false
     side-by-side = true
     line-numbers = true
