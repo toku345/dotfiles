@@ -7,7 +7,6 @@ test -e /opt/homebrew/bin/brew; and eval (/opt/homebrew/bin/brew shellenv)
 
 # WORKAROUND: fix the issue that the $PATH is not set correctly when tmux is started.
 if set -q HOMEBREW_PREFIX
-    # Runs only when a tmux session is started.
     fish_add_path -m /opt/homebrew/bin /opt/homebrew/sbin
 end
 
@@ -18,7 +17,6 @@ source (brew --prefix asdf)/libexec/asdf.fish
 
 # WORKAROUND: fix the issue that the $PATH is not set correctly when tmux is started.
 if set -q ASDF_CONFIG_FILE
-    # Runs only when a tmux session is started.
     fish_add_path -m "$ASDF_DIR/bin"
     fish_add_path -m "$HOME/.asdf/shims"
 end
