@@ -1,0 +1,2 @@
+set speller "aspell -x -c"
+bind ^S speller main
