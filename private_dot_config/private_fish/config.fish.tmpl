@@ -135,6 +135,10 @@ function gst --description 'alias: git status'
     git status $argv
 end
 
+function gb --description 'alias: git checkout (git branch | sed -r "s/^[ \*]+//" | peco)'
+    git checkout (git branch | sed -r "s/^[ \*]+//" | peco)
+end
+
 function d --description 'alias: docker'
     docker $argv
 end
