@@ -11,15 +11,19 @@ if set -q HOMEBREW_PREFIX
 end
 
 ## asdf
-set -gx ASDF_CONFIG_FILE {$HOME}/.config/asdf/.asdfrc
-source (brew --prefix asdf)/libexec/asdf.fish
-# source ~/.asdf/plugins/dotnet-core/set-dotnet-home.fish
-
-# WORKAROUND: fix the issue that the $PATH is not set correctly when tmux is started.
-if set -q ASDF_CONFIG_FILE
-    fish_add_path -m "$ASDF_DIR/bin"
-    fish_add_path -m "$HOME/.asdf/shims"
+# https://asdf-vm.com/guide/getting-started.html#_2-configure-asdf
+if test -z $ASDF_DATA_DIR
+    set _asdf_shims "$HOME/.asdf/shims"
+else
+    set _asdf_shims "$ASDF_DATA_DIR/shims"
 end
+
+# Do not use fish_add_path (added in Fish 3.2) because it
+# potentially changes the order of items in PATH
+if not contains $_asdf_shims $PATH
+    set -gx --prepend PATH $_asdf_shims
+end
+set --erase _asdf_shims
 
 ## starship
 type -q starship; and starship init fish | source
