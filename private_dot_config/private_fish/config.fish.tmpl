@@ -72,16 +72,15 @@ type -q direnv; and direnv hook fish | source
 # https://shopify.github.io/shadowenv/getting-started/#add-to-your-shell-profile
 type -q shadowenv; and shadowenv init fish | source
 
-## peco
-function peco_select_history
+## fzf
+function fzf_select_history
     if test (count $argv) = 0
-        # set peco_flags --layout=bottom-up
-        set peco_flags --layout=top-down
+        set fzf_flags --layout=reverse
     else
-        set peco_flags --layout=top-down --query "$argv"
+        set fzf_flags --layout=reverse --query "$argv"
     end
 
-    history | peco $peco_flags | read selected
+    history | fzf $fzf_flags | read selected
 
     if [ $selected ]
         commandline $selected
@@ -92,18 +91,17 @@ end
 
 # set key bindings
 function fish_user_key_bindings
-    bind \cr 'peco_select_history (commandline -b)'
+    bind \cr 'fzf_select_history (commandline -b)'
 end
 
-function fd-peco
+function fd-fzf
     if test (count $argv) = 0
-        # set peco_flags --layout=bottom-up
-        set peco_flags --layout=top-down
+        set fzf_flags --layout=reverse
     else
-        set peco_flags --layout=top-down --query "$argv"
+        set fzf_flags --layout=reverse --query "$argv"
     end
 
-    fd -t d -I -H -E ".git" | peco $peco_flags | read selected
+    fd -t d -I -H -E ".git" | fzf $fzf_flags | read selected
 
     if [ $selected ]
         cd $selected
@@ -141,8 +139,8 @@ function gst --description 'alias: git status'
     git status $argv
 end
 
-function gb --description 'alias: git checkout (git branch | peco | sed -r "s/^[ \*]+//")'
-    git checkout (git branch | peco | sed -r "s/^[ \*]+//")
+function gb --description 'alias: git checkout (git branch | fzf | sed -r "s/^[ \*]+//")'
+    git checkout (git branch | fzf --layout=reverse | sed -r "s/^[ \*]+//")
 end
 
 function d --description 'alias: docker'
