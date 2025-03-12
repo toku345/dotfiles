@@ -94,7 +94,7 @@ function fish_user_key_bindings
     bind \cr 'fzf_select_history (commandline -b)'
 end
 
-function fd-fzf
+function fzf_cd
     if test (count $argv) = 0
         set fzf_flags --layout=reverse
     else
