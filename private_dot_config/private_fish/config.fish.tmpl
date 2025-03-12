@@ -139,6 +139,10 @@ function gst --description 'alias: git status'
     git status $argv
 end
 
+function gsw --description 'alias: git switch'
+    git switch $argv
+end
+
 function gb --description 'alias: git checkout (git branch | fzf | sed -r "s/^[ \*]+//")'
     git checkout (git branch | fzf --layout=reverse | sed -r "s/^[ \*]+//")
 end
