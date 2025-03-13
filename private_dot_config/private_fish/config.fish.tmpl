@@ -75,9 +75,9 @@ type -q shadowenv; and shadowenv init fish | source
 ## fzf
 function fzf_select_history
     if test (count $argv) = 0
-        set fzf_flags --layout=reverse
+        set fzf_flags --layout=reverse --scheme=history
     else
-        set fzf_flags --layout=reverse --query "$argv"
+        set fzf_flags --layout=reverse --scheme=history --query "$argv"
     end
 
     history | fzf $fzf_flags | read selected
