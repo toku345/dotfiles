@@ -1,3 +1,6 @@
+Match exec "test -f ~/.orbstack/ssh/config"
+  Include ~/.orbstack/ssh/config
+
 Host *
   AddKeysToAgent yes
   UseKeychain yes
