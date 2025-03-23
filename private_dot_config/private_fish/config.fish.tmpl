@@ -115,6 +115,9 @@ end
 # This won't be added again if you remove it.
 test -e ~/.orbstack/shell/init2.fish; and source ~/.orbstack/shell/init2.fish
 
+## Windsurf
+test -e {$HOME}/.codeium/windsurf/bin; and fish_add_path {$HOME}/.codeium/windsurf/bin
+
 ## alias functions
 function l --description 'eza -ahl --git'
     eza -ahl --git $argv
