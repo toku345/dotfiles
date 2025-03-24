@@ -170,3 +170,7 @@ end
 function rd --description 'alias: git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R'
     git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R
 end
+
+function gbd --description 'delete merged git branches'
+    git branch --merged main | grep -v -E "\*|main" | xargs git branch -d
+end
