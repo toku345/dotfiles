@@ -140,7 +140,7 @@ function gp --description 'alias: git push'
 end
 
 function gd --description 'alias: git diff with delta pager'
-    env GIT_PAGER=delta git diff $argv
+    git diff-delta $argv
 end
 
 function gst --description 'alias: git status'
