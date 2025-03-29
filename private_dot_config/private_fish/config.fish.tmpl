@@ -60,9 +60,7 @@ fish_add_path {$HOME}/.ghcup/bin
 fish_add_path {$HOME}/.cabal/bin
 
 ## mysql
-if test -e /opt/homebrew/opt/mysql-client@5.7/bin
-    fish_add_path /opt/homebrew/opt/mysql-client@5.7/bin
-end
+fish_add_path /opt/homebrew/opt/mysql-client@5.7/bin
 
 ## direnv
 # https://github.com/direnv/direnv/blob/master/docs/hook.md#fish
@@ -116,7 +114,7 @@ end
 test -e ~/.orbstack/shell/init2.fish; and source ~/.orbstack/shell/init2.fish
 
 ## Windsurf
-test -e {$HOME}/.codeium/windsurf/bin; and fish_add_path {$HOME}/.codeium/windsurf/bin
+fish_add_path {$HOME}/.codeium/windsurf/bin
 
 ## alias functions
 function l --description 'eza -ahl --git'
