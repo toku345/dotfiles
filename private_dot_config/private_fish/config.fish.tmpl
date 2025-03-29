@@ -11,7 +11,7 @@ if set -q HOMEBREW_PREFIX
 end
 
 ## asdf
-set -gx ASDF_CONFIG_FILE {$HOME}/.config/asdf/.asdfrc
+set -gx ASDF_CONFIG_FILE $HOME/.config/asdf/.asdfrc
 
 # https://asdf-vm.com/guide/getting-started.html#_2-configure-asdf
 if test -z "$ASDF_DATA_DIR"
@@ -31,7 +31,7 @@ set --erase _asdf_shims
 type -q starship; and starship init fish | source
 
 ## iTerm2
-if test -e {$HOME}/.config/iterm2/shell_integration.fish
+if test -e $HOME/.config/iterm2/shell_integration.fish
     source $HOME/.config/iterm2/shell_integration.fish
 end
 
@@ -45,7 +45,7 @@ fish_add_path ~/.cargo/bin
 fish_add_path ~/go/bin
 
 ## java
-if test -e {$HOME}/.asdf/plugins/java/set-java-home.fish
+if test -e $HOME/.asdf/plugins/java/set-java-home.fish
     . ~/.asdf/plugins/java/set-java-home.fish
 end
 
@@ -53,13 +53,13 @@ end
 fish_add_path "$HOME/Library/Application Support/Coursier/bin"
 
 ## OCaml
-if test -e {$HOME}/.opam/opam-init/init.fish
-    source {$HOME}/.opam/opam-init/init.fish >/dev/null 2>/dev/null; or true
+if test -e $HOME/.opam/opam-init/init.fish
+    source $HOME/.opam/opam-init/init.fish >/dev/null 2>/dev/null; or true
 end
 
 ## Haskell
-fish_add_path {$HOME}/.ghcup/bin
-fish_add_path {$HOME}/.cabal/bin
+fish_add_path $HOME/.ghcup/bin
+fish_add_path $HOME/.cabal/bin
 
 ## mysql
 fish_add_path /opt/homebrew/opt/mysql-client@5.7/bin
@@ -116,7 +116,7 @@ end
 test -e ~/.orbstack/shell/init2.fish; and source ~/.orbstack/shell/init2.fish
 
 ## Windsurf
-fish_add_path {$HOME}/.codeium/windsurf/bin
+fish_add_path $HOME/.codeium/windsurf/bin
 
 ## alias functions
 function l --description 'eza -ahl --git'
