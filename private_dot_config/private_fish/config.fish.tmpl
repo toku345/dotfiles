@@ -14,7 +14,7 @@ end
 set -gx ASDF_CONFIG_FILE {$HOME}/.config/asdf/.asdfrc
 
 # https://asdf-vm.com/guide/getting-started.html#_2-configure-asdf
-if test -z $ASDF_DATA_DIR
+if test -z "$ASDF_DATA_DIR"
     set _asdf_shims "$HOME/.asdf/shims"
 else
     set _asdf_shims "$ASDF_DATA_DIR/shims"
