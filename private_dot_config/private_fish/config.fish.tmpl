@@ -1,6 +1,6 @@
 set -x LC_ALL en_US.UTF-8
 
-fish_add_path ~/.local/bin
+fish_add_path $HOME/.local/bin
 
 ## homebrew
 test -e /opt/homebrew/bin/brew; and eval (/opt/homebrew/bin/brew shellenv)
@@ -37,16 +37,16 @@ end
 
 ## Rust
 # https://www.rust-lang.org/tools/install
-fish_add_path ~/.cargo/bin
+fish_add_path $HOME/.cargo/bin
 ## Enable tab completion for Fish
 # https://rust-lang.github.io/rustup/installation/index.html?highlight=fish#enable-tab-completion-for-bash-fish-zsh-or-powershell
 
 ## go
-fish_add_path ~/go/bin
+fish_add_path $HOME/go/bin
 
 ## java
 if test -e $HOME/.asdf/plugins/java/set-java-home.fish
-    . ~/.asdf/plugins/java/set-java-home.fish
+    . $HOME/.asdf/plugins/java/set-java-home.fish
 end
 
 ## Scala
@@ -113,7 +113,7 @@ end
 ## OrbStack
 # Added by OrbStack: command-line tools and integration
 # This won't be added again if you remove it.
-test -e ~/.orbstack/shell/init2.fish; and source ~/.orbstack/shell/init2.fish
+test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2.fish
 
 ## Windsurf
 fish_add_path $HOME/.codeium/windsurf/bin
