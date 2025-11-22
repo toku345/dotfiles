@@ -82,7 +82,7 @@ echo "=== Age ファイル形式検証 ==="
 if [ ! -f "key.txt.age" ]; then
     log_error "key.txt.age が見つかりません"
 else
-    if head -n 1 key.txt.age | grep -q "age-encryption.org/v1"; then
+    if grep -a -m 1 "^age-encryption.org/v1" key.txt.age > /dev/null; then
         log_info "key.txt.age の形式は正しいです"
     else
         log_error "key.txt.age は正しい age 形式ではありません"
@@ -91,7 +91,7 @@ fi
 
 # 全ての暗号化ファイルの形式チェック
 for file in $(find . -name "encrypted_*.age" -o -name "key.txt.age"); do
-    if head -n 1 "$file" | grep -q "age-encryption.org/v1"; then
+    if grep -a -m 1 "^age-encryption.org/v1" "$file" > /dev/null; then
         log_info "$file の形式は正しいです"
     else
         log_error "$file は正しい age 形式ではありません"
@@ -151,7 +151,7 @@ echo ""
 # 公開鍵の一貫性チェック
 echo "=== 公開鍵の一貫性チェック ==="
 
-RECIPIENT=$(grep "-> X25519" key.txt.age | head -n 1 | awk '{print $2}')
+RECIPIENT=$(grep -a "-> X25519" key.txt.age | head -n 1 | awk '{print $2}')
 
 if [ -z "$RECIPIENT" ]; then
     log_error "key.txt.age から受信者を抽出できませんでした"
@@ -169,7 +169,7 @@ else
 
     # 全ての暗号化ファイルの受信者チェック
     for file in $(find . -name "*.age" -not -name "key.txt.age"); do
-        FILE_RECIPIENT=$(grep "-> X25519" "$file" | head -n 1 | awk '{print $2}')
+        FILE_RECIPIENT=$(grep -a "-> X25519" "$file" | head -n 1 | awk '{print $2}')
         if [ "$FILE_RECIPIENT" = "$RECIPIENT" ]; then
             log_info "$file は正しい受信者を使用しています"
         else

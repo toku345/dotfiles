@@ -36,8 +36,10 @@ jobs:
           fi
 
           # Verify age format (should start with age-encryption.org/v1)
-          if ! head -n 1 key.txt.age | grep -q "age-encryption.org/v1"; then
+          if ! grep -a -m 1 "^age-encryption.org/v1" key.txt.age > /dev/null; then
             echo "❌ ERROR: key.txt.age is not a valid age encrypted file"
+            echo "File header:"
+            head -c 100 key.txt.age | od -c
             exit 1
           fi
           echo "✅ key.txt.age format is valid"
@@ -45,8 +47,10 @@ jobs:
           # Check all encrypted_*.age files
           for file in $(find . -name "encrypted_*.age"); do
             echo "Checking $file..."
-            if ! head -n 1 "$file" | grep -q "age-encryption.org/v1"; then
+            if ! grep -a -m 1 "^age-encryption.org/v1" "$file" > /dev/null; then
               echo "❌ ERROR: $file is not a valid age encrypted file"
+              echo "File header:"
+              head -c 100 "$file" | od -c
               exit 1
             fi
             echo "✅ $file format is valid"
@@ -99,10 +103,12 @@ jobs:
           echo "=== Verifying age public key consistency ==="
 
           # Extract recipient from key.txt.age
-          RECIPIENT=$(grep "-> X25519" key.txt.age | head -n 1 | awk '{print $2}')
+          RECIPIENT=$(grep -a "-> X25519" key.txt.age | head -n 1 | awk '{print $2}')
 
           if [ -z "$RECIPIENT" ]; then
             echo "❌ ERROR: Could not extract recipient from key.txt.age"
+            echo "Showing file content (first 200 chars):"
+            head -c 200 key.txt.age | od -c
             exit 1
           fi
 
@@ -120,7 +126,7 @@ jobs:
 
           # Check all encrypted files use the same recipient
           for file in $(find . -name "*.age" -not -name "key.txt.age"); do
-            FILE_RECIPIENT=$(grep "-> X25519" "$file" | head -n 1 | awk '{print $2}')
+            FILE_RECIPIENT=$(grep -a "-> X25519" "$file" | head -n 1 | awk '{print $2}')
             if [ "$FILE_RECIPIENT" != "$RECIPIENT" ]; then
               echo "❌ ERROR: $file uses different recipient: $FILE_RECIPIENT"
               exit 1
