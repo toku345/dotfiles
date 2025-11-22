@@ -23,8 +23,8 @@ jobs:
         with:
           scandir: '.'
           severity: warning
-          # Check both .sh and .sh.tmpl files
-          additional_files: 'sh.tmpl'
+          # Only check .sh files (exclude .sh.tmpl as they contain chezmoi template syntax)
+          ignore_paths: '*.tmpl'
 
   chezmoi-verify:
     name: Chezmoi Verification
