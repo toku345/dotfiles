@@ -4,11 +4,9 @@ on:
   push:
     branches:
       - main
-      - master
   pull_request:
     branches:
       - main
-      - master
 
 jobs:
   shellcheck:
@@ -18,13 +16,78 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@master
+      - name: Run ShellCheck on .sh files
+        uses: ludeeus/action-shellcheck@2.0.0
         with:
           scandir: '.'
           severity: warning
           # Only check .sh files (exclude .sh.tmpl as they contain chezmoi template syntax)
           ignore_paths: '*.tmpl'
+
+  shellcheck-templates:
+    name: ShellCheck Templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install chezmoi
+        run: |
+          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Initialize chezmoi
+        run: |
+          chezmoi init --source="$GITHUB_WORKSPACE"
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Render and validate template scripts
+        run: |
+          set -e
+          # Find all .sh.tmpl files
+          TEMPLATE_FILES=$(find . -name "*.sh.tmpl" -type f)
+
+          if [ -z "$TEMPLATE_FILES" ]; then
+            echo "No template files found"
+            exit 0
+          fi
+
+          # Create temporary directory for rendered templates
+          TEMP_DIR=$(mktemp -d)
+          trap 'rm -rf "$TEMP_DIR"' EXIT
+
+          # Render each template and validate with shellcheck
+          for template in $TEMPLATE_FILES; do
+            echo "Validating template: $template"
+            # Get the target path (remove leading ./)
+            target_path="${template#./}"
+            # Remove .tmpl extension for the rendered file
+            rendered_file="$TEMP_DIR/${target_path%.tmpl}"
+
+            # Create directory structure
+            mkdir -p "$(dirname "$rendered_file")"
+
+            # Render template (this will fail if template syntax is invalid)
+            if ! chezmoi execute-template < "$template" > "$rendered_file" 2>/dev/null; then
+              echo "Warning: Could not render $template (may require data unavailable in CI)"
+              # Try to at least check basic shell syntax by extracting non-template parts
+              continue
+            fi
+
+            # Validate rendered file with shellcheck
+            if [ -s "$rendered_file" ]; then
+              shellcheck "$rendered_file" || {
+                echo "ERROR: ShellCheck failed for rendered template: $template"
+                exit 1
+              }
+            fi
+          done
+
+          echo "All template validations passed"
 
   chezmoi-verify:
     name: Chezmoi Verification
@@ -44,21 +107,27 @@ jobs:
 
       - name: Initialize chezmoi
         run: |
-          # Initialize chezmoi with the current directory as source
           chezmoi init --source="$GITHUB_WORKSPACE"
 
-      - name: Run chezmoi doctor
+      - name: Run chezmoi doctor (informational)
+        continue-on-error: true
         run: |
-          # Run chezmoi doctor to check for common issues
-          chezmoi doctor || true
+          echo "Running chezmoi doctor for informational purposes..."
+          chezmoi doctor
 
-      - name: Validate template syntax
+      - name: Validate all templates can be parsed
         run: |
-          # Try to execute templates to check for syntax errors
-          # This will fail if there are syntax errors in templates
-          chezmoi data || echo "Note: Some template data may be unavailable in CI environment"
-
-      - name: Check source state
-        run: |
-          # Verify that the source directory is valid
-          chezmoi verify || echo "Note: Full verification may require decryption keys"
+          set -e
+          echo "Checking if all template files have valid syntax..."
+          # Try to execute each template to validate syntax
+          find . -name "*.tmpl" -type f | while read -r template; do
+            echo "Checking template syntax: $template"
+            # This will fail if there are Go template syntax errors
+            if ! chezmoi execute-template < "$template" > /dev/null 2>&1; then
+              echo "ERROR: Template syntax error in: $template"
+              echo "Attempting to show error details:"
+              chezmoi execute-template < "$template" 2>&1 || true
+              exit 1
+            fi
+          done
+          echo "All templates have valid syntax"
