@@ -169,22 +169,7 @@ git push backup main
    chezmoi apply -v
    ```
 
-5. **設定の確認**
-   ```bash
-   # 暗号化ファイルの復号テスト（age鍵が正しく機能するか確認）
-   age -d -i ~/key.txt ~/.local/share/chezmoi/key.txt.age
-
-   # 適用されたファイルの確認
-   chezmoi diff
-
-   # 問題がなければ適用（暗号化ファイルも自動的に復号されます）
-   chezmoi apply -v
-
-   # 暗号化されたファイルの内容を確認する場合（例: SSH設定）
-   # chezmoi cat ~/.ssh/config
-   ```
-
-6. **追加セットアップ**
+5. **追加セットアップ**
    - [README.md](../README.md)の「Additional Setup」セクションを参照
    - iTerm2の設定
    - Nerd Fontのインストール
