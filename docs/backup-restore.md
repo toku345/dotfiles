@@ -201,10 +201,21 @@ dotfilesはGitリポジトリで管理されているため、基本的にGitHub
    # 元のファイルを削除
    rm encrypted_*.age
 
-   # 新しい内容を作成し、暗号化
-   # 例えば、SSH設定を再作成
-   age -r $(age-keygen -y ~/key.txt) -o encrypted_private_dot_ssh_config.age
-   # ファイルの内容を入力後、Ctrl+Dで終了
+   # まず平文ファイルを作成（エディタで編集）
+   vim temp_ssh_config
+
+   # 公開鍵を取得
+   AGE_PUBLIC_KEY=$(age-keygen -y ~/key.txt)
+
+   # 新しい鍵で暗号化
+   # ファイル名の命名規則: encrypted_private_dot_ssh_config.age
+   # → encrypted_ プレフィックス + chezmoi のターゲットパス
+   age -r $AGE_PUBLIC_KEY -o encrypted_private_dot_ssh_config.age temp_ssh_config
+
+   # 平文ファイルを削除
+   # 注: macOSのSSD/APFS環境では安全な削除は技術的に困難です
+   # FileVault を有効化することで、ファイルシステム全体が暗号化されます
+   rm temp_ssh_config
    ```
 
 3. **バックアップの作成**
@@ -232,8 +243,10 @@ age -d -i ~/old-key.txt encrypted_file.age > decrypted_file
 # 新しい鍵で再暗号化
 age -r $(age-keygen -y ~/key.txt) -o encrypted_file.age decrypted_file
 
-# 一時ファイルを安全に削除
-shred -u decrypted_file
+# 一時ファイルを削除
+# 注: macOSのSSD/APFS環境では、shredやrm -Pは効果がありません
+# セキュリティのため、FileVault を有効化することを強く推奨します
+rm decrypted_file
 
 # 変更をコミット
 git add encrypted_file.age
