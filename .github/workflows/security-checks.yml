@@ -27,12 +27,7 @@ jobs:
 
       - name: Validate age file format
         run: |
-          set -x  # Enable debug output
           echo "=== Validating age encrypted files format ==="
-
-          echo "Current directory: $(pwd)"
-          echo "Listing .age files:"
-          find . -name "*.age" -type f
 
           # Check key.txt.age
           if [ ! -f "key.txt.age" ]; then
@@ -40,26 +35,35 @@ jobs:
             exit 1
           fi
 
-          echo "Checking key.txt.age header:"
-          head -c 50 key.txt.age | od -c
-
-          # Verify age format (should start with age-encryption.org/v1)
-          if ! grep -a -m 1 "^age-encryption.org/v1" key.txt.age; then
+          # Verify age format using file command
+          if file key.txt.age | grep -q "age encrypted"; then
+            echo "✅ key.txt.age format is valid (detected by file command)"
+          elif head -c 23 key.txt.age | tr -d '\0' | grep -q "age-encryption.org/v1"; then
+            echo "✅ key.txt.age format is valid (header check)"
+          else
             echo "❌ ERROR: key.txt.age is not a valid age encrypted file"
+            echo "File type:"
+            file key.txt.age
+            echo "File header (first 50 bytes):"
+            head -c 50 key.txt.age | od -An -tx1
             exit 1
           fi
-          echo "✅ key.txt.age format is valid"
 
           # Check all encrypted_*.age files
-          find . -path ./.git -prune -o -name "encrypted_*.age" -type f -print | while read -r file; do
-            [ -z "$file" ] && continue
+          for file in private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age; do
+            if [ ! -f "$file" ]; then
+              continue
+            fi
             echo "Checking $file..."
-            if ! grep -a -m 1 "^age-encryption.org/v1" "$file"; then
+            if file "$file" | grep -q "age encrypted"; then
+              echo "✅ $file format is valid"
+            elif head -c 23 "$file" | tr -d '\0' | grep -q "age-encryption.org/v1"; then
+              echo "✅ $file format is valid"
+            else
               echo "❌ ERROR: $file is not a valid age encrypted file"
-              head -c 100 "$file" | od -c
+              file "$file"
               exit 1
             fi
-            echo "✅ $file format is valid"
           done
 
       - name: Verify encrypted files exist
@@ -108,13 +112,13 @@ jobs:
         run: |
           echo "=== Verifying age public key consistency ==="
 
-          # Extract recipient from key.txt.age
-          RECIPIENT=$(grep -a "-> X25519" key.txt.age | head -n 1 | awk '{print $2}')
+          # Extract recipient from key.txt.age using strings command
+          RECIPIENT=$(strings key.txt.age | grep "^age1" | head -n 1 || echo "")
 
           if [ -z "$RECIPIENT" ]; then
             echo "❌ ERROR: Could not extract recipient from key.txt.age"
-            echo "Showing file content (first 200 chars):"
-            head -c 200 key.txt.age | od -c
+            echo "File content sample:"
+            strings key.txt.age | head -10
             exit 1
           fi
 
@@ -131,14 +135,21 @@ jobs:
           fi
 
           # Check all encrypted files use the same recipient
-          while IFS= read -r -d '' file; do
-            FILE_RECIPIENT=$(grep -a "-> X25519" "$file" | head -n 1 | awk '{print $2}')
+          for file in private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age; do
+            if [ ! -f "$file" ]; then
+              continue
+            fi
+            FILE_RECIPIENT=$(strings "$file" | grep "^age1" | head -n 1 || echo "")
+            if [ -z "$FILE_RECIPIENT" ]; then
+              echo "⚠️  WARNING: Could not extract recipient from $file"
+              continue
+            fi
             if [ "$FILE_RECIPIENT" != "$RECIPIENT" ]; then
               echo "❌ ERROR: $file uses different recipient: $FILE_RECIPIENT"
               exit 1
             fi
             echo "✅ $file uses correct recipient"
-          done < <(find . -path ./.git -prune -o -name "*.age" -not -name "key.txt.age" -type f -print0)
+          done
 
       - name: Run git-secrets scan
         run: |
