@@ -90,13 +90,13 @@ else
 fi
 
 # 全ての暗号化ファイルの形式チェック
-for file in $(find . -name "encrypted_*.age" -o -name "key.txt.age"); do
+while IFS= read -r -d '' file; do
     if grep -a -m 1 "^age-encryption.org/v1" "$file" > /dev/null; then
         log_info "$file の形式は正しいです"
     else
         log_error "$file は正しい age 形式ではありません"
     fi
-done
+done < <(find . -path ./.git -prune -o \( -name "encrypted_*.age" -o -name "key.txt.age" \) -type f -print0)
 
 echo ""
 
@@ -132,7 +132,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 # その他の暗号化ファイルの復号化テスト
-for file in $(find . -name "encrypted_*.age"); do
+while IFS= read -r -d '' file; do
     echo "復号化テスト: $file"
     TEMP_OUTPUT=$(mktemp)
 
@@ -144,7 +144,7 @@ for file in $(find . -name "encrypted_*.age"); do
     fi
 
     rm -f "$TEMP_OUTPUT"
-done
+done < <(find . -path ./.git -prune -o -name "encrypted_*.age" -type f -print0)
 
 echo ""
 
@@ -168,14 +168,14 @@ else
     fi
 
     # 全ての暗号化ファイルの受信者チェック
-    for file in $(find . -name "*.age" -not -name "key.txt.age"); do
+    while IFS= read -r -d '' file; do
         FILE_RECIPIENT=$(grep -a "-> X25519" "$file" | head -n 1 | awk '{print $2}')
         if [ "$FILE_RECIPIENT" = "$RECIPIENT" ]; then
             log_info "$file は正しい受信者を使用しています"
         else
             log_error "$file は異なる受信者を使用しています: $FILE_RECIPIENT"
         fi
-    done
+    done < <(find . -path ./.git -prune -o -name "*.age" -not -name "key.txt.age" -type f -print0)
 fi
 
 echo ""

@@ -45,7 +45,7 @@ jobs:
           echo "✅ key.txt.age format is valid"
 
           # Check all encrypted_*.age files
-          for file in $(find . -name "encrypted_*.age"); do
+          while IFS= read -r -d '' file; do
             echo "Checking $file..."
             if ! grep -a -m 1 "^age-encryption.org/v1" "$file" > /dev/null; then
               echo "❌ ERROR: $file is not a valid age encrypted file"
@@ -54,7 +54,7 @@ jobs:
               exit 1
             fi
             echo "✅ $file format is valid"
-          done
+          done < <(find . -path ./.git -prune -o -name "encrypted_*.age" -type f -print0)
 
       - name: Verify encrypted files exist
         run: |
@@ -125,14 +125,14 @@ jobs:
           fi
 
           # Check all encrypted files use the same recipient
-          for file in $(find . -name "*.age" -not -name "key.txt.age"); do
+          while IFS= read -r -d '' file; do
             FILE_RECIPIENT=$(grep -a "-> X25519" "$file" | head -n 1 | awk '{print $2}')
             if [ "$FILE_RECIPIENT" != "$RECIPIENT" ]; then
               echo "❌ ERROR: $file uses different recipient: $FILE_RECIPIENT"
               exit 1
             fi
             echo "✅ $file uses correct recipient"
-          done
+          done < <(find . -path ./.git -prune -o -name "*.age" -not -name "key.txt.age" -type f -print0)
 
       - name: Run git-secrets scan
         run: |
