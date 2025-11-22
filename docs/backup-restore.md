@@ -282,6 +282,13 @@ chezmoi apply
 ```bash
 # 最後の適用を取り消す
 cd ~/.local/share/chezmoi
+
+# 警告: git reset --hard は危険なコマンドです
+# 未コミットの変更は完全に失われます
+# まずは git stash で変更を退避することを推奨します
+git stash
+
+# それでも必要な場合のみ実行
 git reset --hard HEAD^
 
 # または、特定のファイルだけを戻す
