@@ -17,84 +17,100 @@
 
 ## バックアップ戦略
 
-### age鍵のバックアップ
+### このリポジトリの構成
 
-age暗号鍵（`~/key.txt`）は暗号化されたファイルを復号するために必須です。この鍵を紛失すると、暗号化されたファイルにアクセスできなくなります。
+このリポジトリでは、age暗号鍵自体もパスワード保護されてリポジトリに含まれています：
 
-#### 推奨される保管方法
+```
+key.txt.age (リポジトリに保存)
+    ↓ パスワードで復号
+~/key.txt (ローカルの秘密鍵)
+    ↓ 他の暗号化ファイルを復号
+encrypted_*.age (SSH設定、Google IME辞書など)
+```
 
-1. **物理的なバックアップ（最優先）**
-   ```bash
-   # 鍵を安全なUSBドライブにコピー
-   cp ~/key.txt /Volumes/SecureUSB/backups/age-key-$(date +%Y%m%d).txt
-   ```
-   - 複数のUSBドライブに保存することを推奨
-   - 物理的に異なる場所に保管（自宅、オフィス、実家など）
-   - 耐火性・防水性のある保管容器の使用を検討
+**重要**: 災害復旧に必要なのは以下の3つだけです：
+1. GitHubアカウントへのアクセス（リポジトリをclone）
+2. 1Passwordへのアクセス（パスワードを取得）
+3. key.txt.ageのパスワード（1Passwordに保存）
 
-2. **パスワードマネージャー**
-   ```bash
-   # 鍵の内容を表示してコピー
-   cat ~/key.txt
-   ```
-   - 1Password、Bitwarden、LastPassなどに保存
-   - セキュアノートとして保存することを推奨
-   - 必ず2FAを有効化すること
+### 本当に重要なバックアップ（必須）
 
-3. **暗号化したクラウドストレージ（補助的）**
-   ```bash
-   # 鍵自体をさらに暗号化してバックアップ
-   age -p ~/key.txt > ~/key.txt.encrypted
-   # 暗号化されたファイルをクラウドにアップロード
-   # 例: Dropbox, Google Drive, iCloud
-   ```
-   - パスワード保護を必ず使用
-   - 強力なパスフレーズを使用し、別途安全に保管
+#### 1. 1Passwordのリカバリー情報
 
-#### バックアップの確認
+**Single Point of Failure を避ける最重要タスク：**
 
-定期的にバックアップが有効であることを確認してください：
+- **Emergency Kit（リカバリーコード）の保管**
+  - 1Passwordアカウント作成時に発行されるPDFを印刷
+  - 耐火金庫や銀行の貸金庫に保管
+  - 信頼できる家族に預けることも検討
+
+- **マスターパスワードの管理**
+  - 絶対に忘れないこと
+  - パスワードマネージャーに頼らず記憶する
+  - 必要に応じて紙に書いて別の安全な場所に保管
+
+- **2FAのバックアップ**
+  - 複数の認証デバイスを登録
+  - リカバリーコードを印刷して保管
+
+#### 2. GitHubアカウントのリカバリー
+
+- **2FAのリカバリーコード保存**
+  - GitHubの2FAリカバリーコードをダウンロード
+  - 1Passwordに保存 + 印刷して保管
+
+- **複数の認証方法を設定**
+  - 認証アプリ + ハードウェアキー（YubiKeyなど）
+
+#### 3. key.txt.age のパスワードのバックアップ（推奨）
+
+1Passwordが使えなくなった場合の保険として：
 
 ```bash
-# バックアップした鍵で復号テスト
-age -d -i /path/to/backup/key.txt key.txt.age
+# パスワードを紙に書いて保管（推奨）
+# - 耐火金庫に保管
+# - 信頼できる家族に預ける
+# - 銀行の貸金庫を利用
 ```
+
+**注意**: パスワードは絶対にリポジトリにコミットしないこと
 
 ### dotfilesのバックアップ
 
-dotfilesはGitリポジトリで管理されているため、基本的にGitHub上にバックアップされています。
+dotfiles（設定ファイル）と暗号化された秘密鍵（key.txt.age）は **GitHubリポジトリに保存されています**。
 
-#### 追加のバックアップ方法
+#### GitHubへのpush（必須）
 
-1. **ローカルバックアップ**
-   ```bash
-   # chezmoi管理下のファイルをアーカイブ
-   cd ~/.local/share/chezmoi
-   tar czf ~/dotfiles-backup-$(date +%Y%m%d).tar.gz .
-   ```
+```bash
+# 変更のたびにGitHubにpush
+cd ~/.local/share/chezmoi
+git add .
+git commit -m "Update dotfiles"
+git push
+```
 
-2. **リモートリポジトリのミラー**
-   ```bash
-   # 別のGitホスティングサービスにミラーリング
-   cd ~/.local/share/chezmoi
-   git remote add backup git@gitlab.com:username/dotfiles.git
-   git push backup main
-   ```
+これだけで、全ての設定ファイルと暗号化された秘密鍵がバックアップされます。
 
-3. **特定の設定ファイルのエクスポート**
-   ```bash
-   # 重要な設定ファイルを別途保存
-   chezmoi archive --output=~/dotfiles-$(date +%Y%m%d).tar.gz
-   ```
+#### 追加のバックアップ（オプション）
+
+冗長性を高めたい場合のみ：
+
+```bash
+# リモートリポジトリのミラー（GitLabなど）
+cd ~/.local/share/chezmoi
+git remote add backup git@gitlab.com:username/dotfiles.git
+git push backup main
+```
 
 ### バックアップの頻度
 
 | 項目 | 推奨頻度 | 理由 |
 |------|----------|------|
-| age鍵 | 初回作成時および変更時 | 鍵は滅多に変更されないが、紛失時の影響が大きい |
+| 1Passwordリカバリー情報確認 | 初回セットアップ時 | 失うと全てにアクセスできなくなる |
 | dotfiles（Git push） | 変更のたびに | GitHubへのpushで自動的にバックアップされる |
-| ローカルアーカイブ | 月次または大きな変更後 | オフラインバックアップとして有用 |
-| バックアップの確認 | 四半期ごと | バックアップが実際に使用可能であることを確認 |
+| GitHubリカバリーコード確認 | 初回セットアップ時 + 年次 | 2FA紛失時のリカバリーに必要 |
+| バックアップテスト | 年次または新マシン購入時 | 実際にリカバリーできることを確認 |
 
 ## 復元手順
 
@@ -102,9 +118,9 @@ dotfilesはGitリポジトリで管理されているため、基本的にGitHub
 
 #### 前提条件の確認
 
-- [ ] age鍵のバックアップにアクセス可能
-- [ ] GitHubアカウントへのアクセス権限
-- [ ] SSH鍵の準備（または新規作成）
+- [ ] 1Passwordへのアクセス権限（マスターパスワード + 2FA）
+- [ ] GitHubアカウントへのアクセス権限（パスワード + 2FA）
+- [ ] key.txt.ageのパスワード（1Passwordに保存されています）
 
 #### セットアップ手順
 
@@ -117,41 +133,40 @@ dotfilesはGitリポジトリで管理されているため、基本的にGitHub
    brew install chezmoi age
    ```
 
-2. **age鍵の復元**
+2. **SSH鍵の設定**
    ```bash
-   # バックアップから鍵を復元
-   cp /path/to/backup/key.txt ~/key.txt
-   chmod 600 ~/key.txt
-
-   # または、暗号化されたバックアップから復元
-   age -d -o ~/key.txt ~/key.txt.encrypted
-   chmod 600 ~/key.txt
-   ```
-
-3. **SSH鍵の設定**
-   ```bash
-   # 既存のSSH鍵がある場合
-   cp /path/to/backup/id_ed25519 ~/.ssh/
-   cp /path/to/backup/id_ed25519.pub ~/.ssh/
-   chmod 600 ~/.ssh/id_ed25519
-   chmod 644 ~/.ssh/id_ed25519.pub
-
-   # または新規作成
+   # 新規作成
    ssh-keygen -t ed25519 -C "your_email@example.com"
+
    # 生成された公開鍵をGitHubに追加
    cat ~/.ssh/id_ed25519.pub
+   # → GitHubの Settings > SSH and GPG keys で追加
    ```
 
-4. **chezmoiの初期化**
+3. **リポジトリのクローンとage鍵の復元**
    ```bash
    # リポジトリをクローン
    chezmoi init toku345
 
+   # key.txt.ageからage鍵を復元
+   # 1Passwordからパスワードを取得して入力
+   cd ~/.local/share/chezmoi
+   age -d -o ~/key.txt key.txt.age
+   # パスワードを入力: [1Passwordから取得したパスワード]
+
+   chmod 600 ~/key.txt
+   ```
+
+4. **dotfilesの適用**
+   ```bash
    # 変更内容を確認
    chezmoi diff
 
-   # 問題がなければ適用
+   # 問題がなければ適用（暗号化ファイルも自動的に復号されます）
    chezmoi apply
+
+   # verboseモードで詳細を確認する場合
+   chezmoi apply -v
    ```
 
 5. **設定の確認**
@@ -319,40 +334,36 @@ mv .local/share/chezmoi.backup .local/share/chezmoi
 
 ### 初回セットアップチェックリスト
 
-#### バックアップ準備
-- [ ] age鍵をUSBドライブにバックアップ
-- [ ] age鍵をパスワードマネージャーに保存
-- [ ] age鍵の暗号化バックアップをクラウドに保存
-- [ ] バックアップした鍵で復号テストを実施
-- [ ] SSH鍵のバックアップを作成
-- [ ] dotfilesのローカルアーカイブを作成
+#### バックアップ準備（最重要）
+- [ ] 1Password Emergency Kitを印刷して金庫に保管
+- [ ] 1Passwordのマスターパスワードを確実に記憶
+- [ ] 1Passwordの2FAリカバリーコードを保存
+- [ ] GitHubの2FAリカバリーコードを保存（1Password + 印刷）
+- [ ] key.txt.ageのパスワードを紙に書いて金庫に保管（推奨）
 
 #### リポジトリ設定
+- [ ] key.txt.ageがリポジトリにコミットされていることを確認
 - [ ] GitHubリポジトリへのpushを確認
-- [ ] リモートリポジトリのミラーを検討（オプション）
 - [ ] .chezmoiignoreの設定を確認
 
 ### 新しいマシンへの移行チェックリスト
 
 #### 事前準備
-- [ ] age鍵のバックアップを確認
-- [ ] GitHubへのアクセス権限を確認
-- [ ] SSH鍵を準備（既存または新規作成）
+- [ ] 1Passwordにログイン可能（マスターパスワード + 2FA）
+- [ ] GitHubにログイン可能（パスワード + 2FA）
+- [ ] key.txt.ageのパスワードを1Passwordから取得可能
 
 #### セットアップ
 - [ ] Homebrewをインストール
-- [ ] chezmoiをインストール
-- [ ] ageをインストール
-- [ ] age鍵を復元（~/key.txt）
-- [ ] age鍵のパーミッションを設定（chmod 600）
-- [ ] SSH鍵を設定
-- [ ] SSH公開鍵をGitHubに追加
-- [ ] chezmoi init --apply を実行
+- [ ] chezmoi、ageをインストール
+- [ ] SSH鍵を生成してGitHubに追加
+- [ ] `chezmoi init toku345` を実行
+- [ ] `age -d -o ~/key.txt key.txt.age` で秘密鍵を復元
+- [ ] `chmod 600 ~/key.txt` で権限設定
+- [ ] `chezmoi diff` で変更を確認
+- [ ] `chezmoi apply` でdotfilesを適用
 
 #### 検証
-- [ ] 暗号化ファイルの復号テスト
-- [ ] chezmoi diff で差分を確認
-- [ ] chezmoi apply -v で適用
 - [ ] シェル設定が正しく読み込まれることを確認
 - [ ] 各種ツール（asdf、direnvなど）の動作確認
 - [ ] iTerm2の設定を手動で設定
@@ -360,15 +371,17 @@ mv .local/share/chezmoi.backup .local/share/chezmoi
 
 ### リカバリーチェックリスト
 
-#### age鍵紛失時
+#### key.txt.ageのパスワード紛失時
+- [ ] 1Passwordから再取得を試みる
+- [ ] 紙のバックアップを確認
+- [ ] どちらも失敗した場合は「age鍵紛失時の対処法」を参照
+
+#### age鍵紛失時（key.txt.ageのパスワードも不明な場合）
 - [ ] 新しいage鍵を生成
-- [ ] 新しい鍵の公開鍵を確認
-- [ ] 暗号化されていたファイルをリスト化
-- [ ] 各暗号化ファイルを再作成
-- [ ] 新しい鍵でファイルを暗号化
-- [ ] 新しい鍵をバックアップ（複数箇所）
-- [ ] 変更をGitにコミット・プッシュ
-- [ ] 他のマシンで新しい鍵に更新
+- [ ] 暗号化されていたファイルを再作成
+- [ ] 新しい鍵でファイルを再暗号化
+- [ ] 新しい key.txt.age を作成してリポジトリにpush
+- [ ] 新しいパスワードを1Passwordに保存
 
 #### システム不具合時
 - [ ] 問題のあるファイルを特定
@@ -381,22 +394,15 @@ mv .local/share/chezmoi.backup .local/share/chezmoi
 
 ### 定期メンテナンスチェックリスト
 
-#### 月次
-- [ ] dotfilesの変更をGitHubにpush
-- [ ] ローカルアーカイブを作成
-- [ ] 不要な設定ファイルを整理
-
-#### 四半期ごと
-- [ ] age鍵のバックアップを確認
-- [ ] バックアップから復号テストを実施
-- [ ] SSH鍵のバックアップを確認
-- [ ] 暗号化ファイルの整合性を確認
-- [ ] ドキュメントの更新を確認
+#### 日常
+- [ ] dotfilesの変更をGitHubにpush（変更のたびに）
 
 #### 年次
-- [ ] age鍵のローテーションを検討
-- [ ] バックアップ戦略の見直し
-- [ ] 暗号化ファイルの再暗号化を検討
+- [ ] 1Password Emergency Kitが安全に保管されていることを確認
+- [ ] GitHubの2FAリカバリーコードを更新
+- [ ] key.txt.ageのパスワードバックアップを確認
+- [ ] 新しいマシンでのセットアップテスト（可能であれば）
+- [ ] age鍵のローテーションを検討（セキュリティ要件に応じて）
 - [ ] 使用していない設定ファイルの削除
 
 ## トラブルシューティング
