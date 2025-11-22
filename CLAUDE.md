@@ -38,10 +38,42 @@ Files ending in `.tmpl` are chezmoi templates that use Go's text/template syntax
 
 ### Encrypted Files
 
-Files with `.age` extension are encrypted using the age encryption tool. To work with these files:
+Files with `.age` extension are encrypted using the age encryption tool. This repository uses a **two-layer security model**:
 
-- Ensure `age` is installed: `brew install age`
-- Chezmoi will handle encryption/decryption automatically
+#### Security Architecture
+
+```
+key.txt.age (in repository, password-protected)
+    ↓ Decrypt with password from 1Password
+~/key.txt (local age identity/private key)
+    ↓ Decrypt other encrypted files
+encrypted_*.age (SSH config, Google IME dictionary, etc.)
+```
+
+**Key Points:**
+- `key.txt.age` is stored in the repository, encrypted with a password (scrypt)
+- The password is stored in 1Password
+- Only those with the password can extract the age private key
+- The age private key is used to decrypt other encrypted files
+
+#### Working with Encrypted Files
+
+```bash
+# Install age
+brew install age
+
+# Decrypt key.txt.age to get the private key (one-time setup)
+age -d -o ~/key.txt ~/.local/share/chezmoi/key.txt.age
+# Enter password from 1Password
+
+# Set correct permissions
+chmod 600 ~/key.txt
+
+# Chezmoi will automatically use ~/key.txt to decrypt other files
+chezmoi apply
+```
+
+**Note:** Never commit `~/key.txt` (the unencrypted private key) to the repository. Only `key.txt.age` (password-protected) should be in the repository.
 
 ## Repository Structure
 
@@ -83,6 +115,54 @@ When making changes:
 3. Apply changes with `chezmoi apply`
 4. Commit changes to git from the source directory
 
+## Backup and Recovery Strategy
+
+### What You Need for Disaster Recovery
+
+Only **3 things** are required to restore everything on a new machine:
+
+1. **GitHub account access** - to clone the repository
+2. **1Password account access** - to retrieve the key.txt.age password
+3. **key.txt.age password** - stored in 1Password
+
+### Critical Backups (Must Have)
+
+- **1Password Emergency Kit** - Print and store in a safe place (fireproof safe, bank deposit box)
+- **1Password Master Password** - Memorize it (don't rely only on password manager)
+- **GitHub 2FA Recovery Codes** - Save in 1Password + print and store physically
+- **key.txt.age password** - Optionally write on paper and store in safe (insurance if 1Password fails)
+
+### What NOT to Backup
+
+- ❌ `~/key.txt` (unencrypted private key) - Never back up to USB/cloud
+- ❌ Local dotfiles archives - Already in GitHub
+- ❌ Multiple copies of encrypted files - Already in GitHub repository
+
+### New Machine Setup (Quick Reference)
+
+```bash
+# 1. Install tools
+brew install chezmoi age
+
+# 2. Setup SSH key and add to GitHub
+ssh-keygen -t ed25519 -C "your_email@example.com"
+# Add public key to GitHub Settings > SSH and GPG keys
+
+# 3. Clone repository
+chezmoi init toku345
+
+# 4. Decrypt age key (get password from 1Password)
+cd ~/.local/share/chezmoi
+age -d -o ~/key.txt key.txt.age
+chmod 600 ~/key.txt
+
+# 5. Apply dotfiles
+chezmoi diff  # Review changes
+chezmoi apply # Apply configurations
+```
+
+For detailed instructions, see [docs/backup-restore.md](docs/backup-restore.md)
+
 ## Important Notes
 
 - This repository uses chezmoi's naming conventions:
@@ -91,3 +171,4 @@ When making changes:
   - `encrypted_` prefix indicates age-encrypted files
 - Template files (`.tmpl`) are processed before being applied to the target system
 - The repository includes configurations for macOS-specific tools (Homebrew, iTerm2, Karabiner)
+- **Security**: All sensitive files are encrypted with age. The age private key itself is password-protected in the repository.
