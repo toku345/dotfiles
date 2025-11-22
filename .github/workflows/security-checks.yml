@@ -27,7 +27,12 @@ jobs:
 
       - name: Validate age file format
         run: |
+          set -x  # Enable debug output
           echo "=== Validating age encrypted files format ==="
+
+          echo "Current directory: $(pwd)"
+          echo "Listing .age files:"
+          find . -name "*.age" -type f
 
           # Check key.txt.age
           if [ ! -f "key.txt.age" ]; then
@@ -35,26 +40,27 @@ jobs:
             exit 1
           fi
 
+          echo "Checking key.txt.age header:"
+          head -c 50 key.txt.age | od -c
+
           # Verify age format (should start with age-encryption.org/v1)
-          if ! grep -a -m 1 "^age-encryption.org/v1" key.txt.age > /dev/null; then
+          if ! grep -a -m 1 "^age-encryption.org/v1" key.txt.age; then
             echo "❌ ERROR: key.txt.age is not a valid age encrypted file"
-            echo "File header:"
-            head -c 100 key.txt.age | od -c
             exit 1
           fi
           echo "✅ key.txt.age format is valid"
 
           # Check all encrypted_*.age files
-          while IFS= read -r -d '' file; do
+          find . -path ./.git -prune -o -name "encrypted_*.age" -type f -print | while read -r file; do
+            [ -z "$file" ] && continue
             echo "Checking $file..."
-            if ! grep -a -m 1 "^age-encryption.org/v1" "$file" > /dev/null; then
+            if ! grep -a -m 1 "^age-encryption.org/v1" "$file"; then
               echo "❌ ERROR: $file is not a valid age encrypted file"
-              echo "File header:"
               head -c 100 "$file" | od -c
               exit 1
             fi
             echo "✅ $file format is valid"
-          done < <(find . -path ./.git -prune -o -name "encrypted_*.age" -type f -print0)
+          done
 
       - name: Verify encrypted files exist
         run: |
