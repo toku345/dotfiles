@@ -156,17 +156,17 @@ dotfilesはGitリポジトリで管理されているため、基本的にGitHub
 
 5. **設定の確認**
    ```bash
-   # 暗号化ファイルの復号テスト
+   # 暗号化ファイルの復号テスト（age鍵が正しく機能するか確認）
    age -d -i ~/key.txt ~/.local/share/chezmoi/key.txt.age
-
-   # または、chezmoiで暗号化ファイルを確認
-   chezmoi cat ~/key.txt
 
    # 適用されたファイルの確認
    chezmoi diff
 
-   # 問題がなければ適用
+   # 問題がなければ適用（暗号化ファイルも自動的に復号されます）
    chezmoi apply -v
+
+   # 暗号化されたファイルの内容を確認する場合（例: SSH設定）
+   # chezmoi cat ~/.ssh/config
    ```
 
 6. **追加セットアップ**
