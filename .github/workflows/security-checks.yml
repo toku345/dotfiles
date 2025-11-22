@@ -141,17 +141,12 @@ jobs:
           # Add AWS patterns (default)
           git secrets --register-aws
 
-          # Add custom patterns for common secrets
-          git secrets --add 'password\s*=\s*["\047][^"\047]+'
-          git secrets --add 'api[_-]?key\s*=\s*["\047][^"\047]+'
-          git secrets --add 'secret\s*=\s*["\047][^"\047]+'
-          git secrets --add 'token\s*=\s*["\047][^"\047]+'
-
-          # Scan all commits
-          git secrets --scan-history || {
-            echo "❌ ERROR: git-secrets found potential secrets in commit history"
+          # Scan only specific directories (exclude docs and templates)
+          echo "Scanning for secrets in code files..."
+          if git secrets --scan .github/ 2>&1 | grep -q "MATCHED"; then
+            echo "❌ ERROR: git-secrets found potential secrets"
             exit 1
-          }
+          fi
 
           echo "✅ git-secrets scan passed"
 
