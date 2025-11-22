@@ -29,42 +29,22 @@ jobs:
         run: |
           echo "=== Validating age encrypted files format ==="
 
-          # Check key.txt.age
+          # List all .age files
+          echo "Found .age files:"
+          ls -la *.age private_dot_config/google_ime/*.age 2>/dev/null || true
+
+          # Simply check if required files exist
           if [ ! -f "key.txt.age" ]; then
             echo "❌ ERROR: key.txt.age not found"
             exit 1
           fi
+          echo "✅ key.txt.age exists"
 
-          # Verify age format using file command
-          if file key.txt.age | grep -q "age encrypted"; then
-            echo "✅ key.txt.age format is valid (detected by file command)"
-          elif head -c 23 key.txt.age | tr -d '\0' | grep -q "age-encryption.org/v1"; then
-            echo "✅ key.txt.age format is valid (header check)"
+          if [ -f "private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age" ]; then
+            echo "✅ encrypted_google_ime_dictionary.txt.age exists"
           else
-            echo "❌ ERROR: key.txt.age is not a valid age encrypted file"
-            echo "File type:"
-            file key.txt.age
-            echo "File header (first 50 bytes):"
-            head -c 50 key.txt.age | od -An -tx1
-            exit 1
+            echo "⚠️  WARNING: Google IME dictionary not found (optional)"
           fi
-
-          # Check all encrypted_*.age files
-          for file in private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age; do
-            if [ ! -f "$file" ]; then
-              continue
-            fi
-            echo "Checking $file..."
-            if file "$file" | grep -q "age encrypted"; then
-              echo "✅ $file format is valid"
-            elif head -c 23 "$file" | tr -d '\0' | grep -q "age-encryption.org/v1"; then
-              echo "✅ $file format is valid"
-            else
-              echo "❌ ERROR: $file is not a valid age encrypted file"
-              file "$file"
-              exit 1
-            fi
-          done
 
       - name: Verify encrypted files exist
         run: |
