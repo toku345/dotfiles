@@ -120,7 +120,6 @@ dotfilesはGitリポジトリで管理されているため、基本的にGitHub
 2. **age鍵の復元**
    ```bash
    # バックアップから鍵を復元
-   mkdir -p ~/
    cp /path/to/backup/key.txt ~/key.txt
    chmod 600 ~/key.txt
 
@@ -145,14 +144,23 @@ dotfilesはGitリポジトリで管理されているため、基本的にGitHub
 
 4. **chezmoiの初期化**
    ```bash
-   # リポジトリをクローンして適用
-   chezmoi init --apply toku345
+   # リポジトリをクローン
+   chezmoi init toku345
+
+   # 変更内容を確認
+   chezmoi diff
+
+   # 問題がなければ適用
+   chezmoi apply
    ```
 
 5. **設定の確認**
    ```bash
    # 暗号化ファイルの復号テスト
-   chezmoi decrypt ~/.local/share/chezmoi/key.txt.age
+   age -d -i ~/key.txt ~/.local/share/chezmoi/key.txt.age
+
+   # または、chezmoiで暗号化ファイルを確認
+   chezmoi cat ~/key.txt
 
    # 適用されたファイルの確認
    chezmoi diff
