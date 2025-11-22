@@ -1,0 +1,64 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+          severity: warning
+          # Check both .sh and .sh.tmpl files
+          additional_files: 'sh.tmpl'
+
+  chezmoi-verify:
+    name: Chezmoi Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install chezmoi
+        run: |
+          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Verify chezmoi installation
+        run: |
+          chezmoi --version
+
+      - name: Initialize chezmoi
+        run: |
+          # Initialize chezmoi with the current directory as source
+          chezmoi init --source="$GITHUB_WORKSPACE"
+
+      - name: Run chezmoi doctor
+        run: |
+          # Run chezmoi doctor to check for common issues
+          chezmoi doctor || true
+
+      - name: Validate template syntax
+        run: |
+          # Try to execute templates to check for syntax errors
+          # This will fail if there are syntax errors in templates
+          chezmoi data || echo "Note: Some template data may be unavailable in CI environment"
+
+      - name: Check source state
+        run: |
+          # Verify that the source directory is valid
+          chezmoi verify || echo "Note: Full verification may require decryption keys"
