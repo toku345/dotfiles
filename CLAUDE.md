@@ -163,6 +163,47 @@ chezmoi apply # Apply configurations
 
 For detailed instructions, see [docs/backup-restore.md](docs/backup-restore.md)
 
+## Security
+
+### Encryption and Key Management
+
+- **Two-layer security model**: Age private key is encrypted with a password (scrypt)
+- **Key rotation policy**: Periodic rotation is NOT required for personal use
+  - Only rotate keys in emergency situations (key leak, device theft, etc.)
+  - See [docs/key-rotation.md](docs/key-rotation.md) for detailed procedures
+
+### Automated Security Checks
+
+This repository includes GitHub Actions workflows for automated security validation:
+
+- **Age file format validation** - Ensures encrypted files are in correct format
+- **Required files verification** - Checks that all necessary encrypted files exist
+- **Plaintext key detection** - Prevents accidental commit of decrypted keys
+- **Public key consistency** - Verifies all files use the same encryption key
+- **Secret scanning** - Detects passwords, API keys, and other sensitive data with git-secrets
+
+**Note:** CI/CD checks do NOT perform actual decryption (no password in CI environment). For complete validation including decryption tests, use the local validation script:
+
+```bash
+cd ~/.local/share/chezmoi
+./scripts/validate-encryption.sh
+```
+
+For detailed information about security checks, see [docs/security-ci-cd.md](docs/security-ci-cd.md)
+
+### Security Best Practices
+
+✅ **DO:**
+- Keep `~/key.txt` permissions at 600
+- Store password only in 1Password
+- Run local validation script before important commits
+- Review GitHub Actions security check results
+
+❌ **DON'T:**
+- Never commit `~/key.txt` (unencrypted private key) to the repository
+- Never store password in GitHub Secrets or environment variables
+- Never ignore security check failures without investigation
+
 ## Important Notes
 
 - This repository uses chezmoi's naming conventions:
@@ -171,4 +212,3 @@ For detailed instructions, see [docs/backup-restore.md](docs/backup-restore.md)
   - `encrypted_` prefix indicates age-encrypted files
 - Template files (`.tmpl`) are processed before being applied to the target system
 - The repository includes configurations for macOS-specific tools (Homebrew, iTerm2, Karabiner)
-- **Security**: All sensitive files are encrypted with age. The age private key itself is password-protected in the repository.
