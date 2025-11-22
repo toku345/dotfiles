@@ -17,14 +17,15 @@ jobs:
     #   github.event.pull_request.user.login == 'external-contributor' ||
     #   github.event.pull_request.user.login == 'new-developer' ||
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-    
+
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write  # Required for inline comments
       issues: read
       id-token: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -33,43 +34,55 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
-          
-          # Direct prompt for automated review (no @claude mention needed)
-          direct_prompt: |
-            Please review this pull request and provide feedback on:
+
+          # Enable progress tracking for automation mode
+          track_progress: true
+
+          # Automated PR review prompt with inline comments
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Please review this pull request thoroughly and provide detailed feedback.
+
+            **Important**: Use inline comments for code-specific issues:
+            - Use `mcp__github_inline_comment__create_inline_comment` to comment on specific lines
+            - Use `gh pr comment` for general summary or overall feedback
+
+            Review focus areas:
             - Code quality and best practices
             - Potential bugs or issues
             - Performance considerations
             - Security concerns
             - Test coverage
-            
-            Be constructive and helpful in your feedback.
-          
-          # Optional: Customize review based on file types
-          # direct_prompt: |
-          #   Review this PR focusing on:
-          #   - For TypeScript files: Type safety and proper interface usage
-          #   - For API endpoints: Security, input validation, and error handling
-          #   - For React components: Performance, accessibility, and best practices
-          #   - For tests: Coverage, edge cases, and test quality
-          
-          # Optional: Different prompts for different authors
-          # direct_prompt: |
-          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' && 
-          #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
-          #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
-          
-          # Optional: Add specific tools for running tests or linting
-          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
-          
-          # Optional: Skip review for certain conditions
-          # if: |
-          #   !contains(github.event.pull_request.title, '[skip-review]') &&
-          #   !contains(github.event.pull_request.title, '[WIP]')
 
+            Be constructive, specific, and helpful in your feedback.
+
+          # Enable inline comments and required tools
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
+
+          # Optional: Add model configuration or system prompt
+          # claude_args: |
+          #   --model claude-4-0-sonnet-20250805
+          #   --max-turns 20
+          #   --system-prompt "You are a senior code reviewer. Focus on security and best practices."
+          #   --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
+
+          # Optional: Customize review based on file types or contributor level
+          # prompt: |
+          #   REPO: ${{ github.repository }}
+          #   PR NUMBER: ${{ github.event.pull_request.number }}
+          #
+          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' &&
+          #   'Welcome! This is a first-time contributor. Use inline comments to provide detailed, encouraging feedback with explanations.' ||
+          #   'Review this PR with inline comments for code-specific issues and a summary comment for overall feedback.' }}
+          #
+          #   Focus on:
+          #   - For TypeScript/JavaScript: Type safety, best practices
+          #   - For configuration files: Security, validation
+          #   - For shell scripts: Error handling, portability
+          #   - Test coverage and edge cases
