@@ -29,13 +29,19 @@ jobs:
         run: |
           echo "=== Validating age encrypted files format ==="
 
-          # List all .age files
-          echo "Found .age files:"
-          ls -la *.age private_dot_config/google_ime/*.age 2>/dev/null || true
+          echo "Listing all files in repository:"
+          find . -type f -name "*.age" | head -20
+
+          echo ""
+          echo "Current directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
 
           # Simply check if required files exist
           if [ ! -f "key.txt.age" ]; then
             echo "❌ ERROR: key.txt.age not found"
+            echo "Files in root:"
+            ls -la
             exit 1
           fi
           echo "✅ key.txt.age exists"
