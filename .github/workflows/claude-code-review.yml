@@ -78,11 +78,12 @@ jobs:
             - Code quality and best practices
             - Test coverage
 
-            Be constructive, specific, and focused. Avoid excessive praise in inline comments.
+            Be constructive, specific, and focused. Reserve praise for the summary comment.
 
           # Enable inline comments and required tools
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
+            # Limit review iterations to prevent bias from outdated comments and keep reviews focused
             --max-turns 3
 
           # Optional: Add model configuration or system prompt
