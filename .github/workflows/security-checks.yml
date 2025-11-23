@@ -138,6 +138,9 @@ jobs:
         run: |
           echo "=== Running git-secrets scan ==="
 
+          # Set TERM to avoid tput errors
+          export TERM=dumb
+
           # Initialize git-secrets
           git secrets --install
 
@@ -146,8 +149,10 @@ jobs:
 
           # Scan only specific directories (exclude docs and templates)
           echo "Scanning for secrets in code files..."
-          if git secrets --scan .github/ 2>&1 | grep -q "MATCHED"; then
+          # Suppress tput/say errors and check exit code directly
+          if ! git secrets --scan .github/ 2>/dev/null; then
             echo "❌ ERROR: git-secrets found potential secrets"
+            git secrets --scan .github/ 2>&1 || true  # Show the actual errors
             exit 1
           fi
 
