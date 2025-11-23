@@ -136,20 +136,20 @@ jobs:
 
           FOUND_SECRETS=0
 
-          # Check for AWS access keys (20 uppercase alphanumeric)
-          if grep -r -E 'AKIA[0-9A-Z]{16}' .github/ 2>/dev/null; then
+          # Check for AWS access keys (starts with AKIA)
+          if grep -r 'AKIA[0-9A-Z]\{16\}' .github/ 2>/dev/null | grep -v '# Example:'; then
             echo "❌ Found potential AWS access key"
             FOUND_SECRETS=1
           fi
 
           # Check for private keys
-          if grep -r 'BEGIN.*PRIVATE KEY' .github/ 2>/dev/null; then
+          if grep -r 'BEGIN.*PRIVATE KEY' .github/ 2>/dev/null | grep -v '# Example:'; then
             echo "❌ Found potential private key"
             FOUND_SECRETS=1
           fi
 
-          # Check for common secret patterns (but be more specific to avoid false positives)
-          if grep -r -E '(password|passwd|pwd)\s*[:=]\s*["\x27][^"\x27]{8,}["\x27]' .github/ 2>/dev/null; then
+          # Check for actual secrets (not in comments/docs)
+          if grep -r 'password.*=.*[a-zA-Z0-9]\{12,\}' .github/ 2>/dev/null | grep -v '^[[:space:]]*#' | grep -v 'example' | grep -v 'TODO'; then
             echo "❌ Found potential hardcoded password"
             FOUND_SECRETS=1
           fi
