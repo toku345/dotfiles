@@ -124,7 +124,12 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
             log_warning "復号化した鍵は ~/key.txt と異なります"
         fi
 
-        rm -f "$TEMP_KEY"
+        # 安全にファイルを削除
+        if command -v shred &> /dev/null; then
+            shred -u "$TEMP_KEY"
+        else
+            rm -f "$TEMP_KEY"  # macOS (FileVault使用時は標準rmで十分)
+        fi
     else
         log_error "key.txt.age の復号化に失敗しました"
     fi
@@ -143,7 +148,12 @@ while IFS= read -r -d '' file; do
         log_error "$file の復号化に失敗しました"
     fi
 
-    rm -f "$TEMP_OUTPUT"
+    # 安全にファイルを削除
+    if command -v shred &> /dev/null; then
+        shred -u "$TEMP_OUTPUT"
+    else
+        rm -f "$TEMP_OUTPUT"  # macOS (FileVault使用時は標準rmで十分)
+    fi
 done < <(find . -path ./.git -prune -o -name "encrypted_*.age" -type f -print0)
 
 echo ""

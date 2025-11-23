@@ -88,11 +88,8 @@ chezmoi edit .chezmoi.toml.tmpl
 ```bash
 cd ~/.local/share/chezmoi
 
-# key.txt.age を再暗号化（新しい鍵自体をパスワードで保護）
-age -d -o ~/key-temp.txt key.txt.age  # 既存のパスワードで復号化
-cp ~/key-new.txt ~/key-temp.txt       # 新しい鍵の内容をコピー
-age -p -o key.txt.age ~/key-temp.txt  # 新しいパスワードで暗号化
-rm ~/key-temp.txt                      # 一時ファイルを削除
+# 新しい鍵をパスワードで暗号化
+age -p -o key.txt.age ~/key-new.txt
 
 # 新しいパスワードを1Passwordに保存
 # 項目名: "dotfiles age key password"
@@ -112,9 +109,10 @@ NEW_RECIPIENT=$(grep "public key:" ~/key-new.txt | awk '{print $3}')
 age -r "$NEW_RECIPIENT" -o "$ENCRYPTED_FILE" /tmp/decrypted.txt
 
 # 一時ファイルを安全に削除
-shred -u /tmp/decrypted.txt  # Linux
-# または
-rm -P /tmp/decrypted.txt     # macOS
+if command -v shred &> /dev/null; then
+  shred -u /tmp/decrypted.txt  # Linux
+else
+  rm -f /tmp/decrypted.txt      # macOS (FileVault使用時は標準rmで十分)
 ```
 
 **全暗号化ファイルの一覧:**
@@ -193,9 +191,11 @@ chezmoi apply -v
 
 ```bash
 # 古い鍵を安全に削除
-shred -u ~/key-old.txt  # Linux
-# または
-rm -P ~/key-old.txt     # macOS
+if command -v shred &> /dev/null; then
+  shred -u ~/key-old.txt  # Linux
+else
+  rm -f ~/key-old.txt      # macOS (FileVault使用時は標準rmで十分)
+fi
 ```
 
 ## ロールバック手順

@@ -21,7 +21,8 @@ jobs:
 
       - name: Install git-secrets
         run: |
-          git clone https://github.com/awslabs/git-secrets.git
+          # Pin to version 1.3.0 for reproducibility
+          git clone --depth 1 --branch 1.3.0 https://github.com/awslabs/git-secrets.git
           cd git-secrets
           sudo make install
 

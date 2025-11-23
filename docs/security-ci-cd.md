@@ -260,14 +260,18 @@ chezmoi edit .chezmoi.toml.tmpl
 
 1. **シークレットが実際に含まれている場合:**
    ```bash
-   # コミット履歴からシークレットを削除
-   # 注意: これは履歴を書き換えるため、慎重に実施
-   git filter-branch --force --index-filter \
-     'git rm --cached --ignore-unmatch path/to/secret/file' \
-     --prune-empty --tag-name-filter cat -- --all
-
-   # または BFG Repo-Cleaner を使用
+   # 推奨: BFG Repo-Cleaner を使用（最も簡単で安全）
+   # https://rtyley.github.io/bfg-repo-cleaner/
+   brew install bfg
    bfg --delete-files secret-file.txt
+   bfg --replace-text passwords.txt  # パスワードを置換
+
+   # または git-filter-repo を使用（高度な操作が必要な場合）
+   # https://github.com/newren/git-filter-repo
+   pip install git-filter-repo
+   git filter-repo --invert-paths --path path/to/secret/file
+
+   # 注意: git filter-branch は非推奨です。上記のツールを使用してください
    ```
 
 2. **誤検出の場合:**
