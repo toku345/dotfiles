@@ -34,7 +34,7 @@ jobs:
       - name: Install chezmoi
         run: |
           CHEZMOI_VERSION="2.67.0"
-          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" "v${CHEZMOI_VERSION}"
+          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" -t "v${CHEZMOI_VERSION}"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Initialize chezmoi
@@ -109,7 +109,7 @@ jobs:
       - name: Install chezmoi
         run: |
           CHEZMOI_VERSION="2.67.0"
-          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" "v${CHEZMOI_VERSION}"
+          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" -t "v${CHEZMOI_VERSION}"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Verify chezmoi installation
