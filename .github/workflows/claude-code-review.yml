@@ -42,6 +42,7 @@ jobs:
           track_progress: true
 
           # Use single sticky comment instead of creating new comments each time
+          # This consolidates all feedback into one comment that gets updated on each PR push
           use_sticky_comment: true
 
           # Automated PR review prompt with inline comments
@@ -78,7 +79,7 @@ jobs:
             - Code quality and best practices
             - Test coverage
 
-            Be constructive, specific, and focused. Reserve praise for the summary comment.
+            Be constructive, specific, and focused. Include positive feedback and encouragement in the summary comment.
 
           # Enable inline comments and required tools
           claude_args: |
