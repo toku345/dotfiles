@@ -33,7 +33,8 @@ jobs:
 
       - name: Install chezmoi
         run: |
-          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+          CHEZMOI_VERSION="2.67.0"
+          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" "v${CHEZMOI_VERSION}"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Initialize chezmoi
@@ -72,10 +73,19 @@ jobs:
             mkdir -p "$(dirname "$rendered_file")"
 
             # Render template (this will fail if template syntax is invalid)
-            if ! chezmoi execute-template < "$template" > "$rendered_file" 2>/dev/null; then
-              echo "Warning: Could not render $template (may require data unavailable in CI)"
-              # Try to at least check basic shell syntax by extracting non-template parts
-              continue
+            ERROR_OUTPUT=$(chezmoi execute-template < "$template" 2>&1 > "$rendered_file") && RENDER_SUCCESS=true || RENDER_SUCCESS=false
+
+            if [ "$RENDER_SUCCESS" = "false" ]; then
+              # Check if it's a template syntax error or missing data
+              if echo "$ERROR_OUTPUT" | grep -q "template:"; then
+                echo "ERROR: Template syntax error in $template"
+                echo "$ERROR_OUTPUT"
+                exit 1
+              else
+                echo "Warning: Could not render $template (may require data unavailable in CI)"
+                echo "$ERROR_OUTPUT"
+                continue
+              fi
             fi
 
             # Validate rendered file with shellcheck
@@ -98,7 +108,8 @@ jobs:
 
       - name: Install chezmoi
         run: |
-          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+          CHEZMOI_VERSION="2.67.0"
+          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" "v${CHEZMOI_VERSION}"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Verify chezmoi installation
@@ -119,15 +130,23 @@ jobs:
         run: |
           set -e
           echo "Checking if all template files have valid syntax..."
-          # Try to execute each template to validate syntax
-          find . -name "*.tmpl" -type f | while read -r template; do
+          FAILED=0
+
+          # Use process substitution to avoid subshell issue with while loop
+          while IFS= read -r template; do
             echo "Checking template syntax: $template"
             # This will fail if there are Go template syntax errors
-            if ! chezmoi execute-template < "$template" > /dev/null 2>&1; then
+            if ! ERROR_OUTPUT=$(chezmoi execute-template < "$template" 2>&1 > /dev/null); then
               echo "ERROR: Template syntax error in: $template"
-              echo "Attempting to show error details:"
-              chezmoi execute-template < "$template" 2>&1 || true
-              exit 1
+              echo "Error details:"
+              echo "$ERROR_OUTPUT"
+              FAILED=1
             fi
-          done
+          done < <(find . -name "*.tmpl" -type f)
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "Template validation failed"
+            exit 1
+          fi
+
           echo "All templates have valid syntax"
