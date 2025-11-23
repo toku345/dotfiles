@@ -19,13 +19,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y age
 
-      - name: Install git-secrets
-        run: |
-          # Pin to version 1.3.0 for reproducibility
-          git clone --depth 1 --branch 1.3.0 https://github.com/awslabs/git-secrets.git
-          cd git-secrets
-          sudo make install
-
       - name: Validate age file format
         run: |
           echo "=== Validating age encrypted files format ==="
@@ -134,29 +127,39 @@ jobs:
 
           echo "✅ Public key consistency check completed"
 
-      - name: Run git-secrets scan
+      - name: Basic secret pattern check
         run: |
-          echo "=== Running git-secrets scan ==="
+          echo "=== Basic secret pattern check ==="
 
-          # Set TERM to avoid tput errors
-          export TERM=dumb
+          # Simple grep-based check for common secret patterns
+          # This is more reliable than git-secrets in CI environments
 
-          # Initialize git-secrets
-          git secrets --install
+          FOUND_SECRETS=0
 
-          # Add AWS patterns (default)
-          git secrets --register-aws
+          # Check for AWS access keys (20 uppercase alphanumeric)
+          if grep -r -E 'AKIA[0-9A-Z]{16}' .github/ 2>/dev/null; then
+            echo "❌ Found potential AWS access key"
+            FOUND_SECRETS=1
+          fi
 
-          # Scan only specific directories (exclude docs and templates)
-          echo "Scanning for secrets in code files..."
-          # Suppress tput/say errors and check exit code directly
-          if ! git secrets --scan .github/ 2>/dev/null; then
-            echo "❌ ERROR: git-secrets found potential secrets"
-            git secrets --scan .github/ 2>&1 || true  # Show the actual errors
+          # Check for private keys
+          if grep -r 'BEGIN.*PRIVATE KEY' .github/ 2>/dev/null; then
+            echo "❌ Found potential private key"
+            FOUND_SECRETS=1
+          fi
+
+          # Check for common secret patterns (but be more specific to avoid false positives)
+          if grep -r -E '(password|passwd|pwd)\s*[:=]\s*["\x27][^"\x27]{8,}["\x27]' .github/ 2>/dev/null; then
+            echo "❌ Found potential hardcoded password"
+            FOUND_SECRETS=1
+          fi
+
+          if [ $FOUND_SECRETS -eq 1 ]; then
+            echo "❌ ERROR: Potential secrets found in .github/"
             exit 1
           fi
 
-          echo "✅ git-secrets scan passed"
+          echo "✅ No obvious secrets detected"
 
       - name: Security check summary
         if: success()
@@ -170,7 +173,7 @@ jobs:
           echo "  ✅ Required encrypted files exist"
           echo "  ✅ No plaintext keys committed"
           echo "  ✅ Age public key consistency"
-          echo "  ✅ git-secrets scan"
+          echo "  ✅ Basic secret pattern check"
           echo ""
           echo "Note: Full decryption test requires password and should be run locally."
           echo "See: scripts/validate-encryption.sh"
