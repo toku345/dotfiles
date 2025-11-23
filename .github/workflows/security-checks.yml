@@ -1,0 +1,131 @@
+name: Security Checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better security scanning
+
+      - name: Check for plaintext key.txt
+        run: |
+          echo "🔍 Checking for accidentally committed plaintext key.txt..."
+
+          # Check if key.txt exists in the repository (excluding key.txt.age)
+          if git ls-files | grep -E '^key\.txt$'; then
+            echo "❌ ERROR: Plaintext key.txt found in repository!"
+            echo "This file should NEVER be committed. Only key.txt.age (encrypted) should be in the repo."
+            exit 1
+          fi
+
+          # Check if ~/key.txt or similar patterns exist
+          if git ls-files | grep -E 'home.*key\.txt$|^\.?key\.txt$' | grep -v '\.age$'; then
+            echo "❌ ERROR: Plaintext key file found in repository!"
+            exit 1
+          fi
+
+          echo "✅ No plaintext key.txt found"
+
+      - name: Verify age encrypted files
+        run: |
+          echo "🔍 Verifying age encrypted files..."
+
+          # Check that key.txt.age exists
+          if ! [ -f "key.txt.age" ]; then
+            echo "❌ ERROR: key.txt.age not found!"
+            echo "The encrypted age key should be present in the repository."
+            exit 1
+          fi
+
+          # Verify it's actually encrypted (age files start with "age-encryption.org/v1" or "-----BEGIN AGE ENCRYPTED FILE-----")
+          FIRST_LINE=$(head -n 1 key.txt.age)
+          if ! echo "$FIRST_LINE" | grep -qE "age-encryption.org/v1|-----BEGIN AGE ENCRYPTED FILE-----"; then
+            echo "❌ ERROR: key.txt.age does not appear to be a valid age encrypted file!"
+            exit 1
+          fi
+
+          echo "✅ key.txt.age is present and appears to be properly encrypted"
+
+          # Check other .age files if they exist
+          AGE_FILES=$(git ls-files '*.age' | grep -v '^key\.txt\.age$' || true)
+          if [ -n "$AGE_FILES" ]; then
+            echo "🔍 Checking other .age files..."
+            echo "$AGE_FILES" | while IFS= read -r file; do
+              if [ -f "$file" ]; then
+                FIRST_LINE=$(head -n 1 "$file")
+                if ! echo "$FIRST_LINE" | grep -qE "age-encryption.org/v1|-----BEGIN AGE ENCRYPTED FILE-----"; then
+                  echo "❌ ERROR: $file does not appear to be a valid age encrypted file!"
+                  exit 1
+                fi
+                echo "  ✅ $file"
+              fi
+            done
+          fi
+
+      - name: Scan for common secrets
+        run: |
+          echo "🔍 Scanning for common secret patterns..."
+
+          # Install ripgrep for better performance
+          sudo apt-get update -qq
+          sudo apt-get install -y ripgrep
+
+          SECRETS_FOUND=0
+
+          # Define patterns to search for
+          # AWS Access Keys (exclude AWS documentation examples)
+          if rg -i 'AKIA[0-9A-Z]{16}' --type-not lock --type-not svg 2>/dev/null | grep -v 'AKIAIOSFODNN7EXAMPLE'; then
+            echo "❌ Found potential AWS Access Key"
+            SECRETS_FOUND=1
+          fi
+
+          # Private Keys (but allow encrypted ones)
+          if rg '-----BEGIN.*PRIVATE KEY-----' --type-not lock --type-not svg 2>/dev/null | grep -v '\.age:'; then
+            echo "❌ Found potential private key"
+            SECRETS_FOUND=1
+          fi
+
+          # GitHub Personal Access Tokens
+          if rg 'ghp_[a-zA-Z0-9]{36}' --type-not lock --type-not svg 2>/dev/null; then
+            echo "❌ Found potential GitHub Personal Access Token"
+            SECRETS_FOUND=1
+          fi
+
+          # Generic API keys (basic pattern, high false positive but worth checking)
+          # Exclude common examples and legitimate configuration references
+          if rg -i 'api[_-]?key["\s:=]+[a-zA-Z0-9]{32,}' --type-not lock --type-not svg --type-not json 2>/dev/null | grep -v '\.age:' | grep -v 'ANTHROPIC_API_KEY' | grep -v 'example' | grep -v 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'; then
+            echo "⚠️  Found potential API key pattern (may be false positive)"
+            # Don't fail on this one, just warn
+          fi
+
+          if [ $SECRETS_FOUND -eq 1 ]; then
+            echo ""
+            echo "❌ Security check failed: Potential secrets found in repository!"
+            echo "Please review the findings above and remove any sensitive data."
+            exit 1
+          fi
+
+          echo "✅ No obvious secrets detected"
+
+      - name: Security check summary
+        if: success()
+        run: |
+          echo ""
+          echo "✅ All security checks passed!"
+          echo ""
+          echo "Checks performed:"
+          echo "  ✓ No plaintext key.txt found"
+          echo "  ✓ Age encrypted files verified"
+          echo "  ✓ No common secret patterns detected"
