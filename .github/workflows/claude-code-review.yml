@@ -41,6 +41,9 @@ jobs:
           # Enable progress tracking for automation mode
           track_progress: true
 
+          # Use single sticky comment instead of creating new comments each time
+          use_sticky_comment: true
+
           # Automated PR review prompt with inline comments
           prompt: |
             REPO: ${{ github.repository }}
@@ -48,22 +51,39 @@ jobs:
 
             Please review this pull request thoroughly and provide detailed feedback.
 
-            **Important**: Use inline comments for code-specific issues:
-            - Use `mcp__github_inline_comment__create_inline_comment` to comment on specific lines
-            - Use `gh pr comment` for general summary or overall feedback
+            **Important - Comment Strategy**:
+
+            Use inline comments ONLY for critical issues that require attention at specific lines:
+            - Security vulnerabilities (SQL injection, XSS, sensitive data exposure, etc.)
+            - Bugs or logic errors that will cause runtime failures
+            - Critical performance issues (e.g., N+1 queries, memory leaks)
+            - Breaking changes or API contract violations
+
+            Use the summary comment (via `gh pr comment`) for:
+            - Overall code quality observations
+            - Style suggestions and minor improvements
+            - Architecture or design feedback
+            - General recommendations
+            - Positive feedback and encouragement
+
+            Tools to use:
+            - `mcp__github_inline_comment__create_inline_comment` - ONLY for critical issues above
+            - `gh pr comment` - For summary and non-critical feedback
 
             Review focus areas:
+            - Security concerns (highest priority)
+            - Potential bugs or logic errors
+            - Breaking changes
+            - Performance bottlenecks
             - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
             - Test coverage
 
-            Be constructive, specific, and helpful in your feedback.
+            Be constructive, specific, and focused. Avoid excessive praise in inline comments.
 
           # Enable inline comments and required tools
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
+            --max-turns 3
 
           # Optional: Add model configuration or system prompt
           # claude_args: |
