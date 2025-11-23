@@ -115,6 +115,36 @@ When making changes:
 3. Apply changes with `chezmoi apply`
 4. Commit changes to git from the source directory
 
+## Security
+
+### Automated Security Checks
+
+This repository includes CI/CD security checks that run automatically on every push and pull request:
+
+- **Plaintext Key Detection** - Prevents accidental commit of unencrypted `~/key.txt`
+- **Age Encryption Verification** - Validates all `.age` files are properly encrypted
+- **Secret Pattern Detection** - Scans for AWS keys, private keys, GitHub tokens, and API keys
+
+The workflow runs in GitHub Actions (`.github/workflows/security-checks.yml`) and will fail if any security issues are detected.
+
+### Security Best Practices
+
+**Critical Rules:**
+- ✅ **DO** commit `key.txt.age` (password-protected)
+- ❌ **NEVER** commit `~/key.txt` (plaintext private key)
+- ✅ **DO** store the password in 1Password
+- ❌ **NEVER** commit plaintext secrets or API keys
+- ✅ **DO** review `git diff` before committing
+- ❌ **NEVER** share your age private key
+
+**Emergency Key Rotation:**
+Only rotate your age key in emergency situations:
+- Accidental commit of `~/key.txt` to public repository
+- Device lost, stolen, or compromised
+- Suspected unauthorized access
+
+For detailed security procedures, see [docs/security.md](docs/security.md)
+
 ## Backup and Recovery Strategy
 
 ### What You Need for Disaster Recovery
