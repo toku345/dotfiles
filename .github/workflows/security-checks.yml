@@ -86,13 +86,13 @@ jobs:
 
           # Define patterns to search for
           # AWS Access Keys (exclude AWS documentation examples)
-          if rg -i 'AKIA[0-9A-Z]{16}' --type-not lock --type-not svg 2>/dev/null | grep -v 'AKIAIOSFODNN7EXAMPLE'; then
+          if rg -i 'AKIA[0-9A-Z]{16}' --type-not lock --type-not svg -g '!**/security.md' 2>/dev/null; then
             echo "❌ Found potential AWS Access Key"
             SECRETS_FOUND=1
           fi
 
           # Private Keys (but allow encrypted ones)
-          if rg '-----BEGIN.*PRIVATE KEY-----' --type-not lock --type-not svg 2>/dev/null | grep -v '\.age:'; then
+          if rg '-----BEGIN.*PRIVATE KEY-----' --type-not lock --type-not svg -g '!*.age' 2>/dev/null; then
             echo "❌ Found potential private key"
             SECRETS_FOUND=1
           fi
@@ -105,7 +105,7 @@ jobs:
 
           # Generic API keys (basic pattern, high false positive but worth checking)
           # Exclude common examples and legitimate configuration references
-          if rg -i 'api[_-]?key["\s:=]+[a-zA-Z0-9]{32,}' --type-not lock --type-not svg --type-not json 2>/dev/null | grep -v '\.age:' | grep -v 'ANTHROPIC_API_KEY' | grep -v 'example' | grep -v 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'; then
+          if rg -i 'api[_-]?key["\s:=]+[a-zA-Z0-9]{32,}' --type-not lock --type-not svg --type-not json -g '!*.age' -g '!**/security.md' 2>/dev/null; then
             echo "⚠️  Found potential API key pattern (may be false positive)"
             # Don't fail on this one, just warn
           fi

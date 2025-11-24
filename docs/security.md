@@ -265,7 +265,7 @@ rg -i 'AKIA[0-9A-Z]{16}' .
 rg '-----BEGIN.*PRIVATE KEY-----' .
 
 # Verify encrypted files
-git ls-files '*.age' | while read f; do
+git ls-files '*.age' | while IFS= read -r f; do
   head -n 1 "$f" | grep -qE 'age-encryption.org|BEGIN AGE ENCRYPTED' && echo "✅ $f" || echo "❌ $f"
 done
 ```
