@@ -253,7 +253,7 @@ If you believe it's a false positive, review the patterns in the workflow file.
 
 3. **Minimize exposure**
    - Only decrypt when needed
-   - Work in `/tmp/claude/` for temporary files
+   - Use secure temporary directories (`mktemp -d` with `chmod 700`)
    - Clean up decrypted files immediately
 
 4. **Regular backups**
