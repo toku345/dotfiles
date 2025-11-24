@@ -269,8 +269,8 @@ git status
 git diff
 
 # Check for secrets locally (if ripgrep installed)
-rg -i 'AKIA[0-9A-Z]{16}' .
-rg '-----BEGIN.*PRIVATE KEY-----' .
+rg -i 'AKIA[0-9A-Z]{16}' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' .
+rg '-----BEGIN.*PRIVATE KEY-----' --type-not lock --type-not svg -g '!*.age' .
 
 # Verify encrypted files
 git ls-files '*.age' | while IFS= read -r f; do
