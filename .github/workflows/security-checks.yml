@@ -62,7 +62,7 @@ jobs:
           AGE_FILES=$(git ls-files '*.age' | grep -v '^key\.txt\.age$' || true)
           if [ -n "$AGE_FILES" ]; then
             echo "🔍 Checking other .age files..."
-            echo "$AGE_FILES" | while IFS= read -r file; do
+            while IFS= read -r file; do
               if [ -f "$file" ]; then
                 FIRST_LINE=$(head -n 1 "$file")
                 if ! echo "$FIRST_LINE" | grep -qE "age-encryption.org/v1|-----BEGIN AGE ENCRYPTED FILE-----"; then
@@ -71,7 +71,7 @@ jobs:
                 fi
                 echo "  ✅ $file"
               fi
-            done
+            done < <(echo "$AGE_FILES")
           fi
 
       - name: Scan for common secrets
