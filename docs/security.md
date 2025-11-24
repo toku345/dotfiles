@@ -75,41 +75,49 @@ cd ~/.local/share/chezmoi
 
 **Re-encrypt key.txt.age:**
 ```bash
+# Create a secure temporary directory
+TMPDIR="$(mktemp -d)"
+chmod 700 "$TMPDIR"
+
 # Decrypt with old key to get plaintext
-age -d -i ~/key.txt -o /tmp/claude/key_plaintext.txt key.txt.age
+age -d -i ~/key.txt -o "$TMPDIR/key_plaintext.txt" key.txt.age
 
 # Verify it's the new key you just created
-diff ~/key.txt.new /tmp/claude/key_plaintext.txt
+diff ~/key.txt.new "$TMPDIR/key_plaintext.txt"
 
 # Re-encrypt with password
-age -p -o key.txt.age.new /tmp/claude/key_plaintext.txt
+age -p -o key.txt.age.new "$TMPDIR/key_plaintext.txt"
 # Enter a strong password (store in 1Password immediately!)
 
 # Verify the new encrypted file works
-age -d -o /tmp/claude/test_decrypt.txt key.txt.age.new
-diff ~/key.txt.new /tmp/claude/test_decrypt.txt
+age -d -o "$TMPDIR/test_decrypt.txt" key.txt.age.new
+diff ~/key.txt.new "$TMPDIR/test_decrypt.txt"
 
 # Replace old with new
 mv key.txt.age.new key.txt.age
 
-# Clean up plaintext immediately
-rm -f /tmp/claude/key_plaintext.txt /tmp/claude/test_decrypt.txt
+# Clean up the temporary directory
+rm -rf "$TMPDIR"
 ```
 
 **Re-encrypt other .age files:**
 ```bash
+# Create a secure temporary directory (reuse or create new)
+TMPDIR="$(mktemp -d)"
+chmod 700 "$TMPDIR"
+
 # Find all .age files (excluding key.txt.age)
 git ls-files '*.age' | grep -v '^key\.txt\.age$'
 
 # For each file, decrypt with old key and re-encrypt with new key
 # Example for Google IME dictionary:
 age -d -i ~/key.txt.backup \
-  -o /tmp/claude/temp_decrypted.txt \
+  -o "$TMPDIR/temp_decrypted.txt" \
   private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age
 
 age -r $(grep "# public key:" ~/key.txt.new | cut -d: -f2 | xargs) \
   -o private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new \
-  /tmp/claude/temp_decrypted.txt
+  "$TMPDIR/temp_decrypted.txt"
 
 # Verify decryption works with new key
 age -d -i ~/key.txt.new private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new > /dev/null
@@ -118,8 +126,8 @@ age -d -i ~/key.txt.new private_dot_config/google_ime/encrypted_google_ime_dicti
 mv private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new \
    private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age
 
-# Clean up
-rm -f /tmp/claude/temp_decrypted.txt
+# Clean up the temporary directory
+rm -rf "$TMPDIR"
 ```
 
 #### 3. Update Local Key
