@@ -97,8 +97,8 @@ jobs:
             SECRETS_FOUND=1
           fi
 
-          # GitHub Personal Access Tokens
-          if rg 'ghp_[a-zA-Z0-9]{36}' --type-not lock --type-not svg 2>/dev/null; then
+          # GitHub Personal Access Tokens (all variants: ghp_, ghu_, ghs_, ghr_)
+          if rg 'gh[pusr]_[a-zA-Z0-9]{36}' --type-not lock --type-not svg 2>/dev/null; then
             echo "ERROR: Found potential GitHub Personal Access Token"
             SECRETS_FOUND=1
           fi

@@ -16,7 +16,7 @@ This guide covers security best practices and emergency procedures for managing 
 
 This repository uses a two-layer encryption model to protect sensitive data:
 
-```
+```text
 key.txt.age (in repository, password-protected)
     ↓ Decrypt with password from 1Password
 ~/key.txt (local age identity/private key)
@@ -39,7 +39,7 @@ encrypted_*.age (SSH config, Google IME dictionary, etc.)
 
 ## Emergency Key Rotation
 
-**IMPORTANT:** This procedure is for emergency situations only (key leak, device compromise, etc.).
+**IMPORTANT:** This procedure is for emergencies only (key leak, device compromise, etc.).
 Do NOT perform routine key rotation unless necessary.
 
 ### When to Rotate
@@ -119,7 +119,7 @@ chmod 700 "$TMPDIR"
 git ls-files '*.age' | grep -v '^key\.txt\.age$'
 
 # Extract and validate the new public key
-NEW_PUBLIC_KEY=$(grep "# public key:" ~/key.txt.new | cut -d: -f2 | xargs)
+NEW_PUBLIC_KEY=$(grep "^# public key: " ~/key.txt.new | sed 's/^# public key: //')
 if [ -z "$NEW_PUBLIC_KEY" ]; then
   echo "ERROR: Could not extract public key from ~/key.txt.new" >&2
   rm -rf "$TMPDIR"
@@ -286,7 +286,7 @@ git log --pretty=format:"%h %ad %s" --date=short -- '*.age'
 ### Daily Operations
 
 1. **Never commit plaintext keys**
-   - Keep `~/key.txt` outside of git-tracked directories
+   - Keep `~/key.txt` outside git-tracked directories
    - Only commit `key.txt.age` (password-protected)
    - CI will catch accidental commits
 
