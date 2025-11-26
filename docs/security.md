@@ -80,21 +80,13 @@ cd ~/.local/share/chezmoi
 TMPDIR="$(mktemp -d)"
 chmod 700 "$TMPDIR"
 
-# Decrypt with old key to get plaintext
-age -d -i ~/key.txt -o "$TMPDIR/key_plaintext.txt" key.txt.age
-
-# Verify it's the new key you just created (with error handling)
-diff ~/key.txt.new "$TMPDIR/key_plaintext.txt" || {
-  echo "ERROR: Decrypted key does not match new key!"
-  rm -rf "$TMPDIR"
-  exit 1
-}
-
-# Re-encrypt with password
-age -p -o key.txt.age.new "$TMPDIR/key_plaintext.txt"
+# Encrypt the NEW private key with a password
+# Note: key.txt.age is password-protected, not recipient-encrypted
+age -p -o key.txt.age.new ~/key.txt.new
 # Enter a strong password (store in 1Password immediately!)
 
 # Verify the new encrypted file works (with error handling)
+# This will prompt for the password you just set
 age -d -o "$TMPDIR/test_decrypt.txt" key.txt.age.new
 diff ~/key.txt.new "$TMPDIR/test_decrypt.txt" || {
   echo "ERROR: Re-encrypted file verification failed!"
@@ -137,7 +129,7 @@ age -r "$NEW_PUBLIC_KEY" \
   "$TMPDIR/temp_decrypted.txt"
 
 # Verify decryption works with new key
-age -d -i ~/key.txt.new private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new > /dev/null
+age -d -i ~/key.txt.new -o /dev/null private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new
 
 # Replace old with new
 mv private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new \
