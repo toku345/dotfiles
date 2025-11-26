@@ -56,7 +56,7 @@ Rotate your age key immediately if:
 
 ```bash
 # Generate new age key pair
-age-keygen -o ~/key.txt.new
+age-keygen --output ~/key.txt.new
 
 # Backup the old key temporarily (in case rotation fails)
 cp ~/key.txt ~/key.txt.backup
