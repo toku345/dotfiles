@@ -64,7 +64,7 @@ cp ~/key.txt ~/key.txt.backup
 
 **Extract the new public key:**
 ```bash
-grep "# public key:" ~/key.txt.new
+grep "^# public key: " ~/key.txt.new
 ```
 
 #### 2. Re-encrypt All Files
