@@ -174,3 +174,6 @@ end
 function gbd --description 'delete merged git branches'
     git branch --merged main | grep -v -E "\*|main" | xargs git branch -d
 end
+
+## Local configuration (machine-specific)
+test -e $HOME/.config/fish/config.fish.local; and source $HOME/.config/fish/config.fish.local
