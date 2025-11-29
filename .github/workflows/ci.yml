@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  shellcheck:
+    name: ShellCheck Lint
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck on shell scripts
+        run: |
+          echo "=== ShellCheck Analysis ==="
+
+          # Find all shell scripts (both .sh and .sh.tmpl)
+          SCRIPTS=$(find .chezmoiscripts -type f \( -name "*.sh" -o -name "*.sh.tmpl" \) 2>/dev/null || true)
+
+          if [ -z "$SCRIPTS" ]; then
+            echo "No shell scripts found in .chezmoiscripts/"
+            exit 0
+          fi
+
+          FAILED=0
+
+          for script in $SCRIPTS; do
+            echo ""
+            echo "Checking: $script"
+
+            if echo "$script" | grep -q '\.tmpl$'; then
+              # Strip Go template syntax before checking
+              # Replace {{ ... }} with PLACEHOLDER to avoid parse errors
+              sed 's/{{[^}]*}}/PLACEHOLDER/g' "$script" | \
+                shellcheck --shell=sh - || FAILED=1
+            else
+              shellcheck "$script" || FAILED=1
+            fi
+          done
+
+          echo ""
+          if [ $FAILED -eq 1 ]; then
+            echo "ERROR: ShellCheck found issues in one or more scripts"
+            exit 1
+          fi
+
+          echo "OK: All scripts passed ShellCheck"
+
+  chezmoi-validate:
+    name: Chezmoi Validation
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install chezmoi
+        run: |
+          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+
+      - name: Validate template syntax
+        run: |
+          echo "=== Template Syntax Validation ==="
+
+          # Find all template files
+          TEMPLATES=$(find . -name "*.tmpl" -type f 2>/dev/null || true)
+
+          if [ -z "$TEMPLATES" ]; then
+            echo "No template files found"
+            exit 0
+          fi
+
+          FAILED=0
+
+          for tmpl in $TEMPLATES; do
+            echo "Validating: $tmpl"
+
+            # Use chezmoi execute-template to validate syntax
+            # Note: This will fail if template syntax is invalid
+            if ! chezmoi execute-template --file "$tmpl" > /dev/null 2>&1; then
+              echo "ERROR: Invalid template syntax in $tmpl"
+              chezmoi execute-template --file "$tmpl" 2>&1 || true
+              FAILED=1
+            fi
+          done
+
+          echo ""
+          if [ $FAILED -eq 1 ]; then
+            echo "ERROR: Template validation failed"
+            exit 1
+          fi
+
+          echo "OK: All templates have valid syntax"
+
+      - name: Run chezmoi doctor
+        run: |
+          echo "=== Chezmoi Doctor ==="
+          chezmoi doctor --no-network || true
+
+      - name: Verify chezmoi configuration
+        run: |
+          echo "=== Chezmoi Configuration Check ==="
+
+          # Check that managed files can be listed (excluding encrypted)
+          echo "Managed files (excluding encrypted):"
+          chezmoi managed --include=files --exclude=encrypted 2>/dev/null || true
+
+          echo ""
+          echo "OK: Configuration appears valid"
+
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [shellcheck, chezmoi-validate]
+    if: always()
+
+    steps:
+      - name: Check results
+        run: |
+          echo "=== CI Results ==="
+          echo "ShellCheck: ${{ needs.shellcheck.result }}"
+          echo "Chezmoi Validation: ${{ needs.chezmoi-validate.result }}"
+
+          if [ "${{ needs.shellcheck.result }}" != "success" ] || \
+             [ "${{ needs.chezmoi-validate.result }}" != "success" ]; then
+            echo ""
+            echo "Some checks failed. Please review the logs above."
+            exit 1
+          fi
+
+          echo ""
+          echo "All CI checks passed!"

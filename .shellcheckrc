@@ -1,0 +1,11 @@
+# .shellcheckrc - ShellCheck configuration for chezmoi dotfiles
+
+# Default shell dialect for scripts
+shell=sh
+
+# Report warnings and above (skip info/style)
+severity=warning
+
+# Disabled checks:
+# SC1091: Can't follow sourced files (not available in CI)
+disable=SC1091
