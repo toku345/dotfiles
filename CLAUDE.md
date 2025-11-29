@@ -135,9 +135,11 @@ chezmoi automatically provides environment variables to scripts in `.chezmoiscri
 - `$CHEZMOI_OS` - OS type (darwin, linux, etc.)
 - `$CHEZMOI_SOURCE_DIR` - chezmoi source directory
 
+**Note:** Do not define these in `scriptEnv` - they are reserved variables and will cause warnings.
+
 ### OS Detection in Config Files
 
-Config files like `config.fish` use runtime OS detection:
+Config files like `config.fish` use runtime OS detection. According to [fish-shell official documentation](https://fishshell.com/docs/current/language.html), `switch (uname)` is the canonical way:
 
 ```fish
 switch (uname)
