@@ -133,9 +133,10 @@ chezmoi automatically provides environment variables to scripts in `.chezmoiscri
 
 - `$CHEZMOI` - Set to `1` when run by chezmoi
 - `$CHEZMOI_OS` - OS type (darwin, linux, etc.)
+- `$CHEZMOI_ARCH` - Architecture (arm64, amd64, etc.)
 - `$CHEZMOI_SOURCE_DIR` - chezmoi source directory
 
-**Note:** Do not define these in `scriptEnv` - they are reserved variables and will cause warnings.
+**Note:** You can use `scriptEnv` to define custom variables, but do not override auto-provided variables above - they will cause warnings.
 
 ### OS Detection in Config Files
 
