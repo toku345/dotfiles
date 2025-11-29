@@ -131,6 +131,8 @@ jobs:
     needs: [shellcheck, chezmoi-validate]
     if: always()
 
+    permissions: {}
+
     steps:
       - name: Check results
         run: |
