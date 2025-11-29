@@ -22,17 +22,13 @@ jobs:
         run: |
           echo "=== ShellCheck Analysis ==="
 
-          # Find all shell scripts (both .sh and .sh.tmpl)
-          SCRIPTS=$(find .chezmoiscripts -type f \( -name "*.sh" -o -name "*.sh.tmpl" \) 2>/dev/null || true)
-
-          if [ -z "$SCRIPTS" ]; then
-            echo "No shell scripts found in .chezmoiscripts/"
-            exit 0
-          fi
-
           FAILED=0
+          FOUND=0
 
-          for script in $SCRIPTS; do
+          # Use process substitution to avoid word splitting on filenames
+          while IFS= read -r script; do
+            [ -z "$script" ] && continue
+            FOUND=1
             echo ""
             echo "Checking: $script"
 
@@ -44,7 +40,12 @@ jobs:
             else
               shellcheck --severity=warning "$script" || FAILED=1
             fi
-          done
+          done < <(find .chezmoiscripts -type f \( -name "*.sh" -o -name "*.sh.tmpl" \) 2>/dev/null)
+
+          if [ $FOUND -eq 0 ]; then
+            echo "No shell scripts found in .chezmoiscripts/"
+            exit 0
+          fi
 
           echo ""
           if [ $FAILED -eq 1 ]; then
@@ -67,23 +68,23 @@ jobs:
 
       - name: Install chezmoi
         run: |
-          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+          CHEZMOI_VERSION="2.67.0"
+          curl -fsSL "https://github.com/twpayne/chezmoi/releases/download/v${CHEZMOI_VERSION}/chezmoi_${CHEZMOI_VERSION}_linux_amd64.tar.gz" -o /tmp/chezmoi.tar.gz
+          tar -xzf /tmp/chezmoi.tar.gz -C /usr/local/bin chezmoi
+          chmod +x /usr/local/bin/chezmoi
+          rm /tmp/chezmoi.tar.gz
 
       - name: Validate template syntax
         run: |
           echo "=== Template Syntax Validation ==="
 
-          # Find all template files
-          TEMPLATES=$(find . -name "*.tmpl" -type f 2>/dev/null || true)
-
-          if [ -z "$TEMPLATES" ]; then
-            echo "No template files found"
-            exit 0
-          fi
-
           FAILED=0
+          FOUND=0
 
-          for tmpl in $TEMPLATES; do
+          # Use process substitution to avoid word splitting on filenames
+          while IFS= read -r tmpl; do
+            [ -z "$tmpl" ] && continue
+            FOUND=1
             echo "Validating: $tmpl"
 
             # Use chezmoi execute-template to validate syntax
@@ -93,7 +94,12 @@ jobs:
               chezmoi execute-template --file "$tmpl" 2>&1 || true
               FAILED=1
             fi
-          done
+          done < <(find . -name "*.tmpl" -type f 2>/dev/null)
+
+          if [ $FOUND -eq 0 ]; then
+            echo "No template files found"
+            exit 0
+          fi
 
           echo ""
           if [ $FAILED -eq 1 ]; then
