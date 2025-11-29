@@ -32,9 +32,9 @@ chezmoi apply -v
 
 ### Working with Templates
 
-Files ending in `.tmpl` are chezmoi templates that use Go's text/template syntax. The most notable template is:
+Files ending in `.tmpl` are chezmoi templates that use Go's text/template syntax. The primary template is:
 
-- `private_dot_config/private_fish/config.fish.tmpl` - Fish shell configuration
+- `.chezmoi.toml.tmpl` - Chezmoi configuration (defines `scriptEnv` for scripts)
 
 ### Encrypted Files
 
@@ -90,7 +90,7 @@ chezmoi apply
 
 ## Key Configuration Files
 
-### Fish Shell (`config.fish.tmpl`)
+### Fish Shell (`config.fish`)
 
 The main shell configuration that sets up:
 
@@ -114,6 +114,39 @@ When making changes:
 2. Test changes with `chezmoi diff` before applying
 3. Apply changes with `chezmoi apply`
 4. Commit changes to git from the source directory
+
+## Go Template Usage Policy
+
+### Principles
+
+- Use Go Templates only in chezmoi configuration files (`.chezmoi.toml.tmpl`)
+- Use environment variables or runtime detection in shell scripts (`.chezmoiscripts/`) and config files
+
+### Rationale
+
+- Full compatibility with ShellCheck and editor extensions
+- Syntax highlighting preserved by avoiding `.tmpl` extension
+
+### Environment Variables
+
+chezmoi automatically provides environment variables to scripts in `.chezmoiscripts/`:
+
+- `$CHEZMOI` - Set to `1` when run by chezmoi
+- `$CHEZMOI_OS` - OS type (darwin, linux, etc.)
+- `$CHEZMOI_SOURCE_DIR` - chezmoi source directory
+
+### OS Detection in Config Files
+
+Config files like `config.fish` use runtime OS detection:
+
+```fish
+switch (uname)
+    case Darwin
+        # macOS
+    case Linux
+        # Linux
+end
+```
 
 ## Security
 

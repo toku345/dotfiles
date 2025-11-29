@@ -2,12 +2,18 @@ set -x LC_ALL en_US.UTF-8
 
 fish_add_path $HOME/.local/bin
 
-## homebrew
-test -e /opt/homebrew/bin/brew; and eval (/opt/homebrew/bin/brew shellenv)
-
-# WORKAROUND: fix the issue that the $PATH is not set correctly when tmux is started.
-if set -q HOMEBREW_PREFIX
-    fish_add_path -m /opt/homebrew/bin /opt/homebrew/sbin
+## homebrew (OS-specific)
+switch (uname)
+    case Darwin
+        # macOS (Homebrew on Apple Silicon)
+        test -e /opt/homebrew/bin/brew; and eval (/opt/homebrew/bin/brew shellenv)
+        # WORKAROUND: fix the issue that the $PATH is not set correctly when tmux is started.
+        if set -q HOMEBREW_PREFIX
+            fish_add_path -m /opt/homebrew/bin /opt/homebrew/sbin
+        end
+    case Linux
+        # Linux (Linuxbrew)
+        test -e /home/linuxbrew/.linuxbrew/bin/brew; and eval (/home/linuxbrew/.linuxbrew/bin/brew shellenv)
 end
 
 ## asdf
@@ -49,8 +55,13 @@ if test -e $HOME/.asdf/plugins/java/set-java-home.fish
     . $HOME/.asdf/plugins/java/set-java-home.fish
 end
 
-## Scala
-fish_add_path "$HOME/Library/Application Support/Coursier/bin"
+## Scala (OS-specific path)
+switch (uname)
+    case Darwin
+        fish_add_path "$HOME/Library/Application Support/Coursier/bin"
+    case Linux
+        fish_add_path "$HOME/.local/share/coursier/bin"
+end
 
 ## OCaml
 if test -e $HOME/.opam/opam-init/init.fish
@@ -61,8 +72,10 @@ end
 fish_add_path $HOME/.ghcup/bin
 fish_add_path $HOME/.cabal/bin
 
-## mysql
-fish_add_path /opt/homebrew/opt/mysql-client/bin
+## mysql (macOS only - Homebrew path)
+if test (uname) = "Darwin"
+    fish_add_path /opt/homebrew/opt/mysql-client/bin
+end
 
 ## direnv
 # https://github.com/direnv/direnv/blob/master/docs/hook.md#fish
