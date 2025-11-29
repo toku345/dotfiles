@@ -36,7 +36,7 @@ jobs:
               # Strip Go template syntax before checking
               # Replace {{ ... }} with PLACEHOLDER to avoid parse errors
               sed 's/{{[^}]*}}/PLACEHOLDER/g' "$script" | \
-                shellcheck --shell=sh --severity=warning - || FAILED=1
+                shellcheck --severity=warning - || FAILED=1
             else
               shellcheck --severity=warning "$script" || FAILED=1
             fi
