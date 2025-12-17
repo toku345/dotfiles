@@ -26,6 +26,8 @@
 	<string>https://api.openai.com/v1/responses</string>
 	<key>AllowClipboardAccess</key>
 	<false/>
+	<key>AlwaysOpenWindowAtStartup</key>
+	<false/>
 	<key>CloseBookmarksWindowAfterOpening</key>
 	<false/>
 	<key>Custom Color Presets</key>
@@ -3669,8 +3671,6 @@
 	<false/>
 	<key>HotkeyMigratedFromSingleToMulti</key>
 	<true/>
-	<key>IRMemory</key>
-	<integer>4</integer>
 	<key>New Bookmarks</key>
 	<array>
 		<dict>
@@ -7534,8 +7534,10 @@
 	</array>
 	<key>OpenArrangementAtStartup</key>
 	<false/>
-	<key>OpenNoWindowsAtStartup</key>
+	<key>OpenBookmark</key>
 	<false/>
+	<key>OpenNoWindowsAtStartup</key>
+	<true/>
 	<key>PMPrintingExpandedStateForPrint2</key>
 	<false/>
 	<key>PointerActions</key>
@@ -7587,6 +7589,8 @@
 	<string>/-+\~_.</string>
 	<key>findIgnoreCase_iTerm</key>
 	<true/>
+	<key>findMode_iTerm</key>
+	<integer>0</integer>
 	<key>findRegex_iTerm</key>
 	<false/>
 	<key>kCPKSelectionViewPreferredModeKey</key>
