@@ -183,7 +183,7 @@ function gsw --description 'alias: git switch'
 end
 
 function gb --description 'alias: git checkout (git branch | fzf | sed -r "s/^[ \*]+//")'
-    git checkout (git branch | fzf --layout=reverse | sed -r "s/^[ \*]+//")
+    git checkout (git branch | fzf --layout=reverse $argv | sed -r "s/^[ \*]+//")
 end
 
 function d --description 'alias: docker'
@@ -199,7 +199,7 @@ function be --description 'alias: bundle exec'
 end
 
 function rd --description 'alias: git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R'
-    git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R
+    git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R $argv
 end
 
 function gbd --description 'delete merged git branches'
