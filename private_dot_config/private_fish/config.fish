@@ -203,7 +203,10 @@ function rd --description 'alias: git diff --diff-filter=ACMR --name-only | xarg
 end
 
 function gbd --description 'delete merged git branches'
-    git branch --merged main | grep -v -E "\*|main" | xargs git branch -d
+    set -l base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    or set base main
+
+    git branch --merged $base | grep -v -E "\\*|$base" | xargs git branch -d
 end
 
 ## Local configuration (machine-specific)
