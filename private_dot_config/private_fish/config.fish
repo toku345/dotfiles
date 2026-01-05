@@ -1,5 +1,8 @@
 set -x LC_ALL en_US.UTF-8
 
+## Syntax highlighting theme (fish 4.3+)
+fish_config theme choose tomorrow-night-bright
+
 fish_add_path $HOME/.local/bin
 
 ## homebrew (OS-specific)
