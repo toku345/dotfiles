@@ -134,6 +134,18 @@ test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2
 ## Windsurf
 fish_add_path $HOME/.codeium/windsurf/bin
 
+## git worktree runner + claude
+function cc --wraps=claude --description "Create gtr worktree (timestamp branch) and run Claude Code there"
+    git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
+    or begin
+        command claude $argv
+        return $status
+    end
+
+    set -l branch "wip/cc-"(date "+%Y%m%d-%H%M%S")
+    git gtr new $branch --from main --yes && git gtr ai $branch --ai claude -- $argv
+end
+
 ## alias functions
 function l --description 'eza -ahl --git'
     eza -ahl --git $argv
