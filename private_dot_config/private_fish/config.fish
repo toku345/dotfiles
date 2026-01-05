@@ -142,8 +142,11 @@ function cc --wraps=claude --description "Create gtr worktree (timestamp branch)
         return $status
     end
 
+    set -l base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    or set base main
+
     set -l branch "wip/cc-"(date "+%Y%m%d-%H%M%S")
-    git gtr new $branch --from main --yes && git gtr ai $branch --ai claude -- $argv
+    git gtr new $branch --from $base --yes && git gtr ai $branch --ai claude -- $argv
 end
 
 ## alias functions
