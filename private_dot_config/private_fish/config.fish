@@ -1,5 +1,8 @@
 set -x LC_ALL en_US.UTF-8
 
+## Syntax highlighting theme (fish 4.3+)
+fish_config theme choose tomorrow-night-bright
+
 fish_add_path $HOME/.local/bin
 
 ## homebrew (OS-specific)
@@ -73,7 +76,7 @@ fish_add_path $HOME/.ghcup/bin
 fish_add_path $HOME/.cabal/bin
 
 ## mysql (macOS only - Homebrew path)
-if test (uname) = "Darwin"
+if test (uname) = Darwin
     fish_add_path /opt/homebrew/opt/mysql-client/bin
 end
 
