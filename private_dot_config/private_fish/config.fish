@@ -134,6 +134,21 @@ test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2
 ## Windsurf
 fish_add_path $HOME/.codeium/windsurf/bin
 
+## git worktree runner + claude
+function cc --wraps=claude --description "Create gtr worktree (timestamp branch) and run Claude Code there"
+    git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
+    or begin
+        command claude $argv
+        return $status
+    end
+
+    set -l base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    or set base main
+
+    set -l branch "wip/cc-"(date "+%Y%m%d-%H%M%S")
+    git gtr new $branch --from $base --yes && git gtr ai $branch --ai claude -- $argv
+end
+
 ## alias functions
 function l --description 'eza -ahl --git'
     eza -ahl --git $argv
@@ -168,7 +183,7 @@ function gsw --description 'alias: git switch'
 end
 
 function gb --description 'alias: git checkout (git branch | fzf | sed -r "s/^[ \*]+//")'
-    git checkout (git branch | fzf --layout=reverse | sed -r "s/^[ \*]+//")
+    git checkout (git branch | fzf --layout=reverse $argv | sed -r "s/^[ \*]+//")
 end
 
 function d --description 'alias: docker'
@@ -184,11 +199,14 @@ function be --description 'alias: bundle exec'
 end
 
 function rd --description 'alias: git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R'
-    git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R
+    git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R $argv
 end
 
 function gbd --description 'delete merged git branches'
-    git branch --merged main | grep -v -E "\*|main" | xargs git branch -d
+    set -l base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    or set base main
+
+    git branch --merged $base | grep -v -E "\\*|$base" | xargs git branch -d
 end
 
 ## Local configuration (machine-specific)
