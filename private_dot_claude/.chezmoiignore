@@ -1,0 +1,14 @@
+# Runtime/Cache files (not managed by Chezmoi)
+history.jsonl
+stats-cache.json
+debug/
+todos/
+plans/
+projects/
+plugins/
+downloads/
+file-history/
+shell-snapshots/
+image-cache/
+paste-cache/
+commands/

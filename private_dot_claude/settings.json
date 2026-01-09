@@ -1,0 +1,155 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(git fetch:*)",
+      "Bash(tree:*)",
+      "WebFetch(domain:api.anthropic.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:docs.nvidia.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:registry.npmjs.org)",
+      "WebSearch"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Edit(**/*.key)",
+      "Edit(**/*.pem)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(**/.envrc)",
+      "Edit(**/.netrc)",
+      "Edit(**/.npmrc)",
+      "Edit(**/id_ed25519)",
+      "Edit(**/id_ed25519.*)",
+      "Edit(**/id_rsa)",
+      "Edit(**/id_rsa.*)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Edit(.envrc)",
+      "Edit(.npmrc)",
+      "Edit(~/.aws/config)",
+      "Edit(~/.aws/credentials)",
+      "Edit(~/.config/gh/hosts.yml)",
+      "Edit(~/.docker/config.json)",
+      "Edit(~/.kube/config)",
+      "Edit(~/.netrc)",
+      "Edit(~/.npmrc)",
+      "Edit(~/.ssh/**)",
+      "NotebookEdit",
+      "Read(**/*.key)",
+      "Read(**/*.pem)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/.envrc)",
+      "Read(**/.netrc)",
+      "Read(**/.npmrc)",
+      "Read(**/id_ed25519)",
+      "Read(**/id_ed25519.*)",
+      "Read(**/id_rsa)",
+      "Read(**/id_rsa.*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(.envrc)",
+      "Read(.npmrc)",
+      "Read(~/.aws/config)",
+      "Read(~/.aws/credentials)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.kube/config)",
+      "Read(~/.netrc)",
+      "Read(~/.npmrc)",
+      "Read(~/.ssh/**)",
+      "Write(**/*.key)",
+      "Write(**/*.pem)",
+      "Write(**/.env)",
+      "Write(**/.env.*)",
+      "Write(**/.envrc)",
+      "Write(**/.netrc)",
+      "Write(**/.npmrc)",
+      "Write(**/id_ed25519)",
+      "Write(**/id_ed25519.*)",
+      "Write(**/id_rsa)",
+      "Write(**/id_rsa.*)",
+      "Write(**/secrets/**)",
+      "Write(.env)",
+      "Write(.env.*)",
+      "Write(.envrc)",
+      "Write(.npmrc)",
+      "Write(~/.aws/config)",
+      "Write(~/.aws/credentials)",
+      "Write(~/.config/gh/hosts.yml)",
+      "Write(~/.docker/config.json)",
+      "Write(~/.netrc)",
+      "Write(~/.npmrc)",
+      "Write(~/.ssh/**)"
+    ],
+    "ask": [
+      "Bash(chmod +x:*)",
+      "Bash(claude config:*)",
+      "Bash(curl:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(git merge:*)",
+      "Bash(git pull:*)",
+      "Bash(git push:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset:*)",
+      "Bash(git stash:*)",
+      "Bash(git tag:*)",
+      "Bash(rm:*)",
+      "Bash(wget:*)"
+    ],
+    "defaultMode": "plan"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'JUIZ: システム起動完了。No.13 の指示をお待ちしております。'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "afplay /System/Library/Sounds/Glass.aiff"
+          },
+          {
+            "type": "prompt",
+            "prompt": "セッションの会話履歴を分析し、以下を判断してください:\n\n1. コードファイルの変更があったか (Write/Edit ツール使用)\n2. AI特有のパターン (冗長コメント、過剰防衛コード) が導入されたか\n3. CLAUDE.md に追記すべき知見があるか\n\n判断結果:\n- コード変更あり → decision: \"block\", reason: \"/deslop を実行し、CLAUDE.md への追記を検討してください\"\n- コード変更なし → decision: \"approve\"\n\nJSON形式で返答: {\"decision\": \"approve\" | \"block\", \"reason\": \"...\", \"systemMessage\": \"...\"}",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/statusline-command.sh"
+  },
+  "enabledPlugins": {
+    "greptile@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "context7@claude-plugins-official": true
+  },
+  "alwaysThinkingEnabled": true,
+  "language": "Japanese"
+}
