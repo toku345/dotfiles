@@ -133,7 +133,7 @@
           },
           {
             "type": "prompt",
-            "prompt": "セッションの会話履歴を分析し、以下を判断してください:\n\n1. コードファイルの変更があったか (Write/Edit ツール使用)\n2. AI特有のパターン (冗長コメント、過剰防衛コード) が導入されたか\n3. CLAUDE.md に追記すべき知見があるか\n\n判断結果:\n- コード変更あり → decision: \"block\", reason: \"/deslop を実行し、CLAUDE.md への追記を検討してください\"\n- コード変更なし → decision: \"approve\"\n\nJSON形式で返答: {\"decision\": \"approve\" | \"block\", \"reason\": \"...\", \"systemMessage\": \"...\"}",
+            "prompt": "セッションの会話履歴を分析し、以下を判断してください:\n\n1. コードファイルの変更があったか (Write/Edit ツール使用)\n2. AI特有のパターン (冗長コメント、過剰防衛コード) が導入されたか\n\n判断結果:\n- コード変更なし → {\"ok\": true}\n- コード変更あり → {\"ok\": false, \"reason\": \"/deslop を実行し、CLAUDE.md への追記を検討してください\"}\n\nJSON形式で返答してください。",
             "timeout": 30
           }
         ]
