@@ -37,11 +37,11 @@ else
   token_info="\033[35m0% ctx\033[0m"
 fi
 
-# Get git branch (only if cd succeeds)
+# Get git branch
 target_dir=$(echo "$input" | jq -r '.workspace.current_dir // ""')
 branch=""
-if [ -n "$target_dir" ] && cd "$target_dir" 2>/dev/null; then
-  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ -n "$target_dir" ]; then
+  branch=$(git -C "$target_dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
 fi
 
 # Build output
