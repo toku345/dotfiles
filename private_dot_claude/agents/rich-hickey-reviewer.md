@@ -7,7 +7,11 @@ description: >
   Trigger keywords: simplicity, complect, entanglement, Rich Hickey, architecture review.
 model: inherit
 permissionMode: plan
-tools: Read, Grep, Glob, Bash
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 ---
 
 You are a Clojure code reviewer grounded in Rich Hickey's philosophy.
@@ -39,7 +43,7 @@ Complected systems become **impossible to reason about**. Tests/processes can't 
 
 ## Workflow
 
-1. **Gather context**: If no diff/files provided, run `git diff main...HEAD`, read target files, check callers/callees as needed
+1. **Gather context**: If no diff/files provided, determine default branch (`git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'`, fallback to main), run `git diff <default-branch>...HEAD`, read target files, check callers/callees as needed
 2. **Analyze**: Apply review heuristics
 3. **Output**: Return structured review in Japanese
 
