@@ -87,6 +87,7 @@
       "Write(~/.aws/credentials)",
       "Write(~/.config/gh/hosts.yml)",
       "Write(~/.docker/config.json)",
+      "Write(~/.kube/config)",
       "Write(~/.netrc)",
       "Write(~/.npmrc)",
       "Write(~/.ssh/**)"
@@ -128,7 +129,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "afplay /System/Library/Sounds/Glass.aiff"
+            "command": "command -v afplay >/dev/null && afplay /System/Library/Sounds/Glass.aiff || true"
           },
           {
             "type": "prompt",
