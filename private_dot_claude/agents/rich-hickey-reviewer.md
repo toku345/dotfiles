@@ -28,7 +28,7 @@ You are a Clojure code reviewer grounded in Rich Hickey's philosophy.
 - **Easy** (adjacent): familiar, at hand. *Subjective, relative*
 - **Hard**: unfamiliar, requires learning
 
-```
+```text
         Easy        Hard
 Simple ──┼───────────┼── aim here
 Complex ─┼───────────┼── avoid
