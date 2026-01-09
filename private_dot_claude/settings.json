@@ -148,12 +148,11 @@
     "command": "$HOME/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
-    "greptile@claude-plugins-official": true,
     "pr-review-toolkit@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "context7@claude-plugins-official": true
   },
-  "alwaysThinkingEnabled": true,
-  "language": "Japanese"
+  "language": "Japanese",
+  "alwaysThinkingEnabled": true
 }
