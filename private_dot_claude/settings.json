@@ -137,7 +137,7 @@
           },
           {
             "type": "command",
-            "command": "echo '📝 CLAUDE.md に追記すべき知見があれば提案してください'"
+            "command": "echo '📝 知見があれば適切な CLAUDE.md への追記を提案してください（リポジトリ: ./CLAUDE.md、個人: ~/.claude/CLAUDE.md）'"
           }
         ]
       }
