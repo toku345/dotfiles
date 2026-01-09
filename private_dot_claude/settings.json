@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh api:*)",
       "Bash(gh issue list:*)",
       "Bash(gh issue view:*)",
       "Bash(gh pr diff:*)",
@@ -15,8 +14,7 @@
       "WebFetch(domain:docs.claude.com)",
       "WebFetch(domain:docs.nvidia.com)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:registry.npmjs.org)",
-      "WebSearch"
+      "WebFetch(domain:registry.npmjs.org)"
     ],
     "deny": [
       "Bash(sudo:*)",
@@ -96,6 +94,7 @@
       "Bash(chmod +x:*)",
       "Bash(claude config:*)",
       "Bash(curl:*)",
+      "Bash(gh api:*)",
       "Bash(git branch:*)",
       "Bash(git checkout:*)",
       "Bash(git commit:*)",
@@ -107,7 +106,8 @@
       "Bash(git stash:*)",
       "Bash(git tag:*)",
       "Bash(rm:*)",
-      "Bash(wget:*)"
+      "Bash(wget:*)",
+      "WebSearch"
     ],
     "defaultMode": "plan"
   },
