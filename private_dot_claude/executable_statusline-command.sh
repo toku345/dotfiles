@@ -20,7 +20,7 @@ if ! echo "$input" | jq -e . >/dev/null 2>&1; then
 fi
 
 # Extract all data in single jq call
-read -r model dir current size < <(echo "$input" | jq -r '[
+IFS=$'\t' read -r model dir current size < <(echo "$input" | jq -r '[
   .model.display_name // "unknown",
   (.workspace.current_dir // "" | split("/") | .[-1] // ""),
   ((.context_window.current_usage.input_tokens // 0) + (.context_window.current_usage.cache_creation_input_tokens // 0) + (.context_window.current_usage.cache_read_input_tokens // 0)),
