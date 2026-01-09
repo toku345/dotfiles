@@ -20,11 +20,12 @@ if ! echo "$input" | jq -e . >/dev/null 2>&1; then
 fi
 
 # Extract all data in single jq call
-IFS=$'\t' read -r model dir current size < <(echo "$input" | jq -r '[
+IFS=$'\t' read -r model dir current size target_dir < <(echo "$input" | jq -r '[
   .model.display_name // "unknown",
   (.workspace.current_dir // "" | split("/") | .[-1] // ""),
   ((.context_window.current_usage.input_tokens // 0) + (.context_window.current_usage.cache_creation_input_tokens // 0) + (.context_window.current_usage.cache_read_input_tokens // 0)),
-  (.context_window.context_window_size // 0)
+  (.context_window.context_window_size // 0),
+  .workspace.current_dir // ""
 ] | @tsv')
 
 # Calculate context window percentage with zero-division guard
@@ -38,7 +39,6 @@ else
 fi
 
 # Get git branch
-target_dir=$(echo "$input" | jq -r '.workspace.current_dir // ""')
 branch=""
 if [ -n "$target_dir" ]; then
   branch=$(git -C "$target_dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
