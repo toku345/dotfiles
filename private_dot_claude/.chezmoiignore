@@ -1,6 +1,7 @@
 # Runtime/Cache files (not managed by Chezmoi)
 history.jsonl
 stats-cache.json
+settings.local.json
 debug/
 todos/
 plans/
