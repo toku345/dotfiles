@@ -1,0 +1,158 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(git fetch:*)",
+      "Bash(tree:*)",
+      "WebFetch(domain:api.anthropic.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:docs.nvidia.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:registry.npmjs.org)"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Edit(**/*.key)",
+      "Edit(**/*.pem)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(**/.envrc)",
+      "Edit(**/.netrc)",
+      "Edit(**/.npmrc)",
+      "Edit(**/id_ed25519)",
+      "Edit(**/id_ed25519.*)",
+      "Edit(**/id_rsa)",
+      "Edit(**/id_rsa.*)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Edit(.envrc)",
+      "Edit(.npmrc)",
+      "Edit(~/.aws/config)",
+      "Edit(~/.aws/credentials)",
+      "Edit(~/.config/gh/hosts.yml)",
+      "Edit(~/.docker/config.json)",
+      "Edit(~/.kube/config)",
+      "Edit(~/.netrc)",
+      "Edit(~/.npmrc)",
+      "Edit(~/.ssh/**)",
+      "NotebookEdit",
+      "Read(**/*.key)",
+      "Read(**/*.pem)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/.envrc)",
+      "Read(**/.netrc)",
+      "Read(**/.npmrc)",
+      "Read(**/id_ed25519)",
+      "Read(**/id_ed25519.*)",
+      "Read(**/id_rsa)",
+      "Read(**/id_rsa.*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(.envrc)",
+      "Read(.npmrc)",
+      "Read(~/.aws/config)",
+      "Read(~/.aws/credentials)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.kube/config)",
+      "Read(~/.netrc)",
+      "Read(~/.npmrc)",
+      "Read(~/.ssh/**)",
+      "Write(**/*.key)",
+      "Write(**/*.pem)",
+      "Write(**/.env)",
+      "Write(**/.env.*)",
+      "Write(**/.envrc)",
+      "Write(**/.netrc)",
+      "Write(**/.npmrc)",
+      "Write(**/id_ed25519)",
+      "Write(**/id_ed25519.*)",
+      "Write(**/id_rsa)",
+      "Write(**/id_rsa.*)",
+      "Write(**/secrets/**)",
+      "Write(.env)",
+      "Write(.env.*)",
+      "Write(.envrc)",
+      "Write(.npmrc)",
+      "Write(~/.aws/config)",
+      "Write(~/.aws/credentials)",
+      "Write(~/.config/gh/hosts.yml)",
+      "Write(~/.docker/config.json)",
+      "Write(~/.kube/config)",
+      "Write(~/.netrc)",
+      "Write(~/.npmrc)",
+      "Write(~/.ssh/**)"
+    ],
+    "ask": [
+      "Bash(chmod +x:*)",
+      "Bash(claude config:*)",
+      "Bash(curl:*)",
+      "Bash(gh api:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(git merge:*)",
+      "Bash(git pull:*)",
+      "Bash(git push:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset:*)",
+      "Bash(git stash:*)",
+      "Bash(git tag:*)",
+      "Bash(rm:*)",
+      "Bash(wget:*)",
+      "WebSearch"
+    ],
+    "defaultMode": "plan"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'JUIZ: システム起動完了。No.13 の指示をお待ちしております。'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v afplay >/dev/null && afplay /System/Library/Sounds/Glass.aiff || true"
+          },
+          {
+            "type": "command",
+            "command": "echo '🧹 コードを変更した場合は /deslop の実行を検討してください'"
+          },
+          {
+            "type": "command",
+            "command": "echo '📝 知見があれば適切な CLAUDE.md への追記を提案してください（リポジトリ: ./CLAUDE.md、個人: ~/.claude/CLAUDE.md）'"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/statusline-command.sh"
+  },
+  "enabledPlugins": {
+    "pr-review-toolkit@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "context7@claude-plugins-official": true
+  },
+  "language": "Japanese",
+  "alwaysThinkingEnabled": true
+}
