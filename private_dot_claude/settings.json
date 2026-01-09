@@ -132,9 +132,12 @@
             "command": "command -v afplay >/dev/null && afplay /System/Library/Sounds/Glass.aiff || true"
           },
           {
-            "type": "prompt",
-            "prompt": "セッションの会話履歴を分析し、以下を判断してください:\n\n1. コードファイルの変更があったか (Write/Edit ツール使用)\n2. AI特有のパターン (冗長コメント、過剰防衛コード) が導入されたか\n\n判断結果:\n- コード変更なし → {\"decision\": \"approve\"}\n- コード変更あり → {\"decision\": \"block\", \"reason\": \"/deslop を実行し、CLAUDE.md への追記を検討してください\"}\n\nJSON形式で返答してください。",
-            "timeout": 30
+            "type": "command",
+            "command": "echo '🧹 コードを変更した場合は /deslop の実行を検討してください'"
+          },
+          {
+            "type": "command",
+            "command": "echo '📝 CLAUDE.md に追記すべき知見があれば提案してください'"
           }
         ]
       }
