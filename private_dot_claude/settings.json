@@ -205,7 +205,7 @@
       "git",
       "gh"
     ],
-    "allowUnsandboxedCommands": false,
+    "allowUnsandboxedCommands": true,
     "network": {
       "allowLocalBinding": true
     }
