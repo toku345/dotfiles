@@ -139,8 +139,13 @@ function cc --description "Create gtr worktree (timestamp branch) and cd to it"
     git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
     or return 1
 
-    set -l base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-    or set base main
+    set -l base
+    if set -q argv[1]; and test -n "$argv[1]"
+        set base $argv[1]
+    else
+        set base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+        or set base main
+    end
 
     set -l branch "wip/cc-"(date "+%Y%m%d-%H%M%S")
     git gtr new $branch --from $base --yes
