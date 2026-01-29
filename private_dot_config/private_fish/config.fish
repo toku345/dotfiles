@@ -137,7 +137,10 @@ fish_add_path $HOME/.codeium/windsurf/bin
 ## git worktree runner + claude
 function cc --description "Create gtr worktree (timestamp branch) and cd to it"
     git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
-    or return 1
+    or begin
+        echo "Error: not in a git repository" >&2
+        return 1
+    end
 
     set -l base
     if set -q argv[1]; and test -n "$argv[1]"
