@@ -147,7 +147,9 @@ function cc --description "Create gtr worktree (timestamp branch) and cd to it"
         set base $argv[1]
     else
         set base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-        or set base main
+        if test -z "$base"
+            set base main
+        end
     end
 
     set -l branch "wip/cc-"(date "+%Y%m%d-%H%M%S")
