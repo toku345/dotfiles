@@ -154,7 +154,13 @@ function cc --description "Create gtr worktree (timestamp branch) and cd to it"
 
     set -l branch "wip/cc-"(date "+%Y%m%d-%H%M%S")
     git gtr new $branch --from $base --yes
-    and cd (git gtr go $branch)
+    and begin
+        set -l worktree_dir (git gtr go $branch)
+        if test $status -ne 0; or test -z "$worktree_dir"
+            return 1
+        end
+        cd $worktree_dir
+    end
 end
 
 ## alias functions
