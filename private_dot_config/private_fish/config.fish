@@ -135,18 +135,32 @@ test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2
 fish_add_path $HOME/.codeium/windsurf/bin
 
 ## git worktree runner + claude
-function cc --wraps=claude --description "Create gtr worktree (timestamp branch) and run Claude Code there"
+function cc --description "Create gtr worktree (timestamp branch) and cd to it"
     git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
     or begin
-        command claude $argv
-        return $status
+        echo "Error: not in a git repository" >&2
+        return 1
     end
 
-    set -l base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-    or set base main
+    set -l base
+    if set -q argv[1]; and test -n "$argv[1]"
+        set base $argv[1]
+    else
+        set base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+        if test -z "$base"
+            set base main
+        end
+    end
 
     set -l branch "wip/cc-"(date "+%Y%m%d-%H%M%S")
-    git gtr new $branch --from $base --yes && git gtr ai $branch --ai claude -- $argv
+    git gtr new $branch --from $base --yes
+    and begin
+        set -l worktree_dir (git gtr go $branch)
+        if test $status -ne 0; or test -z "$worktree_dir"
+            return 1
+        end
+        cd $worktree_dir
+    end
 end
 
 ## alias functions
