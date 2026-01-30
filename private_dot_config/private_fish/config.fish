@@ -196,8 +196,28 @@ function gsw --description 'alias: git switch'
     git switch $argv
 end
 
-function gb --description 'alias: git checkout (git branch | fzf | sed -r "s/^[ \*]+//")'
-    git checkout (git branch | fzf --layout=reverse $argv | sed -r "s/^[ \*]+//")
+function gb --description 'git checkout or cd to worktree (fzf branch selector)'
+    set -l selected_line (git branch | fzf --layout=reverse $argv)
+
+    if test -z "$selected_line"
+        return 0
+    end
+
+    # ブランチ名を抽出（*, +, 空白を除去）
+    set -l branch_name (echo $selected_line | sed -r 's/^[ \*\+]+//')
+
+    # worktree ブランチの場合（+ で始まる行）
+    if string match -q '*+*' -- "$selected_line"
+        # git worktree list から該当ブランチのパスを取得
+        set -l worktree_dir (git worktree list | grep -E "\[$branch_name\]\$" | awk '{print $1}')
+        if test -z "$worktree_dir"
+            echo "Error: Failed to get worktree directory for '$branch_name'" >&2
+            return 1
+        end
+        cd $worktree_dir
+    else
+        git checkout $branch_name
+    end
 end
 
 function d --description 'alias: docker'
