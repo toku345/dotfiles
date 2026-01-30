@@ -1,0 +1,26 @@
+# =============================================================================
+# Ghostty Configuration
+# =============================================================================
+# Migrated from iTerm2
+# https://ghostty.org/docs/config/reference
+
+# Font settings (from iTerm2 profiles)
+font-family = "HackGen Console NF"
+font-size = 12
+
+# Color theme
+theme = TokyoNight
+
+# macOS settings
+macos-option-as-alt = true
+
+# Window appearance
+window-padding-x = 4
+window-padding-y = 4
+
+# Cursor
+cursor-style = block
+cursor-style-blink = false
+
+# Terminal
+term = xterm-256color
