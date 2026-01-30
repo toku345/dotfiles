@@ -203,12 +203,17 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
         return 0
     end
 
-    # ブランチ名を抽出（*, +, 空白を除去）
+    # Extract branch name (remove *, +, and leading spaces)
     set -l branch_name (echo $selected_line | sed -r 's/^[ \*\+]+//')
 
-    # worktree ブランチの場合（+ で始まる行）
+    # Check if currently inside a worktree
+    set -l main_repo (git worktree list | head -1 | awk '{print $1}')
+    set -l current_repo (git rev-parse --show-toplevel)
+    set -l is_in_worktree (test "$main_repo" != "$current_repo"; and echo 1; or echo 0)
+
+    # Worktree branch (line contains +)
     if string match -q '*+*' -- "$selected_line"
-        # git worktree list から該当ブランチのパスを取得
+        # Get worktree path from git worktree list
         set -l worktree_dir (git worktree list | grep -E "\[$branch_name\]\$" | awk '{print $1}')
         if test -z "$worktree_dir"
             echo "Error: Failed to get worktree directory for '$branch_name'" >&2
@@ -216,6 +221,11 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
         end
         cd $worktree_dir
     else
+        # Prevent checkout inside worktree to avoid confusion
+        if test "$is_in_worktree" = "1"
+            echo "Error: Cannot checkout in worktree. Use 'gb' to switch to another worktree, or return to main repo first." >&2
+            return 1
+        end
         git checkout $branch_name
     end
 end
