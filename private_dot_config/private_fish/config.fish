@@ -196,8 +196,38 @@ function gsw --description 'alias: git switch'
     git switch $argv
 end
 
-function gb --description 'alias: git checkout (git branch | fzf | sed -r "s/^[ \*]+//")'
-    git checkout (git branch | fzf --layout=reverse $argv | sed -r "s/^[ \*]+//")
+function gb --description 'git checkout or cd to worktree (fzf branch selector)'
+    set -l selected_line (git branch | fzf --layout=reverse $argv)
+
+    if test -z "$selected_line"
+        return 0
+    end
+
+    # Extract branch name (remove *, +, and leading spaces)
+    set -l branch_name (echo $selected_line | sed -r 's/^[ \*\+]+//')
+
+    # Check if currently inside a worktree
+    set -l main_repo (git worktree list | head -1 | awk '{print $1}')
+    set -l current_repo (git rev-parse --show-toplevel)
+    set -l is_in_worktree (test "$main_repo" != "$current_repo"; and echo 1; or echo 0)
+
+    # Worktree branch (line contains +)
+    if string match -q '*+*' -- "$selected_line"
+        # Get worktree path from git worktree list
+        set -l worktree_dir (git worktree list | grep -E "\[$branch_name\]\$" | awk '{print $1}')
+        if test -z "$worktree_dir"
+            echo "Error: Failed to get worktree directory for '$branch_name'" >&2
+            return 1
+        end
+        cd $worktree_dir
+    else
+        # Prevent checkout inside worktree to avoid confusion
+        if test "$is_in_worktree" = "1"
+            echo "Error: Cannot checkout in worktree. Use 'gb' to switch to another worktree, or return to main repo first." >&2
+            return 1
+        end
+        git checkout $branch_name
+    end
 end
 
 function d --description 'alias: docker'
