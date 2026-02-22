@@ -10,7 +10,10 @@ function ssh --wraps ssh --description "SSH with iTerm2 tab color indicator"
     echo -ne "\033]6;1;bg;blue;brightness;0\a"
 
     command ssh $argv
+    set -l ssh_status $status
 
-    # Reset tab color to default after disconnect (also runs on Ctrl+C)
+    # Reset tab color to default after disconnect
     echo -ne "\033]6;1;bg;*;default\a"
+
+    return $ssh_status
 end
