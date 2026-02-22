@@ -5,3 +5,9 @@ key.txt.age
 CLAUDE.md
 CLAUDE.local.md
 docs
+
+# macOS-only configurations (skip on Linux)
+{{ if ne .chezmoi.os "darwin" }}
+private_dot_config/private_karabiner
+private_dot_config/iterm2
+{{ end }}
