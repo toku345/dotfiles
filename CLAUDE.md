@@ -121,7 +121,7 @@ When making changes:
 
 ### 設定ファイル変更時
 
-- **構文チェック通過**: Fish shell は `fish -n <file>`、その他は `chezmoi apply --dry-run` でエラーなし
+- **構文チェック通過**: Fish shell は `chezmoi cat <file> | fish -n`（.tmpl でも安全）、その他は `chezmoi apply --dry-run` でエラーなし
 - **chezmoi diff 確認**: `chezmoi diff` で意図した差分のみが出力される
 - **chezmoi apply 成功**: `chezmoi apply -v` がエラーなく完了する
 
