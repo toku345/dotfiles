@@ -115,6 +115,26 @@ When making changes:
 3. Apply changes with `chezmoi apply`
 4. Commit changes to git from the source directory
 
+## Definition of Done（chezmoi 固有）
+
+グローバル DoD に加え、このリポジトリでは変更種別に応じて以下を確認する。
+
+### 設定ファイル変更時
+
+- **構文チェック通過**: Fish shell は `fish -n <file>`、その他は `chezmoi apply --dry-run` でエラーなし
+- **chezmoi diff 確認**: `chezmoi diff` で意図した差分のみが出力される
+- **chezmoi apply 成功**: `chezmoi apply -v` がエラーなく完了する
+
+### セキュリティ関連変更時
+
+- **暗号化ファイルの整合性**: `.age` ファイルが正しく暗号化されている
+- **平文シークレット不在**: `git diff --cached` にパスワード・鍵・トークンが含まれていない
+
+### chezmoi 命名規則変更時
+
+- **命名規則準拠**: `dot_`, `private_`, `encrypted_` プレフィックスが正しい
+- **ターゲットパス確認**: `chezmoi target-path <source-file>` で意図した配置先を確認
+
 ## Go Template Usage Policy
 
 ### Principles
