@@ -31,7 +31,7 @@ IFS=$'\t' read -r model dir used_pct remaining_pct target_dir < <(echo "$input" 
 if [ "$used_pct" -gt 0 ] 2>/dev/null; then
   token_info=$(printf "\033[35m%d%% ctx\033[0m (\033[33m%d%% left\033[0m)" "$used_pct" "$remaining_pct")
 else
-  token_info="\033[35m0% ctx\033[0m"
+  token_info=$(printf "\033[35m0%% ctx\033[0m (\033[33m100%% left\033[0m)")
 fi
 
 # Get git branch
