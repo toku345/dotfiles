@@ -20,20 +20,16 @@ if ! echo "$input" | jq -e . >/dev/null 2>&1; then
 fi
 
 # Extract all data in single jq call
-IFS=$'\t' read -r model dir current size target_dir < <(echo "$input" | jq -r '[
+IFS=$'\t' read -r model dir used_pct remaining_pct target_dir < <(echo "$input" | jq -r '[
   .model.display_name // "unknown",
   (.workspace.current_dir // "" | split("/") | .[-1] // ""),
-  ((.context_window.current_usage.input_tokens // 0) + (.context_window.current_usage.cache_creation_input_tokens // 0) + (.context_window.current_usage.cache_read_input_tokens // 0)),
-  (.context_window.context_window_size // 0),
+  (.context_window.used_percentage // 0 | floor),
+  (.context_window.remaining_percentage // 0 | floor),
   .workspace.current_dir // ""
 ] | @tsv')
 
-# Calculate context window percentage with zero-division guard
-if [ "$size" -gt 0 ] 2>/dev/null; then
-  remaining=$((size - current))
-  pct=$((current * 100 / size))
-  remaining_k=$((remaining / 1000))
-  token_info=$(printf "\033[35m%d%% ctx\033[0m (\033[33m%dK remain\033[0m)" "$pct" "$remaining_k")
+if [ "$used_pct" -gt 0 ] 2>/dev/null; then
+  token_info=$(printf "\033[35m%d%% ctx\033[0m (\033[33m%d%% left\033[0m)" "$used_pct" "$remaining_pct")
 else
   token_info="\033[35m0% ctx\033[0m"
 fi
