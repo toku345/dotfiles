@@ -68,19 +68,23 @@
 
 コミット作成時は以下の手順を使用する:
 
-1. コミットメッセージを `/tmp/claude/commit-msg.txt` に書き出す (printf)
-2. `git commit -F /tmp/claude/commit-msg.txt` でコミット実行
-3. `/tmp/claude/commit-msg.txt` を削除
+1. `mkdir -p /tmp/claude` でディレクトリを確保する
+2. コミットメッセージを `/tmp/claude/commit-msg.txt` に書き出す (printf)
+3. `git commit -F /tmp/claude/commit-msg.txt` でコミット実行
+4. `/tmp/claude/commit-msg.txt` を削除
 
 理由: HEREDOCはサンドボックス制約により失敗する。
 
 ## PR 作成手順
 
+PR のタイトル・説明は英語で記述する。
+
 PR 作成時は以下の手順を使用する:
 
-1. PR body を `/tmp/claude/pr-body.md` に書き出す (printf)
-2. `gh pr create --title "タイトル" --body-file /tmp/claude/pr-body.md` で PR 作成
-3. `/tmp/claude/pr-body.md` を削除
+1. `mkdir -p /tmp/claude` でディレクトリを確保する
+2. PR body を `/tmp/claude/pr-body.md` に書き出す (printf)
+3. `gh pr create --title "タイトル" --body-file /tmp/claude/pr-body.md` で PR 作成
+4. `/tmp/claude/pr-body.md` を削除
 
 理由: HEREDOCはサンドボックス制約により失敗する。
 
