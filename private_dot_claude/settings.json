@@ -175,10 +175,6 @@
           {
             "type": "command",
             "command": "command -v afplay >/dev/null && afplay /System/Library/Sounds/Glass.aiff || true"
-          },
-          {
-            "type": "command",
-            "command": "echo '📝 知見があれば適切な CLAUDE.md への追記を提案してください（リポジトリ: ./CLAUDE.md、個人: ~/.claude/CLAUDE.md）'"
           }
         ]
       }
