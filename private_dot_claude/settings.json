@@ -178,10 +178,6 @@
           },
           {
             "type": "command",
-            "command": "echo '🧹 コードを変更した場合は /deslop の実行を検討してください'"
-          },
-          {
-            "type": "command",
             "command": "echo '📝 知見があれば適切な CLAUDE.md への追記を提案してください（リポジトリ: ./CLAUDE.md、個人: ~/.claude/CLAUDE.md）'"
           }
         ]
