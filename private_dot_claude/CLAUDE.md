@@ -66,23 +66,33 @@
 
 ## Git コミット手順
 
-コミット作成時は以下の手順を使用する:
+HEREDOC を使用してコミットメッセージを渡す:
 
-1. コミットメッセージを `/tmp/claude/commit-msg.txt` に書き出す (printf)
-2. `git commit -F /tmp/claude/commit-msg.txt` でコミット実行
-3. `/tmp/claude/commit-msg.txt` を削除
+```bash
+git commit -m "$(cat <<'EOF'
+コミットメッセージ
 
-理由: HEREDOCはサンドボックス制約により失敗する。
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+EOF
+)"
+```
 
 ## PR 作成手順
 
-PR 作成時は以下の手順を使用する:
+PR のタイトル・説明は英語で記述する。
 
-1. PR body を `/tmp/claude/pr-body.md` に書き出す (printf)
-2. `gh pr create --title "タイトル" --body-file /tmp/claude/pr-body.md` で PR 作成
-3. `/tmp/claude/pr-body.md` を削除
+HEREDOC を使用して PR body を渡す:
 
-理由: HEREDOCはサンドボックス制約により失敗する。
+```bash
+gh pr create --title "PR title here" --body "$(cat <<'EOF'
+## Summary
+- ...
+
+## Test plan
+- ...
+EOF
+)"
+```
 
 ## コードコメント指針
 

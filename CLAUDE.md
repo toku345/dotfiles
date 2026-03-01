@@ -85,6 +85,10 @@ chezmoi apply
   - `karabiner/` - Karabiner-Elements keyboard customization
   - `iterm2/` - iTerm2 terminal preferences
 - `private_dot_ssh/` - SSH configuration
+- `private_dot_claude/` - Claude Code configuration
+  - `skills/` - Claude Code skills (maps to `~/.claude/skills/`)
+  - `agents/` - Claude Code custom agents
+  - `settings.json` - Claude Code settings
 - `images/` - Documentation images
 - `key.txt.age` - Encrypted age key
 
