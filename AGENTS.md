@@ -47,7 +47,7 @@ Files with `.age` extension are encrypted using the age encryption tool. This re
 
 #### Security Architecture
 
-```
+```text
 key.txt.age (in repository, password-protected)
     ↓ Decrypt with password from 1Password
 ~/key.txt (local age identity/private key)
