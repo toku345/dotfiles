@@ -83,17 +83,27 @@ chezmoi apply
 ## Repository Structure
 
 - `private_dot_config/` - Configuration files that will be placed in `~/.config/`
+  - `asdf/` - asdf version manager configuration
   - `private_fish/` - Fish shell configuration
+  - `ghostty/` - Ghostty terminal configuration
   - `git/` - Git configuration
+  - `google_ime/` - Google IME dictionary
+  - `iterm2/` - iTerm2 terminal preferences
+  - `nano/` - Nano editor configuration
+  - `private_karabiner/` - Karabiner-Elements keyboard customization
   - `starship.toml` - Starship prompt configuration
   - `tmux/` - Tmux configuration
-  - `karabiner/` - Karabiner-Elements keyboard customization
-  - `iterm2/` - iTerm2 terminal preferences
 - `private_dot_ssh/` - SSH configuration
 - `private_dot_claude/` - Claude Code configuration
   - `skills/` - Claude Code skills (maps to `~/.claude/skills/`)
   - `agents/` - Claude Code custom agents
   - `settings.json` - Claude Code settings
+  - `CLAUDE.md` - Global Claude Code instructions
+  - `executable_statusline-command.sh` - Status line script
+- `.chezmoiscripts/` - One-time setup scripts run by chezmoi
+- `.github/` - GitHub Actions workflows (CI, security checks)
+- `docs/` - Detailed documentation (security, backup/restore)
+- `dot_ocamlinit` - OCaml initialization file
 - `images/` - Documentation images
 - `key.txt.age` - Encrypted age key
 
@@ -197,66 +207,19 @@ The workflow runs in GitHub Actions (`.github/workflows/security-checks.yml`) an
 **Critical Rules:**
 - DO commit `key.txt.age` (password-protected)
 - NEVER commit `~/key.txt` (plaintext private key)
-- DO store the password in 1Password
 - NEVER commit plaintext secrets or API keys
-- DO review `git diff` before committing
-- NEVER share your age private key
-
-**Emergency Key Rotation:**
-Only rotate your age key in emergencies:
-- Accidental commit of `~/key.txt` to public repository
-- Device lost, stolen, or compromised
-- Suspected unauthorized access
 
 For detailed security procedures, see [docs/security.md](docs/security.md)
 
 ## Backup and Recovery Strategy
 
-### What You Need for Disaster Recovery
-
-Only **3 things** are required to restore everything on a new machine:
+Disaster recovery requires only **3 things**:
 
 1. **GitHub account access** - to clone the repository
 2. **1Password account access** - to retrieve the key.txt.age password
 3. **key.txt.age password** - stored in 1Password
 
-### Critical Backups (Must Have)
-
-- **1Password Emergency Kit** - Print and store in a safe place (fireproof safe, bank deposit box)
-- **1Password Master Password** - Memorize it (don't rely only on password manager)
-- **GitHub 2FA Recovery Codes** - Save in 1Password + print and store physically
-- **key.txt.age password** - Optionally write on paper and store in safe (insurance if 1Password fails)
-
-### What NOT to Backup
-
-- ❌ `~/key.txt` (unencrypted private key) - Never back up to USB/cloud
-- ❌ Local dotfiles archives - Already in GitHub
-- ❌ Multiple copies of encrypted files - Already in GitHub repository
-
-### New Machine Setup (Quick Reference)
-
-```bash
-# 1. Install tools
-brew install chezmoi age
-
-# 2. Setup SSH key and add to GitHub
-ssh-keygen -t ed25519 -C "your_email@example.com"
-# Add public key to GitHub Settings > SSH and GPG keys
-
-# 3. Clone repository
-chezmoi init toku345
-
-# 4. Decrypt age key (get password from 1Password)
-cd ~/.local/share/chezmoi
-age -d -o ~/key.txt key.txt.age
-chmod 600 ~/key.txt
-
-# 5. Apply dotfiles
-chezmoi diff  # Review changes
-chezmoi apply # Apply configurations
-```
-
-For detailed instructions, see [docs/backup-restore.md](docs/backup-restore.md)
+For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/backup-restore.md)
 
 ## Important Notes
 
