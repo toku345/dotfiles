@@ -84,7 +84,7 @@ PR のタイトル・説明は英語で記述する。
 HEREDOC を使用して PR body を渡す:
 
 ```bash
-gh pr create --title "タイトル" --body "$(cat <<'EOF'
+gh pr create --title "PR title here" --body "$(cat <<'EOF'
 ## Summary
 - ...
 
