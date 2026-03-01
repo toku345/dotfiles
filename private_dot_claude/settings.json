@@ -157,17 +157,6 @@
     "defaultMode": "plan"
   },
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'JUIZ: システム起動完了。No.13 の指示をお待ちしております。'"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "matcher": "*",
