@@ -182,7 +182,6 @@
     "feature-dev@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
     "hookify@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true
   },
@@ -194,10 +193,12 @@
     "network": {
       "allowLocalBinding": true
     },
+    "enableWeakerNestedSandbox": true,
     "excludedCommands": [
       "docker",
       "git",
-      "gh"
+      "gh",
+      "codex"
     ]
   },
   "alwaysThinkingEnabled": true
