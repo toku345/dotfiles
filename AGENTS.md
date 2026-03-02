@@ -227,6 +227,7 @@ For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/
   - `dot_` prefix becomes `.` in the target
   - `private_` prefix sets permissions to 0600
   - `encrypted_` prefix indicates age-encrypted files
+  - `.chezmoiignore` lists files excluded from `chezmoi apply` (e.g., `AGENTS.md`, `CLAUDE.md`)
 - Template files (`.tmpl`) are processed before being applied to the target system
 - The repository includes configurations for macOS-specific tools (Homebrew, iTerm2, Karabiner)
 - **Security**: All sensitive files are encrypted with age. The age private key itself is password-protected in the repository.
