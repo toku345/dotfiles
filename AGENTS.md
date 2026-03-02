@@ -68,7 +68,7 @@ encrypted_*.age (SSH config, Google IME dictionary, etc.)
 brew install age
 
 # Decrypt key.txt.age to get the private key (one-time setup)
-age -d -o ~/key.txt ~/.local/share/chezmoi/key.txt.age
+age -d -o ~/key.txt "$(chezmoi source-path)/key.txt.age"
 # Enter password from 1Password
 
 # Set correct permissions
