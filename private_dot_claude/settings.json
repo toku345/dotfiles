@@ -194,10 +194,12 @@
     "network": {
       "allowLocalBinding": true
     },
+    "enableWeakerNestedSandbox": true,
     "excludedCommands": [
       "docker",
       "git",
-      "gh"
+      "gh",
+      "codex"
     ]
   },
   "alwaysThinkingEnabled": true
