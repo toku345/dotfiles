@@ -5,7 +5,7 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 ## Compatibility Note
 
 - `AGENTS.md` is the canonical file.
-- `CLAUDE.md` is a symlink to this file for backward compatibility.
+- Root `CLAUDE.md` is a symlink to this file for backward compatibility.
 
 ## Repository Overview
 
@@ -98,7 +98,7 @@ chezmoi apply
   - `skills/` - Claude Code skills (maps to `~/.claude/skills/`)
   - `agents/` - Claude Code custom agents
   - `settings.json` - Claude Code settings
-  - `CLAUDE.md` - Global Claude Code instructions
+  - `CLAUDE.md` - Global Claude Code instructions (distinct from root `CLAUDE.md` symlink)
   - `executable_statusline-command.sh` - Status line script
 - `.chezmoiscripts/` - One-time setup scripts run by chezmoi
 - `.github/` - GitHub Actions workflows (CI, security checks)
