@@ -151,10 +151,6 @@ interface LambdaEvent { ... }
 - ドキュメントのみの変更
 - 設定値の変更
 
-### モデル設定
-
-使用モデルは `~/.codex/config.toml` の `model` 設定に従う。利用可能なモデルは [Codex Models](https://developers.openai.com/codex/models/) を参照。
-
 ### 手順
 
 1. プランファイルに実装計画を書き終えたら、Codex にレビューを依頼する:
