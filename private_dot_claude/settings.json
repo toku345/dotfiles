@@ -201,5 +201,7 @@
       "codex"
     ]
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "high",
+  "voiceEnabled": false
 }
