@@ -51,9 +51,6 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 
 ```json
 {
-  "env": {
-    "SSL_CERT_FILE": "/etc/ssl/cert.pem"
-  },
   "sandbox": {
     "filesystem": {
       "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.config/gh/hosts.yml"],
@@ -62,7 +59,7 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
     "network": {
       "allowAllUnixSockets": true
     },
-    "excludedCommands": ["docker", "codex"]
+    "excludedCommands": ["docker", "gh", "codex"]
   }
 }
 ```
@@ -77,7 +74,6 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 | `allowWrite: /tmp` | Lefthook/Husky stash operations and temp files |
 | `allowWrite: .git` | `git push -u` upstream tracking config, branch metadata, index updates |
 | `allowAllUnixSockets: true` | SSH agent access; `allowUnixSockets` requires literal paths but `$SSH_AUTH_SOCK` is dynamic |
-| `SSL_CERT_FILE: /etc/ssl/cert.pem` | Bypass macOS `trustd` TLS service; Go programs read certs from this file directly |
 
 ### What is NOT permitted
 
@@ -85,17 +81,20 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 - Arbitrary filesystem writes — only `.` (working directory), `.git`, and `/tmp`
 - Arbitrary network hosts — restricted to `allowedDomains` defaults (includes `github.com`)
 
-### Why `gh` is now sandboxed
+### Why `gh` remains in `excludedCommands`
 
-`gh` (Go-based) previously required `excludedCommands` because the sandbox blocks
-macOS `com.apple.trustd.agent` for TLS certificate verification, causing
-`x509: OSStatus -26276` errors. Setting `SSL_CERT_FILE=/etc/ssl/cert.pem` in the
-sandbox environment allows Go's TLS stack to read certificates directly from the
-filesystem, bypassing `trustd`. This file is a standard macOS system certificate
-bundle.
+`gh` (Go-based) requires access to macOS `com.apple.trustd.agent` for TLS
+certificate verification. The sandbox blocks this Mach service.
 
-If `SSL_CERT_FILE` does not resolve TLS errors (e.g., cgo-enabled builds still
-prefer Security framework), `gh` should be added back to `excludedCommands`.
+**Attempted workaround — `SSL_CERT_FILE=/etc/ssl/cert.pem`**: Go's `crypto/x509`
+can read certificates from a file specified by `SSL_CERT_FILE`, bypassing `trustd`.
+However, macOS `gh` is built with cgo enabled, and the cgo-enabled `crypto/x509`
+delegates to Security framework rather than reading `SSL_CERT_FILE`. The workaround
+was tested and confirmed to fail with the same `x509: OSStatus -26276` error.
+
+`enableWeakerNetworkIsolation` was also tested but only functions when
+`httpProxyPort` is configured (MITM proxy scenario). Sandboxing `gh` would require
+a MITM proxy, so `excludedCommands` is the pragmatic choice.
 
 ## Consequences
 
@@ -118,9 +117,9 @@ prefer Security framework), `gh` should be added back to `excludedCommands`.
 - **`.git` write access allows hook/config modification**: All sandboxed commands
   can write to `.git/config` and `.git/hooks/`. Risk is equivalent to when `git`
   was in `excludedCommands` (full filesystem access).
-- **`SSL_CERT_FILE` may not work on all builds**: Go's cgo-enabled builds on
-  macOS may still prefer Security framework over `SSL_CERT_FILE`. If `gh` fails,
-  it must be moved back to `excludedCommands`.
+- **`gh` remains unsandboxed**: Due to TLS trust service limitations (`trustd`
+  blocked by Seatbelt, `SSL_CERT_FILE` ignored by cgo-enabled builds), `gh`
+  continues to run without sandbox restrictions.
 
 ### Risks
 
@@ -132,10 +131,9 @@ prefer Security framework), `gh` should be added back to `excludedCommands`.
 
 ### Known Limitations
 
-- **`SSL_CERT_FILE` is macOS-specific**: `/etc/ssl/cert.pem` is a macOS path.
-  Linux では存在しないため、この設定のまま Linux に適用すると `gh` が TLS
-  エラーで失敗する。Linux へ手動コピーする際は `SSL_CERT_FILE` を削除するか、
-  Linux 側のパス（例: `/etc/ssl/certs/ca-certificates.crt`）に書き換えること。
+- **`gh` cannot be sandboxed on macOS**: cgo-enabled Go builds use Security
+  framework for TLS, which requires `trustd` Mach service access. Neither
+  `SSL_CERT_FILE` nor `enableWeakerNetworkIsolation` (without proxy) resolves this.
 - **`excludedCommands` does not fully bypass sandbox restrictions**: Commands in
   `excludedCommands` may still be blocked from reading files in the sandbox's
   `denyOnly` list. Explicit `allowRead` entries are required as workarounds.
@@ -148,10 +146,6 @@ prefer Security framework), `gh` should be added back to `excludedCommands`.
 - **`git push -u` writes to `.git/config`** (resolved by `allowWrite: [".git"]`):
   Previously the sandbox blocked writes to `.git/config` even though `.` was in
   the write allowlist. Adding `.git` explicitly resolved this.
-- **`gh` TLS certificate verification** (resolved by `SSL_CERT_FILE`):
-  Previously `gh` required `excludedCommands` due to `trustd` access being
-  blocked. Setting `SSL_CERT_FILE=/etc/ssl/cert.pem` allows Go to read certs
-  directly.
 
 ### Rollback
 

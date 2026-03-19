@@ -1,8 +1,7 @@
 {
   "env": {
     "EDITOR": "code-insiders --wait",
-    "VISUAL": "code-insiders --wait",
-    "SSL_CERT_FILE": "/etc/ssl/cert.pem"
+    "VISUAL": "code-insiders --wait"
   },
   "permissions": {
     "allow": [
@@ -202,6 +201,7 @@
     "enableWeakerNestedSandbox": true,
     "excludedCommands": [
       "docker",
+      "gh",
       "codex"
     ]
   },
