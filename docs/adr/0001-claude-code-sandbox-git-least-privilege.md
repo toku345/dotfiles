@@ -132,6 +132,10 @@ prefer Security framework), `gh` should be added back to `excludedCommands`.
 
 ### Known Limitations
 
+- **`SSL_CERT_FILE` is macOS-specific**: `/etc/ssl/cert.pem` is a macOS path.
+  Linux では存在しないため、この設定のまま Linux に適用すると `gh` が TLS
+  エラーで失敗する。Linux へ手動コピーする際は `SSL_CERT_FILE` を削除するか、
+  Linux 側のパス（例: `/etc/ssl/certs/ca-certificates.crt`）に書き換えること。
 - **`excludedCommands` does not fully bypass sandbox restrictions**: Commands in
   `excludedCommands` may still be blocked from reading files in the sandbox's
   `denyOnly` list. Explicit `allowRead` entries are required as workarounds.
