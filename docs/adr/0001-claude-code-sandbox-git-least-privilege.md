@@ -93,8 +93,14 @@ delegates to Security framework rather than reading `SSL_CERT_FILE`. The workaro
 was tested and confirmed to fail with the same `x509: OSStatus -26276` error.
 
 `enableWeakerNetworkIsolation` was also tested but only functions when
-`httpProxyPort` is configured (MITM proxy scenario). Sandboxing `gh` would require
-a MITM proxy, so `excludedCommands` is the pragmatic choice.
+`httpProxyPort` is configured (MITM proxy scenario).
+
+**`excludedCommands` also does not resolve this**: Testing confirmed that
+`excludedCommands` does not bypass Seatbelt Mach service restrictions. `gh` in
+`excludedCommands` still fails with the same TLS error. The only working method
+is `dangerouslyDisableSandbox: true` on each Bash invocation. `gh` remains in
+`excludedCommands` to relax filesystem restrictions, but TLS requires per-call
+sandbox bypass.
 
 ## Consequences
 
@@ -134,9 +140,13 @@ a MITM proxy, so `excludedCommands` is the pragmatic choice.
 - **`gh` cannot be sandboxed on macOS**: cgo-enabled Go builds use Security
   framework for TLS, which requires `trustd` Mach service access. Neither
   `SSL_CERT_FILE` nor `enableWeakerNetworkIsolation` (without proxy) resolves this.
+  Furthermore, `excludedCommands` does not bypass Seatbelt Mach service restrictions
+  — `gh` in `excludedCommands` still fails with `x509: OSStatus -26276`. The only
+  working approach is `dangerouslyDisableSandbox: true` per invocation.
 - **`excludedCommands` does not fully bypass sandbox restrictions**: Commands in
   `excludedCommands` may still be blocked from reading files in the sandbox's
-  `denyOnly` list. Explicit `allowRead` entries are required as workarounds.
+  `denyOnly` list and from accessing Mach services (e.g., `trustd`). Explicit
+  `allowRead` entries are required as workarounds for file access.
 - **`enableWeakerNetworkIsolation` requires `httpProxyPort`**: This setting only
   enables TLS trust service access when a MITM proxy is configured. It has no
   effect in non-proxy environments.
