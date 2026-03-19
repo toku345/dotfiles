@@ -46,7 +46,7 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions:
 {
   "sandbox": {
     "filesystem": {
-      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config"],
+      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.config/gh/hosts.yml"],
       "allowWrite": ["/tmp"]
     },
     "network": {
@@ -63,6 +63,7 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions:
 |---|---|
 | `allowRead: ~/.ssh/known_hosts` | SSH host key verification |
 | `allowRead: ~/.ssh/config` | SSH host aliases and identity file selection |
+| `allowRead: ~/.config/gh/hosts.yml` | GitHub CLI auth config; `excludedCommands` does not bypass `denyOnly` read restrictions |
 | `allowWrite: /tmp` | Lefthook/Husky stash operations and temp files |
 | `allowAllUnixSockets: true` | SSH agent access; `allowUnixSockets` requires literal paths but `$SSH_AUTH_SOCK` is dynamic |
 
@@ -96,6 +97,16 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions:
 | First connection to new SSH host fails (can't write `known_hosts`) | Medium | Run `ssh -T git@github.com` manually beforehand |
 | `allowedHosts` doesn't apply to SSH (port 22) | Low | Add `network.allowedHosts: ["github.com"]` if needed |
 | Lefthook needs writes beyond `/tmp` | Low | Add paths to `allowWrite` as discovered |
+
+### Known Limitations
+
+- **`git push -u` writes to `.git/config`**: The sandbox blocks writes to `.git/config`
+  even though it is within the allowed working directory (`.`). The push itself succeeds;
+  only the upstream tracking config update fails. This is an undocumented sandbox restriction.
+  Workaround: set upstream tracking separately or accept the non-fatal error.
+- **`excludedCommands` does not fully bypass `denyOnly` read restrictions**: Commands in
+  `excludedCommands` (e.g., `gh`) may still be blocked from reading files in the sandbox's
+  `denyOnly` list. Explicit `allowRead` entries are required as a workaround.
 
 ### Rollback
 

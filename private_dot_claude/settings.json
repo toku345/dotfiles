@@ -191,7 +191,7 @@
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": true,
     "filesystem": {
-      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config"],
+      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.config/gh/hosts.yml"],
       "allowWrite": ["/tmp"]
     },
     "network": {
