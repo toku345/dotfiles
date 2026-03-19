@@ -190,13 +190,17 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": true,
+    "filesystem": {
+      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config"],
+      "allowWrite": ["/tmp"]
+    },
     "network": {
-      "allowLocalBinding": true
+      "allowLocalBinding": true,
+      "allowAllUnixSockets": true
     },
     "enableWeakerNestedSandbox": true,
     "excludedCommands": [
       "docker",
-      "git",
       "gh",
       "codex"
     ]
