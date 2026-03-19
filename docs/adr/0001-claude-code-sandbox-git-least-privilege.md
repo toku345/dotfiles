@@ -1,4 +1,4 @@
-# ADR 0001: Claude Code Sandbox — Git/GitHub CLI Least Privilege Model
+# ADR 0001: Claude Code Sandbox — Git Least Privilege Model
 
 ## Status
 
@@ -19,11 +19,11 @@ This was a pragmatic workaround for several issues:
 2. **Git hooks**: Tools like Lefthook and Husky execute as git child processes.
    Their stash operations write to `/tmp`, which the default sandbox write
    allowlist (`allowOnly: ["."]`) blocks.
-3. **GitHub CLI auth**: `gh` reads `~/.config/gh/hosts.yml` for authentication,
-   which is in the sandbox's `denyOnly` read list.
-4. **TLS certificate verification**: `gh` (Go-based) requires access to the
-   macOS TLS trust service (`com.apple.trustd.agent`) for HTTPS certificate
-   verification.
+3. **GitHub CLI (gh)**: Requires access to macOS TLS trust service
+   (`com.apple.trustd.agent`) for HTTPS certificate verification. The sandbox
+   blocks this Mach service, and `enableWeakerNetworkIsolation` only works with
+   `httpProxyPort` (MITM proxy scenarios). Therefore `gh` cannot be sandboxed
+   without a proxy and remains in `excludedCommands`.
 
 However, `excludedCommands` grants unrestricted access across all dimensions
 (filesystem, network, sockets), violating the principle of least privilege.
@@ -46,8 +46,8 @@ The official Claude Code documentation recommends:
 
 ## Decision
 
-Remove `git` and `gh` from `excludedCommands` and grant minimal sandbox
-permissions:
+Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
+`gh` remains in `excludedCommands` due to TLS trust service restrictions.
 
 ```json
 {
@@ -57,10 +57,9 @@ permissions:
       "allowWrite": ["/tmp"]
     },
     "network": {
-      "allowAllUnixSockets": true,
-      "enableWeakerNetworkIsolation": true
+      "allowAllUnixSockets": true
     },
-    "excludedCommands": ["docker", "codex"]
+    "excludedCommands": ["docker", "gh", "codex"]
   }
 }
 ```
@@ -74,7 +73,6 @@ permissions:
 | `allowRead: ~/.config/gh/hosts.yml` | GitHub CLI auth config; `excludedCommands` does not fully bypass `denyOnly` read restrictions |
 | `allowWrite: /tmp` | Lefthook/Husky stash operations and temp files |
 | `allowAllUnixSockets: true` | SSH agent access; `allowUnixSockets` requires literal paths but `$SSH_AUTH_SOCK` is dynamic |
-| `enableWeakerNetworkIsolation: true` | macOS TLS trust service (`com.apple.trustd.agent`) access for Go-based tools (gh, gcloud, terraform) |
 
 ### What is NOT permitted
 
@@ -82,17 +80,24 @@ permissions:
 - Arbitrary filesystem writes — only `.` (working directory) and `/tmp`
 - Arbitrary network hosts — restricted to `allowedDomains` defaults (includes `github.com`)
 
+### Why `gh` remains in `excludedCommands`
+
+`gh` (Go-based) requires access to macOS `com.apple.trustd.agent` for TLS
+certificate verification. The sandbox setting `enableWeakerNetworkIsolation` was
+tested but only functions when `httpProxyPort` is configured (MITM proxy
+scenario). Without a proxy, `gh` fails with `x509: OSStatus -26276`. Sandboxing
+`gh` would require introducing an unnecessary MITM proxy, so `excludedCommands`
+is the pragmatic choice.
+
 ## Consequences
 
 ### Positive
 
-- **Reduced attack surface**: Git and gh operations are now constrained by
+- **Reduced attack surface for git**: Git operations are now constrained by
   filesystem and network restrictions, whereas `excludedCommands` provided no
   restrictions at all.
 - **Aligned with official guidance**: Follows Claude Code's recommended
   `allowWrite` pattern over `excludedCommands`.
-- **TLS verification works correctly**: `enableWeakerNetworkIsolation` enables
-  proper certificate verification for all sandboxed HTTPS connections.
 
 ### Negative
 
@@ -102,11 +107,8 @@ permissions:
   narrowing.
 - **`/tmp` write access is global**: All sandboxed commands can write to `/tmp`.
   `/tmp` is an OS-standard world-writable directory; risk increase is limited.
-- **`enableWeakerNetworkIsolation` opens trustd access**: All sandboxed commands
-  gain access to macOS TLS trust service. In practice, this enables proper HTTPS
-  certificate verification (a security benefit). The theoretical data exfiltration
-  risk via trustd is negligible compared to the previous `excludedCommands` state
-  which had no restrictions at all.
+- **`gh` remains unsandboxed**: Due to TLS trust service limitations, `gh`
+  continues to run without sandbox restrictions.
 
 ### Risks
 
@@ -124,10 +126,12 @@ permissions:
   This is an undocumented sandbox restriction.
 - **`excludedCommands` does not fully bypass sandbox restrictions**: Commands in
   `excludedCommands` may still be blocked from reading files in the sandbox's
-  `denyOnly` list and from accessing macOS system services. Explicit `allowRead`
-  and `enableWeakerNetworkIsolation` entries are required as workarounds.
+  `denyOnly` list. Explicit `allowRead` entries are required as workarounds.
+- **`enableWeakerNetworkIsolation` requires `httpProxyPort`**: This setting only
+  enables TLS trust service access when a MITM proxy is configured. It has no
+  effect in non-proxy environments.
 
 ### Rollback
 
-Add `"git"` and `"gh"` back to `excludedCommands` and remove `filesystem` /
-`allowAllUnixSockets` / `enableWeakerNetworkIsolation`.
+Add `"git"` back to `excludedCommands` and remove `filesystem` /
+`allowAllUnixSockets`.

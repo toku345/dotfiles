@@ -196,12 +196,12 @@
     },
     "network": {
       "allowLocalBinding": true,
-      "allowAllUnixSockets": true,
-      "enableWeakerNetworkIsolation": true
+      "allowAllUnixSockets": true
     },
     "enableWeakerNestedSandbox": true,
     "excludedCommands": [
       "docker",
+      "gh",
       "codex"
     ]
   },
