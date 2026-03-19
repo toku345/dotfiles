@@ -51,15 +51,18 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 
 ```json
 {
+  "env": {
+    "SSL_CERT_FILE": "/etc/ssl/cert.pem"
+  },
   "sandbox": {
     "filesystem": {
       "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.config/gh/hosts.yml"],
-      "allowWrite": ["/tmp"]
+      "allowWrite": ["/tmp", ".git"]
     },
     "network": {
       "allowAllUnixSockets": true
     },
-    "excludedCommands": ["docker", "gh", "codex"]
+    "excludedCommands": ["docker", "codex"]
   }
 }
 ```
@@ -72,22 +75,27 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 | `allowRead: ~/.ssh/config` | SSH host aliases and identity file selection |
 | `allowRead: ~/.config/gh/hosts.yml` | GitHub CLI auth config; `excludedCommands` does not fully bypass `denyOnly` read restrictions |
 | `allowWrite: /tmp` | Lefthook/Husky stash operations and temp files |
+| `allowWrite: .git` | `git push -u` upstream tracking config, branch metadata, index updates |
 | `allowAllUnixSockets: true` | SSH agent access; `allowUnixSockets` requires literal paths but `$SSH_AUTH_SOCK` is dynamic |
+| `SSL_CERT_FILE: /etc/ssl/cert.pem` | Bypass macOS `trustd` TLS service; Go programs read certs from this file directly |
 
 ### What is NOT permitted
 
 - Private keys (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`) — provided via SSH agent
-- Arbitrary filesystem writes — only `.` (working directory) and `/tmp`
+- Arbitrary filesystem writes — only `.` (working directory), `.git`, and `/tmp`
 - Arbitrary network hosts — restricted to `allowedDomains` defaults (includes `github.com`)
 
-### Why `gh` remains in `excludedCommands`
+### Why `gh` is now sandboxed
 
-`gh` (Go-based) requires access to macOS `com.apple.trustd.agent` for TLS
-certificate verification. The sandbox setting `enableWeakerNetworkIsolation` was
-tested but only functions when `httpProxyPort` is configured (MITM proxy
-scenario). Without a proxy, `gh` fails with `x509: OSStatus -26276`. Sandboxing
-`gh` would require introducing an unnecessary MITM proxy, so `excludedCommands`
-is the pragmatic choice.
+`gh` (Go-based) previously required `excludedCommands` because the sandbox blocks
+macOS `com.apple.trustd.agent` for TLS certificate verification, causing
+`x509: OSStatus -26276` errors. Setting `SSL_CERT_FILE=/etc/ssl/cert.pem` in the
+sandbox environment allows Go's TLS stack to read certificates directly from the
+filesystem, bypassing `trustd`. This file is a standard macOS system certificate
+bundle.
+
+If `SSL_CERT_FILE` does not resolve TLS errors (e.g., cgo-enabled builds still
+prefer Security framework), `gh` should be added back to `excludedCommands`.
 
 ## Consequences
 
@@ -107,8 +115,12 @@ is the pragmatic choice.
   narrowing.
 - **`/tmp` write access is global**: All sandboxed commands can write to `/tmp`.
   `/tmp` is an OS-standard world-writable directory; risk increase is limited.
-- **`gh` remains unsandboxed**: Due to TLS trust service limitations, `gh`
-  continues to run without sandbox restrictions.
+- **`.git` write access allows hook/config modification**: All sandboxed commands
+  can write to `.git/config` and `.git/hooks/`. Risk is equivalent to when `git`
+  was in `excludedCommands` (full filesystem access).
+- **`SSL_CERT_FILE` may not work on all builds**: Go's cgo-enabled builds on
+  macOS may still prefer Security framework over `SSL_CERT_FILE`. If `gh` fails,
+  it must be moved back to `excludedCommands`.
 
 ### Risks
 
@@ -120,16 +132,22 @@ is the pragmatic choice.
 
 ### Known Limitations
 
-- **`git push -u` writes to `.git/config`**: The sandbox blocks writes to
-  `.git/config` even though it is within the allowed working directory (`.`).
-  The push itself succeeds; only the upstream tracking config update fails.
-  This is an undocumented sandbox restriction.
 - **`excludedCommands` does not fully bypass sandbox restrictions**: Commands in
   `excludedCommands` may still be blocked from reading files in the sandbox's
   `denyOnly` list. Explicit `allowRead` entries are required as workarounds.
 - **`enableWeakerNetworkIsolation` requires `httpProxyPort`**: This setting only
   enables TLS trust service access when a MITM proxy is configured. It has no
   effect in non-proxy environments.
+
+### Resolved Limitations
+
+- **`git push -u` writes to `.git/config`** (resolved by `allowWrite: [".git"]`):
+  Previously the sandbox blocked writes to `.git/config` even though `.` was in
+  the write allowlist. Adding `.git` explicitly resolved this.
+- **`gh` TLS certificate verification** (resolved by `SSL_CERT_FILE`):
+  Previously `gh` required `excludedCommands` due to `trustd` access being
+  blocked. Setting `SSL_CERT_FILE=/etc/ssl/cert.pem` allows Go to read certs
+  directly.
 
 ### Rollback
 

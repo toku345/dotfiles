@@ -1,7 +1,8 @@
 {
   "env": {
     "EDITOR": "code-insiders --wait",
-    "VISUAL": "code-insiders --wait"
+    "VISUAL": "code-insiders --wait",
+    "SSL_CERT_FILE": "/etc/ssl/cert.pem"
   },
   "permissions": {
     "allow": [
@@ -192,7 +193,7 @@
     "allowUnsandboxedCommands": true,
     "filesystem": {
       "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.config/gh/hosts.yml"],
-      "allowWrite": ["/tmp"]
+      "allowWrite": ["/tmp", ".git"]
     },
     "network": {
       "allowLocalBinding": true,
@@ -201,7 +202,6 @@
     "enableWeakerNestedSandbox": true,
     "excludedCommands": [
       "docker",
-      "gh",
       "codex"
     ]
   },
