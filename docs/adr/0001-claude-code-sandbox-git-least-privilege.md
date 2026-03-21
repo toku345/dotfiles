@@ -21,9 +21,10 @@ This was a pragmatic workaround for several issues:
    allowlist (`allowOnly: ["."]`) blocks.
 3. **GitHub CLI (gh)**: Requires access to macOS TLS trust service
    (`com.apple.trustd.agent`) for HTTPS certificate verification. The sandbox
-   blocks this Mach service, and `enableWeakerNetworkIsolation` only works with
-   `httpProxyPort` (MITM proxy scenarios). Therefore `gh` cannot be sandboxed
-   without a proxy and remains in `excludedCommands`.
+   blocks this Mach service. `enableWeakerNetworkIsolation` should grant `trustd`
+   access but is not wired from settings to the sandbox runtime
+   ([#28954](https://github.com/anthropics/claude-code/issues/28954)).
+   Therefore `gh` cannot currently be sandboxed and remains in `excludedCommands`.
 
 However, `excludedCommands` grants unrestricted access across all dimensions
 (filesystem, network, sockets), violating the principle of least privilege.
@@ -92,8 +93,10 @@ However, macOS `gh` is built with cgo enabled, and the cgo-enabled `crypto/x509`
 delegates to Security framework rather than reading `SSL_CERT_FILE`. The workaround
 was tested and confirmed to fail with the same `x509: OSStatus -26276` error.
 
-`enableWeakerNetworkIsolation` was also tested but only functions when
-`httpProxyPort` is configured (MITM proxy scenario).
+`enableWeakerNetworkIsolation` was also tested but had no effect. This may be
+due to a wiring bug ([#28954](https://github.com/anthropics/claude-code/issues/28954))
+where Claude Code does not pass this setting to the sandbox runtime, rather than
+a requirement for `httpProxyPort`. Re-test after the bug is fixed.
 
 **`excludedCommands` also does not resolve this**: Testing confirmed that
 `excludedCommands` does not bypass Seatbelt Mach service restrictions. `gh` in
@@ -157,9 +160,13 @@ sandbox bypass.
   `excludedCommands` may still be blocked from reading files in the sandbox's
   `denyOnly` list and from accessing Mach services (e.g., `trustd`). Explicit
   `allowRead` entries are required as workarounds for file access.
-- **`enableWeakerNetworkIsolation` requires `httpProxyPort`**: This setting only
-  enables TLS trust service access when a MITM proxy is configured. It has no
-  effect in non-proxy environments.
+- **`enableWeakerNetworkIsolation` has no effect (wiring bug)**: This setting
+  should allow `trustd` Mach service access, but Claude Code does not pass it to
+  the sandbox runtime ([#28954](https://github.com/anthropics/claude-code/issues/28954),
+  closed as duplicate of [#26466](https://github.com/anthropics/claude-code/issues/26466)).
+  The official documentation states it is for use with `httpProxyPort` (MITM proxy),
+  but whether it also works standalone to grant `trustd` access is untested due to
+  this bug. Re-test after the bug is fixed.
 
 ### Resolved Limitations
 
