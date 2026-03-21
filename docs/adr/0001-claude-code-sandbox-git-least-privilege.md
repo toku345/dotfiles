@@ -126,16 +126,16 @@ sandbox bypass.
 - **`.git` write access allows hook/config modification**: All sandboxed commands
   can write to `.git/config` and `.git/hooks/`. Risk is equivalent to when `git`
   was in `excludedCommands` (full filesystem access).
-- **`gh` remains unsandboxed**: Due to TLS trust service limitations (`trustd`
-  blocked by Seatbelt, `SSL_CERT_FILE` ignored by cgo-enabled builds), `gh`
-  continues to run without sandbox restrictions.
+- **`gh` remains partially unsandboxed**: `gh` is in `excludedCommands` to relax
+  filesystem restrictions, but Seatbelt Mach service restrictions still apply.
+  TLS operations require `dangerouslyDisableSandbox: true` per invocation.
 
 ### Risks
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
 | First connection to new SSH host fails (can't write `known_hosts`) | Medium | Run `ssh -T git@github.com` manually beforehand |
-| `allowedDomains` doesn't apply to SSH (port 22) | Low | Add `network.allowedDomains: ["github.com"]` if needed |
+| `allowedDomains` doesn't apply to SSH (port 22) | Low | SSH access is gated by SSH agent and `~/.ssh/config` allowRead; no additional mitigation needed |
 | Lefthook needs writes beyond `/tmp` | Low | Add paths to `allowWrite` as discovered |
 
 ### Known Limitations
