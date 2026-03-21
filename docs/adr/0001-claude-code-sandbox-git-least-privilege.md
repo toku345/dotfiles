@@ -143,6 +143,16 @@ sandbox bypass.
   Furthermore, `excludedCommands` does not bypass Seatbelt Mach service restrictions
   — `gh` in `excludedCommands` still fails with `x509: OSStatus -26276`. The only
   working approach is `dangerouslyDisableSandbox: true` per invocation.
+  **`GODEBUG=x509usefallbackroots=1` also ineffective** (tested 2026-03-21, gh
+  v2.88.1 / Go 1.26): This GODEBUG setting forces Go's pure-Go certificate
+  verifier as a fallback. However, it requires the program to call
+  `crypto/x509.SetFallbackRoots()` to register a fallback certificate pool — `gh`
+  does not call this function. All three combinations were tested and failed with
+  the same `x509: OSStatus -26276` error:
+  `GODEBUG + SSL_CERT_FILE`, `SSL_CERT_FILE` only, `GODEBUG` only.
+  Tracked upstream: [#34876](https://github.com/anthropics/claude-code/issues/34876),
+  [#23416](https://github.com/anthropics/claude-code/issues/23416),
+  [#26466](https://github.com/anthropics/claude-code/issues/26466).
 - **`excludedCommands` does not fully bypass sandbox restrictions**: Commands in
   `excludedCommands` may still be blocked from reading files in the sandbox's
   `denyOnly` list and from accessing Mach services (e.g., `trustd`). Explicit
