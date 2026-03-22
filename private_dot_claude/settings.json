@@ -192,7 +192,7 @@
     "allowUnsandboxedCommands": true,
     "filesystem": {
       "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.config/gh/hosts.yml"],
-      "allowWrite": ["/tmp", ".git"]
+      "allowWrite": ["/tmp", ".git", "~/.ssh/known_hosts"]
     },
     "network": {
       "allowLocalBinding": true,

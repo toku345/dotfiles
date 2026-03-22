@@ -23,7 +23,7 @@ This was a pragmatic workaround for several issues:
    (`com.apple.trustd.agent`) for HTTPS certificate verification. The sandbox
    blocks this Mach service. `enableWeakerNetworkIsolation` should grant `trustd`
    access but is not wired from settings to the sandbox runtime
-   ([#28954](https://github.com/anthropics/claude-code/issues/28954)).
+   ([#26466](https://github.com/anthropics/claude-code/issues/26466); `#28954` was closed as duplicate).
    Therefore `gh` cannot currently be sandboxed and remains in `excludedCommands`.
 
 However, `excludedCommands` grants unrestricted access across all dimensions
@@ -55,9 +55,10 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   "sandbox": {
     "filesystem": {
       "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.config/gh/hosts.yml"],
-      "allowWrite": ["/tmp", ".git"]
+      "allowWrite": ["/tmp", ".git", "~/.ssh/known_hosts"]
     },
     "network": {
+      "allowLocalBinding": true,
       "allowAllUnixSockets": true
     },
     "excludedCommands": ["docker", "gh", "codex"]
@@ -74,12 +75,13 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 | `allowRead: ~/.config/gh/hosts.yml` | GitHub CLI auth config; `excludedCommands` does not fully bypass `denyOnly` read restrictions |
 | `allowWrite: /tmp` | Lefthook/Husky stash operations and temp files |
 | `allowWrite: .git` | `git push -u` upstream tracking config, branch metadata, index updates |
+| `allowWrite: ~/.ssh/known_hosts` | First SSH connection writes host key; contains only public keys |
 | `allowAllUnixSockets: true` | SSH agent access; `allowUnixSockets` requires literal paths but `$SSH_AUTH_SOCK` is dynamic |
 
 ### What is NOT permitted
 
 - Private keys (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`) — provided via SSH agent
-- Arbitrary filesystem writes — only `.` (working directory), `.git`, and `/tmp`
+- Arbitrary filesystem writes — only `.` (working directory), `.git`, `/tmp`, and `~/.ssh/known_hosts`
 - Arbitrary network hosts — restricted to `allowedDomains` defaults (includes `github.com`)
 
 ### Why `gh` remains in `excludedCommands`
@@ -94,7 +96,7 @@ delegates to Security framework rather than reading `SSL_CERT_FILE`. The workaro
 was tested and confirmed to fail with the same `x509: OSStatus -26276` error.
 
 `enableWeakerNetworkIsolation` was also tested but had no effect. This may be
-due to a wiring bug ([#28954](https://github.com/anthropics/claude-code/issues/28954))
+due to a wiring bug ([#26466](https://github.com/anthropics/claude-code/issues/26466); `#28954` was closed as duplicate)
 where Claude Code does not pass this setting to the sandbox runtime, rather than
 a requirement for `httpProxyPort`. Re-test after the bug is fixed.
 
@@ -134,7 +136,7 @@ sandbox bypass.
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| First connection to new SSH host fails (can't write `known_hosts`) | Medium | Run `ssh -T git@github.com` manually beforehand |
+| First connection to new SSH host auto-adds host key to `known_hosts` | Low | `~/.ssh/known_hosts` is in `allowWrite`; contains only public host keys |
 | `allowedDomains` doesn't apply to SSH (port 22) | Low | SSH access is gated by SSH agent and `~/.ssh/config` allowRead; no additional mitigation needed |
 | Lefthook needs writes beyond `/tmp` | Low | Add paths to `allowWrite` as discovered |
 
