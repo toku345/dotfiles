@@ -100,11 +100,12 @@ platform level, regardless of cgo. On macOS, certificate verification always
 delegates to Security framework. The workaround was tested and confirmed to fail
 with the same `x509: OSStatus -26276` error.
 
-`enableWeakerNetworkIsolation` was also tested but had no effect. This setting is
-documented for use with `httpProxyPort` (MITM proxy). Whether it also grants
-standalone `trustd` access is untested due to the wiring issue
-([#26466](https://github.com/anthropics/claude-code/issues/26466); `#28954` was
-closed as duplicate). Re-test after the issue is fixed.
+`enableWeakerNetworkIsolation` was also configured but had no observable effect
+due to the wiring issue ([#26466](https://github.com/anthropics/claude-code/issues/26466);
+`#28954` was closed as duplicate). This setting is documented for use with
+`httpProxyPort` (MITM proxy). Whether it would grant standalone `trustd` access
+if the wiring issue were resolved remains unknown. Re-test after the issue is
+resolved.
 
 **`excludedCommands` also does not resolve this**: Testing confirmed that
 `excludedCommands` does not bypass Seatbelt Mach service restrictions. `gh` in
@@ -182,7 +183,7 @@ sandbox bypass.
   grants standalone `trustd` access is untested due to the wiring issue
   ([#28954](https://github.com/anthropics/claude-code/issues/28954), closed as
   duplicate of [#26466](https://github.com/anthropics/claude-code/issues/26466)).
-  Re-test after the issue is fixed.
+  Re-test after the issue is resolved.
 
 ### Resolved Limitations
 
