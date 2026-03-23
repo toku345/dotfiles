@@ -22,9 +22,9 @@ the sandbox. This ADR addresses removing `git` from `excludedCommands`.
    allowlist (`allowOnly: ["."]`) blocks.
 
 However, `excludedCommands` runs commands outside the sandbox, removing most
-filesystem and network restrictions — though `denyOnly` read restrictions and
-Mach service access remain enforced (see Known Limitations). This still violates
-the principle of least privilege.
+filesystem and network restrictions — though Mach service access remains
+enforced (see Known Limitations). This still violates the principle of least
+privilege.
 
 The official Claude Code documentation recommends:
 
@@ -119,12 +119,16 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 
 ### Known Limitations
 
-- **`excludedCommands` does not fully bypass sandbox restrictions** (empirically
+- **`denyOnly` glob patterns are not enforced at the Seatbelt level**
+  (empirically observed; not documented by Anthropic — behavior may change):
+  Glob patterns in the sandbox `denyOnly` read config (e.g., `*.key`, `.env.*`)
+  do not block reads — only absolute-path entries (e.g.,
+  `~/.docker/config.json`) are enforced. Verified on macOS 15.7.4 and
+  macOS 26.3.1 with Claude Code 2.1.81.
+- **`excludedCommands` does not bypass Mach service restrictions** (empirically
   observed; not documented by Anthropic — behavior may change): Commands in
-  `excludedCommands` may still be blocked from reading files in the sandbox's
-  `denyOnly` list and from accessing Mach services (e.g., `trustd`). Explicit
-  `allowRead` entries are required as workarounds for file access. Mach service
-  restrictions are corroborated by community reports:
+  `excludedCommands` are still blocked from accessing Mach services (e.g.,
+  `trustd`). Corroborated by community reports:
   [#28954](https://github.com/anthropics/claude-code/issues/28954),
   [#17821](https://github.com/anthropics/claude-code/issues/17821).
 - **`.git` in `allowWrite` resolves relative to cwd**: If Claude Code is started
