@@ -12,6 +12,10 @@ the sandbox. This ADR addresses removing `git` from `excludedCommands`.
 `gh` is covered separately in
 [ADR 0002](0002-claude-code-sandbox-gh-investigation.md).
 
+**Scope**: This ADR covers the global user settings (`~/.claude/settings.json`),
+which apply to all repositories. Per-project `.claude/settings.json` overrides
+are not used.
+
 `git` was excluded as a pragmatic workaround for two issues:
 
 1. **SSH access**: `git push` via SSH requires reading `~/.ssh/known_hosts` and
@@ -49,7 +53,7 @@ The sandbox consists of two independently managed layers:
 | Layer | Set by | Configured in | Purpose |
 |---|---|---|---|
 | Default deny rules (`read.denyOnly`, `write.denyWithinAllow`) | Anthropic (Claude Code built-in) | Not visible in any settings file; shown only in session startup sandbox display | Baseline protection for secrets (`*.key`, `*.pem`, `.env`, `~/.ssh/id_*`, `~/.docker/config.json`, etc.) |
-| User allow/exclude rules (`allowRead`, `allowWrite`, `excludedCommands`, etc.) | Repository maintainer | `~/.claude/settings.json` (global user settings; managed via chezmoi in this repo) | Project-specific permissions (this ADR's scope) |
+| User allow/exclude rules (`allowRead`, `allowWrite`, `excludedCommands`, etc.) | Repository maintainer | `~/.claude/settings.json` (global user settings; managed via chezmoi in this repo) | User-level sandbox permissions applied to all repositories (this ADR's scope) |
 
 **Important**: The default deny rules use two types of path patterns with
 different enforcement behavior — see Known Limitations for details.
@@ -149,8 +153,8 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   [Sandbox path prefixes](https://code.claude.com/docs/en/settings#sandbox-path-prefixes)):
   Paths without a prefix (e.g., `foo`) in `~/.claude/settings.json` resolve to
   `~/.claude/foo`, not `<cwd>/foo`. Use absolute paths or `~/` prefixes for
-  paths outside `~/.claude/`. Project settings (`.claude/settings.json`) resolve
-  relative to the project root.
+  paths outside `~/.claude/`. Project settings (`.claude/settings.json`), if used,
+  resolve relative to the project root. This ADR does not use project-level settings.
 
 ### Resolved Limitations
 
