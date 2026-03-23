@@ -119,10 +119,14 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 
 ### Known Limitations
 
-- **`excludedCommands` does not fully bypass sandbox restrictions**: Commands in
+- **`excludedCommands` does not fully bypass sandbox restrictions** (empirically
+  observed; not documented by Anthropic — behavior may change): Commands in
   `excludedCommands` may still be blocked from reading files in the sandbox's
   `denyOnly` list and from accessing Mach services (e.g., `trustd`). Explicit
-  `allowRead` entries are required as workarounds for file access.
+  `allowRead` entries are required as workarounds for file access. Mach service
+  restrictions are corroborated by community reports:
+  [#28954](https://github.com/anthropics/claude-code/issues/28954),
+  [#17821](https://github.com/anthropics/claude-code/issues/17821).
 - **`.git` in `allowWrite` resolves relative to cwd**: If Claude Code is started
   from a subdirectory (e.g., `repo/subdir/`), `.git` resolves to
   `repo/subdir/.git` which doesn't exist. `git add`, `git commit`, and
