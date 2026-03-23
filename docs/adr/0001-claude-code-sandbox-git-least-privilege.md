@@ -42,6 +42,18 @@ The official Claude Code documentation recommends:
   - macOS: `/private/tmp/com.apple.launchd.<random>/Listeners`
   - Linux: `/tmp/ssh-<random>/agent.<PID>`
 
+### Sandbox configuration layers
+
+The sandbox consists of two independently managed layers:
+
+| Layer | Set by | Configured in | Purpose |
+|---|---|---|---|
+| Default deny rules (`read.denyOnly`, `write.denyWithinAllow`) | Anthropic (Claude Code built-in) | Not visible in any settings file; shown only in session startup sandbox display | Baseline protection for secrets (`*.key`, `*.pem`, `.env`, `~/.ssh/id_*`, `~/.docker/config.json`, etc.) |
+| User allow/exclude rules (`allowRead`, `allowWrite`, `excludedCommands`, etc.) | Repository maintainer | Project `.claude/settings.json` (distinct from global `~/.claude/settings.json`) | Project-specific permissions (this ADR's scope) |
+
+**Important**: The default deny rules use two types of path patterns with
+different enforcement behavior — see Known Limitations for details.
+
 ## Decision
 
 Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
@@ -119,12 +131,14 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 
 ### Known Limitations
 
-- **`denyOnly` glob patterns are not enforced at the Seatbelt level**
-  (empirically observed; not documented by Anthropic — behavior may change):
-  Glob patterns in the sandbox `denyOnly` read config (e.g., `*.key`, `.env.*`)
-  do not block reads — only absolute-path entries (e.g.,
-  `~/.docker/config.json`) are enforced. Verified on macOS 15.7.4 and
-  macOS 26.3.1 with Claude Code 2.1.81.
+- **`denyOnly` glob patterns only protect files within cwd** (empirically
+  observed; not documented by Anthropic — behavior may change): Bare glob
+  patterns in the sandbox `denyOnly` read config (e.g., `*.key`, `.env.*`) are
+  resolved relative to cwd by `sandbox-runtime`'s `normalizePathForSandbox()`.
+  As a result, `*.key` only blocks `<cwd>/*.key`, not `~/secret.key` or files
+  in subdirectories. Absolute-path entries (e.g., `~/.docker/config.json`) are
+  enforced regardless of cwd. Verified on macOS 15.7.4 and macOS 26.3.1 with
+  Claude Code 2.1.81.
 - **`excludedCommands` does not bypass Mach service restrictions** (empirically
   observed; not documented by Anthropic — behavior may change): Commands in
   `excludedCommands` are still blocked from accessing Mach services (e.g.,
