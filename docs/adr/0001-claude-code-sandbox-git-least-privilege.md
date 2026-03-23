@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Claude Code's sandbox (`settings.json`) was configured with
+Claude Code's sandbox (`~/.claude/settings.json`) was configured with
 `excludedCommands: ["git", "gh"]`, which runs these commands completely outside
 the sandbox. This ADR addresses removing `git` from `excludedCommands`.
 `gh` is covered separately in
@@ -49,7 +49,7 @@ The sandbox consists of two independently managed layers:
 | Layer | Set by | Configured in | Purpose |
 |---|---|---|---|
 | Default deny rules (`read.denyOnly`, `write.denyWithinAllow`) | Anthropic (Claude Code built-in) | Not visible in any settings file; shown only in session startup sandbox display | Baseline protection for secrets (`*.key`, `*.pem`, `.env`, `~/.ssh/id_*`, `~/.docker/config.json`, etc.) |
-| User allow/exclude rules (`allowRead`, `allowWrite`, `excludedCommands`, etc.) | Repository maintainer | Project `.claude/settings.json` (distinct from global `~/.claude/settings.json`) | Project-specific permissions (this ADR's scope) |
+| User allow/exclude rules (`allowRead`, `allowWrite`, `excludedCommands`, etc.) | Repository maintainer | `~/.claude/settings.json` (global user settings; managed via chezmoi in this repo) | Project-specific permissions (this ADR's scope) |
 
 **Important**: The default deny rules use two types of path patterns with
 different enforcement behavior — see Known Limitations for details.
@@ -65,7 +65,7 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   "sandbox": {
     "filesystem": {
       "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.ssh/config.local", "~/.orbstack/ssh/config", "~/.config/gh/hosts.yml"],
-      "allowWrite": ["/tmp", ".git", "~/.ssh/known_hosts"]
+      "allowWrite": ["/tmp", "~/.ssh/known_hosts"]
     },
     "network": {
       "allowLocalBinding": true,
@@ -86,14 +86,13 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 | `allowRead: ~/.orbstack/ssh/config` | SSH config `Match exec` Include target; required when OrbStack is installed |
 | `allowRead: ~/.config/gh/hosts.yml` | `gh` (in `excludedCommands`) auth config; see [ADR 0002](0002-claude-code-sandbox-gh-investigation.md) |
 | `allowWrite: /tmp` | Lefthook/Husky stash operations and temp files |
-| `allowWrite: .git` | `git push -u` upstream tracking config, branch metadata, index updates |
 | `allowWrite: ~/.ssh/known_hosts` | First SSH connection writes host key; contains only public keys |
 | `allowAllUnixSockets: true` | SSH agent access; `allowUnixSockets` requires literal paths but `$SSH_AUTH_SOCK` is dynamic (note: opens ALL Unix sockets, not just SSH agent — see Negative consequences) |
 
 ### What is NOT permitted
 
 - Private keys (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`) — provided via SSH agent
-- Arbitrary filesystem writes — only `.` (working directory), `.git`, `/tmp`, and `~/.ssh/known_hosts`
+- Arbitrary filesystem writes — only `.` (working directory), `/tmp`, and `~/.ssh/known_hosts`
 - Arbitrary network hosts — `allowedDomains` is not explicitly configured; new outbound domains trigger a permission prompt at runtime
 
 ## Consequences
@@ -117,9 +116,10 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   `$SSH_AUTH_SOCK` only.
 - **`/tmp` write access is global**: All sandboxed commands can write to `/tmp`.
   `/tmp` is an OS-standard world-writable directory; risk increase is limited.
-- **`.git` write access allows hook/config modification**: All sandboxed commands
-  can write to `.git/config` and `.git/hooks/`. Risk is equivalent to when `git`
-  was in `excludedCommands` (full filesystem access).
+- **`.` (cwd) includes `.git/` — hook/config modification possible**: The default
+  `allowOnly: ["."]` permits writes to `.git/config` and `.git/hooks/` within the
+  working directory. This is inherent to the sandbox's cwd write permission; no
+  additional configuration is needed or possible to narrow it.
 
 ### Risks
 
@@ -145,11 +145,12 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   `trustd`). Corroborated by community reports:
   [#28954](https://github.com/anthropics/claude-code/issues/28954),
   [#17821](https://github.com/anthropics/claude-code/issues/17821).
-- **`.git` in `allowWrite` resolves relative to cwd**: If Claude Code is started
-  from a subdirectory (e.g., `repo/subdir/`), `.git` resolves to
-  `repo/subdir/.git` which doesn't exist. `git add`, `git commit`, and
-  `git push -u` may fail. In practice, Claude Code sessions start from the
-  repository root, so impact is limited.
+- **User settings relative paths resolve against `~/.claude/`** (documented in
+  [Sandbox path prefixes](https://code.claude.com/docs/en/settings#sandbox-path-prefixes)):
+  Paths without a prefix (e.g., `foo`) in `~/.claude/settings.json` resolve to
+  `~/.claude/foo`, not `<cwd>/foo`. Use absolute paths or `~/` prefixes for
+  paths outside `~/.claude/`. Project settings (`.claude/settings.json`) resolve
+  relative to the project root.
 
 ### Resolved Limitations
 
@@ -157,9 +158,10 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   `~/.ssh/config.local` and `~/.orbstack/ssh/config` to `allowRead`): OpenSSH
   aborts config resolution if an `Include` target is unreadable, even under
   `Match exec` conditions. Both files exist in this environment.
-- **`git push -u` writes to `.git/config`** (resolved by `allowWrite: [".git"]`):
-  Previously the sandbox blocked writes to `.git/config` even though `.` was in
-  the write allowlist. Adding `.git` explicitly resolved this.
+- **`git push -u` writes to `.git/config`** (non-issue — covered by default
+  `allowOnly: ["."]`): Initially suspected that `.git/config` writes were blocked
+  despite `.` being in the write allowlist. Empirical testing confirmed `.`
+  recursively covers `.git/` within cwd. No explicit `allowWrite` entry needed.
 
 ### Rollback
 
