@@ -41,12 +41,13 @@ The workaround was tested and confirmed to fail with the same
 
 Tested 2026-03-21, gh v2.88.1 / Go 1.26.
 
-This GODEBUG setting disables the macOS platform verifier and forces the
-pure-Go verifier. However, `gh` does not call
-`crypto/x509.SetFallbackRoots()` to register a fallback certificate pool,
-so the pool is empty and verification fails. All three combinations were
-tested and failed with the same `x509: OSStatus -26276` error:
+This GODEBUG setting is documented to disable the macOS platform verifier and
+force the pure-Go verifier. However, all three combinations were tested and
+failed with the same `x509: OSStatus -26276` error (an macOS Security
+framework error code, not a pure-Go verifier error), indicating the platform
+verifier is still active despite the GODEBUG setting:
 `GODEBUG + SSL_CERT_FILE`, `SSL_CERT_FILE` only, `GODEBUG` only.
+Re-verified 2026-03-23 with identical results.
 
 Re-test when `gh` or Go is updated to a new major version.
 
