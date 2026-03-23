@@ -58,6 +58,12 @@ The sandbox consists of two independently managed layers:
 **Important**: The default deny rules use two types of path patterns with
 different enforcement behavior — see Known Limitations for details.
 
+**Note**: Some files appear in both `sandbox.filesystem.allowRead` and
+`permissions.deny` (e.g., `~/.ssh/config`, `~/.ssh/known_hosts`). These layers
+are independent: `permissions.deny` blocks Claude's Read/Edit/Write tool access;
+`sandbox.filesystem.allowRead` permits child processes (git, ssh) to read at the
+OS/Seatbelt level. Both entries are required.
+
 ## Decision
 
 Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
@@ -68,7 +74,7 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 {
   "sandbox": {
     "filesystem": {
-      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.ssh/config.local", "~/.orbstack/ssh/config", "~/.config/gh/hosts.yml"],
+      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.ssh/config.local", "~/.orbstack/ssh/config"],
       "allowWrite": ["/tmp", "~/.ssh/known_hosts"]
     },
     "network": {
@@ -88,7 +94,6 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 | `allowRead: ~/.ssh/config` | SSH host aliases and identity file selection |
 | `allowRead: ~/.ssh/config.local` | SSH config `Include` target; OpenSSH aborts if unreadable |
 | `allowRead: ~/.orbstack/ssh/config` | SSH config `Match exec` Include target; required when OrbStack is installed |
-| `allowRead: ~/.config/gh/hosts.yml` | `gh` (in `excludedCommands`) auth config; see [ADR 0002](0002-claude-code-sandbox-gh-investigation.md) |
 | `allowWrite: /tmp` | Lefthook/Husky stash operations and temp files |
 | `allowWrite: ~/.ssh/known_hosts` | First SSH connection writes host key; contains only public keys |
 | `allowAllUnixSockets: true` | SSH agent access; `allowUnixSockets` requires literal paths but `$SSH_AUTH_SOCK` is dynamic (note: opens ALL Unix sockets, not just SSH agent — see Negative consequences) |
@@ -104,8 +109,8 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 ### Positive
 
 - **Reduced attack surface for git**: Git operations are now constrained by
-  filesystem and network restrictions, whereas `excludedCommands` provided no
-  restrictions at all.
+  filesystem and network restrictions, whereas `excludedCommands` removed most
+  filesystem and network restrictions.
 - **Aligned with official guidance**: Follows Claude Code's recommended
   `allowWrite` pattern over `excludedCommands`.
 
@@ -132,6 +137,7 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 | First connection to new SSH host auto-adds host key to `known_hosts` | Low | `~/.ssh/known_hosts` is in `allowWrite`; contains only public host keys |
 | `allowedDomains` doesn't apply to SSH (port 22) | Low | SSH access is gated by SSH agent and `~/.ssh/config` allowRead; no additional mitigation needed |
 | Lefthook needs writes beyond `/tmp` | Low | Add paths to `allowWrite` as discovered |
+| New SSH config `Include` target not in `allowRead` | Low | Add to `allowRead`; missing entries cause silent SSH config resolution failure |
 
 ### Known Limitations
 
@@ -161,7 +167,9 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 - **SSH config `Include` targets not in `allowRead`** (resolved by adding
   `~/.ssh/config.local` and `~/.orbstack/ssh/config` to `allowRead`): OpenSSH
   aborts config resolution if an `Include` target is unreadable, even under
-  `Match exec` conditions. Both files exist in this environment.
+  `Match exec` conditions. `~/.ssh/config.local` is present in this
+  environment. `~/.orbstack/ssh/config` is included defensively for
+  OrbStack-enabled environments.
 - **`git push -u` writes to `.git/config`** (non-issue — covered by default
   `allowOnly: ["."]`): Initially suspected that `.git/config` writes were blocked
   despite `.` being in the write allowlist. Empirical testing confirmed `.`
