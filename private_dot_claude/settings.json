@@ -191,8 +191,16 @@
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": true,
     "filesystem": {
-      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.ssh/config.local", "~/.orbstack/ssh/config"],
-      "allowWrite": ["/tmp", "~/.ssh/known_hosts"]
+      "allowRead": [
+        "~/.ssh/known_hosts",
+        "~/.ssh/config",
+        "~/.ssh/config.local",
+        "~/.orbstack/ssh/config"
+      ],
+      "allowWrite": [
+        "/tmp",
+        "~/.ssh/known_hosts"
+      ]
     },
     "network": {
       "allowLocalBinding": true,
