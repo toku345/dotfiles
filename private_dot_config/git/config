@@ -66,5 +66,11 @@
     allowed = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
     patterns = (A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}
 
+[credential "https://github.com"]
+    helper = !gh auth git-credential
+
+[url "https://github.com/"]
+    insteadOf = git@github.com:
+
 [include]
     path = ~/.config/git/config.local
