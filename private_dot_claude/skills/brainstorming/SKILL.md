@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "新機能の追加、既存機能の変更、コンポーネントの構築など、設計判断を伴う作業の前に使用する。ソクラテス式対話で要件と設計を詰めてから実装に入る。「ブレスト」「設計を考えたい」「どう実装すべきか」「アーキテクチャを相談したい」「設計相談」「プランを立てて」「計画を立てたい」「プランニングして」「実装の前に整理したい」などのリクエストで発動する。"
+description: ソクラテス式対話で要件と設計を詰めてから実装方針を固めるブレインストーミングスキル。「ブレスト」「設計を考えたい」「どう実装すべきか」「アーキテクチャを相談したい」「設計相談」「プランを立てて」「計画を立てたい」「プランニングして」「実装の前に整理したい」「方針を決めたい」などのリクエストで発動する。
 ---
 
 <!--
@@ -34,7 +34,7 @@ description: "新機能の追加、既存機能の変更、コンポーネント
   - Removed git worktree automation
   - Removed references to other superpowers skills (frontend-design, mcp-builder, etc.)
   - Added explicit scope pre-assessment step
-  - Changed design doc path to docs/plans/
+  - Changed design doc path to project-relative default (original: docs/superpowers/specs/)
   - Converted Process Flow from graphviz to Mermaid
   - Description in Japanese for trigger phrase matching
 -->
@@ -61,9 +61,10 @@ You MUST create a task for each of these items and complete them in order:
 2. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
 3. **Propose 2-3 approaches** — with trade-offs and your recommendation
 4. **Present design** — in sections scaled to their complexity, get user approval after each section. Use Mermaid diagrams where they aid understanding.
-5. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` and commit
+5. **Write design doc** — save to `YYYY-MM-DD-<topic>-design.md` (default: `docs/plans/`; adapt to the project's conventions)
 6. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
 7. **User reviews written spec** — ask user to review the spec file before proceeding
+8. **Commit design doc** — after user approval, commit the spec to git (opt-in: skip if the user prefers not to commit)
 
 ## Process Flow
 
@@ -82,7 +83,8 @@ flowchart TD
     I --> J[Spec self-review\nfix inline]
     J --> K{User reviews\nspec?}
     K -->|changes requested| I
-    K -->|approved| L([Guide user to\nplan mode])
+    K -->|approved| L[Commit design doc]
+    L --> M([Guide user to\nplan mode])
 ```
 
 ## The Process
@@ -129,9 +131,9 @@ flowchart TD
 
 **Documentation:**
 
-- Write the validated design (spec) to `docs/plans/YYYY-MM-DD-<topic>-design.md`
-  - (User preferences for spec location override this default)
-- Commit the design document to git
+- Write the validated design (spec) to `YYYY-MM-DD-<topic>-design.md` (default: `docs/plans/`; adapt to the project's conventions)
+  - User preferences for spec location override this default
+- Do NOT commit yet — wait for user approval (see User Review Gate below)
 
 **Spec Self-Review:**
 After writing the spec document, look at it with fresh eyes:
@@ -146,9 +148,12 @@ Fix any issues inline. No need to re-review — just fix and move on.
 **User Review Gate:**
 After the spec review loop passes, ask the user to review the written spec before proceeding:
 
-> "Spec written and committed to `<path>`. Please review it and let me know if you want to make any changes before we move to implementation planning."
+> "Spec written to `<path>`. Please review it and let me know if you want to make any changes before we move to implementation planning."
 
 Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
+
+**Commit after approval:**
+Once the user approves the spec, commit the design document to git. If the user prefers not to commit, skip this step.
 
 **Transition to implementation planning:**
 
