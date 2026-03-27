@@ -99,7 +99,7 @@ git push
 ```bash
 # リモートリポジトリのミラー（GitLabなど）
 cd ~/.local/share/chezmoi
-git remote add backup https://gitlab.com/username/dotfiles.git
+git remote add backup git@gitlab.com:username/dotfiles.git
 git push backup main
 ```
 
@@ -133,13 +133,14 @@ git push backup main
    brew install chezmoi age
    ```
 
-2. **GitHub CLI の認証設定**
+2. **SSH鍵の設定**
    ```bash
-   # GitHub CLIのインストール
-   brew install gh
+   # 新規作成
+   ssh-keygen -t ed25519 -C "your_email@example.com"
 
-   # GitHubにログイン（HTTPS認証を設定）
-   gh auth login -p https -h github.com
+   # 生成された公開鍵をGitHubに追加
+   cat ~/.ssh/id_ed25519.pub
+   # → GitHubの Settings > SSH and GPG keys で追加
    ```
 
 3. **リポジトリのクローンとage鍵の復元**
@@ -340,7 +341,7 @@ mv .local/share/chezmoi.backup .local/share/chezmoi
 #### セットアップ
 - [ ] Homebrewをインストール
 - [ ] chezmoi、ageをインストール
-- [ ] `gh auth login -p https` でGitHub認証を設定
+- [ ] SSH鍵を生成してGitHubに追加
 - [ ] `chezmoi init toku345` を実行
 - [ ] `age -d -o ~/key.txt key.txt.age` で秘密鍵を復元
 - [ ] `chmod 600 ~/key.txt` で権限設定
@@ -421,21 +422,20 @@ chezmoi apply ~/.config/fish/config.fish
 #### GitHubへのpushができない
 
 ```bash
-# GitHub CLI認証を確認
-gh auth status
+# SSH接続を確認
+ssh -T git@github.com
 
-# リモートURLを確認（url.insteadOfでHTTPSに変換される）
+# リモートURLを確認
 cd ~/.local/share/chezmoi
 git remote -v
 
-# credential helperの動作確認
-echo -e "protocol=https\nhost=github.com\n" | git credential fill
+# SSH鍵がGitHubに登録されているか確認
 ```
 
 ## 参考リンク
 
 - [chezmoi公式ドキュメント](https://www.chezmoi.io/)
 - [age暗号化ツール](https://github.com/FiloSottile/age)
-- [GitHub CLIでの認証](https://docs.github.com/ja/github-cli/github-cli/about-github-cli)
+- [GitHubでのSSH鍵の使用](https://docs.github.com/ja/authentication/connecting-to-github-with-ssh)
 - [リポジトリのREADME](../README.md)
 - [CLAUDE.md - リポジトリガイド](../CLAUDE.md)

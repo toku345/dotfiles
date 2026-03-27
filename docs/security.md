@@ -335,7 +335,7 @@ done
 ### Machine Setup
 
 1. **New machine checklist**
-   - Clone repository via HTTPS (`gh auth login` for authentication)
+   - Clone repository via SSH (not HTTPS)
    - Decrypt `key.txt.age` to `~/key.txt`
    - Set permissions: `chmod 600 ~/key.txt`
    - Verify: `chezmoi diff` works

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Rejected
 
 ## Context
 
@@ -23,9 +23,9 @@ This ADR re-evaluates HTTPS migration with two motivations:
    disabled) prevents SSH-based `git push` from remote Linux machines. HTTPS
    authentication does not depend on SSH agent forwarding.
 
-### Investigation Results
+## Investigation Results
 
-#### Homebrew git HTTPS TLS in sandbox
+### Homebrew git HTTPS TLS in sandbox
 
 Homebrew's `git-remote-https` links to `/usr/lib/libcurl.4.dylib` (system
 curl / SecureTransport). Unlike Go's `crypto/x509` (which fails in sandbox —
@@ -35,113 +35,57 @@ TLS works within the Claude Code sandbox.
 Verified: `git ls-remote https://github.com/toku345/dotfiles.git HEAD`
 succeeds in sandbox.
 
-#### Credential helper compatibility
+### Credential helper compatibility
 
 Three credential helpers were tested in the sandbox:
 
-| Helper | Sandbox | Cross-platform | Security model |
-|--------|---------|----------------|----------------|
-| `osxkeychain` | ✅ Works | macOS only | Keychain (no file exposure) |
-| `gh auth git-credential` (Keychain) | ✅ Works | macOS + Linux | Keychain on macOS, gh storage on Linux |
-| `credential.helper = store` | Not tested | Both | Plaintext file (security regression) |
+| Helper | `credential fill` | `git push` | Reason |
+|--------|-------------------|------------|--------|
+| `osxkeychain` | ✅ Returns credentials | ❌ Fails | Keychain Mach service blocked by Seatbelt; macOS prompts for keychain password but sandbox cannot display interactive prompts |
+| `gh auth git-credential` (Keychain) | ❌ Fails | ❌ Fails | `~/.config/gh/hosts.yml` in default `read.denyOnly`; `gh` cannot read its own config |
+| `gh auth git-credential` (insecure-storage) | Not tested | Not tested | Requires `~/.config/gh/hosts.yml` in `allowRead` — see Security Analysis |
 
-`gh auth git-credential` was selected for cross-platform support. On macOS,
-`gh` stores tokens in the Keychain (via `keyring`). The credential helper
-reads stored tokens and outputs them to stdout — it does not make TLS calls,
-so the `trustd` issue documented in ADR 0002 does not apply.
+**Note**: Initial `credential fill` tests appeared to succeed because
+`osxkeychain` (Homebrew default) silently provided credentials as a fallback.
+Actual `git push` operations failed because `osxkeychain` requires interactive
+Keychain authorization prompts that the sandbox cannot display.
 
-A harmless `fatal: failed to get: 100001` error appears on stderr in sandbox
-but does not affect credential output on stdout.
+### Security analysis: `hosts.yml` in `allowRead`
 
-#### `url.insteadOf` for global scope
+Adding `~/.config/gh/hosts.yml` to `sandbox.filesystem.allowRead` was
+evaluated as a fallback but **rejected** due to security regression:
 
-Since `settings.json` applies globally to all repositories, all repos must
-work with HTTPS. `url.insteadOf` in git config transparently rewrites
-`git@github.com:` to `https://github.com/`, so individual repos do not need
-remote URL changes.
+| | SSH + `allowAllUnixSockets` (current) | HTTPS + `hosts.yml` allowRead |
+|---|---|---|
+| Attack surface breadth | Broad (all Unix sockets) | Narrow (one file) |
+| Secret exposure | **Indirect** — SSH agent mediates; private key never exposed | **Direct** — bearer token readable as plaintext |
+| Exfiltration risk | Agent signing only; key cannot be extracted | Token can be exfiltrated and reused independently |
+| Docker socket | Accessible, but `docker` already in `excludedCommands` | Not accessible |
 
-Only GitHub SSH remotes are in use (verified via `git remote -v`). The GitLab
-backup remote in `docs/backup-restore.md` is an illustrative example, not an
-active remote.
+The SSH agent model provides stronger secret protection: the private key is
+never directly exposed, and access is mediated through the agent. A plaintext
+bearer token in `hosts.yml` is a strictly weaker security model despite the
+narrower attack surface.
+
+### `url.insteadOf` for global scope
+
+`url.insteadOf` in git config can transparently rewrite `git@github.com:` to
+`https://github.com/`, eliminating per-repo remote URL changes. Only GitHub
+SSH remotes are in use.
 
 ## Decision
 
-Migrate git operations from SSH to HTTPS authentication and remove all
-SSH-related sandbox permissions.
+**Do not migrate**. Keep SSH + `allowAllUnixSockets` as documented in
+[ADR 0001](0001-claude-code-sandbox-git-least-privilege.md).
 
-### Git config changes
+No credential helper works reliably in the Claude Code sandbox without either:
+- Keychain Mach service access (blocked by Seatbelt), or
+- Adding sensitive token files to `allowRead` (security regression)
 
-```ini
-[credential "https://github.com"]
-    helper = !gh auth git-credential
+### Re-evaluate when
 
-[url "https://github.com/"]
-    insteadOf = git@github.com:
-```
-
-### Sandbox config changes
-
-Removed:
-- `allowRead`: `~/.ssh/known_hosts`, `~/.ssh/config`, `~/.ssh/config.local`,
-  `~/.orbstack/ssh/config`
-- `allowWrite`: `~/.ssh/known_hosts`
-- `allowAllUnixSockets: true`
-
-No new `allowRead` entries needed — credential helper reads from Keychain
-(macOS) or gh's native storage (Linux), not from files in the sandbox.
-
-## Consequences
-
-### Positive
-
-- **`allowAllUnixSockets` removed**: All Unix socket access (Docker daemon,
-  OrbStack, SSH agent) eliminated from sandboxed commands.
-- **SSH-related filesystem permissions removed**: `~/.ssh/known_hosts`,
-  `~/.ssh/config`, `~/.ssh/config.local`, `~/.orbstack/ssh/config` no longer
-  exposed to sandboxed commands.
-- **Linux remote `git push` enabled**: HTTPS authentication does not require
-  SSH agent forwarding. `git push` now works from Linux machines connected via
-  `ssh -a`.
-- **No new file exposure**: Unlike the `hosts.yml` fallback approach,
-  Keychain-based credential storage does not require adding sensitive files to
-  `allowRead`.
-
-### Negative
-
-- **Requires `gh` installed**: `gh auth git-credential` depends on GitHub CLI
-  being installed and authenticated on each machine. This is already the case
-  for both macOS and Linux environments.
-- **`url.insteadOf` rewrites all GitHub SSH URLs**: All repos using
-  `git@github.com:` will transparently use HTTPS. This is intentional but
-  irreversible without removing the config entry.
-- **Harmless stderr noise**: `gh auth git-credential` emits
-  `fatal: failed to get: 100001` on stderr when run in sandbox. Does not
-  affect functionality.
-
-### Risks
-
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| `gh` token expires or is revoked | Low | `gh auth login` to re-authenticate |
-| Future `gh` version changes credential helper behavior | Low | Pin behavior with `gh auth setup-git`; test on upgrade |
-| Non-GitHub SSH remotes added later | Low | Add `url.insteadOf` for new hosts or restore SSH permissions |
-
-### Rollback
-
-Re-add SSH sandbox permissions from ADR 0001 and remove the `credential` and
-`url` sections from git config:
-
-```json
-{
-  "sandbox": {
-    "filesystem": {
-      "allowRead": ["~/.ssh/known_hosts", "~/.ssh/config", "~/.ssh/config.local", "~/.orbstack/ssh/config"],
-      "allowWrite": ["/tmp", "~/.ssh/known_hosts"]
-    },
-    "network": {
-      "allowLocalBinding": true,
-      "allowAllUnixSockets": true
-    }
-  }
-}
-```
+- Claude Code adds `allowUnixSockets` glob/env-var support (narrowing to
+  `$SSH_AUTH_SOCK` only) — tracked in ADR 0001
+- Claude Code resolves Mach service restrictions for `excludedCommands`
+  ([#26466](https://github.com/anthropics/claude-code/issues/26466))
+- macOS Keychain access works within Seatbelt sandbox profiles

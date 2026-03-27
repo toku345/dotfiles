@@ -123,10 +123,12 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   Unix socket access is a new attack surface not present in the default sandbox.
   A future `allowUnixSockets` glob/pattern support would allow narrowing to
   `$SSH_AUTH_SOCK` only.
-  **Superseded**: HTTPS migration has been implemented — see
-  [ADR 0003](0003-https-migration-remove-allowAllUnixSockets.md).
-  `allowAllUnixSockets` and SSH-related filesystem permissions have been
-  removed.
+  **Accepted because**: (1) all attack vectors require prompt injection as a
+  prerequisite; (2) `docker` is already in `excludedCommands` with unrestricted
+  access; (3) HTTPS migration was evaluated but rejected due to global settings
+  scope — SSH is used across multiple repos and environments; (4) upstream
+  feature request for `allowUnixSockets` glob/env-var support is the long-term
+  fix.
 - **`/tmp` write access is global**: All sandboxed commands can write to `/tmp`.
   `/tmp` is an OS-standard world-writable directory; risk increase is limited.
 - **`.` (cwd) includes `.git/` — hook/config modification possible**: The default
