@@ -227,7 +227,7 @@ For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/
 - `chezmoi apply` / `chezmoi diff` require `dangerouslyDisableSandbox` (needs `~/.config/chezmoi/chezmoistate.boltdb`)
 - `GODEBUG=x509usefallbackroots=1` is ineffective for `gh` — do not use
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
-- `git push -u` shows `could not write config file .git/config: Operation not permitted` — upstream tracking is still set; the sandbox blocks the config write but the push succeeds. Harmless warning.
+- `git push -u` needs `.git/config` write access to persist upstream tracking. In this repository's current sandbox, cwd write access covers `.git/config`, so no extra allowlist entry is needed. If Git reports `could not write config file .git/config`, do not assume upstream was set. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#resolved-limitations)
 - `denyOnly` bare globs (`*.key`, `.env.*`) only protect files within cwd — `sandbox-runtime` resolves them relative to cwd. Absolute-path entries (`~/.docker/config.json`) work system-wide. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
 
 ## Important Notes

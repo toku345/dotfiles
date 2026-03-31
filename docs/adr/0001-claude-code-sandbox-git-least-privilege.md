@@ -176,10 +176,16 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   `Match exec` conditions. `~/.ssh/config.local` is present in this
   environment. `~/.orbstack/ssh/config` is included defensively for
   OrbStack-enabled environments.
-- **`git push -u` writes to `.git/config`** (non-issue — covered by default
-  `allowOnly: ["."]`): Initially suspected that `.git/config` writes were blocked
-  despite `.` being in the write allowlist. Empirical testing confirmed `.`
-  recursively covers `.git/` within cwd. No explicit `allowWrite` entry needed.
+- **`git push -u` writes to `.git/config`** (non-issue in the current
+  configuration — covered by default `allowOnly: ["."]`): Initially suspected
+  that `.git/config` writes were blocked despite `.` being in the write
+  allowlist. Empirical testing confirmed `.` recursively covers `.git/` within
+  cwd, so no explicit `allowWrite` entry is needed here.
+  If a future sandbox blocks `.git/config` writes, treat the remote push and
+  upstream setup as separate outcomes: the push may succeed, but upstream
+  tracking is not persisted. In that failure mode, later bare `git push` /
+  `git pull` commands still fail until `branch.*` config is written in a
+  writable context.
 
 ### Rollback
 
