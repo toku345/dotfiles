@@ -163,6 +163,9 @@ function cc --description "Create gtr worktree (timestamp branch) and cd to it"
     end
 end
 
+## abbreviations
+abbr -a cm chezmoi
+
 ## alias functions
 function l --description 'eza -ahl --git'
     eza -ahl --git $argv
