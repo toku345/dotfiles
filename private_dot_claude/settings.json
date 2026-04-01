@@ -140,6 +140,7 @@
       "Bash(git branch -m:*)",
       "Bash(git branch -M:*)",
       "Bash(git checkout:*)",
+      "Bash(git switch:*)",
       "Bash(git commit:*)",
       "Bash(git merge:*)",
       "Bash(git pull:*)",
@@ -156,17 +157,6 @@
     "defaultMode": "plan"
   },
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'JUIZ: システム起動完了。No.13 の指示をお待ちしております。'"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "matcher": "*",
@@ -174,14 +164,6 @@
           {
             "type": "command",
             "command": "command -v afplay >/dev/null && afplay /System/Library/Sounds/Glass.aiff || true"
-          },
-          {
-            "type": "command",
-            "command": "echo '🧹 コードを変更した場合は /deslop の実行を検討してください'"
-          },
-          {
-            "type": "command",
-            "command": "echo '📝 知見があれば適切な CLAUDE.md への追記を提案してください（リポジトリ: ./CLAUDE.md、個人: ~/.claude/CLAUDE.md）'"
           }
         ]
       }
@@ -196,21 +178,42 @@
     "security-guidance@claude-plugins-official": true,
     "context7@claude-plugins-official": true,
     "code-simplifier@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": true
+    "commit-commands@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true
   },
   "language": "Japanese",
-  "alwaysThinkingEnabled": true,
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "filesystem": {
+      "allowRead": [
+        "~/.ssh/known_hosts",
+        "~/.ssh/config",
+        "~/.ssh/config.local",
+        "~/.orbstack/ssh/config"
+      ],
+      "allowWrite": [
+        "/tmp",
+        "~/.ssh/known_hosts"
+      ]
+    },
+    "network": {
+      "allowLocalBinding": true,
+      "allowAllUnixSockets": true
+    },
+    "enableWeakerNestedSandbox": true,
     "excludedCommands": [
       "docker",
-      "git",
-      "gh"
-    ],
-    "allowUnsandboxedCommands": true,
-    "network": {
-      "allowLocalBinding": true
-    }
-  }
+      "gh",
+      "codex"
+    ]
+  },
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "high",
+  "voiceEnabled": false
 }

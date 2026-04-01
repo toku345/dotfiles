@@ -35,3 +35,7 @@ Set the following value in iTerm2 preferences.
 A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal.
 
 - <https://starship.rs/guide/#prerequisites>
+
+### Claude Code Plugins
+
+`~/.claude/settings.json` contains only environment-agnostic plugins shared across all machines. Language-specific plugins (e.g., `typescript-lsp`, `pyright-lsp`) should be added per-project in each repository's `.claude/settings.json`.
