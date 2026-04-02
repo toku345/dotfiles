@@ -226,13 +226,21 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
             return 1
         end
         cd "$worktree_dir"
+    else if string match -qr '^\s*\*' -- "$selected_line"
+        # Current branch — no-op
+        return 0
     else
-        # Prevent checkout inside worktree to avoid confusion
         if test "$is_in_worktree" = "1"
-            echo "Error: Cannot checkout in worktree. Use 'gb' to switch to another worktree, or return to main repo first." >&2
-            return 1
+            read -l -P "Switch to main repo and checkout '$branch_name'? [y/N] " confirm
+            if string match -qir '^y' -- "$confirm"
+                cd "$main_repo"
+                git checkout $branch_name
+            else
+                return 0
+            end
+        else
+            git checkout $branch_name
         end
-        git checkout $branch_name
     end
 end
 
