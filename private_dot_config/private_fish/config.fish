@@ -209,14 +209,8 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
     # Extract branch name (remove *, +, and leading spaces)
     set -l branch_name (string replace -r '^[ *+]+' '' -- $selected_line)
 
-    # Check if currently inside a worktree
-    set -l main_repo (git worktree list --porcelain | awk 'NR==1{print substr($0,10); exit}')
-    set -l current_repo (git rev-parse --show-toplevel)
-    set -l is_in_worktree (test "$main_repo" != "$current_repo"; and echo 1; or echo 0)
-
-    # Worktree branch (line contains +)
+    # Worktree branch (leading + marker)
     if string match -qr '^\s*\+' -- "$selected_line"
-        # Get worktree path from git worktree list
         set -l worktree_dir (git worktree list --porcelain | awk -v b="refs/heads/$branch_name" '
             $1=="worktree" {path=substr($0,10)}
             $1=="branch" && $2==b {print path; exit}
@@ -230,7 +224,9 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
         # Current branch — no-op
         return 0
     else
-        if test "$is_in_worktree" = "1"
+        set -l main_repo (git worktree list --porcelain | awk 'NR==1{print substr($0,10); exit}')
+        set -l current_repo (git rev-parse --show-toplevel)
+        if test "$main_repo" != "$current_repo"
             read -l -P "Switch to main repo and checkout '$branch_name'? [y/N] " confirm
             if string match -qir '^y' -- "$confirm"
                 cd "$main_repo"
