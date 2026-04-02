@@ -200,43 +200,65 @@ function gsw --description 'alias: git switch'
 end
 
 function gb --description 'git checkout or cd to worktree (fzf branch selector)'
+    git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
+    or begin
+        echo "Error: not in a git repository" >&2
+        return 1
+    end
+
     set -l selected_line (git branch | fzf --layout=reverse $argv)
+    set -l fzf_status $status
 
     if test -z "$selected_line"
+        # fzf error (2) or not found (127) → propagate; cancel (130) / no match (1) → intentional
+        if test $fzf_status -ge 2 -a $fzf_status -ne 130
+            return $fzf_status
+        end
         return 0
     end
 
-    # Extract branch name (remove *, +, and leading spaces)
-    set -l branch_name (string replace -r '^[ *+]+' '' -- $selected_line)
+    set -l parsed (__gb_parse_branch_line "$selected_line")
+    or begin
+        echo "Error: Failed to parse branch line" >&2
+        return 1
+    end
 
-    # Worktree branch (leading + marker)
-    if string match -qr '^\s*\+' -- "$selected_line"
-        set -l worktree_dir (git worktree list --porcelain | awk -v b="refs/heads/$branch_name" '
-            $1=="worktree" {path=substr($0,10)}
-            $1=="branch" && $2==b {print path; exit}
-        ')
-        if test -z "$worktree_dir"
-            echo "Error: Failed to get worktree directory for '$branch_name'" >&2
-            return 1
-        end
-        cd "$worktree_dir"
-    else if string match -qr '^\s*\*' -- "$selected_line"
-        # Current branch — no-op
-        return 0
-    else
-        set -l main_repo (git worktree list --porcelain | awk 'NR==1{print substr($0,10); exit}')
-        set -l current_repo (git rev-parse --show-toplevel)
-        if test "$main_repo" != "$current_repo"
-            read -l -P "Switch to main repo and checkout '$branch_name'? [y/N] " confirm
-            if string match -qir '^y' -- "$confirm"
-                cd "$main_repo"
-                git checkout $branch_name
-            else
-                return 0
+    switch $parsed[1]
+        case worktree
+            set -l worktree_dir (git worktree list --porcelain | awk -v b="refs/heads/$parsed[2]" '
+                $1=="worktree" {path=substr($0,10)}
+                $1=="branch" && $2==b {print path; exit}
+            ')
+            if test -z "$worktree_dir"
+                echo "Error: Failed to get worktree directory for '$parsed[2]'" >&2
+                return 1
             end
-        else
-            git checkout $branch_name
-        end
+            cd "$worktree_dir"
+            or begin
+                echo "Error: Failed to cd to '$worktree_dir'" >&2
+                return 1
+            end
+
+        case current
+            return 0
+
+        case regular
+            set -l main_repo (git worktree list --porcelain | awk 'NR==1{print substr($0,10); exit}')
+            set -l current_repo (git rev-parse --show-toplevel)
+            if test -z "$main_repo" -o -z "$current_repo"
+                echo "Error: Failed to determine repository paths" >&2
+                return 1
+            end
+            if test "$main_repo" != "$current_repo"
+                read -l -P "Switch to main repo and checkout '$parsed[2]'? [y/N] " confirm
+                string match -qir '^y' -- "$confirm"; or return 0
+                cd "$main_repo"
+                or begin
+                    echo "Error: Failed to cd to '$main_repo'" >&2
+                    return 1
+                end
+            end
+            git checkout "$parsed[2]"
     end
 end
 
