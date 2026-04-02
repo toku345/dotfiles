@@ -207,22 +207,25 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
     end
 
     # Extract branch name (remove *, +, and leading spaces)
-    set -l branch_name (echo $selected_line | sed -r 's/^[ \*\+]+//')
+    set -l branch_name (string replace -r '^[ *+]+' '' -- $selected_line)
 
     # Check if currently inside a worktree
-    set -l main_repo (git worktree list | head -1 | awk '{print $1}')
+    set -l main_repo (git worktree list --porcelain | awk 'NR==1{print substr($0,10); exit}')
     set -l current_repo (git rev-parse --show-toplevel)
     set -l is_in_worktree (test "$main_repo" != "$current_repo"; and echo 1; or echo 0)
 
     # Worktree branch (line contains +)
-    if string match -q '*+*' -- "$selected_line"
+    if string match -qr '^\s*\+' -- "$selected_line"
         # Get worktree path from git worktree list
-        set -l worktree_dir (git worktree list | grep -E "\[$branch_name\]\$" | awk '{print $1}')
+        set -l worktree_dir (git worktree list --porcelain | awk -v b="refs/heads/$branch_name" '
+            $1=="worktree" {path=substr($0,10)}
+            $1=="branch" && $2==b {print path; exit}
+        ')
         if test -z "$worktree_dir"
             echo "Error: Failed to get worktree directory for '$branch_name'" >&2
             return 1
         end
-        cd $worktree_dir
+        cd "$worktree_dir"
     else
         # Prevent checkout inside worktree to avoid confusion
         if test "$is_in_worktree" = "1"
