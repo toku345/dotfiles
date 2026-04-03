@@ -96,6 +96,7 @@ chezmoi apply
 - `private_dot_ssh/` - SSH configuration
 - `private_dot_claude/` - Claude Code configuration
   - `skills/` - Claude Code skills (maps to `~/.claude/skills/`)
+    - ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `agents/` - Claude Code custom agents
   - `settings.json` - Claude Code settings
   - `CLAUDE.md` - Global Claude Code instructions (distinct from root `CLAUDE.md` symlink)
