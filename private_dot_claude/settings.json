@@ -183,28 +183,37 @@
     "claude-md-management@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "hookify@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true
+    "skill-creator@claude-plugins-official": true,
+    "codex@openai-codex": true
+  },
+  "extraKnownMarketplaces": {
+    "openai-codex": {
+      "source": {
+        "source": "github",
+        "repo": "openai/codex-plugin-cc"
+      }
+    }
   },
   "language": "Japanese",
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": true,
+    "network": {
+      "allowAllUnixSockets": true,
+      "allowLocalBinding": true
+    },
     "filesystem": {
+      "allowWrite": [
+        "/tmp",
+        "~/.ssh/known_hosts"
+      ],
       "allowRead": [
         "~/.ssh/known_hosts",
         "~/.ssh/config",
         "~/.ssh/config.local",
         "~/.orbstack/ssh/config"
-      ],
-      "allowWrite": [
-        "/tmp",
-        "~/.ssh/known_hosts"
       ]
-    },
-    "network": {
-      "allowLocalBinding": true,
-      "allowAllUnixSockets": true
     },
     "enableWeakerNestedSandbox": true,
     "excludedCommands": [
