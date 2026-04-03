@@ -45,7 +45,7 @@ description: ソクラテス式対話で要件と設計を詰めてから実装�
 
 # Brainstorming Ideas Into Designs
 
-Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
+Help turn ideas into fully formed designs through natural collaborative dialogue.
 
 Start by understanding the current project context, then ask focused questions to refine the idea. Once you understand what you're building, present the design, get user approval, and record key decisions as ADRs.
 
@@ -109,16 +109,16 @@ You MUST create a task for each of these items and complete them in order:
             |yes
             v
 +---------------------------+
-| Write ADR(s)              |
-+---------------------------+
-            |
-            v
-   +------------------+
-   | User confirms    |
-   | ADR?             |
-   +------------------+
-            |yes
-            v
+| Write ADR(s)              |<-----+
++---------------------------+      |
+            |                      |
+            v                      |
+   +------------------+            |
+   | User confirms    |            |
+   | ADR?             |            |
+   +------------------+            |
+    |yes          |no -------------+
+    v
 +---------------------------+
 | Commit (opt-in,           |
 | branch safety)            |
@@ -136,7 +136,7 @@ You MUST create a task for each of these items and complete them in order:
 
 - Check out the current project state first (files, docs, recent commits)
 - Before asking detailed questions, assess scope: if the request describes multiple independent subsystems (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately. Don't spend questions refining details of a project that needs to be decomposed first.
-- If the project is too large for a single spec, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own spec → plan → implementation cycle.
+- If the project is too large for a single spec, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own design → ADR(s) → plan → implementation cycle.
 - For appropriately-scoped projects, ask focused questions to refine the idea
 - Prefer hypothesis-driven questions ("Based on X, I'm assuming Y — is that right?") over open-ended interrogation ("What do you want for Y?"). This builds on what you've already learned and feels collaborative rather than like a questionnaire.
 - Batch 2-3 closely related questions in a single message when they share context (e.g., "For the auth layer: do you need OAuth, and if so, which providers? Also, should sessions be stateless (JWT) or server-side?"). Unrelated topics should still be separate messages.
@@ -209,7 +209,7 @@ If the user prefers not to commit, skip this step. When committing:
 
 1. **Branch safety check**: Verify the current branch is suitable for commits.
    - Reject detached HEAD state (`git branch --show-current` returns empty).
-   - Detect the repository's default branch (`git rev-parse --abbrev-ref origin/HEAD 2>/dev/null`). If detection fails, check against common defaults: `main`, `master`, `trunk`, `develop`.
+   - Detect the repository's default branch (`git rev-parse --abbrev-ref origin/HEAD 2>/dev/null`; strip the `origin/` prefix before comparing). If detection fails, check against common defaults: `main`, `master`, `trunk`, `develop`.
    - If on the default branch, warn the user and suggest creating a feature branch before committing. Do not commit to the default branch without explicit user confirmation.
 2. Commit the ADR file(s) to git.
 
