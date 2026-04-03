@@ -136,7 +136,7 @@ You MUST create a task for each of these items and complete them in order:
 
 - Check out the current project state first (files, docs, recent commits)
 - Before asking detailed questions, assess scope: if the request describes multiple independent subsystems (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately. Don't spend questions refining details of a project that needs to be decomposed first.
-- If the project is too large for a single spec, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own design → ADR(s) → plan → implementation cycle.
+- If the project is too large for a single design, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own design → ADR(s) → plan → implementation cycle.
 - For appropriately-scoped projects, ask focused questions to refine the idea
 - Prefer hypothesis-driven questions ("Based on X, I'm assuming Y — is that right?") over open-ended interrogation ("What do you want for Y?"). This builds on what you've already learned and feels collaborative rather than like a questionnaire.
 - Batch 2-3 closely related questions in a single message when they share context (e.g., "For the auth layer: do you need OAuth, and if so, which providers? Also, should sessions be stateless (JWT) or server-side?"). Unrelated topics should still be separate messages.
