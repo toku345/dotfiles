@@ -46,7 +46,13 @@
       "WebFetch(domain:pypi.org)",
       "WebFetch(domain:docs.python.org)",
       "WebFetch(domain:nodejs.org)",
-      "WebFetch(domain:developer.mozilla.org)"
+      "WebFetch(domain:developer.mozilla.org)",
+      "Bash(gh search:*)",
+      "WebFetch(domain:docs.github.com)",
+      "Skill(commit-commands:commit-push-pr)",
+      "Bash(chezmoi cat:*)",
+      "Bash(fish -n)",
+      "Bash(codex exec:*)"
     ],
     "deny": [
       "Bash(sudo:*)",
