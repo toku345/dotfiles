@@ -138,6 +138,19 @@ const llmClient = createLLMClient(...);
 interface LambdaEvent { ... }
 ```
 
+## Codex の使い分け
+
+| 用途 | 手段 | 起動者 |
+|------|------|--------|
+| 実装計画レビュー | `codex exec` via Bash | AI（自動） |
+| diff ベースのコードレビュー | `codex exec` via Bash | AI（自動） |
+| 調査委譲・長時間タスク | `/codex:rescue` | ユーザー（手動） |
+| 別案の試行 | `/codex:rescue` | ユーザー（手動） |
+| バックグラウンド実行管理 | `/codex:status`, `/codex:result` | ユーザー（手動） |
+
+- AI が自動で実行するレビューには `codex exec` を使用する（下記セクション参照）
+- ユーザーが調査や長時間タスクを委譲する場合は `codex-plugin-cc` の `/codex:rescue` を使用する
+
 ## 実装計画立案時の Codex レビュー
 
 ### 適用条件
