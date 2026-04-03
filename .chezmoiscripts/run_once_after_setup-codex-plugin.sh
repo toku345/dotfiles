@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Check if codex-plugin-cc is installed in Claude Code
-if ! grep -q '"codex"' "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null; then
+if ! grep -q '"codex@openai-codex"' "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null; then
     echo ""
     echo "========================================"
     echo " codex-plugin-cc (Claude Code plugin)"
