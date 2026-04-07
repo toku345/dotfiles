@@ -136,18 +136,10 @@ fish_add_path $HOME/.codeium/windsurf/bin
 
 ## git workflow commands
 function gw --description "Create gtr worktree and cd to it (-c to checkout existing branch)"
-    if test "$argv[1]" = -h; or test "$argv[1]" = --help
-        echo "Usage: gw [options] [<base>]" >&2
-        echo "" >&2
-        echo "Commands:" >&2
-        echo "  gw                      Create temp worktree from default branch" >&2
-        echo "  gw <base>               Create temp worktree from specified base" >&2
-        echo "  gw -c <branch>          Checkout existing branch in worktree" >&2
-        echo "  gw -c <branch> <base>   Create new branch from base in worktree" >&2
-        echo "" >&2
-        echo "Options:" >&2
-        echo "  -c, --checkout   Checkout or create a named branch worktree" >&2
-        echo "  -h, --help       Show this help" >&2
+    if test "$argv[1]" = -h; or test "$argv[1]" = --help; or test "$argv[1]" = help
+        echo "Usage: gw [<base>]              Create temp worktree (wip/gw-*) from <base> or default branch" >&2
+        echo "       gw -c <branch>           Checkout existing branch into worktree (or cd if exists)" >&2
+        echo "       gw -c <branch> <base>    Create new branch from <base> into worktree" >&2
         return 0
     end
 
