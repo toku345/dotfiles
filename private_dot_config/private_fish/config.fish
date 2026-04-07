@@ -160,7 +160,7 @@ function gw --description "Create gtr worktree and cd to it (-c to checkout exis
     end
 
     set -l branch "wip/gw-"(date "+%Y%m%d-%H%M%S")
-    git gtr new $branch --from $base --yes
+    git gtr new $branch --from $base --track none --yes
     and begin
         set -l d (git gtr go $branch)
         test $status -eq 0; and test -n "$d"; and cd "$d"
@@ -234,14 +234,6 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
             end
             set -l current_repo (git rev-parse --show-toplevel)
 
-            # Inside worktree → confirm and cd to main repo first
-            if test "$main_repo" != "$current_repo"
-                read -l -P "Switch to main repo and checkout '$branch'? [y/N] " confirm
-                string match -qir '^y' -- "$confirm"; or return 0
-                cd "$main_repo"
-                or begin; echo "Error: failed to cd to main repo" >&2; return 1; end
-            end
-
             # Worktree protection: block non-default branch checkout when worktrees exist
             set -l wt_lines (git worktree list)
             if test (count $wt_lines) -ge 2; and test "$branch" != "$default_branch"
@@ -249,6 +241,14 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
                 echo "  → worktree で作業: gw -c $branch" >&2
                 echo "  → 一時的な作業:   gw" >&2
                 return 1
+            end
+
+            # Inside worktree → confirm and cd to main repo first
+            if test "$main_repo" != "$current_repo"
+                read -l -P "Switch to main repo and checkout '$branch'? [y/N] " confirm
+                string match -qir '^y' -- "$confirm"; or return 0
+                cd "$main_repo"
+                or begin; echo "Error: failed to cd to main repo" >&2; return 1; end
             end
 
             git checkout $branch
