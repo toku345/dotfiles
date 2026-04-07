@@ -157,6 +157,11 @@ When making changes:
 
 ## Go Template Usage Policy
 
+### CI での chezmoi テンプレート検証
+
+- `promptBoolOnce` 等の init 専用関数は `chezmoi execute-template` 単体では未定義エラーになる。`--init` フラグで有効化する
+- テンプレートで chezmoi data を参照する際、CI 等データ未定義環境では `.key` が失敗する。`index . "key"` を使えばキー未定義時に nil を返しエラーにならない
+
 ### Principles
 
 - Use Go Templates only in chezmoi configuration files (`.chezmoi.toml.tmpl`)
@@ -231,6 +236,7 @@ For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
 - `git push -u` needs `.git/config` write access to persist upstream tracking. In this repository's current sandbox, cwd write access covers `.git/config`, so no extra allowlist entry is needed. If Git reports `could not write config file .git/config`, do not assume upstream was set. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#resolved-limitations)
 - `denyOnly` bare globs (`*.key`, `.env.*`) only protect files within cwd — `sandbox-runtime` resolves them relative to cwd. Absolute-path entries (`~/.docker/config.json`) work system-wide. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
+- fish シェル経由の Bash ヒアドキュメントで `!` が `\!` にエスケープされることがある。`!` を含むファイルは `Write` ツールで直接書き込む
 
 ## Important Notes
 
