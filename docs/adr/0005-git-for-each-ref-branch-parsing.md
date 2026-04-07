@@ -18,7 +18,7 @@ Meanwhile, `git for-each-ref` provides structured, machine-readable output with 
 
 Use `git for-each-ref --format` with conditional expressions instead of parsing `git branch` output. The format string classifies branches at the git level:
 
-```
+```text
 %(if)%(HEAD)%(then)current<TAB>* %(refname:short)
 %(else)%(if)%(worktreepath)%(then)worktree<TAB>+ %(refname:short)
 %(else)regular<TAB>  %(refname:short)%(end)%(end)
@@ -32,7 +32,7 @@ This produces TAB-separated `type<TAB>display` output where:
 
 For `gbd`, a variant format outputs only deletable branch names by emitting empty strings for current and worktree branches, combined with `--merged` filtering:
 
-```
+```text
 %(if)%(HEAD)%(then)%(else)%(if)%(worktreepath)%(then)%(else)%(refname:short)%(end)%(end)
 ```
 
