@@ -125,6 +125,7 @@ The main shell configuration that sets up:
 - **direnv**: Environment variable management per directory
 - **fzf**: Fuzzy finder integration for history search and directory navigation
 - **starship**: Cross-shell prompt
+- **git-gtr**: Git worktree runner (`git gtr new/go/list`). Used internally by `gw`/`gb`/`gbd`. Track mode behavior can be verified in `/opt/homebrew/Cellar/git-gtr/*/lib/core.sh`
 
 ## Working with This Repository
 
@@ -135,6 +136,12 @@ When making changes:
 3. Apply changes with `chezmoi apply`
 4. Commit changes to git from the source directory
 
+### Responding to PR Review Comments
+
+1. Verify each finding against codebase facts (trace code paths, confirm shell control flow semantics)
+2. Classify Accept/Reject with evidence before starting implementation
+3. When findings depend on external tool behavior, verify in a test repository
+
 ## Definition of Done（chezmoi 固有）
 
 グローバル DoD に加え、このリポジトリでは変更種別に応じて以下を確認する。
@@ -142,6 +149,7 @@ When making changes:
 ### 設定ファイル変更時
 
 - **構文チェック通過**: Fish shell は `chezmoi cat <file> | fish -n`（.tmpl でも安全）、その他は `chezmoi apply --dry-run` でエラーなし
+- **Fish function testing**: After `chezmoi apply`, run `fish -c "cd /path/to/repo; func_name args"` for non-interactive execution. For functions using fzf or other interactive input, simulate the logic path directly
 - **chezmoi diff 確認**: `chezmoi diff` で意図した差分のみが出力される
 - **chezmoi apply 成功**: `chezmoi apply -v` がエラーなく完了する
 
