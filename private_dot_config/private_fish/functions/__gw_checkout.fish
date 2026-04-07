@@ -34,7 +34,7 @@ function __gw_checkout
 
     or return 1
 
-    set -l d (git gtr go $branch 2>/dev/null)
+    set -l d (git gtr go $branch)
     test $status -eq 0; and test -n "$d"; and cd "$d"
     or begin
         echo "Error: failed to navigate to worktree for '$branch'" >&2

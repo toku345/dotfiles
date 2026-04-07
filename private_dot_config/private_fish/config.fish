@@ -135,7 +135,7 @@ test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2
 fish_add_path $HOME/.codeium/windsurf/bin
 
 ## git workflow commands
-function gw --description "Create gtr worktree and cd to it"
+function gw --description "Create gtr worktree and cd to it (-c to checkout existing branch)"
     git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
     or begin; echo "Error: not in a git repository" >&2; return 1; end
 
@@ -155,7 +155,7 @@ function gw --description "Create gtr worktree and cd to it"
     set -l branch "wip/gw-"(date "+%Y%m%d-%H%M%S")
     git gtr new $branch --from $base --yes
     and begin
-        set -l d (git gtr go $branch 2>/dev/null)
+        set -l d (git gtr go $branch)
         test $status -eq 0; and test -n "$d"; and cd "$d"
         or begin; echo "Error: failed to navigate to worktree" >&2; return 1; end
     end
@@ -199,9 +199,9 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
 
     test -n "$selected"; or return 0
 
-    set -l type (string split \t -- $selected)[1]
-    set -l display (string split \t -- $selected)[2]
-    set -l branch (string sub -s 3 $display)
+    set -l parts (string split \t -- $selected)
+    set -l type $parts[1]
+    set -l branch (string sub -s 3 $parts[2])
 
     switch $type
         case current
@@ -211,6 +211,7 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
             set -l wt_path (__worktree_path_for_branch $branch)
             if test -n "$wt_path"
                 cd "$wt_path"
+                or begin; echo "Error: failed to cd to worktree '$wt_path'" >&2; return 1; end
             else
                 echo "Error: worktree path not found for '$branch'" >&2
                 return 1
@@ -218,7 +219,12 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
 
         case regular
             set -l default_branch (__detect_default_branch)
+            or return 1
             set -l main_repo (git worktree list --porcelain | awk 'NR==1{print substr($0,10); exit}')
+            if test -z "$main_repo"
+                echo "Error: failed to determine main repo path" >&2
+                return 1
+            end
             set -l current_repo (git rev-parse --show-toplevel)
 
             # Inside worktree → confirm and cd to main repo first
@@ -227,13 +233,11 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
                 string match -qir '^y' -- "$confirm"; or return 0
                 cd "$main_repo"
                 or begin; echo "Error: failed to cd to main repo" >&2; return 1; end
-                git checkout $branch
-                return $status
             end
 
-            # On main repo with worktrees → block non-default branch checkout
-            set -l wt_count (git worktree list | wc -l | string trim)
-            if test "$wt_count" -ge 2; and test "$branch" != "$default_branch"
+            # Worktree protection: block non-default branch checkout when worktrees exist
+            set -l wt_lines (git worktree list)
+            if test (count $wt_lines) -ge 2; and test "$branch" != "$default_branch"
                 echo "Error: worktree が存在するため、main repo では default ブランチ以外に checkout できません。" >&2
                 echo "  → worktree で作業: gw -c $branch" >&2
                 echo "  → 一時的な作業:   gw" >&2
