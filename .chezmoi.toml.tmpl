@@ -6,3 +6,6 @@ recipient = "age13nd6rta5xqx4prnsggkmsdrcs3dp6ysszncmshyya67r357gua5s0k8gy7"
 [edit]
 command = "code"
 args = ["--wait"]
+
+[data]
+vpn_check = {{ promptBoolOnce . "vpn_check" "Enable VPN status check in starship prompt" }}

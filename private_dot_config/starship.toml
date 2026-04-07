@@ -164,3 +164,11 @@ symbol = " "
 
 [spack]
 symbol = "🅢 "
+
+[custom.vpn]
+description = "VPN connection status"
+command = "$HOME/.config/starship/check-vpn.sh"
+when = "test -x $HOME/.config/starship/check-vpn.sh"
+unsafe_no_escape = true
+format = "$output"
+os = "macos"
