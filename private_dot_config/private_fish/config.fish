@@ -278,7 +278,7 @@ function gbd --description 'delete merged git branches'
     set -l branches (git for-each-ref \
         --merged="$base" \
         --format='%(if)%(HEAD)%(then)%(else)%(if)%(worktreepath)%(then)%(else)%(refname:short)%(end)%(end)' \
-        refs/heads/ | string match -rv '^$' | string match -rv "^$base\$")
+        refs/heads/ | string match -rv '^$' | string match -v -- $base)
 
     if test (count $branches) -eq 0
         echo "No merged branches to delete." >&2
