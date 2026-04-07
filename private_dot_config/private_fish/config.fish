@@ -134,32 +134,45 @@ test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2
 ## Windsurf
 fish_add_path $HOME/.codeium/windsurf/bin
 
-## git worktree runner + claude
-function cc --description "Create gtr worktree (timestamp branch) and cd to it"
+## git workflow commands
+function gw --description "Create gtr worktree and cd to it (-c to checkout existing branch)"
+    if test "$argv[1]" = -h; or test "$argv[1]" = --help
+        echo "Usage: gw [options] [<base>]" >&2
+        echo "" >&2
+        echo "Commands:" >&2
+        echo "  gw                      Create temp worktree from default branch" >&2
+        echo "  gw <base>               Create temp worktree from specified base" >&2
+        echo "  gw -c <branch>          Checkout existing branch in worktree" >&2
+        echo "  gw -c <branch> <base>   Create new branch from base in worktree" >&2
+        echo "" >&2
+        echo "Options:" >&2
+        echo "  -c, --checkout   Checkout or create a named branch worktree" >&2
+        echo "  -h, --help       Show this help" >&2
+        return 0
+    end
+
     git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
-    or begin
-        echo "Error: not in a git repository" >&2
-        return 1
+    or begin; echo "Error: not in a git repository" >&2; return 1; end
+
+    if test "$argv[1]" = -c; or test "$argv[1]" = --checkout
+        __gw_checkout $argv[2..]
+        return $status
     end
 
     set -l base
     if set -q argv[1]; and test -n "$argv[1]"
         set base $argv[1]
     else
-        set base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-        if test -z "$base"
-            set base main
-        end
+        set base (__detect_default_branch)
+        or return 1
     end
 
-    set -l branch "wip/cc-"(date "+%Y%m%d-%H%M%S")
+    set -l branch "wip/gw-"(date "+%Y%m%d-%H%M%S")
     git gtr new $branch --from $base --yes
     and begin
-        set -l worktree_dir (git gtr go $branch)
-        if test $status -ne 0; or test -z "$worktree_dir"
-            return 1
-        end
-        cd $worktree_dir
+        set -l d (git gtr go $branch)
+        test $status -eq 0; and test -n "$d"; and cd "$d"
+        or begin; echo "Error: failed to navigate to worktree" >&2; return 1; end
     end
 end
 
@@ -179,10 +192,6 @@ function tree --description 'alterative tree command: eza -T'
     eza -T $argv
 end
 
-function gc --description 'alias: git checkout'
-    git checkout $argv
-end
-
 function gp --description 'alias: git push'
     git push $argv
 end
@@ -195,12 +204,63 @@ function gst --description 'alias: git status'
     git status $argv
 end
 
-function gsw --description 'alias: git switch'
-    git switch $argv
-end
+function gb --description 'git checkout or cd to worktree (fzf branch selector)'
+    git rev-parse --is-inside-work-tree >/dev/null 2>/dev/null
+    or begin; echo "Error: not in a git repository" >&2; return 1; end
 
-function gb --description 'alias: git checkout (git branch | fzf | sed -r "s/^[ \*]+//")'
-    git checkout (git branch | fzf --layout=reverse $argv | sed -r "s/^[ \*]+//")
+    set -l selected (git for-each-ref \
+        --format='%(if)%(HEAD)%(then)current'\t'* %(refname:short)%(else)%(if)%(worktreepath)%(then)worktree'\t'+ %(refname:short)%(else)regular'\t'  %(refname:short)%(end)%(end)' \
+        refs/heads/ | fzf --delimiter=\t --with-nth=2 --layout=reverse $argv)
+
+    test -n "$selected"; or return 0
+
+    set -l parts (string split \t -- $selected)
+    set -l type $parts[1]
+    set -l branch (string sub -s 3 $parts[2])
+
+    switch $type
+        case current
+            return 0
+
+        case worktree
+            set -l wt_path (__worktree_path_for_branch $branch)
+            if test -n "$wt_path"
+                cd "$wt_path"
+                or begin; echo "Error: failed to cd to worktree '$wt_path'" >&2; return 1; end
+            else
+                echo "Error: worktree path not found for '$branch'" >&2
+                return 1
+            end
+
+        case regular
+            set -l default_branch (__detect_default_branch)
+            or return 1
+            set -l main_repo (git worktree list --porcelain | awk 'NR==1{print substr($0,10); exit}')
+            if test -z "$main_repo"
+                echo "Error: failed to determine main repo path" >&2
+                return 1
+            end
+            set -l current_repo (git rev-parse --show-toplevel)
+
+            # Inside worktree → confirm and cd to main repo first
+            if test "$main_repo" != "$current_repo"
+                read -l -P "Switch to main repo and checkout '$branch'? [y/N] " confirm
+                string match -qir '^y' -- "$confirm"; or return 0
+                cd "$main_repo"
+                or begin; echo "Error: failed to cd to main repo" >&2; return 1; end
+            end
+
+            # Worktree protection: block non-default branch checkout when worktrees exist
+            set -l wt_lines (git worktree list)
+            if test (count $wt_lines) -ge 2; and test "$branch" != "$default_branch"
+                echo "Error: worktree が存在するため、main repo では default ブランチ以外に checkout できません。" >&2
+                echo "  → worktree で作業: gw -c $branch" >&2
+                echo "  → 一時的な作業:   gw" >&2
+                return 1
+            end
+
+            git checkout $branch
+    end
 end
 
 function d --description 'alias: docker'
@@ -220,10 +280,22 @@ function rd --description 'alias: git diff --diff-filter=ACMR --name-only | xarg
 end
 
 function gbd --description 'delete merged git branches'
-    set -l base (git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-    or set base main
+    set -l base (__detect_default_branch)
+    or return 1
 
-    git branch --merged $base | grep -v -E "\\*|$base" | xargs git branch -d
+    set -l branches (git for-each-ref \
+        --merged="$base" \
+        --format='%(if)%(HEAD)%(then)%(else)%(if)%(worktreepath)%(then)%(else)%(refname:short)%(end)%(end)' \
+        refs/heads/ | string match -rv '^$' | string match -rv "^$base\$")
+
+    if test (count $branches) -eq 0
+        echo "No merged branches to delete." >&2
+        return 0
+    end
+
+    for b in $branches
+        git branch -D $b
+    end
 end
 
 ## Local configuration (machine-specific)
