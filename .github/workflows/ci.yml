@@ -85,11 +85,17 @@ jobs:
             FOUND=1
             echo "Validating: $tmpl"
 
-            # Use chezmoi execute-template to validate syntax
-            # Note: This will fail if template syntax is invalid
-            if ! chezmoi execute-template --file "$tmpl" > /dev/null 2>&1; then
+            # .chezmoi.toml.tmpl uses init-time functions (promptBoolOnce etc.)
+            # that require --init flag to be available in execute-template
+            if [ "$(basename "$tmpl")" = ".chezmoi.toml.tmpl" ]; then
+              EXEC_ARGS="--init"
+            else
+              EXEC_ARGS=""
+            fi
+
+            if ! chezmoi execute-template $EXEC_ARGS --file "$tmpl" > /dev/null 2>&1; then
               echo "ERROR: Invalid template syntax in $tmpl"
-              chezmoi execute-template --file "$tmpl" 2>&1 || true
+              chezmoi execute-template $EXEC_ARGS --file "$tmpl" 2>&1 || true
               FAILED=1
             fi
           done < <(find . -name "*.tmpl" -type f 2>/dev/null)
