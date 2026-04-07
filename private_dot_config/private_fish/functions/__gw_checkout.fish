@@ -24,12 +24,13 @@ function __gw_checkout
         git gtr new $branch --from $base --track none --yes
     else
         # -c <branch> → use existing local/remote branch
-        if not git rev-parse --verify $branch >/dev/null 2>&1
-            and not git rev-parse --verify origin/$branch >/dev/null 2>&1
-            echo "Error: branch '$branch' not found locally or on origin" >&2
-            return 1
+        if git rev-parse --verify $branch >/dev/null 2>&1
+            # Local branch exists → default tracking (auto)
+            git gtr new $branch --yes
+        else
+            # No local branch → try remote only (errors if not found after fetch)
+            git gtr new $branch --track remote --yes
         end
-        git gtr new $branch --yes
     end
 
     or return 1
