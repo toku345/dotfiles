@@ -135,11 +135,13 @@ test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2
 fish_add_path $HOME/.codeium/windsurf/bin
 
 ## git workflow commands
-function gw --description "Create gtr worktree and cd to it (-c to checkout existing branch)"
+function gw --description "Manage git worktrees (create, checkout, remove, clean)"
     if test "$argv[1]" = -h; or test "$argv[1]" = --help; or test "$argv[1]" = help
         echo "Usage: gw [<base>]              Create temp worktree (wip/gw-*) from <base> or default branch" >&2
         echo "       gw -c <branch>           Checkout existing branch into worktree (or cd if exists)" >&2
         echo "       gw -c <branch> <base>    Create new branch from <base> into worktree" >&2
+        echo "       gw rm <branch>           Remove worktree and delete branch" >&2
+        echo "       gw clean                 Remove all merged worktree branches" >&2
         return 0
     end
 
@@ -148,6 +150,16 @@ function gw --description "Create gtr worktree and cd to it (-c to checkout exis
 
     if test "$argv[1]" = -c; or test "$argv[1]" = --checkout
         __gw_checkout $argv[2..]
+        return $status
+    end
+
+    if test "$argv[1]" = rm
+        __gw_rm $argv[2..]
+        return $status
+    end
+
+    if test "$argv[1]" = clean
+        __gw_clean
         return $status
     end
 
