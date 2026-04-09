@@ -28,11 +28,13 @@ function __gw_clean
     read -l -P "Delete these worktrees and branches? [y/N] " confirm
     string match -qir '^y' -- "$confirm"; or return 0
 
+    set -l has_error 0
     for b in $branches
         __gw_rm $b $force_flag
         or begin
-            echo "Error: failed to remove '$b'" >&2
-            return 1
+            echo "Skipped: '$b' (use --force to remove dirty worktrees)" >&2
+            set has_error 1
         end
     end
+    return $has_error
 end
