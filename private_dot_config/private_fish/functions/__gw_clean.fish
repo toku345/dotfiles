@@ -25,5 +25,9 @@ function __gw_clean
 
     for b in $branches
         __gw_rm $b
+        or begin
+            echo "Error: failed to remove '$b'" >&2
+            return 1
+        end
     end
 end
