@@ -35,7 +35,8 @@ function __gw_rm
     git gtr rm $branch --delete-branch --yes $force_flag
 
     # git gtr rm は失敗時も exit 0 を返すため、worktree の残存で判定
-    if test -n (__worktree_path_for_branch $branch)
+    set -l remaining (__worktree_path_for_branch $branch)
+    if test -n "$remaining"
         return 1
     end
 end
