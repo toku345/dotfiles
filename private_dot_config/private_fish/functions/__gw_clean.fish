@@ -1,4 +1,9 @@
 function __gw_clean
+    set -l force_flag
+    if test "$argv[1]" = --force
+        set force_flag --force
+    end
+
     set -l base (__detect_default_branch)
     or return 1
 
@@ -24,7 +29,7 @@ function __gw_clean
     string match -qir '^y' -- "$confirm"; or return 0
 
     for b in $branches
-        __gw_rm $b
+        __gw_rm $b $force_flag
         or begin
             echo "Error: failed to remove '$b'" >&2
             return 1

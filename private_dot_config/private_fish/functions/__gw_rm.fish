@@ -1,7 +1,19 @@
 function __gw_rm
-    set -l branch $argv[1]
+    set -l branch
+    set -l force_flag
+    for arg in $argv
+        switch $arg
+            case --force
+                set force_flag --force
+            case '-*'
+                echo "Error: unknown option '$arg'" >&2
+                return 1
+            case '*'
+                set branch $arg
+        end
+    end
     test -n "$branch"; or begin
-        echo "Usage: gw rm <branch>" >&2
+        echo "Usage: gw rm <branch> [--force]" >&2
         return 1
     end
 
@@ -20,5 +32,10 @@ function __gw_rm
         end
     end
 
-    git gtr rm $branch --delete-branch --yes
+    git gtr rm $branch --delete-branch --yes $force_flag
+
+    # git gtr rm は失敗時も exit 0 を返すため、worktree の残存で判定
+    if test -n (__worktree_path_for_branch $branch)
+        return 1
+    end
 end

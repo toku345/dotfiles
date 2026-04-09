@@ -140,8 +140,8 @@ function gw --description "Manage git worktrees (create, checkout, remove, clean
         echo "Usage: gw [<base>]              Create temp worktree (wip/gw-*) from <base> or default branch" >&2
         echo "       gw -c <branch>           Checkout existing branch into worktree (or cd if exists)" >&2
         echo "       gw -c <branch> <base>    Create new branch from <base> into worktree" >&2
-        echo "       gw rm <branch>           Remove worktree and delete branch" >&2
-        echo "       gw clean                 Remove all merged worktree branches" >&2
+        echo "       gw rm <branch> [--force]  Remove worktree and delete branch" >&2
+        echo "       gw clean [--force]       Remove all merged worktree branches" >&2
         return 0
     end
 
@@ -159,7 +159,7 @@ function gw --description "Manage git worktrees (create, checkout, remove, clean
     end
 
     if test "$argv[1]" = clean
-        __gw_clean
+        __gw_clean $argv[2..]
         return $status
     end
 
