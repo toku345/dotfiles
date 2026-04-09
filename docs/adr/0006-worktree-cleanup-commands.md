@@ -19,19 +19,23 @@ Key forces:
 
 Add two subcommands to `gw`:
 
-### `gw rm <branch>`
+### `gw rm <branch> [--force]`
 
-- Delegates to `git gtr rm <branch> --delete-branch --yes` (worktree + branch deletion)
-- If the user is currently inside the target worktree, automatically `cd` to the main repo toplevel before deletion
+- Verifies the branch has an associated worktree before proceeding; errors immediately if not found
+- If the user is currently inside the target worktree, automatically `cd` to the main repo toplevel before deletion (required because `git worktree remove` fails from inside the target)
+- Delegates to `git gtr rm <branch> --delete-branch --yes [--force]` (worktree + branch deletion)
+- `--force` passes through to `git gtr rm` to allow removing worktrees with uncommitted changes
 - Uses existing `__worktree_path_for_branch` for worktree path lookup
-- Error handling deferred to `git gtr`
+- `git gtr rm` returns exit 0 even on failure, so `__gw_rm` checks worktree existence after the call to detect actual failure and emits an error message
 
-### `gw clean`
+### `gw clean [--force]`
 
 - Detects worktree-linked branches merged into the default branch using `git for-each-ref --merged=$base` with format `%(if)%(worktreepath)%(then)%(refname:short)%(end)` (selects branches that have a worktree path, regardless of `%(HEAD)`; unlike `gbd`'s format, `%(HEAD)` is intentionally not checked so that the current worktree's branch is included in cleanup)
+- Excludes the main worktree's branch by reading only the first block of `git worktree list --porcelain` (stops at the first blank line); in detached HEAD state, the main worktree has no `branch` line, so nothing is excluded
 - Displays the list and prompts for confirmation (`[y/N]`, default No)
-- Delegates each deletion to `gw rm` (reuses cd-out-of-worktree logic); if the user is currently inside a target worktree, `gw rm` handles `cd` to main repo before deletion
-- `git gtr rm` is called with `--yes` to suppress its own prompt (confirmation is handled by `gw clean`)
+- Delegates each deletion to `__gw_rm` (reuses cd-out-of-worktree logic and error detection)
+- On failure, skips the failed branch and continues with remaining branches; returns non-zero if any removal failed
+- `--force` passes through to `__gw_rm` for dirty worktrees
 - No `--dry-run` flag; the confirmation prompt serves the same purpose
 
 ### What is NOT changed

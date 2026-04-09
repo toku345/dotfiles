@@ -1,14 +1,24 @@
 function __gw_clean
     set -l force_flag
-    if test "$argv[1]" = --force
-        set force_flag --force
+    for arg in $argv
+        switch $arg
+            case --force
+                set force_flag --force
+            case '-*'
+                echo "Error: unknown option '$arg'" >&2
+                return 1
+            case '*'
+                echo "Error: unexpected argument '$arg'" >&2
+                return 1
+        end
     end
 
     set -l base (__detect_default_branch)
     or return 1
 
     # main worktree のブランチを除外（%(worktreepath) は main repo にも設定されるため）
-    set -l main_wt_branch (git worktree list --porcelain | awk '$1=="branch"{sub(/refs\/heads\//, "", $2); print $2; exit}')
+    # detached HEAD 時は branch 行がないため、最初の worktree ブロック（空行まで）のみ参照する
+    set -l main_wt_branch (git worktree list --porcelain | awk '!NF{exit} $1=="branch"{sub(/refs\/heads\//, "", $2); print $2; exit}')
 
     set -l branches (git for-each-ref \
         --merged="$base" \
@@ -31,10 +41,7 @@ function __gw_clean
     set -l has_error 0
     for b in $branches
         __gw_rm $b $force_flag
-        or begin
-            echo "Skipped: '$b' (use --force to remove dirty worktrees)" >&2
-            set has_error 1
-        end
+        or set has_error 1
     end
     return $has_error
 end
