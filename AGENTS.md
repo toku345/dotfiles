@@ -110,6 +110,12 @@ chezmoi apply
 
 ## Key Configuration Files
 
+### Git Worktree Commands (`gw`, `gb`, `gbd`)
+
+- `git gtr` flags are long-form only (`--delete-branch`, `--track none`); short flags like `-D` do not exist. Always verify with `git gtr help <cmd>` or the source at `/opt/homebrew/Cellar/git-gtr/*/lib/commands/`
+- `git gtr rm` returns exit 0 even when worktree removal fails (uses `continue` internally). Check worktree existence after removal to detect actual failure
+- `%(worktreepath)` in `git for-each-ref` is set for both main and linked worktrees. To target only linked worktrees, explicitly exclude the main worktree's branch
+
 ### Fish Shell (`config.fish`)
 
 The main shell configuration that sets up:
@@ -164,6 +170,10 @@ When making changes:
 - **ターゲットパス確認**: `chezmoi target-path <source-file>` で意図した配置先を確認
 
 ## Go Template Usage Policy
+
+### Fish Shell Gotchas
+
+- `test -n (command substitution)` with empty output becomes `test -n` (no args), which returns **true** in fish. Always capture into a variable first: `set -l val (cmd); test -n "$val"`
 
 ### CI での chezmoi テンプレート検証
 
