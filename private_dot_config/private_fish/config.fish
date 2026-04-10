@@ -169,7 +169,12 @@ function gw --description "Create gtr worktree and cd to it (-c to checkout exis
 end
 
 ## abbreviations
+abbr -a be bundle exec
 abbr -a cm chezmoi
+abbr -a d docker
+abbr -a dc docker compose
+abbr -a gd git diff-delta
+abbr -a gst git status
 
 ## alias functions
 function l --description 'eza -ahl --git'
@@ -182,18 +187,6 @@ end
 
 function tree --description 'alterative tree command: eza -T'
     eza -T $argv
-end
-
-function gp --description 'alias: git push'
-    git push $argv
-end
-
-function gd --description 'alias: git diff with delta pager'
-    git diff-delta $argv
-end
-
-function gst --description 'alias: git status'
-    git status $argv
 end
 
 function gb --description 'git checkout or cd to worktree (fzf branch selector)'
@@ -253,18 +246,6 @@ function gb --description 'git checkout or cd to worktree (fzf branch selector)'
 
             git checkout $branch
     end
-end
-
-function d --description 'alias: docker'
-    docker $argv
-end
-
-function dc --description 'alias: docker-compose'
-    docker compose $argv
-end
-
-function be --description 'alias: bundle exec'
-    bundle exec $argv
 end
 
 function rd --description 'alias: git diff --diff-filter=ACMR --name-only | xargs bundle exec rubocop -R'
