@@ -185,7 +185,7 @@ function ll --description 'ls -ahl'
     ls -ahl $argv
 end
 
-function tree --description 'alterative tree command: eza -T'
+function tree --description 'alternative tree command: eza -T'
     eza -T $argv
 end
 
