@@ -12,7 +12,7 @@ prompts ("致命的な点のみ指摘してください") to filter Codex output
 
 The codex-plugin-cc now provides `/codex:adversarial-review`, a purpose-built skill
 with a "default to skepticism" prompt, structured JSON output with confidence scores,
-and automatic filtering of style/naming noise. External feedback confirmed it produces
+and automatic filtering of style/naming noise. Author testing on real PRs confirmed it produces
 detailed, material findings that catch implementation gaps before PR review.
 
 Meanwhile, the user's actual code review workflow runs three tools before PR submission:
@@ -33,5 +33,5 @@ session.
 - **Positive**: Pre-PR review workflow consolidates into one Claude Code session (review-pr + security-review + adversarial-review). No separate Codex CLI session needed.
 - **Positive**: Adversarial review uses a higher-quality, maintained prompt with structured output, replacing a hand-crafted one-liner.
 - **Positive**: AI no longer blocks on automatic `codex exec` during code review, reducing latency.
-- **Negative**: Adversarial review is user-initiated, not automatic. If the user forgets to run it before PR, the safety net is absent. Mitigated by the existing `/pr-review-toolkit:review-pr` which still catches issues.
+- **Negative**: Adversarial review is user-initiated, not automatic. If the user forgets to run it before PR, the safety net is absent. Partially mitigated by `/pr-review-toolkit:review-pr`, which covers standard code review but not the adversarial design-challenge perspective.
 - **Risk**: `autoUpdate` may introduce breaking changes to plugin skills. Mitigated by pinning or rolling back via plugin reinstall if needed.
