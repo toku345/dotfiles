@@ -143,12 +143,13 @@ interface LambdaEvent { ... }
 | 用途 | 手段 | 起動者 |
 |------|------|--------|
 | 実装計画レビュー | `codex exec` via Bash | AI（自動） |
-| diff ベースのコードレビュー | `codex exec` via Bash | AI（自動） |
+| adversarial コードレビュー | `/codex:adversarial-review` | ユーザー（手動） |
 | 調査委譲・長時間タスク | `/codex:rescue` | ユーザー（手動） |
 | 別案の試行 | `/codex:rescue` | ユーザー（手動） |
 | バックグラウンド実行管理 | `/codex:status`, `/codex:result` | ユーザー（手動） |
 
-- AI が自動で実行するレビューには `codex exec` を使用する（下記セクション参照）
+- AI が自動で実行するレビューには `codex exec` を使用する（実装計画レビューのみ）
+- PR 前のレビューワークフロー: `/pr-review-toolkit:review-pr` → `/security-review` → `/codex:adversarial-review`
 - ユーザーが調査や長時間タスクを委譲する場合は `codex-plugin-cc` の `/codex:rescue` を使用する
 
 ## 実装計画立案時の Codex レビュー
@@ -184,20 +185,3 @@ codex exec resume --last "指摘を反映しました。再度レビューして
 ```
 
 3. 致命的な指摘がなくなるまで 修正→レビュー を繰り返す
-
-## コードレビュー時の Codex レビュー
-
-コードレビューを求められた場合、自身のレビューに加えて Codex にもレビューさせる。
-
-```bash
-codex exec "以下の diff をレビューしてください。致命的な点のみ指摘してください。$(git diff {対象})"
-```
-
-diff が大きく `$(...)` でのインライン展開が困難な場合は、`-` で stdin からプロンプトを読み取る:
-
-```bash
-{ echo "以下の diff をレビューしてください。致命的な点のみ指摘してください。"; git diff {対象}; } | codex exec -
-```
-
-- diff のみを渡し、実装の説明文は付けない
-- Codex の指摘は自身のレビュー結果とマージして報告する

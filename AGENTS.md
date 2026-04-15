@@ -15,6 +15,8 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 ### Chezmoi Operations
 
+**Worktree gotcha**: `chezmoi diff` / `chezmoi apply` always reads from the main source directory (`~/.local/share/chezmoi/`), not the current git worktree. Do not run `chezmoi apply` from a worktree — changes must be merged to main first.
+
 ```bash
 # Apply changes from the source directory to your home directory
 chezmoi apply
