@@ -27,3 +27,4 @@ brew install --cask karabiner-elements
 brew install --cask font-fira-code-nerd-font
 brew install --cask font-fira-mono-nerd-font
 brew install --cask font-hack-nerd-font
+brew install --cask font-hackgen-nerd
