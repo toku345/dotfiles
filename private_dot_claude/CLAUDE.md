@@ -84,9 +84,7 @@ HEREDOC を使用してコミットメッセージを渡す:
 
 ```bash
 git commit -m "$(cat <<'EOF'
-コミットメッセージ
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+コミットメッセージ本文
 EOF
 )"
 ```
