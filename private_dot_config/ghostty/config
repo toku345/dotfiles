@@ -4,7 +4,7 @@
 # Migrated from iTerm2
 # https://ghostty.org/docs/config/reference
 
-# Font settings (from iTerm2 profiles)
+# Font settings
 font-family = "HackGen Console NF"
 font-size = 14
 
@@ -26,4 +26,6 @@ cursor-style-blink = false
 term = xterm-256color
 
 # Keybindings
-keybind = shift+enter=text:\x1b[200~\n\x1b[201~
+# Ghostty は Shift+Enter を CSI u エンコード ([27;2;13~) で送るため、
+# Claude Code 等が改行として認識できない (ghostty-org/ghostty#7780)
+keybind = shift+enter=text:\n
