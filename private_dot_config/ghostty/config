@@ -26,6 +26,6 @@ cursor-style-blink = false
 term = xterm-256color
 
 # Keybindings
-# Ghostty は Shift+Enter を CSI u エンコード ([27;2;13~) で送るため、
-# Claude Code 等が改行として認識できない (ghostty-org/ghostty#7780)
+# Ghostty sends Shift+Enter as CSI u encoding ([27;2;13~) by default,
+# which Claude Code cannot interpret as a newline (ghostty-org/ghostty#7780)
 keybind = shift+enter=text:\n
