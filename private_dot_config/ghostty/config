@@ -4,9 +4,9 @@
 # Migrated from iTerm2
 # https://ghostty.org/docs/config/reference
 
-# Font settings (from iTerm2 profiles)
+# Font settings
 font-family = "HackGen Console NF"
-font-size = 12
+font-size = 14
 
 # Color theme
 theme = TokyoNight
@@ -24,3 +24,8 @@ cursor-style-blink = false
 
 # Terminal
 term = xterm-256color
+
+# Keybindings
+# Ghostty sends Shift+Enter as CSI u encoding ([27;2;13~) by default,
+# which Claude Code cannot interpret as a newline (ghostty-org/ghostty#7780)
+keybind = shift+enter=text:\n

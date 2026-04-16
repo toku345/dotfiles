@@ -87,6 +87,7 @@ chezmoi apply
 - `private_dot_config/` - Configuration files that will be placed in `~/.config/`
   - `asdf/` - asdf version manager configuration
   - `private_fish/` - Fish shell configuration
+  - `cmux/` - cmux terminal multiplexer settings
   - `ghostty/` - Ghostty terminal configuration
   - `git/` - Git configuration
   - `google_ime/` - Google IME dictionary
@@ -117,6 +118,18 @@ chezmoi apply
 - `git gtr` flags are long-form only (`--delete-branch`, `--track none`); short flags like `-D` do not exist. Always verify with `git gtr help <cmd>` or the source at `/opt/homebrew/Cellar/git-gtr/*/lib/commands/`
 - `git gtr rm` returns exit 0 even when worktree removal fails (uses `continue` internally). Check worktree existence after removal to detect actual failure
 - `%(worktreepath)` in `git for-each-ref` is set for both main and linked worktrees. To target only linked worktrees, explicitly exclude the main worktree's branch
+
+### cmux (Terminal Multiplexer)
+
+- cmux は libghostty を内蔵し、ターミナル描画設定は `~/.config/ghostty/config` を読む
+- `cmux themes list` で読み込み元の Ghostty config パスを確認可能
+- cmux 固有の設定（sidebar, shortcuts, automation 等）は `~/.config/cmux/settings.json`
+
+### Ghostty Configuration
+
+- 設定変更を即座に試す場合は `~/.config/ghostty/config` を直接編集する（worktree のソースではなく実ファイル）
+- Ghostty は `Cmd+Shift+,` でホットリロード。`macos-titlebar-style` 等一部の設定は新しいウィンドウにのみ適用
+- cmux は Ghostty config 変更後に再起動が必要な場合がある
 
 ### Fish Shell (`config.fish`)
 
