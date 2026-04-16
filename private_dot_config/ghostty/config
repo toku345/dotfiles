@@ -6,7 +6,7 @@
 
 # Font settings (from iTerm2 profiles)
 font-family = "HackGen Console NF"
-font-size = 12
+font-size = 14
 
 # Color theme
 theme = TokyoNight
@@ -24,3 +24,6 @@ cursor-style-blink = false
 
 # Terminal
 term = xterm-256color
+
+# Keybindings
+keybind = shift+enter=text:\x1b[200~\n\x1b[201~
