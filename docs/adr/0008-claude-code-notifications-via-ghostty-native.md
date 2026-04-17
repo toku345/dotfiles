@@ -48,7 +48,7 @@ display-irrelevant OSC sequences.
   behavior the raw `afplay` bypassed.
 - **Positive**: Works transparently for remote Claude Code over SSH, as long as
   the remote tmux has `allow-passthrough on`.
-- **Negative**: No signal reaches the user while the Claude Code window itself is
+- **Negative**: No signal reaches the user while the Ghostty window itself is
   focused — macOS suppresses notifications for the foreground app. In practice,
   the user is already looking at the window, so the signal is redundant.
 - **Negative**: Incompatible with mosh. Not relevant to the current workflow.
