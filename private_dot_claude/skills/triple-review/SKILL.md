@@ -1,6 +1,7 @@
 ---
 name: triple-review
-description: 3 種類のレビュー (/pr-review-toolkit:review-pr, /security-review, /codex:adversarial-review) を実行し、共通指摘・単独指摘・レビュー間の矛盾を集約するレビュー専用スキル。「triple-review」「トリプルレビュー」「3 種レビュー」「3 者レビュー」「PR 前の最終チェック」などのリクエストで発動する。review-only で修正は行わない。
+description: 3 種類のレビュー (/pr-review-toolkit:review-pr, /security-review, /codex:adversarial-review) を実行し、共通指摘・単独指摘・レビュー間の矛盾を集約するレビュー専用スキル。明示的な `/triple-review` 呼び出しでのみ起動する。review-only で修正は行わない。
+disable-model-invocation: true
 ---
 
 # Triple Review
@@ -47,16 +48,25 @@ If both `user_pr_arg` and `user_base` are set, fail loud:
 
 ### 2. Verify dependencies
 
-Inspect the available-skills list in the current session's
-system-reminder context. Confirm all three of the following appear:
+**Claude-side reviewers**: inspect the available-skills list in the
+current session's system-reminder context and confirm both appear:
 
-- `codex:adversarial-review`
 - `pr-review-toolkit:review-pr`
 - `security-review`
 
-This is a runtime judgment, not a programmatic query. If any is
-missing, fail loud naming the missing skill(s) and instructing the
-user to install the corresponding plugin before retrying.
+**Codex**: verify the codex-companion script exists:
+
+```bash
+test -f "$HOME/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs"
+```
+
+The slash command `/codex:adversarial-review` has
+`disable-model-invocation: true` and is therefore intentionally absent
+from the available-skills list. Script-presence check is the reliable
+equivalent for this dependency.
+
+If any check fails, fail loud naming the missing component and
+instructing the user to install the corresponding plugin.
 
 ### 3. Pre-flight validation
 
@@ -82,24 +92,24 @@ no argument (this detects a PR associated with the current branch):
 
 ### 4. Launch Codex adversarial review (background)
 
-Invoke `/codex:adversarial-review` via the `Skill` tool with:
+Invoke the Codex adversarial-review runtime directly via the `Bash`
+tool with `run_in_background: true`:
 
+```bash
+node "$HOME/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs" adversarial-review --base <codex_base>
 ```
---background --base <codex_base>
-```
 
-The slash command handles its own Claude Task creation for
-backgrounding. The `Skill` call should return quickly once the
-background Task has been registered, allowing the parent to proceed.
+Record the returned shell ID for retrieval in Step 7.
 
-> **Fallback**: if the `Skill` call blocks until the Codex task
-> finishes (instead of returning after Task registration), switch to
-> `Bash(run_in_background=true)` invoking
-> `node <path>/codex-companion.mjs adversarial-review --base <codex_base>`,
-> resolving the plugin path explicitly — do not rely on
-> `$CLAUDE_PLUGIN_ROOT`, which is scoped to a plugin's own execution
-> context and unreliable in a user-skill bash context. Decide based on
-> empirical behavior in the session.
+**Why direct bash (not the `Skill` tool)**:
+`/codex:adversarial-review` sets `disable-model-invocation: true` in
+its frontmatter and therefore cannot be invoked by Claude via the
+`Skill` tool. The plugin author designed review commands to require
+explicit user invocation. The direct-bash invocation here is an
+informed bypass of that constraint, justified because
+`/triple-review` itself sets `disable-model-invocation: true` — so
+the downstream Codex call is a user-initiated chain, not an
+autonomous model decision.
 
 ### 5. Run /pr-review-toolkit:review-pr (foreground)
 
@@ -117,13 +127,13 @@ Capture its final response text for `## Security Review`.
 
 ### 7. Retrieve Codex result
 
-Wait for the background Codex task to complete. Use `TaskList` to
-locate the Codex task, then `TaskOutput` (or `TaskGet` to block until
-completion) to retrieve its final output.
+Use `BashOutput` with the shell ID from Step 4 to retrieve Codex
+stdout. If the process has not finished, wait until it completes
+before proceeding.
 
-If Codex errored or was cancelled, fail loud. Include the outputs
-already captured in steps 5 and 6 in the failure message so the user
-can still use them.
+If the process exited with non-zero status, fail loud and include its
+stderr plus the outputs already captured in steps 5 and 6 so the
+user can still use them.
 
 ### 8. Aggregate & render
 
