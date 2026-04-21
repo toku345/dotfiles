@@ -46,4 +46,6 @@ function ghostty-theme --description 'Apply a Ghostty bundled theme to the curre
             end
         end
     end <$theme_file
+
+    echo "ghostty-theme: applied '$theme_name'"
 end
