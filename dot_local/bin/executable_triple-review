@@ -1,0 +1,226 @@
+#!/bin/bash
+# shellcheck shell=bash
+
+# Triple-review: aggregate pre-PR review findings from three reviewers into a
+# Japanese priority-based summary. Design: docs/adr/0009-triple-review-bash-script.md.
+
+CHILDREN=()
+
+err() {
+  printf '\033[31m%s\033[0m\n' "$1" >&2
+  exit 1
+}
+
+warn() {
+  printf '\033[33m%s\033[0m\n' "$1" >&2
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    err "Required command not found in PATH: $1"
+  fi
+}
+
+check_prerequisites() {
+  require_cmd gh
+  require_cmd git
+  require_cmd claude
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    err "Not inside a git work tree. Run triple-review from within a repository."
+  fi
+}
+
+# Resolve the base branch for Codex --base. Prefer the current branch's PR
+# baseRefName so non-default-base PRs (targeting develop etc.) are handled
+# correctly. Fall back to the repo's default branch via origin/HEAD.
+resolve_base() {
+  local base
+  base=$(gh pr view --json baseRefName --jq .baseRefName 2>/dev/null)
+  if [ -n "$base" ]; then
+    printf '%s\n' "$base"
+    return 0
+  fi
+  local ref
+  if ref=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null); then
+    printf '%s\n' "${ref#refs/remotes/origin/}"
+    return 0
+  fi
+  err "Base branch resolution failed: no PR on current branch and origin/HEAD is not set. Try: git remote set-head origin --auto"
+}
+
+make_workdir() {
+  mktemp -d "${TMPDIR:-/tmp}/triple-review-XXXXXX"
+}
+
+# Append a <FAILED> marker so the aggregation LLM treats the section as missing
+# data instead of fabricating findings from error output.
+inject_failed_marker() {
+  local label="$1"
+  local path="$2"
+  local rc="$3"
+  {
+    printf '\n<FAILED reviewer=%s exit_code=%s>\n' "$label" "$rc"
+    printf 'See the raw output above for diagnostic details.\n'
+    printf '</FAILED>\n'
+  } >> "$path"
+}
+
+# SIGINT/SIGTERM/EXIT handler: best-effort termination of any still-running
+# claude -p children so Ctrl+C does not orphan multi-minute LLM calls.
+# PID reuse risk is bounded by immediately resetting CHILDREN after wait.
+kill_children() {
+  trap - EXIT INT TERM
+  local pid
+  for pid in "${CHILDREN[@]}"; do
+    [ -z "$pid" ] && continue
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+  done
+  sleep 0.2
+  for pid in "${CHILDREN[@]}"; do
+    [ -z "$pid" ] && continue
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  done
+}
+
+# Build the aggregation prompt via unquoted heredoc so reviewer contents are
+# interpolated. Variable values are not re-parsed by the shell, so backticks
+# and literal $ inside reviewer text are safe.
+build_aggregation_prompt() {
+  local pr_content sec_content adv_content
+  pr_content=$(cat "$1")
+  sec_content=$(cat "$2")
+  adv_content=$(cat "$3")
+
+  cat <<EOF
+あなたは 3 名のレビュワー (/pr-review-toolkit:review-pr, /security-review, /codex:adversarial-review) の出力を統合するレポート生成器です。
+
+以下の 3 つの XML ブロックが各レビュワーの出力です。<FAILED> タグを含むブロックはそのレビュワーが失敗したことを示します。欠損として扱い、指摘を捏造しないでください。
+
+<review_pr>
+$pr_content
+</review_pr>
+
+<review_security>
+$sec_content
+</review_security>
+
+<review_adversarial>
+$adv_content
+</review_adversarial>
+
+---
+
+以下の 4 カテゴリで日本語で出力してください。file:line が元レビューにあれば必ず併記し、設計レベルの指摘で箇所が特定できない場合は「(箇所不明)」と記載してください。
+
+### 対応必須
+2 名以上のレビュワーが指摘した項目、または単独でも致命的 (セキュリティ / データ損失 / クラッシュ / 機密情報漏洩) な項目。
+
+### 要検討
+1 名のみの指摘で重要度が中〜高のもの。採否判断はユーザーに委ねる。
+
+### 対応不要
+nit・スタイル・好みの問題、または現コンテキストで正当化できる指摘。理由を 1 行添える。
+
+### 矛盾
+同一箇所・論点で複数レビュワーの主張が食い違うもの。どちらを採るかの推奨と根拠。
+
+---
+
+指示:
+- 前置き・後書き・挨拶は一切不要。いきなり "### 対応必須" から始めてください。
+- ペルソナ「JUIZ」の語尾 (〜です / 〜ます) や「承知いたしました」「ノブレス・オブリージュ」等は出力しないでください。純粋なレポート本文のみ。
+- 必要に応じて公式ドキュメントは WebFetch / WebSearch で裏取りしてかまいません。
+- Raw レビューをそのまま転記せず、統合・重複排除・優先度判定した結果だけを出力してください。
+EOF
+}
+
+main() {
+  check_prerequisites
+
+  local base workdir
+  base=$(resolve_base) || exit 1
+  workdir=$(make_workdir)
+  if [ -z "$workdir" ] || [ ! -d "$workdir" ]; then
+    err "Failed to create temporary work directory."
+  fi
+
+  trap kill_children EXIT INT TERM
+
+  printf 'Running 3 reviewers in parallel...\n'
+  printf 'Base branch: %s\n' "$base"
+  printf 'Work dir:    %s\n' "$workdir"
+
+  claude -p "/pr-review-toolkit:review-pr" > "$workdir/pr.md" 2>&1 &
+  local pid_pr=$!
+  CHILDREN+=("$pid_pr")
+
+  claude -p "/security-review" > "$workdir/sec.md" 2>&1 &
+  local pid_sec=$!
+  CHILDREN+=("$pid_sec")
+
+  claude -p "/codex:adversarial-review --wait --base $base --scope branch" > "$workdir/adv.md" 2>&1 &
+  local pid_adv=$!
+  CHILDREN+=("$pid_adv")
+
+  # Individual waits are required because a bare `wait` only surfaces the last
+  # child's exit code. We need per-reviewer RCs for hybrid error handling.
+  local rc_pr rc_sec rc_adv
+  wait "$pid_pr"; rc_pr=$?
+  wait "$pid_sec"; rc_sec=$?
+  wait "$pid_adv"; rc_adv=$?
+
+  CHILDREN=()
+
+  local fail_count=0
+  if [ "$rc_pr" -ne 0 ]; then
+    fail_count=$((fail_count + 1))
+    inject_failed_marker PR "$workdir/pr.md" "$rc_pr"
+  fi
+  if [ "$rc_sec" -ne 0 ]; then
+    fail_count=$((fail_count + 1))
+    inject_failed_marker SEC "$workdir/sec.md" "$rc_sec"
+  fi
+  if [ "$rc_adv" -ne 0 ]; then
+    fail_count=$((fail_count + 1))
+    inject_failed_marker ADV "$workdir/adv.md" "$rc_adv"
+  fi
+
+  if [ "$fail_count" -eq 3 ]; then
+    printf '\033[31mAll three reviewers failed. Outputs:\033[0m\n  PR:  %s\n  Sec: %s\n  Adv: %s\n' \
+      "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md" >&2
+    exit 1
+  fi
+
+  if [ "$fail_count" -gt 0 ]; then
+    warn "$fail_count of 3 reviewer(s) failed. Continuing with partial results; failed sections contain <FAILED> markers."
+  fi
+
+  printf 'All reviewers done. Generating summary...\n'
+
+  local agg_prompt
+  agg_prompt=$(build_aggregation_prompt "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md")
+
+  # Aggregation failure is fatal: without a summary there is no useful product.
+  if ! claude -p "$agg_prompt" > "$workdir/summary.md" 2>&1; then
+    printf '\033[31mAggregation step failed. Raw reviewer outputs preserved at: %s\033[0m\n' "$workdir" >&2
+    exit 1
+  fi
+
+  trap - EXIT INT TERM
+
+  printf '## PR Review\n'
+  cat "$workdir/pr.md"
+  printf '\n## Security Review\n'
+  cat "$workdir/sec.md"
+  printf '\n## Adversarial Review\n'
+  cat "$workdir/adv.md"
+  printf '\n## Summary\n'
+  cat "$workdir/summary.md"
+  printf '\nIntermediate outputs: %s\n' "$workdir"
+}
+
+main "$@"

@@ -25,7 +25,7 @@ Binary inspection performed against Claude Code 2.1.116.
 
 ## Decision
 
-Implement `triple-review` as an external bash script at `~/.local/bin/triple-review.sh`, managed via chezmoi as `dot_local/bin/executable_triple-review.sh`. The script runs outside any Claude Code session and is invoked from the terminal.
+Implement `triple-review` as an external bash script at `~/.local/bin/triple-review`, managed via chezmoi as `dot_local/bin/executable_triple-review`. The extensionless name matches the user-facing invocation (`triple-review`, not `triple-review.sh`); chezmoi's `executable_` prefix sets mode `0755`. The script runs outside any Claude Code session and is invoked from the terminal.
 
 - **Entrypoint**: zero-argument command `triple-review`. No PR number, no `--base` flag, no working-tree mode. All three reviewers auto-detect scope.
 - **Base resolution for the Codex `--base` flag**: `gh pr view --json baseRefName` on the current branch first; fall back to `git symbolic-ref refs/remotes/origin/HEAD`. Abort if neither succeeds.

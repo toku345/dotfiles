@@ -40,10 +40,10 @@ jobs:
             else
               shellcheck --severity=warning "$script" || FAILED=1
             fi
-          done < <(find .chezmoiscripts -type f \( -name "*.sh" -o -name "*.sh.tmpl" \) 2>/dev/null)
+          done < <(find .chezmoiscripts dot_local/bin -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" \) 2>/dev/null)
 
           if [ $FOUND -eq 0 ]; then
-            echo "No shell scripts found in .chezmoiscripts/"
+            echo "No shell scripts found in .chezmoiscripts/ or dot_local/bin/"
             exit 0
           fi
 
