@@ -129,10 +129,50 @@ jobs:
           echo ""
           echo "OK: Configuration appears valid"
 
+  fish-tests:
+    name: Fish Tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install fish shell
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fish
+          fish --version
+
+      - name: Fish syntax check
+        run: |
+          echo "=== Fish Syntax Check ==="
+          FAILED=0
+
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            echo "Checking: $f"
+            fish -n "$f" || FAILED=1
+          done < <(find \
+              private_dot_config/private_fish/functions \
+              tests/fish \
+              -type f -name "*.fish" 2>/dev/null)
+
+          if [ $FAILED -eq 1 ]; then
+            echo "ERROR: fish syntax check failed"
+            exit 1
+          fi
+          echo "OK: fish syntax check passed"
+
+      - name: Run fish test suite
+        run: fish tests/fish/run.fish
+
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [shellcheck, chezmoi-validate]
+    needs: [shellcheck, chezmoi-validate, fish-tests]
     if: always()
 
     permissions: {}
@@ -143,9 +183,11 @@ jobs:
           echo "=== CI Results ==="
           echo "ShellCheck: ${{ needs.shellcheck.result }}"
           echo "Chezmoi Validation: ${{ needs.chezmoi-validate.result }}"
+          echo "Fish Tests: ${{ needs.fish-tests.result }}"
 
           if [ "${{ needs.shellcheck.result }}" != "success" ] || \
-             [ "${{ needs.chezmoi-validate.result }}" != "success" ]; then
+             [ "${{ needs.chezmoi-validate.result }}" != "success" ] || \
+             [ "${{ needs.fish-tests.result }}" != "success" ]; then
             echo ""
             echo "Some checks failed. Please review the logs above."
             exit 1
