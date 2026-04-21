@@ -1,0 +1,8 @@
+# comment line
+
+palette = 0=#112233
+  palette = 1=#AaBbCc
+invalid = not-a-color
+background = #445566
+palette = 2=#12345
+foreground =   #778899
