@@ -17,6 +17,8 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 **Worktree gotcha**: `chezmoi diff` / `chezmoi apply` always reads from the main source directory (`~/.local/share/chezmoi/`), not the current git worktree. Do not run `chezmoi apply` from a worktree — changes must be merged to main first.
 
+**Source-path gotcha**: `chezmoi apply <source-path>` errors with `not managed`. chezmoi accepts only target paths (e.g. `~/.config/...`) as arguments. Run `chezmoi apply` without args to apply all managed files, or resolve with `chezmoi target-path <source-file>` first.
+
 ```bash
 # Apply changes from the source directory to your home directory
 chezmoi apply
@@ -189,6 +191,10 @@ When making changes:
 ### Fish Shell Gotchas
 
 - `test -n (command substitution)` with empty output becomes `test -n` (no args), which returns **true** in fish. Always capture into a variable first: `set -l val (cmd); test -n "$val"`
+- `$pipestatus` is available after command substitution (`set x (a | b)` still exposes `$pipestatus[1..N]`). Branch on individual pipe stages instead of a single `$status` to avoid misclassifying left-side failures as right-side cancellations.
+- `ls` is an embedded fish function that adds `--color=auto`/`-F`. In pipelines whose consumer needs raw filenames (e.g. fzf input), use `command ls -1 --` to bypass the function and any future user override (eza/lsd/icon wrappers).
+- `return ""` (empty arg from an unset variable) fails with `invalid integer` and exits 2. Guard with `test -n "$v"; and return $v; or return 1`.
+- fzf exit codes: `0`=selection, `1`=no match, `2`=error, `126`/`127`=become-action errors, `130`=Ctrl-C/Esc. Treat `1` and `130` as user cancel; everything else fail-loud.
 
 ### CI での chezmoi テンプレート検証
 
