@@ -56,12 +56,14 @@ check_prerequisites() {
 
 # Resolve the base branch for Codex --base. Prefer the current branch's PR
 # baseRefName so non-default-base PRs (targeting develop etc.) are handled
-# correctly. Fall back to the repo's default branch via origin/HEAD.
+# correctly. Fall back to the repo's default branch via origin/HEAD ONLY when
+# gh positively confirms no PR exists for the current branch.
 #
-# gh stderr is classified: "no pull requests found" is an expected absence and
-# silently flows to fallback, but auth failures / rate limits / network errors
-# are surfaced via warn so users do not unknowingly review against the wrong
-# base after an invisible auth expiry.
+# Fail-closed on unexpected gh errors (auth expiry, rate limit, network):
+# silently falling back to origin/HEAD would make the Codex leg review a
+# different diff than the other reviewers (who auto-detect via their own gh
+# calls), producing a summary that mixes findings across diffs without any
+# visible indication of the mismatch.
 resolve_base() {
   local base stderr_file
   stderr_file=$(mktemp)
@@ -76,8 +78,8 @@ resolve_base() {
     local gh_err
     gh_err=$(cat "$stderr_file")
     if ! printf '%s' "$gh_err" | grep -qi "no pull requests found"; then
-      warn "gh pr view failed unexpectedly (exit $gh_rc): $gh_err"
-      warn "Falling back to origin/HEAD — verify gh auth / network if the base looks wrong."
+      rm -f "$stderr_file"
+      err "gh pr view failed unexpectedly (exit $gh_rc): $gh_err — refusing to fall back to origin/HEAD because the Codex leg would then review a different base than the other reviewers. Fix gh auth / network and retry."
     fi
   fi
   rm -f "$stderr_file"
@@ -110,10 +112,34 @@ inject_failed_marker() {
   } >> "$path"
 }
 
-# Classify a reviewer's result: exit code plus output sanity (size floor and
-# known error-token detection). Exit-zero reviewers that returned empty or
-# error-token-only output are treated as failed so aggregation does not build
-# a summary from broken raw material. Returns 0 on success, 1 on failure.
+# True only if the file is a short (<= 3 lines) banner whose first line matches
+# a known terminal-error prefix. Narrowed from the prior heuristic (which used
+# `^.*rate limit` and a 50-byte size floor) to avoid false-positiving on long
+# review content that legitimately discusses rate limiting, quotas, or error
+# handling in its findings.
+is_error_token_only() {
+  local path="$1"
+  local line_count
+  line_count=$(wc -l <"$path" 2>/dev/null || printf 0)
+  line_count="${line_count// /}"
+  if [ "${line_count:-0}" -gt 3 ]; then
+    return 1
+  fi
+  local first_line
+  first_line=$(head -1 "$path" 2>/dev/null)
+  case "$first_line" in
+    "Execution error"|"API Error"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+# Classify a reviewer's result: exit code, empty-file guard, and narrow
+# error-banner detection. Exit-zero reviewers whose output is truly empty
+# or consists solely of a terminal-error banner are treated as failed so
+# aggregation does not build a summary from broken raw material. Returns
+# 0 on success, 1 on failure.
 check_reviewer_result() {
   local label="$1"
   local rc="$2"
@@ -122,16 +148,11 @@ check_reviewer_result() {
     inject_failed_marker "$label" "$path" "$rc"
     return 1
   fi
-  local size
-  size=$(wc -c <"$path" 2>/dev/null || printf 0)
-  size="${size// /}"
-  if [ "${size:-0}" -lt 50 ]; then
+  if [ ! -s "$path" ]; then
     inject_failed_marker "$label" "$path" "empty-output"
     return 1
   fi
-  # Claude Code prints "Execution error" for terminal errors; gh/claude surface
-  # "API Error" or "rate limit" messages. Treat any as a failed reviewer.
-  if grep -Eqi '^(Execution error|API Error|.*rate limit)' "$path" 2>/dev/null; then
+  if is_error_token_only "$path"; then
     inject_failed_marker "$label" "$path" "error-token"
     return 1
   fi
@@ -342,24 +363,27 @@ main() {
 
   printf 'All reviewers done. Generating summary...\n'
 
-  local agg_prompt
-  agg_prompt=$(build_aggregation_prompt "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md")
+  # Write the prompt to a file and pipe via stdin to avoid the argv-size limit.
+  # Aggregated raw review content can exceed 1 MB on large diffs, which would
+  # overflow OS ARG_MAX if passed as a positional argument.
+  build_aggregation_prompt "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md" > "$workdir/prompt.txt"
 
   # Aggregation failure is fatal: without a summary there is no useful product.
   # Surface the tail of summary.md to stderr so the user sees the actual cause
   # instead of only "Aggregation step failed". claude -p writes errors there
   # because stdout was redirected to the file with 2>&1.
-  if ! claude -p "$agg_prompt" > "$workdir/summary.md" 2>&1; then
+  if ! claude -p < "$workdir/prompt.txt" > "$workdir/summary.md" 2>&1; then
     printf '\033[31mAggregation step failed. Raw reviewer outputs preserved at: %s\033[0m\n' "$workdir" >&2
     printf -- '--- tail of summary.md ---\n' >&2
     tail -n 40 "$workdir/summary.md" >&2
     exit 1
   fi
 
-  # Aggregation may exit 0 but emit an error token (observed with interrupted
-  # sessions). Treat as failure so the user does not see "Execution error" as
-  # the summary body.
-  if grep -Eqi '^(Execution error|API Error|.*rate limit)' "$workdir/summary.md" 2>/dev/null; then
+  # Aggregation may exit 0 but emit only an error banner (observed with
+  # interrupted sessions). Detect the narrow case where the file IS the banner
+  # — see is_error_token_only — so we don't false-positive on real summaries
+  # that happen to mention rate limits or errors in their findings.
+  if is_error_token_only "$workdir/summary.md"; then
     printf '\033[31mAggregation produced an error token. Raw reviewer outputs preserved at: %s\033[0m\n' "$workdir" >&2
     printf -- '--- content of summary.md ---\n' >&2
     cat "$workdir/summary.md" >&2
