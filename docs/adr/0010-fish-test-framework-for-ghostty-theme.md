@@ -16,7 +16,7 @@ Accepted
 
 - **fishtape**: 更新が長期停滞、採用は将来負債になる
 - **bats-core**: bash 用。fish 関数をテストするには `fish -c` でラップが必要で、出力・エラーの取り回しが不自然
-- **手書きの assert 関数 + fish ネイティブランナー**: 外部依存ゼロ。`fish -c` による subprocess 隔離で function/変数の汚染も防げる。想定ケース数（17 件）に対して `assert.fish` は 30 行程度で収まる
+- **手書きの assert 関数 + fish ネイティブランナー**: 外部依存ゼロ。`fish -c` による subprocess 隔離で function/変数の汚染も防げる。想定ケース数（18 件）に対して `assert.fish` は 30 行程度で収まる
 
 また本番関数に対するテストアクセスが必要だが、`themes_dir` が `/Applications/Ghostty.app/...` にハードコードされているため、テストから fixture ディレクトリを読ませるフックが無い。
 
@@ -46,18 +46,19 @@ fzf 対話経路は一見 CI で検証しにくいが、本関数の fish 固有
 6. **テスト対象（ハイブリッド方針）**:
    - `ghostty-theme` の引数パス（positive / negative / edge 全 9 ケース）
    - `__ghostty_theme_preview`（positive / negative / edge 全 6 ケース）
-   - `ghostty-theme` の **no-arg/fzf 経路は stub 経由で最小 2 ケースのみ**: 選択値の argv 引き渡し（exit 0）と cancel 伝搬（exit 130 → 親 return 0）。fzf 自体の全挙動は stub では再現しないため、`--filter` や `--preview` の相互作用に関する回帰は検出範囲外。
-7. **fzf stub**: `tests/fish/bin/fzf` に fish 製の stub を置く。環境変数 `FAKE_FZF_SELECT`（stdout に返す選択値）と `FAKE_FZF_EXIT`（終了コード、省略時は 0）で挙動を制御。`run.fish` が子プロセス起動時に `PATH=tests/fish/bin:$PATH` を注入する。`command ls` ガードは stub に渡る stdin に fixture 由来の生のファイル名が到達することを検証することで副次的にカバーする（fish の embedded `ls` 関数を介していれば色コードが混入する）。
-8. **CI**: `.github/workflows/ci.yml` に `fish-tests` ジョブを追加。Ubuntu runner に apt で fish をインストール、`fish -n` による構文チェックと `fish tests/fish/run.fish` によるテスト実行を行い、`ci-summary` の `needs` に加える。
-9. **ローカルと CI の実行コマンドを統一**: 双方とも `fish tests/fish/run.fish` を直接呼び出す。Makefile 等のビルド抽象は導入しない。
-10. **配布範囲から除外**: `.chezmoiignore` に `tests` を追加し、`chezmoi apply` で `$HOME` に配布されないようにする。
+   - `ghostty-theme` の **no-arg/fzf 経路は stub 経由で最小 3 ケースのみ**: (a) 選択値の argv 引き渡し（exit 0）、(b) cancel 伝搬（exit 130 → 親 return 0）、(c) `command ls` ガードの有効性検証。fzf 自体の全挙動は stub では再現しないため、`--filter` や `--preview` の相互作用に関する回帰は検出範囲外。
+7. **fzf stub**: `tests/fish/bin/fzf` に fish 製の stub を置く。環境変数 `FAKE_FZF_SELECT`（stdout に返す選択値）、`FAKE_FZF_EXIT`（終了コード、省略時は 0）、`FAKE_FZF_STDIN_LOG`（stdin 全体を書き出すログファイルパス、省略時は書き出さない）で挙動を制御。`run.fish` が子プロセス起動時に `PATH=tests/fish/bin:$PATH` を注入する。
+8. **`command ls` ガードの実効検証**: ケース (c) では、子プロセス内でテスト用に `function ls; echo 'POISONED'; end` を定義してから `ghostty-theme` を呼び出す。`FAKE_FZF_STDIN_LOG` に書き出された内容を検査し、fixture 由来のファイル名（例: `TestDark`）が含まれ、`POISONED` が含まれないことを確認する。これにより `command ls -1 --` が embedded `ls` / ユーザー定義 `ls` を確実にバイパスしていることを検証する。将来 `command` プレフィックスが誤って外された場合、このテストは `POISONED` を検出して失敗する。
+9. **CI**: `.github/workflows/ci.yml` に `fish-tests` ジョブを追加。Ubuntu runner に apt で fish をインストール、`fish -n` による構文チェックと `fish tests/fish/run.fish` によるテスト実行を行い、`ci-summary` の `needs` に加える。
+10. **ローカルと CI の実行コマンドを統一**: 双方とも `fish tests/fish/run.fish` を直接呼び出す。Makefile 等のビルド抽象は導入しない。
+11. **配布範囲から除外**: `.chezmoiignore` に `tests` を追加し、`chezmoi apply` で `$HOME` に配布されないようにする。
 
 ## Consequences
 
 ### Positive
 
 - `ghostty-theme` のパースロジックと `__ghostty_theme_preview` のレンダリングに回帰検出網がかかる
-- fish 固有ガード（`pipestatus` / `command ls` / fzf cancel の exit 130 処理）の最重要 2 分岐を fzf stub 経由で自動検証できる
+- fish 固有ガード（`pipestatus` の分類、fzf cancel の exit 130 処理、`command ls` による wrapper バイパス）の最重要 3 分岐を fzf stub + stdin ログ経由で自動検証できる。`command ls` ガードはテスト側で意図的に `ls` 関数を汚染して実効性を確認する方式で、`command` プレフィックスの消失は確実に失敗として検出される
 - 外部依存を増やさない。CI runner の `apt install fish` だけで完結
 - snapshot 方式により OSC / ANSI のような長い出力も「意図的な変更 vs 偶発的な変更」を git diff で明示的に区別できる
 - subprocess 隔離により fish の関数名 / 変数の衝突を考慮せずにテストを増やせる
