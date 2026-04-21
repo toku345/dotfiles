@@ -5,6 +5,8 @@
 # Japanese priority-based summary. Design: docs/adr/0009-triple-review-bash-script.md.
 
 CHILDREN=()
+MONITOR_PID=""
+MONITOR_START_TS=""
 
 err() {
   printf '\033[31m%s\033[0m\n' "$1" >&2
@@ -136,6 +138,46 @@ check_reviewer_result() {
   return 0
 }
 
+# Progress monitor: polls the three reviewer PIDs every 10s and emits a status
+# line whenever state changes OR a 2-minute heartbeat elapses. Without this,
+# the script is silent between the initial banner and the summary step, which
+# can span 20+ minutes for `/codex:adversarial-review` on larger diffs.
+start_progress_monitor() {
+  local pid_pr="$1" pid_sec="$2" pid_adv="$3"
+  MONITOR_START_TS=$(date +%s)
+  (
+    local last_state=""
+    local last_ts=$MONITOR_START_TS
+    while true; do
+      local now elapsed mins secs
+      now=$(date +%s)
+      elapsed=$((now - MONITOR_START_TS))
+      mins=$((elapsed / 60))
+      secs=$((elapsed % 60))
+      local pr_s="done" sec_s="done" adv_s="done" state
+      kill -0 "$pid_pr"  2>/dev/null && pr_s="run"
+      kill -0 "$pid_sec" 2>/dev/null && sec_s="run"
+      kill -0 "$pid_adv" 2>/dev/null && adv_s="run"
+      state="$pr_s $sec_s $adv_s"
+      if [ -z "$last_state" ] || [ "$state" != "$last_state" ] || [ $((now - last_ts)) -ge 120 ]; then
+        printf '[%dm%02ds] PR:%s SEC:%s ADV:%s\n' "$mins" "$secs" "$pr_s" "$sec_s" "$adv_s"
+        last_state="$state"
+        last_ts=$now
+      fi
+      sleep 10
+    done
+  ) &
+  MONITOR_PID=$!
+}
+
+stop_progress_monitor() {
+  if [ -n "$MONITOR_PID" ]; then
+    kill "$MONITOR_PID" 2>/dev/null || true
+    wait "$MONITOR_PID" 2>/dev/null || true
+    MONITOR_PID=""
+  fi
+}
+
 # Remove a PID from CHILDREN once it has been reaped by wait, so the trap
 # handler only signals processes that are still running — avoiding accidental
 # targeting of reused PIDs.
@@ -156,6 +198,10 @@ remove_pid() {
 # only live PIDs. The kill -0 probe guards against transient races.
 kill_children() {
   trap - EXIT INT TERM
+  if [ -n "$MONITOR_PID" ]; then
+    kill "$MONITOR_PID" 2>/dev/null || true
+    MONITOR_PID=""
+  fi
   local pid
   for pid in "${CHILDREN[@]}"; do
     [ -z "$pid" ] && continue
@@ -252,6 +298,7 @@ main() {
   printf 'Running 3 reviewers in parallel...\n'
   printf 'Base branch: %s\n' "$base"
   printf 'Work dir:    %s\n' "$workdir"
+  printf '(Tip: tail -f %s/*.md for live per-reviewer output)\n' "$workdir"
 
   claude -p "/pr-review-toolkit:review-pr" > "$workdir/pr.md" 2>&1 &
   local pid_pr=$!
@@ -265,6 +312,8 @@ main() {
   local pid_adv=$!
   CHILDREN+=("$pid_adv")
 
+  start_progress_monitor "$pid_pr" "$pid_sec" "$pid_adv"
+
   # Individual waits are required because a bare `wait` only surfaces the last
   # child's exit code. We need per-reviewer RCs for hybrid error handling.
   # remove_pid trims CHILDREN after each reap so the trap never targets
@@ -273,6 +322,8 @@ main() {
   wait "$pid_pr"; rc_pr=$?; remove_pid "$pid_pr"
   wait "$pid_sec"; rc_sec=$?; remove_pid "$pid_sec"
   wait "$pid_adv"; rc_adv=$?; remove_pid "$pid_adv"
+
+  stop_progress_monitor
 
   local fail_count=0
   check_reviewer_result PR  "$rc_pr"  "$workdir/pr.md"  || fail_count=$((fail_count + 1))
