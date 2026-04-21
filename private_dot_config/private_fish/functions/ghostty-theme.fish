@@ -13,10 +13,18 @@ function ghostty-theme --description 'Apply a Ghostty bundled theme to the curre
         # fzf expands {} to the current item with shell-safe quoting; passing
         # it as a positional argument to `fish -c` keeps theme names with
         # spaces intact via $argv[1].
-        set theme_name (ls $themes_dir | fzf --layout=reverse \
+        # `command ls -1 --` bypasses fish's embedded `ls` function and any
+        # user override (eza / lsd / custom wrappers) that could inject colors
+        # or icons into fzf's input.
+        set theme_name (command ls -1 -- $themes_dir | fzf --layout=reverse \
             --preview "fish -c '__ghostty_theme_preview \"$themes_dir/\$argv[1]\"' {}" \
             --preview-window right:50%)
-        set -l fzf_status $pipestatus[2]
+        set -l picker_status $pipestatus
+        if test $picker_status[1] -ne 0
+            echo "ghostty-theme: failed to enumerate themes from $themes_dir" >&2
+            return $picker_status[1]
+        end
+        set -l fzf_status $picker_status[2]
         switch $fzf_status
             case 0
                 # selection made; fall through
