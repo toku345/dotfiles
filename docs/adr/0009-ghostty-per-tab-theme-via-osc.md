@@ -74,8 +74,13 @@ auto-switch layer can be added later if manual use proves inconvenient.
 Provide a `ghostty-theme` fish function that emits OSC sequences to the
 current surface based on a Ghostty bundled theme file.
 
-- Location: `private_dot_config/private_fish/functions/ghostty-theme.fish`
-  (chezmoi source; user-facing function, no `__` prefix).
+- User-facing function:
+  `private_dot_config/private_fish/functions/ghostty-theme.fish`
+  (chezmoi source; no `__` prefix).
+- Private fzf preview helper:
+  `private_dot_config/private_fish/functions/__ghostty_theme_preview.fish`
+  (renders each theme color as an ANSI truecolor block so hex values
+  are not the only visual cue when browsing the picker).
 - Companion completion:
   `private_dot_config/private_fish/completions/ghostty-theme.fish`.
 - Themes directory is hardcoded to
@@ -89,8 +94,10 @@ Behavior:
   recognized key to its OSC sequence, and `printf` the sequences to
   stdout so the current surface applies them.
 - `ghostty-theme` (no argument) — launch `fzf` over `ls <themes_dir>`
-  with a `bat --color=always --plain <themes_dir>/{}` preview pane,
-  then apply the selected theme. Cancellation returns 0.
+  with a preview pane that calls `__ghostty_theme_preview` to render
+  each theme value (palette, background, foreground, cursor-color,
+  cursor-text, selection-*) as an ANSI truecolor block alongside the
+  hex value. Cancellation returns 0.
 - `ghostty-theme <name-that-does-not-exist>` — write an error to
   stderr and return non-zero.
 - `ghostty-theme` with a missing themes directory — same loud
@@ -165,7 +172,8 @@ Out of scope for this ADR (explicitly not addressed):
   the Ghostty global config specifies. With `cursor-style = block`
   (the repo's current setting) this is the most visible discrepancy:
   block cursors show their text in the global value rather than the
-  theme's value.
+  theme's value. The fzf preview does render `cursor-text` so users
+  can still see the theme's intended value before picking.
 - Silent skip for keys without an OSC counterpart (or unrecognized
   entirely) means a future Ghostty theme format addition could be
   ignored without warning. Acceptable trade-off versus runtime noise.
