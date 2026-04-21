@@ -1,5 +1,10 @@
 function ghostty-theme --description 'Apply a Ghostty bundled theme to the current surface via OSC sequences'
-    set -l themes_dir /Applications/Ghostty.app/Contents/Resources/ghostty/themes
+    set -l themes_dir
+    if set -q GHOSTTY_THEMES_DIR
+        set themes_dir $GHOSTTY_THEMES_DIR
+    else
+        set themes_dir /Applications/Ghostty.app/Contents/Resources/ghostty/themes
+    end
 
     if not test -d $themes_dir
         echo "ghostty-theme: themes directory not found: $themes_dir" >&2
