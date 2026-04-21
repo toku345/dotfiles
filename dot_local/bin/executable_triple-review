@@ -15,6 +15,28 @@ warn() {
   printf '\033[33m%s\033[0m\n' "$1" >&2
 }
 
+print_usage() {
+  cat <<'EOF'
+Usage: triple-review
+
+Aggregate pre-PR review findings from three reviewers into a Japanese
+priority-based summary (対応必須 / 要検討 / 対応不要 / 矛盾).
+
+Reviewers run in parallel via headless `claude -p`:
+  - /pr-review-toolkit:review-pr
+  - /security-review
+  - /codex:adversarial-review
+
+Zero arguments. The script auto-detects the PR base branch via `gh pr view`
+and falls back to origin/HEAD if no PR is associated with the current branch.
+Intermediate outputs are preserved in $TMPDIR/triple-review-* (macOS auto-cleans).
+
+Requirements: gh, git, claude on $PATH; inside a git work tree.
+
+Design rationale: docs/adr/0009-triple-review-bash-script.md.
+EOF
+}
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     err "Required command not found in PATH: $1"
@@ -33,13 +55,30 @@ check_prerequisites() {
 # Resolve the base branch for Codex --base. Prefer the current branch's PR
 # baseRefName so non-default-base PRs (targeting develop etc.) are handled
 # correctly. Fall back to the repo's default branch via origin/HEAD.
+#
+# gh stderr is classified: "no pull requests found" is an expected absence and
+# silently flows to fallback, but auth failures / rate limits / network errors
+# are surfaced via warn so users do not unknowingly review against the wrong
+# base after an invisible auth expiry.
 resolve_base() {
-  local base
-  base=$(gh pr view --json baseRefName --jq .baseRefName 2>/dev/null)
+  local base stderr_file
+  stderr_file=$(mktemp)
+  base=$(gh pr view --json baseRefName --jq .baseRefName 2>"$stderr_file")
+  local gh_rc=$?
   if [ -n "$base" ]; then
+    rm -f "$stderr_file"
     printf '%s\n' "$base"
     return 0
   fi
+  if [ -s "$stderr_file" ]; then
+    local gh_err
+    gh_err=$(cat "$stderr_file")
+    if ! printf '%s' "$gh_err" | grep -qi "no pull requests found"; then
+      warn "gh pr view failed unexpectedly (exit $gh_rc): $gh_err"
+      warn "Falling back to origin/HEAD — verify gh auth / network if the base looks wrong."
+    fi
+  fi
+  rm -f "$stderr_file"
   local ref
   if ref=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null); then
     printf '%s\n' "${ref#refs/remotes/origin/}"
@@ -48,8 +87,12 @@ resolve_base() {
   err "Base branch resolution failed: no PR on current branch and origin/HEAD is not set. Try: git remote set-head origin --auto"
 }
 
+# Strip trailing slash from $TMPDIR (macOS sets it with a trailing /) so the
+# mktemp -d template does not produce a double-slash path.
 make_workdir() {
-  mktemp -d "${TMPDIR:-/tmp}/triple-review-XXXXXX"
+  local tmpbase="${TMPDIR:-/tmp}"
+  tmpbase="${tmpbase%/}"
+  mktemp -d "$tmpbase/triple-review-XXXXXX"
 }
 
 # Append a <FAILED> marker so the aggregation LLM treats the section as missing
@@ -65,9 +108,52 @@ inject_failed_marker() {
   } >> "$path"
 }
 
+# Classify a reviewer's result: exit code plus output sanity (size floor and
+# known error-token detection). Exit-zero reviewers that returned empty or
+# error-token-only output are treated as failed so aggregation does not build
+# a summary from broken raw material. Returns 0 on success, 1 on failure.
+check_reviewer_result() {
+  local label="$1"
+  local rc="$2"
+  local path="$3"
+  if [ "$rc" -ne 0 ]; then
+    inject_failed_marker "$label" "$path" "$rc"
+    return 1
+  fi
+  local size
+  size=$(wc -c <"$path" 2>/dev/null || printf 0)
+  size="${size// /}"
+  if [ "${size:-0}" -lt 50 ]; then
+    inject_failed_marker "$label" "$path" "empty-output"
+    return 1
+  fi
+  # Claude Code prints "Execution error" for terminal errors; gh/claude surface
+  # "API Error" or "rate limit" messages. Treat any as a failed reviewer.
+  if grep -Eqi '^(Execution error|API Error|.*rate limit)' "$path" 2>/dev/null; then
+    inject_failed_marker "$label" "$path" "error-token"
+    return 1
+  fi
+  return 0
+}
+
+# Remove a PID from CHILDREN once it has been reaped by wait, so the trap
+# handler only signals processes that are still running — avoiding accidental
+# targeting of reused PIDs.
+remove_pid() {
+  local target="$1"
+  local new=()
+  local p
+  for p in "${CHILDREN[@]}"; do
+    [ "$p" = "$target" ] && continue
+    new+=("$p")
+  done
+  CHILDREN=("${new[@]}")
+}
+
 # SIGINT/SIGTERM/EXIT handler: best-effort termination of any still-running
 # claude -p children so Ctrl+C does not orphan multi-minute LLM calls.
-# PID reuse risk is bounded by immediately resetting CHILDREN after wait.
+# CHILDREN is pruned via remove_pid after each wait, so the handler targets
+# only live PIDs. The kill -0 probe guards against transient races.
 kill_children() {
   trap - EXIT INT TERM
   local pid
@@ -87,8 +173,9 @@ kill_children() {
 }
 
 # Build the aggregation prompt via unquoted heredoc so reviewer contents are
-# interpolated. Variable values are not re-parsed by the shell, so backticks
-# and literal $ inside reviewer text are safe.
+# interpolated. Bash does not re-evaluate variable values after expansion, so
+# command substitutions ($(...)), backticks, and other shell metacharacters
+# inside reviewer text are inserted verbatim as literals.
 build_aggregation_prompt() {
   local pr_content sec_content adv_content
   pr_content=$(cat "$1")
@@ -139,6 +226,18 @@ EOF
 }
 
 main() {
+  if [ "$#" -gt 0 ]; then
+    case "$1" in
+      -h|--help)
+        print_usage
+        exit 0
+        ;;
+      *)
+        err "Unknown argument: $1 (try --help)"
+        ;;
+    esac
+  fi
+
   check_prerequisites
 
   local base workdir
@@ -168,26 +267,17 @@ main() {
 
   # Individual waits are required because a bare `wait` only surfaces the last
   # child's exit code. We need per-reviewer RCs for hybrid error handling.
+  # remove_pid trims CHILDREN after each reap so the trap never targets
+  # already-reaped PIDs (which the OS may later reuse for unrelated processes).
   local rc_pr rc_sec rc_adv
-  wait "$pid_pr"; rc_pr=$?
-  wait "$pid_sec"; rc_sec=$?
-  wait "$pid_adv"; rc_adv=$?
-
-  CHILDREN=()
+  wait "$pid_pr"; rc_pr=$?; remove_pid "$pid_pr"
+  wait "$pid_sec"; rc_sec=$?; remove_pid "$pid_sec"
+  wait "$pid_adv"; rc_adv=$?; remove_pid "$pid_adv"
 
   local fail_count=0
-  if [ "$rc_pr" -ne 0 ]; then
-    fail_count=$((fail_count + 1))
-    inject_failed_marker PR "$workdir/pr.md" "$rc_pr"
-  fi
-  if [ "$rc_sec" -ne 0 ]; then
-    fail_count=$((fail_count + 1))
-    inject_failed_marker SEC "$workdir/sec.md" "$rc_sec"
-  fi
-  if [ "$rc_adv" -ne 0 ]; then
-    fail_count=$((fail_count + 1))
-    inject_failed_marker ADV "$workdir/adv.md" "$rc_adv"
-  fi
+  check_reviewer_result PR  "$rc_pr"  "$workdir/pr.md"  || fail_count=$((fail_count + 1))
+  check_reviewer_result SEC "$rc_sec" "$workdir/sec.md" || fail_count=$((fail_count + 1))
+  check_reviewer_result ADV "$rc_adv" "$workdir/adv.md" || fail_count=$((fail_count + 1))
 
   if [ "$fail_count" -eq 3 ]; then
     printf '\033[31mAll three reviewers failed. Outputs:\033[0m\n  PR:  %s\n  Sec: %s\n  Adv: %s\n' \
@@ -205,8 +295,23 @@ main() {
   agg_prompt=$(build_aggregation_prompt "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md")
 
   # Aggregation failure is fatal: without a summary there is no useful product.
+  # Surface the tail of summary.md to stderr so the user sees the actual cause
+  # instead of only "Aggregation step failed". claude -p writes errors there
+  # because stdout was redirected to the file with 2>&1.
   if ! claude -p "$agg_prompt" > "$workdir/summary.md" 2>&1; then
     printf '\033[31mAggregation step failed. Raw reviewer outputs preserved at: %s\033[0m\n' "$workdir" >&2
+    printf -- '--- tail of summary.md ---\n' >&2
+    tail -n 40 "$workdir/summary.md" >&2
+    exit 1
+  fi
+
+  # Aggregation may exit 0 but emit an error token (observed with interrupted
+  # sessions). Treat as failure so the user does not see "Execution error" as
+  # the summary body.
+  if grep -Eqi '^(Execution error|API Error|.*rate limit)' "$workdir/summary.md" 2>/dev/null; then
+    printf '\033[31mAggregation produced an error token. Raw reviewer outputs preserved at: %s\033[0m\n' "$workdir" >&2
+    printf -- '--- content of summary.md ---\n' >&2
+    cat "$workdir/summary.md" >&2
     exit 1
   fi
 

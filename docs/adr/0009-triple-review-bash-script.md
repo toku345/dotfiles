@@ -36,7 +36,7 @@ Implement `triple-review` as an external bash script at `~/.local/bin/triple-rev
 - **Error handling**: hybrid. If at least one reviewer succeeds, continue; emit a `<FAILED>` marker in the aggregation prompt for any failed reviewer. If all three fail, abort with `exit 1` and surface the log paths.
 - **Aggregation**: a fourth `claude -p` call wraps the three outputs in XML-tagged sections and asks for a priority-based summary (`対応必須` / `要検討` / `対応不要` / `矛盾`) with `file:line` evidence. Reference to official docs via `WebFetch`/`WebSearch` is explicitly permitted in the prompt.
 - **Output**: stdout contains all four sections (three raw + aggregated summary). Intermediate files are written to `$TMPDIR/triple-review-<timestamp>/` and the path is reported on the last line; `$TMPDIR` is cleaned by macOS automatically.
-- **Progress UX**: a single `echo "Running 3 reviewers in parallel..."` before the background jobs and an `echo "All reviewers done. Generating summary..."` after `wait`.
+- **Progress UX**: a short banner before the background jobs (`Running 3 reviewers in parallel...` plus the resolved base branch and work directory) and an `All reviewers done. Generating summary...` line after `wait`. The intermediate directory path is reprinted on the final line after summary output so it is discoverable at a glance.
 - **Timeouts**: none. Reviewers typically run 2-10 minutes; interruption is via Ctrl+C.
 - **Signal handling**: a `trap` on `EXIT`/`INT`/`TERM` kills backgrounded `claude -p` children (and their descendants) so Ctrl+C does not orphan multi-minute LLM calls.
 
