@@ -10,14 +10,23 @@ function ghostty-theme --description 'Apply a Ghostty bundled theme to the curre
     if set -q argv[1]; and test -n "$argv[1]"
         set theme_name $argv[1]
     else
-        # Pass the selected theme name as a positional argument (fzf escapes
-        # {} for the outer shell; reaching it as $argv[1] inside `fish -c`
-        # keeps names with spaces intact).
+        # fzf expands {} to the current item with shell-safe quoting; passing
+        # it as a positional argument to `fish -c` keeps theme names with
+        # spaces intact via $argv[1].
         set theme_name (ls $themes_dir | fzf --layout=reverse \
             --preview "fish -c '__ghostty_theme_preview \"$themes_dir/\$argv[1]\"' {}" \
             --preview-window right:50%)
-        # Cancellation (Esc/Ctrl-C) returns nothing; exit quietly.
-        test -n "$theme_name"; or return 0
+        set -l fzf_status $pipestatus[2]
+        switch $fzf_status
+            case 0
+                # selection made; fall through
+            case 1 130
+                # no match / cancelled (Esc/Ctrl-C)
+                return 0
+            case '*'
+                echo "ghostty-theme: fzf exited with status $fzf_status" >&2
+                return $fzf_status
+        end
     end
 
     set -l theme_file $themes_dir/$theme_name

@@ -129,7 +129,7 @@ legitimate themes from being applied. The limitation is surfaced in
 Consequences rather than at runtime.
 
 Inline comments are not supported. A scan of all 463 bundled themes
-(9,723 key lines) confirmed zero inline-comment occurrences, so the
+(10,186 key lines) confirmed zero inline-comment occurrences, so the
 extra parsing logic is unnecessary.
 
 Out of scope for this ADR (explicitly not addressed):
@@ -152,9 +152,9 @@ Out of scope for this ADR (explicitly not addressed):
 - No invariant to maintain between a custom theme registry and
   Ghostty-bundled themes; new themes appear in completion and picker
   automatically, and upstream color tweaks land on next invocation.
-- `fzf` + `bat` picker removes the need to remember theme names,
-  which matters because Ghostty ships hundreds of themes with
-  free-form names that include spaces.
+- `fzf` + `__ghostty_theme_preview` picker removes the need to remember
+  theme names, which matters because Ghostty ships hundreds of themes
+  with free-form names that include spaces.
 - Loud failure on the cases most likely to indicate user error:
   missing theme file and missing themes directory both emit a stderr
   message and return non-zero.

@@ -7,7 +7,6 @@ function __ghostty_theme_preview --description 'Render a Ghostty theme file as a
     end
 
     while read -l line
-        # palette = N=#RRGGBB
         set -l m (string match -rg '^\s*palette\s*=\s*(\d+)\s*=\s*#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})\s*$' -- $line)
         if test $status -eq 0
             set -l idx $m[1]
@@ -19,7 +18,6 @@ function __ghostty_theme_preview --description 'Render a Ghostty theme file as a
             continue
         end
 
-        # key = #RRGGBB (background/foreground/cursor-color/cursor-text/selection-*)
         # cursor-text is rendered even though it has no OSC counterpart, so the
         # user can see every theme value at a glance.
         for key in background foreground cursor-color cursor-text selection-background selection-foreground
