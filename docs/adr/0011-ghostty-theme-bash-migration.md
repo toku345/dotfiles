@@ -105,6 +105,7 @@ Accepted (2026-04-22)
 
 - **fish-native テスト基盤を退役**: ADR 0010 で構築したフレームワーク（fzf stub・snapshots・assert.fish）は bats 移行で再構築が必要。ただし設計原則（fzf 経路を最小 stub で covering / snapshot による OSC 出力の目視レビュー）は踏襲できる
 - **bash 依存の導入**: POSIX sh 縛りよりも可読性を優先した結果、bash 4+ が前提になる（macOS 標準 bash 3.2 不可。ただし Homebrew bash があれば解消）
+- **`ghostty` CLI の PATH 解決が前提**: テーマ発見を `ghostty +list-themes` に委譲した副作用として、`ghostty` コマンドが PATH で解決できる必要がある。旧実装は `/Applications/Ghostty.app/...` 直読みだったため Ghostty.app だけでも動いた。macOS では Ghostty shell integration 有効時に自動解決（[ghostty-org/ghostty#2483](https://github.com/ghostty-org/ghostty/issues/2483) で shell integration 経由に解決済み）。非 integrated シェルで使う場合は `/Applications/Ghostty.app/Contents/MacOS` を PATH に追加する必要がある。CLI 未解決時はスクリプトが exit 127 と具体的な誘導メッセージで fail-loud 停止する
 - **プレビューのリッチさ頭打ち**: `ghostty +list-themes` TUI 級の体験は得られない（明示的トレードオフ）
 
 ### Neutral

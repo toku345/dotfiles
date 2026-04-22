@@ -9,22 +9,23 @@ SRC_BIN_DIR="$REPO_ROOT/dot_local/bin"
 FIXTURES_DIR="$TESTS_DIR/fixtures"
 SNAPSHOTS_DIR="$TESTS_DIR/snapshots"
 STUB_BIN="$TESTS_DIR/bin"
-SCRATCH_DIR="$TESTS_DIR/.scratch"
-# Chezmoi names the scripts `executable_ghostty-theme` in the source tree
-# and strips the prefix on `chezmoi apply`. The test harness replicates that
-# rename via symlinks in $LIVE_BIN so PATH-based invocation works without
-# installing to the real $HOME.
-LIVE_BIN="$SCRATCH_DIR/bin"
 
-export TESTS_DIR REPO_ROOT SRC_BIN_DIR FIXTURES_DIR SNAPSHOTS_DIR STUB_BIN SCRATCH_DIR LIVE_BIN
+export TESTS_DIR REPO_ROOT SRC_BIN_DIR FIXTURES_DIR SNAPSHOTS_DIR STUB_BIN
 
 # Standard environment each test inherits: stubs ahead of the live scripts,
 # resources themes from fixtures, no user themes unless a test opts in.
 standard_env() {
-  # Wipe scratch artifacts from prior runs so stale map/log files cannot
-  # leak across tests. Bats runs serially by default, so this is safe.
-  rm -rf "$SCRATCH_DIR"
-  mkdir -p "$SCRATCH_DIR" "$LIVE_BIN"
+  # Per-test scratch space. $BATS_TEST_TMPDIR is created fresh by bats before
+  # setup() and removed after the test, so no cross-test leakage and no
+  # rm -rf race on a shared dir (enables `bats --jobs N` in the future).
+  SCRATCH_DIR="$BATS_TEST_TMPDIR"
+  # Chezmoi names the scripts `executable_ghostty-theme` in the source tree
+  # and strips the prefix on `chezmoi apply`. The test harness replicates that
+  # rename via symlinks in $LIVE_BIN so PATH-based invocation works without
+  # installing to the real $HOME.
+  LIVE_BIN="$SCRATCH_DIR/bin"
+  export SCRATCH_DIR LIVE_BIN
+  mkdir -p "$LIVE_BIN"
   # Symlink executable_* sources under their real names. Safe to re-run.
   ln -sf "$SRC_BIN_DIR/executable_ghostty-theme" "$LIVE_BIN/ghostty-theme"
   ln -sf "$SRC_BIN_DIR/executable_ghostty-theme-preview" "$LIVE_BIN/ghostty-theme-preview"

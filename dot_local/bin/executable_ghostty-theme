@@ -40,7 +40,17 @@ case "${1:-}" in
 esac
 
 if ! command -v ghostty >/dev/null 2>&1; then
-  printf 'ghostty-theme: `ghostty` CLI not found on PATH. Install Ghostty first.\n' >&2
+  printf 'ghostty-theme: `ghostty` CLI not found on PATH.\n' >&2
+  # On macOS the .app bundle ships the CLI but PATH wiring depends on shell
+  # integration. If the app is installed, point at the bundled binary instead
+  # of telling the user to reinstall.
+  if [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then
+    printf 'Ghostty.app is installed but its CLI is not on PATH.\n' >&2
+    printf 'Either enable Ghostty shell integration, or add:\n' >&2
+    printf '  export PATH="/Applications/Ghostty.app/Contents/MacOS:$PATH"\n' >&2
+  else
+    printf 'Install Ghostty from https://ghostty.org/.\n' >&2
+  fi
   exit 127
 fi
 
