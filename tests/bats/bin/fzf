@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Minimal fzf stub for bats tests. Honors:
+#   FAKE_FZF_SELECT     value written to stdout (the "selection")
+#   FAKE_FZF_EXIT       exit status (default: 0)
+#   FAKE_FZF_STDIN_LOG  if set, write received stdin to this file
+set -euo pipefail
+
+if [[ -n "${FAKE_FZF_STDIN_LOG:-}" ]]; then
+  cat > "$FAKE_FZF_STDIN_LOG"
+else
+  cat > /dev/null
+fi
+
+if [[ -n "${FAKE_FZF_SELECT+x}" ]]; then
+  printf '%s\n' "$FAKE_FZF_SELECT"
+fi
+
+exit "${FAKE_FZF_EXIT:-0}"

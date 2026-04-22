@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Minimal ghostty stub for bats tests. Honors:
+#   GHOSTTY_TEST_THEMES_DIR       resources-side theme directory (required)
+#   GHOSTTY_TEST_USER_THEMES_DIR  optional user-side theme directory; emitted after resources
+#   GHOSTTY_STUB_FAIL             if set, +list-themes exits 1 (F1 fail-loud test)
+#   GHOSTTY_STUB_VALIDATE_FAIL    if set, +validate-config exits 1 unconditionally
+#
+# Mirrors the real Ghostty CLI behavior that matters for ghostty-theme:
+#   - `+list-themes --plain --path` emits `name (resources|user) path` lines
+#   - `+validate-config --config-file=PATH` accepts `=` form only (space form -> exit 1)
+set -euo pipefail
+
+case "${1:-}" in
+  "+list-themes")
+    shift
+    # Only support `--plain --path` since that's what ghostty-theme uses.
+    if [[ "${1:-}" != "--plain" || "${2:-}" != "--path" ]]; then
+      printf 'stub ghostty: unsupported +list-themes args: %s\n' "$*" >&2
+      exit 2
+    fi
+    if [[ -n "${GHOSTTY_STUB_FAIL:-}" ]]; then
+      printf 'stub ghostty: simulated failure\n' >&2
+      exit 1
+    fi
+    resources_dir="${GHOSTTY_TEST_THEMES_DIR:?GHOSTTY_TEST_THEMES_DIR must be set}"
+    # Resources first, then user. Real Ghostty follows this ordering and the
+    # dedup logic in ghostty-theme depends on it.
+    if [[ -d "$resources_dir" ]]; then
+      for f in "$resources_dir"/*; do
+        [[ -f "$f" ]] || continue
+        printf '%s (resources) %s\n' "$(basename "$f")" "$f"
+      done
+    fi
+    if [[ -n "${GHOSTTY_TEST_USER_THEMES_DIR:-}" && -d "$GHOSTTY_TEST_USER_THEMES_DIR" ]]; then
+      for f in "$GHOSTTY_TEST_USER_THEMES_DIR"/*; do
+        [[ -f "$f" ]] || continue
+        printf '%s (user) %s\n' "$(basename "$f")" "$f"
+      done
+    fi
+    ;;
+  "+validate-config")
+    shift
+    if [[ "${1:-}" != --config-file=* ]]; then
+      printf 'stub ghostty: +validate-config requires --config-file=<path> (= form)\n' >&2
+      exit 1
+    fi
+    cfg_path="${1#--config-file=}"
+    if [[ -n "${GHOSTTY_STUB_VALIDATE_FAIL:-}" ]]; then
+      printf 'stub ghostty: simulated validation failure\n' >&2
+      exit 1
+    fi
+    if [[ ! -f "$cfg_path" ]]; then
+      printf 'stub ghostty: config file not found: %s\n' "$cfg_path" >&2
+      exit 1
+    fi
+    # Fixture naming convention: any file matching *INVALID* is treated as broken.
+    if [[ "$(basename "$cfg_path")" == *INVALID* ]]; then
+      exit 1
+    fi
+    exit 0
+    ;;
+  *)
+    printf 'stub ghostty: unsupported action: %s\n' "${1:-<none>}" >&2
+    exit 2
+    ;;
+esac
