@@ -5,18 +5,26 @@ mkdir -p $scratch_dir
 
 # 1: complete theme -> OSC snapshot
 set -l out (ghostty-theme TestDark | string collect)
+set -l rc $pipestatus[1]
+assert_status "TestDark rc" $rc 0
 assert_snapshot "complete TestDark OSC" "$out" $snap_dir/TestDark.expected
 
 # 2: palette-only theme
 set -l out (ghostty-theme TestMinimal | string collect)
+set -l rc $pipestatus[1]
+assert_status "TestMinimal rc" $rc 0
 assert_snapshot "palette-only TestMinimal OSC" "$out" $snap_dir/TestMinimal.expected
 
 # 3: mixed theme (comments, whitespace, invalid hex, mixed case)
 set -l out (ghostty-theme TestMixed | string collect)
+set -l rc $pipestatus[1]
+assert_status "TestMixed rc" $rc 0
 assert_snapshot "TestMixed OSC" "$out" $snap_dir/TestMixed.expected
 
 # 4: applied message includes theme name
 set -l out (ghostty-theme TestDark | string collect)
+set -l rc $pipestatus[1]
+assert_status "applied message rc" $rc 0
 assert_match "applied message present" "$out" "applied 'TestDark'"
 
 # 5: missing theme name -> exit 1 + stderr mentions not found
@@ -51,11 +59,15 @@ assert_match "empty themes dir stderr message" "$stderr" "themes directory not f
 
 # 8: theme name with spaces
 set -l out (ghostty-theme "Test Spaces" | string collect)
+set -l rc $pipestatus[1]
+assert_status "Test Spaces rc" $rc 0
 assert_snapshot "Test Spaces OSC" "$out" $snap_dir/TestSpaces.expected
 
 # 9: invalid 5-hex line in TestMixed should be skipped (covered by case 3 snapshot).
 #    Additionally verify the output does NOT contain the bad palette index 2.
 set -l out (ghostty-theme TestMixed | string collect)
+set -l rc $pipestatus[1]
+assert_status "5-hex skip rc" $rc 0
 assert_not_match "5-hex palette=2 skipped" "$out" '\e\]4;2;#'
 
 # 16: fzf stub -- selection value hands off via argv

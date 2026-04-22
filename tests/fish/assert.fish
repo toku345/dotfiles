@@ -76,7 +76,8 @@ function assert_snapshot --description 'assert_snapshot <label> <actual> <snapsh
     end
 
     set -l diff_output (printf '%s' $actual | diff -u $snapshot_path - 2>&1)
-    if test $status -eq 0
+    set -l diff_status $pipestatus[2]
+    if test $diff_status -eq 0
         __assert_pass $label
     else
         __assert_fail $label "snapshot mismatch: $snapshot_path" $diff_output

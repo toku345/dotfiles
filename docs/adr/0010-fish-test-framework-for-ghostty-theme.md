@@ -28,7 +28,7 @@ fzf 対話経路は一見 CI で検証しにくいが、本関数の fish 固有
 
 1. **テストフレームワークは自作**: `tests/fish/{run,assert}.fish` として配置。依存は fish と coreutils の `diff` のみ。
 2. **ディレクトリ構成**:
-   ```
+   ```text
    tests/fish/
    ├── run.fish                    # discovery + runner, UPDATE_SNAPSHOTS=1 honored
    ├── assert.fish                 # assert_equal / assert_status / assert_match / assert_snapshot / assert_summary
@@ -40,7 +40,7 @@ fzf 対話経路は一見 CI で検証しにくいが、本関数の fish 固有
    ├── test_ghostty_theme.fish
    └── test_preview.fish
    ```
-3. **Subprocess 隔離**: `run.fish` が各テストファイルを `fish -c "source assert.fish; source $file"` で別プロセス起動し、function / グローバル変数のテスト間汚染を防ぐ。
+3. **Subprocess 隔離**: `run.fish` が各テストファイルを `fish --no-config -c "source assert.fish; source $file"` で別プロセス起動し、function / グローバル変数のテスト間汚染を防ぐ。`--no-config` は必須で、これがないと user の `config.fish` が読み込まれ `fish_add_path` が PATH を並び替えて、テスト用の fzf stub が実 binary の後ろに押し出されてしまう（TTY 待機でハング）。
 4. **Expected 値**: 長い出力は snapshot ファイル、短い文字列（エラーメッセージ等）はインラインで `assert_match`。`UPDATE_SNAPSHOTS=1` で上書き生成、目視レビュー後にコミット。
 5. **本番コードの最小リファクタ**: `ghostty-theme.fish` に `GHOSTTY_THEMES_DIR` env var override を追加する。未設定時は従来のハードコードパスにフォールバック（本番 zero-config UX 維持）、設定時は無条件でその値を使用（空文字 / 不正パスは既存の `test -d` エラーで fail-loud）。`__ghostty_theme_preview` は既に引数でパスを受ける設計のため改修不要。
 6. **テスト対象（ハイブリッド方針）**:
