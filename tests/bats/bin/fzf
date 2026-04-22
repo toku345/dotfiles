@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # Minimal fzf stub for bats tests. Honors:
 #   FAKE_FZF_SELECT     value written to stdout (the "selection")
 #   FAKE_FZF_EXIT       exit status (default: 0)
