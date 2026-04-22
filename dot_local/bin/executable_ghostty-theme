@@ -122,10 +122,14 @@ else
     printf '%s\t%s\n' "$name" "${theme_paths[$name]}"
   done > "$map_file"
 
+  # fzf evaluates --preview via `$SHELL -c`, so $preview_cmd and $map_file must
+  # be shell-escaped to survive paths with spaces. printf %q produces a safely
+  # quoted form. fzf itself already quotes the {} substitution.
+  printf -v preview_expr '%q --map %q {}' "$preview_cmd" "$map_file"
   set +e
   theme_name=$(printf '%s\n' "${names[@]}" | fzf \
     --layout=reverse \
-    --preview "$preview_cmd --map \"$map_file\" {}" \
+    --preview "$preview_expr" \
     --preview-window right:50%)
   fzf_rc=$?
   set -e
