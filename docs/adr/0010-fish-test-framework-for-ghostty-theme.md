@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR 0011](0011-ghostty-theme-bash-migration.md) (2026-04-22).
+
+`ghostty-theme` was rewritten in bash (`dot_local/bin/executable_ghostty-theme`),
+and the fish-native test framework described below was retired in favor of a
+bats-core suite at `tests/bats/`. The design principles documented here
+(fzf stub, snapshot-based OSC assertions, subprocess isolation, explicit
+guards for shell-specific gotchas) carried over to the bats implementation.
 
 ## Context
 
