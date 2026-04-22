@@ -99,9 +99,11 @@ function ls
     echo POISONED
 end
 ghostty-theme >/dev/null
+set -l rc $status
 functions --erase ls
 set -l logged (cat $log_file | string collect)
 rm -f $log_file
 set -e FAKE_FZF_SELECT FAKE_FZF_EXIT FAKE_FZF_STDIN_LOG
+assert_status "command ls guard rc" $rc 0
 assert_match "command ls guard -- fixture name in stdin" "$logged" "TestDark"
 assert_not_match "command ls guard -- POISONED not in stdin" "$logged" "POISONED"
