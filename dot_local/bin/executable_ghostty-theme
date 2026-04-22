@@ -52,8 +52,10 @@ themes_out=$(command ghostty +list-themes --plain --path 2>/dev/null)
 list_rc=$?
 set -e
 if (( list_rc != 0 )); then
-  # Surface the real error the second time so the user sees why it failed.
-  command ghostty +list-themes --plain --path >/dev/null 2>&1 || true
+  # Re-run with stderr flowing to the user's terminal so Ghostty's actual
+  # error message is visible. stdout is dropped (the command already failed
+  # and the theme list is unusable). 2>&1 would defeat the purpose.
+  command ghostty +list-themes --plain --path >/dev/null || true
   printf 'ghostty-theme: "ghostty +list-themes" failed (exit %d). Is Ghostty installed?\n' \
     "$list_rc" >&2
   exit "$list_rc"
@@ -168,6 +170,9 @@ declare -A osc_codes=(
   [selection-background]=17
   [selection-foreground]=19
 )
+# Note: `cursor-text` is intentionally absent. Ghostty themes can declare it
+# for the preview (see ghostty-theme-preview), but no standard OSC code
+# exists for cursor text color, so it cannot be applied to the live surface.
 
 while IFS= read -r line || [[ -n "$line" ]]; do
   if [[ "$line" =~ $palette_re ]]; then

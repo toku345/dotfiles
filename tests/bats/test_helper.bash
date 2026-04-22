@@ -21,6 +21,9 @@ export TESTS_DIR REPO_ROOT SRC_BIN_DIR FIXTURES_DIR SNAPSHOTS_DIR STUB_BIN SCRAT
 # Standard environment each test inherits: stubs ahead of the live scripts,
 # resources themes from fixtures, no user themes unless a test opts in.
 standard_env() {
+  # Wipe scratch artifacts from prior runs so stale map/log files cannot
+  # leak across tests. Bats runs serially by default, so this is safe.
+  rm -rf "$SCRATCH_DIR"
   mkdir -p "$SCRATCH_DIR" "$LIVE_BIN"
   # Symlink executable_* sources under their real names. Safe to re-run.
   ln -sf "$SRC_BIN_DIR/executable_ghostty-theme" "$LIVE_BIN/ghostty-theme"
