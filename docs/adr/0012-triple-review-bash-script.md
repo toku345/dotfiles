@@ -1,4 +1,4 @@
-# ADR 0009: Triple-review as an external bash script invoking headless `claude -p`
+# ADR 0012: Triple-review as an external bash script invoking headless `claude -p`
 
 ## Status
 

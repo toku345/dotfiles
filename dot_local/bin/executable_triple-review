@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 # Triple-review: aggregate pre-PR review findings from three reviewers into a
-# Japanese priority-based summary. Design: docs/adr/0009-triple-review-bash-script.md.
+# Japanese priority-based summary. Design: docs/adr/0012-triple-review-bash-script.md.
 
 # fail loud per global CLAUDE.md. Explicit failure-allowing sites use
 # `|| true` or `|| rc=$?`. `-E` propagates ERR trap into functions/subshells
@@ -43,7 +43,7 @@ Intermediate outputs are preserved in $TMPDIR/triple-review-* (macOS auto-cleans
 
 Requirements: gh, git, claude on $PATH; inside a git work tree.
 
-Design rationale: docs/adr/0009-triple-review-bash-script.md.
+Design rationale: docs/adr/0012-triple-review-bash-script.md.
 EOF
 }
 
