@@ -249,10 +249,40 @@ remove_pid() {
   fi
 }
 
-# SIGINT/SIGTERM/EXIT handler: best-effort termination of any still-running
-# claude -p children so Ctrl+C does not orphan multi-minute LLM calls.
+# Recursively list all descendant PIDs of the given parent. Uses `pgrep -P`
+# (available on both macOS BSD and Linux procps-ng with identical semantics
+# for `-P`). Emits nothing when the parent has no children or has already
+# exited; `|| true` ensures set -e does not abort on pgrep rc=1 (no match).
+collect_descendants() {
+  local parent="$1"
+  local children child
+  children=$(pgrep -P "$parent" 2>/dev/null || true)
+  [ -z "$children" ] && return 0
+  for child in $children; do
+    printf '%s\n' "$child"
+    collect_descendants "$child"
+  done
+}
+
+# SIGINT/SIGTERM/EXIT handler: terminate tracked claude -p children AND all
+# their descendants (MCP servers, sub-agents, gh/git invocations) so Ctrl+C
+# does not orphan multi-minute LLM calls or their auxiliary processes.
+#
+# The descendant tree is snapshotted BEFORE SIGTERM because once a parent
+# exits, its children reparent to PID 1 (launchd on macOS / systemd on
+# Linux) and `pgrep -P <old-parent>` can no longer locate them. Collecting
+# up-front guarantees the KILL pass can reach every process in the original
+# tree regardless of who reaps them.
+#
+# We deliberately do NOT use `kill -TERM -$pgid`: bash scripts run without
+# job control (`set -m` off by default in non-interactive mode), so
+# background `claude -p &` inherits the script's process group — signalling
+# the negated PGID would SIGTERM the script itself. `setsid(1)` to isolate
+# each child into its own group is Linux-only (macOS lacks the command), so
+# recursive pgrep is the portable route.
+#
 # CHILDREN is pruned via remove_pid after each wait, so the handler targets
-# only live PIDs. The kill -0 probe guards against transient races.
+# only live parents. The kill -0 probe guards against transient races.
 kill_children() {
   trap - EXIT INT TERM
   if [ -n "$MONITOR_PID" ]; then
@@ -262,16 +292,23 @@ kill_children() {
   if ((${#CHILDREN[@]} == 0)); then
     return 0
   fi
-  local pid
+
+  local all_pids=() pid descendant
   for pid in "${CHILDREN[@]}"; do
     [ -z "$pid" ] && continue
+    all_pids+=("$pid")
+    while IFS= read -r descendant; do
+      [ -n "$descendant" ] && all_pids+=("$descendant")
+    done < <(collect_descendants "$pid")
+  done
+
+  for pid in "${all_pids[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid" 2>/dev/null || true
     fi
   done
   sleep 0.2
-  for pid in "${CHILDREN[@]}"; do
-    [ -z "$pid" ] && continue
+  for pid in "${all_pids[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill -KILL "$pid" 2>/dev/null || true
     fi
