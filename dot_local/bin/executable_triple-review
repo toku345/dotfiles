@@ -25,6 +25,72 @@ warn() {
   printf '\033[33m%s\033[0m\n' "$1" >&2
 }
 
+# Extracted so bats tests can override via function redefinition (works around
+# the reality that real macOS always has /usr/bin/caffeinate and real Ubuntu
+# always has /usr/bin/systemd-inhibit, making "command absent" PATH-based
+# mocking unreliable). has_logind is similarly extracted so the Linux path can
+# be unit-tested on macOS (where /run/systemd/system never exists).
+has_caffeinate() {
+  command -v caffeinate >/dev/null 2>&1
+}
+has_systemd_inhibit() {
+  command -v systemd-inhibit >/dev/null 2>&1
+}
+has_logind() {
+  [ -d /run/systemd/system ]
+}
+
+# Emit the sleep-inhibitor wrapper command tokens (one per line) on stdout.
+# Empty output = do not wrap. Silent fall-through on unknown OS / missing
+# inhibitor / missing logind. bash 3.2 compatible — no mapfile.
+#
+# On macOS: `-i` inhibits idle sleep on both AC and battery (primary goal for
+# "user walks away" scenarios); `-s` adds system-sleep inhibition that applies
+# only on AC power, per `man caffeinate(8)`: "this assertion is valid only
+# when system is running on AC power". Both together cover idle + manual
+# Apple-menu sleep on desktop / AC-connected laptop; battery laptop still
+# gets idle sleep protection from `-i` alone.
+#
+# On Linux: `--what=idle:sleep` prevents idle-triggered sleep but deliberately
+# does NOT include `handle-lid-switch` — closing the lid should still suspend
+# if the user intends that. logind must be running (`/run/systemd/system`
+# exists) or systemd-inhibit exits nonzero at runtime.
+select_sleep_inhibitor_cmd() {
+  case "$(uname)" in
+    Darwin)
+      has_caffeinate || return 0
+      printf '%s\n' caffeinate -i -s
+      ;;
+    Linux)
+      has_systemd_inhibit || return 0
+      has_logind || return 0
+      printf '%s\n' systemd-inhibit --what=idle:sleep --why='triple-review in progress'
+      ;;
+  esac
+}
+
+# Self-exec under a sleep-inhibitor wrapper on first entry; no-op on re-entry.
+# TRIPLE_REVIEW_SLEEP_INHIBITED gate ensures the wrapped child does not loop.
+# `shopt -s execfail` lets the script recover if the wrapper exec fails (e.g.
+# systemd-inhibit refuses due to dbus unavailability the static guards missed)
+# instead of dying with rc=126/127 and preventing triple-review from running.
+maybe_wrap_with_inhibitor() {
+  [ -n "${TRIPLE_REVIEW_SLEEP_INHIBITED:-}" ] && return 0
+  local wrapper=() line
+  while IFS= read -r line; do
+    [ -n "$line" ] && wrapper+=("$line")
+  done < <(select_sleep_inhibitor_cmd)
+  ((${#wrapper[@]} == 0)) && return 0
+  export TRIPLE_REVIEW_SLEEP_INHIBITED=1
+  printf '[triple-review] Wrapping with sleep inhibitor: %s\n' "${wrapper[*]}" >&2
+  shopt -s execfail
+  exec "${wrapper[@]}" "$0" "$@" || {
+    warn "Sleep inhibitor exec failed (inhibitor='${wrapper[0]}'); continuing without wrap"
+    unset TRIPLE_REVIEW_SLEEP_INHIBITED
+    return 0
+  }
+}
+
 print_usage() {
   cat <<'EOF'
 Usage: triple-review
@@ -42,6 +108,21 @@ and falls back to origin/HEAD if no PR is associated with the current branch.
 Intermediate outputs are preserved in $TMPDIR/triple-review-* (macOS auto-cleans).
 
 Requirements: gh, git, claude on $PATH; inside a git work tree.
+
+Environment variables:
+  TRIPLE_REVIEW_SLEEP_INHIBITED
+    Set to any non-empty value to skip the auto-wrap with `caffeinate -i -s`
+    (macOS) / `systemd-inhibit` (Linux). Useful when already wrapping
+    manually, or when running under an environment where the inhibitor
+    would fail (e.g. non-logind Linux).
+
+Notes:
+  - By default, long runs are wrapped with the OS's sleep inhibitor to
+    prevent idle/manual sleep from suspending the 20-60 minute review.
+  - On macOS, `caffeinate -i` prevents idle sleep on both AC and battery;
+    `-s` additionally prevents system sleep but only on AC power.
+  - Laptop clamshell sleep on battery is NOT prevented — OS enforces it
+    at the hardware level. Connect AC power before closing the lid.
 
 Design rationale: docs/adr/0012-triple-review-bash-script.md.
 EOF
@@ -426,6 +507,12 @@ main() {
         ;;
     esac
   fi
+
+  # Wrap the long-running review under the OS sleep inhibitor before any
+  # other work so progress-monitor heartbeats and claude -p children are
+  # not suspended if the user walks away. Runs after arg validation so
+  # --help and unknown-arg paths do not pay the wrap cost.
+  maybe_wrap_with_inhibitor "$@"
 
   check_prerequisites
 

@@ -430,3 +430,60 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage: triple-review"* ]]
 }
+
+# =============================================================================
+# Tier 2-H: sleep inhibitor selection (select_sleep_inhibitor_cmd + maybe_wrap)
+# Function override pattern is used instead of PATH-based stubs because real
+# macOS always has /usr/bin/caffeinate and real Ubuntu always has
+# /usr/bin/systemd-inhibit — command-not-found scenarios cannot be reliably
+# simulated via PATH manipulation alone.
+# =============================================================================
+
+@test "T2-23 select_sleep_inhibitor: Darwin + caffeinate present -> 'caffeinate -i -s'" {
+  export TEST_FAKE_UNAME=Darwin
+  run bash -c "source '$SRC_SCRIPT'; has_caffeinate() { return 0; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'caffeinate\n-i\n-s' ]
+}
+
+@test "T2-24 select_sleep_inhibitor: Darwin + caffeinate absent -> empty" {
+  export TEST_FAKE_UNAME=Darwin
+  run bash -c "source '$SRC_SCRIPT'; has_caffeinate() { return 1; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-25 select_sleep_inhibitor: Linux + systemd-inhibit present + logind -> 3 tokens" {
+  export TEST_FAKE_UNAME=Linux
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; has_logind() { return 0; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--why=triple-review in progress' ]
+}
+
+@test "T2-26 select_sleep_inhibitor: Linux + systemd-inhibit present + no logind -> empty" {
+  export TEST_FAKE_UNAME=Linux
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; has_logind() { return 1; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-27 select_sleep_inhibitor: Linux + systemd-inhibit absent -> empty" {
+  export TEST_FAKE_UNAME=Linux
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 1; }; has_logind() { return 0; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-28 select_sleep_inhibitor: unknown OS (FreeBSD) -> empty" {
+  export TEST_FAKE_UNAME=FreeBSD
+  run bash -c "source '$SRC_SCRIPT'; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-29 maybe_wrap: TRIPLE_REVIEW_SLEEP_INHIBITED set -> no-op return, no exec" {
+  export TRIPLE_REVIEW_SLEEP_INHIBITED=1
+  run bash -c "source '$SRC_SCRIPT'; maybe_wrap_with_inhibitor; echo REACHED"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"REACHED"* ]]
+}
