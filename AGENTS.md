@@ -238,6 +238,28 @@ switch (uname)
 end
 ```
 
+## Bats Testing (tests/bats/)
+
+- **`executable_*` は git で mode 0644** (chezmoi apply 時に 0755): PATH 経由で直接実行するテストは `ln -sf` ではなく exec wrapper (`exec bash "$SRC" "$@"`) を使う
+- **Source-guard パターン**: `if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi` を末尾に置くと bats で `source` して関数単体テスト可能
+- **`run bash -c "source '$SRC'; func args"` 形式**: スクリプトの `set -Eeuo pipefail` を bats 本体に漏らさない
+- **`run --separate-stderr`**: stderr 単独アサーションに使用。bats 1.5+ (`bats_require_minimum_version 1.5.0` 宣言必須)
+- **async プロセステスト**: 固定 `sleep` より polling ループ (`for ((i=0; i<30; i++)); do cond && break; sleep 0.1; done`) が CI (Ubuntu runner) で flakiness を回避
+- **PATH-override スタブ内の `command date` は PATH を再参照**: スタブ自身を再帰呼び出して fork 爆発する。`/bin/date` 等の絶対パスを使う
+- **macOS ローカル pass の落とし穴**: `~/.local/bin/*` にある chezmoi apply 済みスクリプトが PATH shadow でテスト stub を隠蔽しバグを温存する。Docker Ubuntu で cross-check する
+
+### Docker での Ubuntu CI parity 検証
+
+push 前に CI (ubuntu-latest + `apt-get install bats`) と同等環境で実走:
+
+```bash
+docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
+  apt-get update -qq >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats git procps >/dev/null
+  bats tests/bats/
+'
+```
+
 ## Security
 
 ### Automated Security Checks
