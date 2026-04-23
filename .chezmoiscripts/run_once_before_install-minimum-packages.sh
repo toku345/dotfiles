@@ -1,30 +1,29 @@
 #!/bin/sh
+# Minimum package installation (OS-aware)
 
-brew update
+if [ "$CHEZMOI_OS" = "darwin" ]; then
+    # ==== macOS: Homebrew ====
+    brew update
+    brew install coreutils git git-secrets git-delta starship fzf eza bat fd ripgrep
+    brew install tmux direnv shadowenv asdf age fish nano aspell gh
+    brew install coderabbitai/tap/git-gtr
+    brew install --cask karabiner-elements
+    brew install --cask font-fira-code-nerd-font font-fira-mono-nerd-font \
+                         font-hack-nerd-font font-hackgen-nerd
 
-brew install coreutils
-brew install git
-brew install git-secrets
-brew install git-delta
-brew install starship
-brew install fzf
-brew install eza
-brew install bat
-brew install fd
-brew install ripgrep
-brew install tmux
-brew install direnv
-brew install shadowenv
-brew install asdf
-brew install age
-brew install gpg
-brew install fish
-brew install nano
-brew install aspell
+elif [ "$CHEZMOI_OS" = "linux" ]; then
+    # ==== Linux: apt (OS prereqs) + Linuxbrew (apps) ====
+    sudo apt-get update
+    sudo apt-get install -y build-essential curl file git procps
 
-brew install --cask karabiner-elements
+    if [ ! -e /home/linuxbrew/.linuxbrew/bin/brew ]; then
+        echo "Error: Linuxbrew not found at /home/linuxbrew/.linuxbrew. See docs/linux-setup.md" >&2
+        exit 1
+    fi
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
-brew install --cask font-fira-code-nerd-font
-brew install --cask font-fira-mono-nerd-font
-brew install --cask font-hack-nerd-font
-brew install --cask font-hackgen-nerd
+    brew update
+    brew install gh tmux starship fzf eza bat fd ripgrep \
+                 git-delta direnv nano aspell git-secrets
+    brew install coderabbitai/tap/git-gtr
+fi
