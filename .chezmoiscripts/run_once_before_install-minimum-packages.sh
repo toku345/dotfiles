@@ -1,4 +1,5 @@
 #!/bin/sh
+set -eu
 # Minimum package installation (OS-aware)
 
 if [ "$CHEZMOI_OS" = "darwin" ]; then
