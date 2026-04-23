@@ -21,7 +21,17 @@ standard_env_triple_review() {
   export SCRATCH_DIR LIVE_BIN SCRATCH_REPO
 
   mkdir -p "$LIVE_BIN" "$SCRATCH_REPO"
-  ln -sf "$SRC_SCRIPT" "$LIVE_BIN/triple-review"
+  # Create a wrapper instead of a symlink. The in-tree source is stored as
+  # mode 0644 in git (chezmoi's `executable_` prefix sets 0755 only on apply,
+  # not in the repo). Direct execution via a symlink would fail on systems
+  # where the target has no exec bit (e.g. a fresh checkout in CI). The
+  # wrapper invokes bash explicitly so the exec bit of the source does not
+  # matter.
+  cat > "$LIVE_BIN/triple-review" <<EOF
+#!/usr/bin/env bash
+exec bash "$SRC_SCRIPT" "\$@"
+EOF
+  chmod +x "$LIVE_BIN/triple-review"
 
   # Initialize a scratch git repo. Each test decides whether to configure
   # refs/remotes/origin/HEAD. Silencing init noise keeps bats output clean.

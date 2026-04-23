@@ -67,10 +67,19 @@ setup() {
 }
 
 @test "T1-7 collect_descendants: 2-level tree -> direct child only" {
-  # Spawn 1 child (sleep) under a parent bash
+  # Spawn 1 child (sleep) under a parent bash; spawned bash writes the
+  # sleep PID to child.pid before calling wait, so the file's presence
+  # is a positive readiness signal independent of scheduler timing.
   bash -c 'sleep 30 & echo "$!" > "$1"; wait' bash "$SCRATCH_DIR/child.pid" &
   local top=$!
-  sleep 0.3
+  # Poll for readiness (max ~3s) instead of a fixed sleep to reduce
+  # flakiness under CI contention.
+  local i
+  for ((i=0; i<30; i++)); do
+    [ -s "$SCRATCH_DIR/child.pid" ] && break
+    sleep 0.1
+  done
+  [ -s "$SCRATCH_DIR/child.pid" ]
 
   run bash -c "source '$SRC_SCRIPT'; collect_descendants $top"
   [ "$status" -eq 0 ]
@@ -81,14 +90,24 @@ setup() {
 
   # Cleanup
   kill "$top" 2>/dev/null || true
-  wait 2>/dev/null || true
+  wait "$top" 2>/dev/null || true
 }
 
 @test "T1-8 collect_descendants: 3-level tree -> child + grandchild" {
   # Spawn bash -> bash -> sleep
   bash -c 'bash -c "sleep 30 & wait" & wait' &
   local top=$!
-  sleep 0.5
+  # Poll until the grandchild is visible (pgrep -P <child> returns a PID).
+  # Max ~3s — sufficient even on busy CI runners.
+  local i child
+  for ((i=0; i<30; i++)); do
+    child=$(pgrep -P "$top" 2>/dev/null | head -n1 || true)
+    if [ -n "$child" ] && pgrep -P "$child" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+  [ -n "$child" ]
 
   run bash -c "source '$SRC_SCRIPT'; collect_descendants $top"
   [ "$status" -eq 0 ]
@@ -100,7 +119,7 @@ setup() {
   # Cleanup
   kill "$top" 2>/dev/null || true
   pkill -P "$top" 2>/dev/null || true
-  wait 2>/dev/null || true
+  wait "$top" 2>/dev/null || true
 }
 
 # =============================================================================
@@ -116,11 +135,35 @@ setup() {
   # Spawn via a dedicated helper so PIDs land in a known file
   local pid_file="$SCRATCH_DIR/parents.txt"
   : > "$pid_file"
+  local i
   for i in 1 2 3; do
     bash -c 'bash -c "sleep 60 & wait" & wait' &
     printf '%s\n' "$!" >> "$pid_file"
   done
-  sleep 0.5
+
+  # Poll until all 3 trees have fully spawned (3 children + 3 grandchildren
+  # = 6 descendants visible), max ~3s. Avoids flakiness vs. a fixed sleep.
+  local desc_count p c
+  for ((i=0; i<30; i++)); do
+    desc_count=0
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      for c in $(pgrep -P "$p" 2>/dev/null || true); do
+        desc_count=$((desc_count + 1))
+        # grandchildren count too (we don't need their PIDs yet here)
+        local gc_list
+        gc_list=$(pgrep -P "$c" 2>/dev/null || true)
+        if [ -n "$gc_list" ]; then
+          local gc
+          for gc in $gc_list; do
+            desc_count=$((desc_count + 1))
+          done
+        fi
+      done
+    done < "$pid_file"
+    [ "$desc_count" -ge 6 ] && break
+    sleep 0.1
+  done
 
   # Snapshot the full tree (parents + descendants) before kill
   local all_pids=()
@@ -145,8 +188,16 @@ setup() {
   run bash -c "source '$SRC_SCRIPT'; CHILDREN=($parents); MONITOR_PID=''; kill_children"
   [ "$status" -eq 0 ]
 
-  # Give kernel a moment to reap
-  sleep 0.3
+  # Poll for reap completion (max ~2s) instead of a fixed post-kill sleep.
+  local pid alive_count
+  for ((i=0; i<20; i++)); do
+    alive_count=0
+    for pid in "${all_pids[@]}"; do
+      kill -0 "$pid" 2>/dev/null && alive_count=$((alive_count + 1))
+    done
+    [ "$alive_count" -eq 0 ] && break
+    sleep 0.1
+  done
 
   # Verify all snapshotted PIDs are dead
   local alive=()
