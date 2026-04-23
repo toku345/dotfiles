@@ -1,0 +1,432 @@
+#!/usr/bin/env bats
+# shellcheck shell=bash
+
+bats_require_minimum_version 1.5.0
+load test_helper_triple_review
+
+setup() {
+  standard_env_triple_review
+}
+
+# =============================================================================
+# Tier 1-A: resolve_base fail-closed matrix
+# =============================================================================
+
+@test "T1-1 resolve_base: PR exists -> prints baseRefName" {
+  export FAKE_GH_BASE=develop
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 0 ]
+  [ "$output" = "develop" ]
+}
+
+@test "T1-2 resolve_base: no-PR + origin/HEAD set -> origin/HEAD with warning" {
+  export FAKE_GH_RC=1
+  export FAKE_GH_STDERR="no pull requests found for branch"
+  # Configure origin/HEAD via symbolic-ref (doesn't require an actual remote)
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 0 ]
+  [ "$output" = "main" ]
+  [[ "$stderr" == *"No PR found for current branch"* ]]
+}
+
+@test "T1-3 resolve_base: gh auth error -> fail-closed abort" {
+  export FAKE_GH_RC=4
+  export FAKE_GH_STDERR="HTTP 401: authentication required"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"refusing to fall back"* ]]
+  [[ "$stderr" == *"401"* ]]
+}
+
+@test "T1-4 resolve_base: gh rate limit -> fail-closed abort" {
+  export FAKE_GH_RC=1
+  export FAKE_GH_STDERR="API rate limit exceeded"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"refusing to fall back"* ]]
+}
+
+@test "T1-5 resolve_base: no-PR + no origin/HEAD -> abort with diagnostic" {
+  export FAKE_GH_RC=1
+  export FAKE_GH_STDERR="no pull requests found"
+  # Do NOT set refs/remotes/origin/HEAD
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Base branch resolution failed"* ]]
+}
+
+# =============================================================================
+# Tier 1-B: collect_descendants recursive enumeration
+# =============================================================================
+
+@test "T1-6 collect_descendants: non-existent parent -> empty output" {
+  run bash -c "source '$SRC_SCRIPT'; collect_descendants 999999"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T1-7 collect_descendants: 2-level tree -> direct child only" {
+  # Spawn 1 child (sleep) under a parent bash; spawned bash writes the
+  # sleep PID to child.pid before calling wait, so the file's presence
+  # is a positive readiness signal independent of scheduler timing.
+  bash -c 'sleep 30 & echo "$!" > "$1"; wait' bash "$SCRATCH_DIR/child.pid" &
+  local top=$!
+  # Poll for readiness (max ~3s) instead of a fixed sleep to reduce
+  # flakiness under CI contention.
+  local i
+  for ((i=0; i<30; i++)); do
+    [ -s "$SCRATCH_DIR/child.pid" ] && break
+    sleep 0.1
+  done
+  [ -s "$SCRATCH_DIR/child.pid" ]
+
+  run bash -c "source '$SRC_SCRIPT'; collect_descendants $top"
+  [ "$status" -eq 0 ]
+  # Output should contain exactly one PID (the sleep child)
+  local count
+  count=$(printf '%s\n' "$output" | grep -c '^[0-9]\+$' || true)
+  [ "$count" -eq 1 ]
+
+  # Cleanup
+  kill "$top" 2>/dev/null || true
+  wait "$top" 2>/dev/null || true
+}
+
+@test "T1-8 collect_descendants: 3-level tree -> child + grandchild" {
+  # Spawn bash -> bash -> sleep
+  bash -c 'bash -c "sleep 30 & wait" & wait' &
+  local top=$!
+  # Poll until the grandchild is visible (pgrep -P <child> returns a PID).
+  # Max ~3s — sufficient even on busy CI runners.
+  local i child
+  for ((i=0; i<30; i++)); do
+    child=$(pgrep -P "$top" 2>/dev/null | head -n1 || true)
+    if [ -n "$child" ] && pgrep -P "$child" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+  [ -n "$child" ]
+
+  run bash -c "source '$SRC_SCRIPT'; collect_descendants $top"
+  [ "$status" -eq 0 ]
+  # Expect 2 descendants: the intermediate bash + the sleep grandchild
+  local count
+  count=$(printf '%s\n' "$output" | grep -c '^[0-9]\+$' || true)
+  [ "$count" -ge 2 ]
+
+  # Cleanup
+  kill "$top" 2>/dev/null || true
+  pkill -P "$top" 2>/dev/null || true
+  wait "$top" 2>/dev/null || true
+}
+
+# =============================================================================
+# Tier 1-C: kill_children full-tree extermination
+# =============================================================================
+
+@test "T1-9 kill_children: empty CHILDREN -> no-op rc=0" {
+  run bash -c "source '$SRC_SCRIPT'; CHILDREN=(); MONITOR_PID=''; kill_children"
+  [ "$status" -eq 0 ]
+}
+
+@test "T1-10 kill_children: 3 parallel 3-level trees -> all 9 PIDs killed" {
+  # Spawn via a dedicated helper so PIDs land in a known file
+  local pid_file="$SCRATCH_DIR/parents.txt"
+  : > "$pid_file"
+  local i
+  for i in 1 2 3; do
+    bash -c 'bash -c "sleep 60 & wait" & wait' &
+    printf '%s\n' "$!" >> "$pid_file"
+  done
+
+  # Poll until all 3 trees have fully spawned (3 children + 3 grandchildren
+  # = 6 descendants visible), max ~3s. Avoids flakiness vs. a fixed sleep.
+  local desc_count p c
+  for ((i=0; i<30; i++)); do
+    desc_count=0
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      for c in $(pgrep -P "$p" 2>/dev/null || true); do
+        desc_count=$((desc_count + 1))
+        # grandchildren count too (we don't need their PIDs yet here)
+        local gc_list
+        gc_list=$(pgrep -P "$c" 2>/dev/null || true)
+        if [ -n "$gc_list" ]; then
+          local gc
+          for gc in $gc_list; do
+            desc_count=$((desc_count + 1))
+          done
+        fi
+      done
+    done < "$pid_file"
+    [ "$desc_count" -ge 6 ] && break
+    sleep 0.1
+  done
+
+  # Snapshot the full tree (parents + descendants) before kill
+  local all_pids=()
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    all_pids+=("$p")
+    # Collect all descendants (parent->child->grandchild)
+    for c in $(pgrep -P "$p" 2>/dev/null || true); do
+      all_pids+=("$c")
+      for gc in $(pgrep -P "$c" 2>/dev/null || true); do
+        all_pids+=("$gc")
+      done
+    done
+  done < "$pid_file"
+
+  # Sanity: expect at least 9 PIDs (3 parents + 3 children + 3 grandchildren)
+  [ "${#all_pids[@]}" -ge 9 ]
+
+  # Invoke kill_children with the 3 parents in CHILDREN
+  local parents
+  parents=$(paste -sd' ' "$pid_file")
+  run bash -c "source '$SRC_SCRIPT'; CHILDREN=($parents); MONITOR_PID=''; kill_children"
+  [ "$status" -eq 0 ]
+
+  # Poll for reap completion (max ~2s) instead of a fixed post-kill sleep.
+  local pid alive_count
+  for ((i=0; i<20; i++)); do
+    alive_count=0
+    for pid in "${all_pids[@]}"; do
+      kill -0 "$pid" 2>/dev/null && alive_count=$((alive_count + 1))
+    done
+    [ "$alive_count" -eq 0 ] && break
+    sleep 0.1
+  done
+
+  # Verify all snapshotted PIDs are dead
+  local alive=()
+  for pid in "${all_pids[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      alive+=("$pid")
+    fi
+  done
+  [ "${#alive[@]}" -eq 0 ]
+}
+
+# =============================================================================
+# Tier 2-A: is_error_token_only
+# =============================================================================
+
+@test "T2-1 is_error_token_only: 'Execution error' (1 line) -> true" {
+  local f="$SCRATCH_DIR/banner.md"
+  printf 'Execution error: session interrupted\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; is_error_token_only '$f'"
+  [ "$status" -eq 0 ]
+}
+
+@test "T2-2 is_error_token_only: 'API Error: 429' (1 line) -> true" {
+  local f="$SCRATCH_DIR/banner.md"
+  printf 'API Error: 429 Too Many Requests\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; is_error_token_only '$f'"
+  [ "$status" -eq 0 ]
+}
+
+@test "T2-3 is_error_token_only: long review (>3 lines) -> false" {
+  local f="$SCRATCH_DIR/long.md"
+  printf '# Findings\nline1\nline2\nline3\nline4\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; is_error_token_only '$f'"
+  [ "$status" -eq 1 ]
+}
+
+@test "T2-4 is_error_token_only: short non-banner heading -> false" {
+  local f="$SCRATCH_DIR/short.md"
+  printf '# Findings\nnothing serious\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; is_error_token_only '$f'"
+  [ "$status" -eq 1 ]
+}
+
+@test "T2-5 is_error_token_only: empty file -> false" {
+  local f="$SCRATCH_DIR/empty.md"
+  : > "$f"
+  run bash -c "source '$SRC_SCRIPT'; is_error_token_only '$f'"
+  [ "$status" -eq 1 ]
+}
+
+# =============================================================================
+# Tier 2-B: inject_failed_marker
+# =============================================================================
+
+@test "T2-6 inject_failed_marker: appends FAILED block to non-empty file" {
+  local f="$SCRATCH_DIR/existing.md"
+  printf 'prior content\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; inject_failed_marker PR '$f' 1"
+  [ "$status" -eq 0 ]
+  grep -q '^prior content$' "$f"
+  grep -q '<FAILED reviewer=PR exit_code=1>' "$f"
+  grep -q '</FAILED>' "$f"
+}
+
+@test "T2-7 inject_failed_marker: appends FAILED block to empty file" {
+  local f="$SCRATCH_DIR/empty.md"
+  : > "$f"
+  run bash -c "source '$SRC_SCRIPT'; inject_failed_marker SEC '$f' empty-output"
+  [ "$status" -eq 0 ]
+  grep -q '<FAILED reviewer=SEC exit_code=empty-output>' "$f"
+}
+
+# =============================================================================
+# Tier 2-C: check_reviewer_result
+# =============================================================================
+
+@test "T2-8 check_reviewer_result: rc!=0 -> fail, marker injected" {
+  local f="$SCRATCH_DIR/r.md"
+  printf 'partial output\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; check_reviewer_result PR 2 '$f'"
+  [ "$status" -eq 1 ]
+  grep -q '<FAILED reviewer=PR exit_code=2>' "$f"
+}
+
+@test "T2-9 check_reviewer_result: rc=0 + empty file -> fail(empty-output)" {
+  local f="$SCRATCH_DIR/r.md"
+  : > "$f"
+  run bash -c "source '$SRC_SCRIPT'; check_reviewer_result SEC 0 '$f'"
+  [ "$status" -eq 1 ]
+  grep -q '<FAILED reviewer=SEC exit_code=empty-output>' "$f"
+}
+
+@test "T2-10 check_reviewer_result: rc=0 + error-token file -> fail(error-token)" {
+  local f="$SCRATCH_DIR/r.md"
+  printf 'Execution error: something\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; check_reviewer_result ADV 0 '$f'"
+  [ "$status" -eq 1 ]
+  grep -q '<FAILED reviewer=ADV exit_code=error-token>' "$f"
+}
+
+@test "T2-11 check_reviewer_result: rc=0 + valid content -> pass, no marker" {
+  local f="$SCRATCH_DIR/r.md"
+  printf '# Findings\nline1\nline2\nline3\nline4\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; check_reviewer_result PR 0 '$f'"
+  [ "$status" -eq 0 ]
+  ! grep -q '<FAILED' "$f"
+}
+
+# =============================================================================
+# Tier 2-D: remove_pid
+# =============================================================================
+
+@test "T2-12 remove_pid: empty CHILDREN + missing target -> still empty" {
+  run bash -c "source '$SRC_SCRIPT'; CHILDREN=(); remove_pid 999; printf '%s' \"\${#CHILDREN[@]}\""
+  [ "$status" -eq 0 ]
+  [ "$output" = "0" ]
+}
+
+@test "T2-13 remove_pid: removes target from middle of array" {
+  run bash -c "source '$SRC_SCRIPT'; CHILDREN=(100 200 300); remove_pid 200; printf '%s\n' \"\${CHILDREN[@]}\""
+  [ "$status" -eq 0 ]
+  [ "$output" = "100"$'\n'"300" ]
+}
+
+@test "T2-14 remove_pid: removing last element -> empty CHILDREN" {
+  run bash -c "source '$SRC_SCRIPT'; CHILDREN=(100); remove_pid 100; printf '%s' \"\${#CHILDREN[@]}\""
+  [ "$status" -eq 0 ]
+  [ "$output" = "0" ]
+}
+
+# =============================================================================
+# Tier 2-E: build_aggregation_prompt
+# =============================================================================
+
+@test "T2-15 build_aggregation_prompt: includes unique delimiter and content" {
+  local a="$SCRATCH_DIR/pr.md" b="$SCRATCH_DIR/sec.md" c="$SCRATCH_DIR/adv.md"
+  printf 'PR finding alpha\n' > "$a"
+  printf 'SEC finding beta\n' > "$b"
+  printf 'ADV finding gamma\n' > "$c"
+  run bash -c "source '$SRC_SCRIPT'; build_aggregation_prompt '$a' '$b' '$c'"
+  [ "$status" -eq 0 ]
+  # Boundary marker with TRIPLEREV prefix appears
+  [[ "$output" == *"===BEGIN_TRIPLEREV_"* ]]
+  [[ "$output" == *"===END_TRIPLEREV_"* ]]
+  # Reviewer content interpolated verbatim
+  [[ "$output" == *"PR finding alpha"* ]]
+  [[ "$output" == *"SEC finding beta"* ]]
+  [[ "$output" == *"ADV finding gamma"* ]]
+  # Instructions section is present
+  [[ "$output" == *"対応必須"* ]]
+  [[ "$output" == *"要検討"* ]]
+}
+
+@test "T2-16 build_aggregation_prompt: BSD date %N fallback -> pid+hex delimiter" {
+  local stub_dir="$SCRATCH_DIR/date_stub"
+  mkdir -p "$stub_dir"
+  # Use /bin/date absolute path to avoid infinite recursion: `command date`
+  # still honors PATH for external commands and would find this stub again.
+  cat > "$stub_dir/date" <<'STUB'
+#!/usr/bin/env bash
+# Emulate BSD date: %N not expanded -> returns literal "<epoch>N"
+if [ "$1" = "+%s%N" ]; then
+  printf '%sN\n' "$(/bin/date +%s)"
+else
+  exec /bin/date "$@"
+fi
+STUB
+  chmod +x "$stub_dir/date"
+  local a="$SCRATCH_DIR/a" b="$SCRATCH_DIR/b" c="$SCRATCH_DIR/c"
+  printf 'x\n' > "$a"; printf 'y\n' > "$b"; printf 'z\n' > "$c"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; build_aggregation_prompt '$a' '$b' '$c'"
+  [ "$status" -eq 0 ]
+  # Fallback delimiter: TRIPLEREV_<epoch>_<pid>_<16hex>
+  [[ "$output" =~ TRIPLEREV_[0-9]+_[0-9]+_[0-9a-f]{16} ]]
+}
+
+@test "T2-17 build_aggregation_prompt: <FAILED> marker preserved in prompt" {
+  local a="$SCRATCH_DIR/pr.md" b="$SCRATCH_DIR/sec.md" c="$SCRATCH_DIR/adv.md"
+  printf 'partial output\n<FAILED reviewer=PR exit_code=1>\nfoo\n</FAILED>\n' > "$a"
+  printf 'SEC content\n' > "$b"
+  printf 'ADV content\n' > "$c"
+  run bash -c "source '$SRC_SCRIPT'; build_aggregation_prompt '$a' '$b' '$c'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"<FAILED reviewer=PR exit_code=1>"* ]]
+  [[ "$output" == *"欠損として扱い"* ]]
+}
+
+# =============================================================================
+# Tier 2-F: make_workdir
+# =============================================================================
+
+@test "T2-18 make_workdir: TMPDIR with trailing slash -> no double-slash" {
+  local base="$SCRATCH_DIR/tmpbase/"
+  mkdir -p "$base"
+  run bash -c "TMPDIR='$base' bash -c 'source \"$SRC_SCRIPT\"; make_workdir'"
+  [ "$status" -eq 0 ]
+  # Path should not contain `//`
+  [[ "$output" != *"//"* ]]
+  [ -d "$output" ]
+  [[ "$output" == *"/triple-review-"* ]]
+}
+
+@test "T2-19 make_workdir: unset TMPDIR -> falls back to /tmp" {
+  run bash -c "unset TMPDIR; source '$SRC_SCRIPT'; make_workdir"
+  [ "$status" -eq 0 ]
+  [[ "$output" == /tmp/triple-review-* ]]
+  [ -d "$output" ]
+  # Cleanup — this landed in real /tmp, not BATS_TEST_TMPDIR
+  rmdir "$output"
+}
+
+# =============================================================================
+# Tier 2-G: CLI argument guard (PATH-invoked, short-circuit paths only)
+# =============================================================================
+
+@test "T2-20 triple-review foo -> rc=1, 'Unknown argument'" {
+  run triple-review foo
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown argument: foo"* ]]
+}
+
+@test "T2-21 triple-review -h -> rc=0, usage" {
+  run triple-review -h
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: triple-review"* ]]
+}
+
+@test "T2-22 triple-review --help -> rc=0, usage" {
+  run triple-review --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: triple-review"* ]]
+}

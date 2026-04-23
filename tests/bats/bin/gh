@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# Minimal gh stub for triple-review bats tests. Honors:
+#   FAKE_GH_BASE    value written to stdout (the "baseRefName")
+#   FAKE_GH_STDERR  text written to stderr
+#   FAKE_GH_RC      exit status (default 0)
+#
+# Only the `pr view --json baseRefName --jq .baseRefName` shape matters to
+# triple-review, so we do not parse args. Any gh invocation emits the
+# configured output and exits with the configured rc.
+set -euo pipefail
+
+if [ -n "${FAKE_GH_STDERR:-}" ]; then
+  printf '%s\n' "$FAKE_GH_STDERR" >&2
+fi
+if [ -n "${FAKE_GH_BASE:-}" ]; then
+  printf '%s\n' "$FAKE_GH_BASE"
+fi
+exit "${FAKE_GH_RC:-0}"

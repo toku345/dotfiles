@@ -41,7 +41,7 @@ jobs:
               shellcheck --severity=warning "$script" || FAILED=1
             fi
           done < <(find .chezmoiscripts dot_local/bin tests/bats/bin \
-              -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" \) \
+              -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" \) \
               2>/dev/null)
 
           if [ $FOUND -eq 0 ]; then
