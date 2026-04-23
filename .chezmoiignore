@@ -7,3 +7,9 @@ AGENTS.md
 CLAUDE.local.md
 docs
 tests
+
+# macOS: exclude Linux-only bash configs
+{{ if ne .chezmoi.os "linux" }}
+.bashrc
+.bash_profile
+{{ end }}

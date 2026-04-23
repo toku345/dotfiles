@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Interactive shell configuration (Linux)
+
+# Linuxbrew shellenv
+if [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
+
+# Local bin (uv installer puts uv here)
+[[ -d "$HOME/.local/bin" ]] && PATH="$HOME/.local/bin:$PATH"
+
+# Rust (rustup)
+[[ -d "$HOME/.cargo/bin" ]] && PATH="$HOME/.cargo/bin:$PATH"
+
+# Bun
+export BUN_INSTALL="$HOME/.bun"
+[[ -d "$BUN_INSTALL/bin" ]] && PATH="$BUN_INSTALL/bin:$PATH"
+
+# Starship prompt
+command -v starship &>/dev/null && eval "$(starship init bash)"
+
+# direnv
+command -v direnv &>/dev/null && eval "$(direnv hook bash)"
+
+# fzf key bindings (Ctrl-R, Ctrl-T, Alt-C) + completion
+if [[ -n "$HOMEBREW_PREFIX" && -f "$HOMEBREW_PREFIX/opt/fzf/shell/key-bindings.bash" ]]; then
+    source "$HOMEBREW_PREFIX/opt/fzf/shell/key-bindings.bash"
+fi
+if [[ -n "$HOMEBREW_PREFIX" && -f "$HOMEBREW_PREFIX/opt/fzf/shell/completion.bash" ]]; then
+    source "$HOMEBREW_PREFIX/opt/fzf/shell/completion.bash"
+fi
+
+# Aliases (translated from fish abbr/function)
+alias be='bundle exec'
+alias cm='chezmoi'
+alias d='docker'
+alias dc='docker compose'
+alias gd='git diff-delta'
+alias gst='git status'
+alias l='eza -ahl --git'
+alias ll='ls -ahl'
+alias tree='eza -T'
+
+# Machine-specific overrides
+[[ -f "$HOME/.bashrc.local" ]] && source "$HOME/.bashrc.local"
