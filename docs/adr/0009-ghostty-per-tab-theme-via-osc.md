@@ -4,6 +4,13 @@
 
 Accepted
 
+> **Note (2026-04-22):** The OSC-per-surface design below is unchanged, but
+> the implementation has been migrated from fish functions to bash.
+> See [ADR 0011](0011-ghostty-theme-bash-migration.md) for current file
+> paths (`dot_local/bin/executable_ghostty-theme{,-preview}`) and the
+> `ghostty +list-themes` integration that replaces the hardcoded themes
+> directory.
+
 ## Context
 
 Ghostty exposes color theme configuration only at the global level: there
