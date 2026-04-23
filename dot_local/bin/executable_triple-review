@@ -599,4 +599,9 @@ main() {
   printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n' "$workdir"
 }
 
-main "$@"
+# Source guard: skip main() when sourced (e.g. from bats test suite),
+# so individual functions can be exercised in isolation without triggering
+# the full workflow.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
