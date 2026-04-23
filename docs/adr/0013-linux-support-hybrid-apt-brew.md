@@ -57,7 +57,7 @@ Linux uses bash as the login shell. fish is neither installed nor deployed on Li
 ### 5. Starship: single `starship.toml.tmpl` with OS + vpn_check branching
 
 - Rename `starship.toml` to `starship.toml.tmpl` and wrap the existing Nerd Font Symbols preset in `{{ if eq .chezmoi.os "darwin" }}`.
-- Add a Linux branch using the **Bracketed Segments preset** (ASCII-only, font-independent) plus an `ssh_only` hostname block.
+- Add a Linux branch using the **Bracketed Segments preset** (Unicode box-drawing, no Nerd Font glyphs) plus an `ssh_only` hostname block.
 - Wire the VPN `[custom.vpn]` module to `{{ if .vpn_check }}` under the darwin branch, finally using the existing `vpn_check` prompt data.
 - Tighten `private_dot_config/starship/.chezmoiignore.tmpl` to also guard on OS (so `check-vpn.sh` never deploys on Linux regardless of the vpn_check answer).
 

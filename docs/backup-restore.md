@@ -196,7 +196,7 @@ brew install chezmoi age
 chezmoi init --apply toku345
 ```
 
-macOS 専用設定 (`karabiner`, `iterm2`, `fish`, `asdf` 等) は `.chezmoiignore` の OS 分岐により Linux では自動的にスキップされます。
+macOS 専用設定は [`.chezmoiignore`](../.chezmoiignore) の OS 分岐により Linux では自動的にスキップされます（除外対象の正確な一覧は同ファイルを参照）。
 
 ### age鍵を紛失した場合の対処法
 
