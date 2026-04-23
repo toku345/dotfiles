@@ -8,6 +8,26 @@ CLAUDE.local.md
 docs
 tests
 
+# Linux: exclude macOS-only configs and scripts
+{{ if ne .chezmoi.os "darwin" }}
+.config/karabiner
+.config/karabiner/**
+.config/fish
+.config/fish/**
+.config/iterm2
+.config/iterm2/**
+.config/cmux
+.config/cmux/**
+.config/ghostty
+.config/ghostty/**
+.config/google_ime
+.config/google_ime/**
+.config/asdf
+.config/asdf/**
+.local/bin/ghostty-theme
+.local/bin/ghostty-theme-preview
+{{ end }}
+
 # macOS: exclude Linux-only bash configs
 {{ if ne .chezmoi.os "linux" }}
 .bashrc
