@@ -455,9 +455,11 @@ STUB
   [ -z "$output" ]
 }
 
-@test "T2-25 select_sleep_inhibitor: Linux + systemd-inhibit present + logind -> 3 tokens" {
+@test "T2-25 select_sleep_inhibitor: Linux + all prereqs satisfied -> 3 tokens" {
+  # Override all three guards so the test does not depend on the host's
+  # systemd/dbus state (real CI Ubuntu containers have no logind).
   export TEST_FAKE_UNAME=Linux
-  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; has_logind() { return 0; }; select_sleep_inhibitor_cmd"
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; has_logind() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd"
   [ "$status" -eq 0 ]
   [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--why=triple-review in progress' ]
 }
@@ -570,4 +572,55 @@ STUB
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"Unknown argument: bogus"* ]]
   [[ "$stderr" != *"Wrapping with sleep inhibitor"* ]]
+}
+
+# =============================================================================
+# Tier 2-J: systemd-inhibit dbus readiness probe.
+# Guards against the WSL2 / rootless container / sudo-stripped case where
+# systemd-inhibit is installed and /run/systemd/system exists, but the
+# session dbus bus logind listens on is unreachable — in which case exec'ing
+# the wrapper would replace bash and the child would bail before running
+# triple-review, leaving the user with no review.
+# =============================================================================
+
+@test "T2-34 select_sleep_inhibitor: Linux + all present but dbus probe fails -> empty" {
+  export TEST_FAKE_UNAME=Linux
+  run bash -c "
+    source '$SRC_SCRIPT'
+    has_systemd_inhibit() { return 0; }
+    has_logind() { return 0; }
+    systemd_inhibitor_reachable() { return 1; }
+    select_sleep_inhibitor_cmd
+  "
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit --list" {
+  # PATH stub controls systemd-inhibit's behavior so we exercise the real
+  # probe implementation end-to-end rather than just mocking the helper.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub"
+  mkdir -p "$stub_dir"
+
+  # Success path: --list exits 0.
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1" == "--list" ]]; then
+  exit 0
+fi
+exit 2
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 0 ]
+
+  # Failure path: --list exits non-zero, mimicking dbus unavailable.
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+echo "Failed to connect to bus" >&2
+exit 1
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 1 ]
 }

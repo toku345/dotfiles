@@ -41,6 +41,20 @@ has_systemd_inhibit() {
 has_logind() {
   [ -d /run/systemd/system ]
 }
+# Dbus readiness probe. `[ -d /run/systemd/system ]` confirms systemd is PID 1
+# but does NOT confirm the session dbus bus logind listens on is reachable —
+# WSL2 without systemd-genie, rootless podman, and some sudo-stripped shells
+# hit a configuration where has_logind is true yet systemd-inhibit exits
+# non-zero when it actually tries to take the lock. `--list` round-trips to
+# logind over dbus and fails cleanly in those environments, so we probe it
+# BEFORE exec to keep the wrap decision local to this process. Without this
+# gate, exec would succeed, bash would be replaced by systemd-inhibit, and
+# the child would bail before handing off to triple-review — the user would
+# never see a review run at all. Typical runtime on a healthy system is a
+# few milliseconds.
+systemd_inhibitor_reachable() {
+  systemd-inhibit --list >/dev/null 2>&1
+}
 
 # Emit the sleep-inhibitor wrapper command tokens (one per line) on stdout.
 # Empty output = do not wrap. Silent fall-through on unknown OS / missing
@@ -57,8 +71,15 @@ has_logind() {
 # default (`idle:sleep:shutdown`, per `man systemd-inhibit`) — a background
 # tool must never block an operator-initiated shutdown. `handle-lid-switch`
 # is not in the default either, and is intentionally left unset so that
-# lid-close still suspends if the user intends that. logind must be running
-# (`/run/systemd/system` exists) or systemd-inhibit exits nonzero at runtime.
+# lid-close still suspends if the user intends that. Three guards precede
+# the emit:
+#   (1) has_systemd_inhibit — binary on PATH
+#   (2) has_logind — systemd is PID 1 (`/run/systemd/system` exists)
+#   (3) systemd_inhibitor_reachable — dbus round-trip succeeds, which (2)
+#       alone does not guarantee (see the helper's docstring)
+# Any failing guard causes silent fall-through: triple-review runs without
+# the wrap, which is preferable to exec'ing into a wrapper that would bail
+# before starting the review.
 select_sleep_inhibitor_cmd() {
   case "$(uname)" in
     Darwin)
@@ -68,6 +89,7 @@ select_sleep_inhibitor_cmd() {
     Linux)
       has_systemd_inhibit || return 0
       has_logind || return 0
+      systemd_inhibitor_reachable || return 0
       printf '%s\n' systemd-inhibit --what=idle:sleep --why='triple-review in progress'
       ;;
   esac
