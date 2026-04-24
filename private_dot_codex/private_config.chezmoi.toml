@@ -1,16 +1,14 @@
-# Managed baseline for Codex on this machine.
+# Managed bootstrap defaults for Codex on this machine.
 #
 # Codex reads ~/.codex/config.toml. This file is kept separate so chezmoi can
-# manage stable defaults without overwriting local state that Codex updates.
+# initialize stable defaults without overwriting local state that Codex updates.
 #
-# Keep these local-only sections in ~/.codex/config.toml:
+# Keep these local-only settings in ~/.codex/config.toml:
+# - model / model_reasoning_effort / plan_mode_reasoning_effort
 # - [projects."..."]
 # - [mcp_servers.*]
 # - [notice.*]
 
-model = "gpt-5.4"
-model_reasoning_effort = "xhigh"
-plan_mode_reasoning_effort = "xhigh"
 personality = "pragmatic"
 approvals_reviewer = "guardian_subagent"
 approval_policy = "on-request"
@@ -20,11 +18,8 @@ sandbox_mode = "workspace-write"
 network_access = false
 
 [features]
-multi_agent = true
-apps = true
 js_repl = true
 guardian_approval = true
-codex_git_commit = true
 
 [plugins."github@openai-curated"]
 enabled = true
