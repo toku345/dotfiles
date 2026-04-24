@@ -25,6 +25,115 @@ warn() {
   printf '\033[33m%s\033[0m\n' "$1" >&2
 }
 
+# Extracted so bats tests can override via function redefinition. real macOS
+# always has /usr/bin/caffeinate and real Ubuntu always has
+# /usr/bin/systemd-inhibit; stripping /usr/bin from PATH to simulate "command
+# absent" would also strip uname/printf/head/grep and break the script
+# itself. Function override sidesteps the issue. systemd_is_pid1 is similarly
+# extracted so the Linux path can be unit-tested on macOS (where
+# /run/systemd/system never exists).
+has_caffeinate() {
+  command -v caffeinate >/dev/null 2>&1
+}
+has_systemd_inhibit() {
+  command -v systemd-inhibit >/dev/null 2>&1
+}
+systemd_is_pid1() {
+  [ -d /run/systemd/system ]
+}
+# Dbus readiness probe. `[ -d /run/systemd/system ]` confirms systemd is PID 1
+# but does NOT confirm the session dbus bus logind listens on is reachable —
+# WSL2 without systemd-genie, rootless podman, and some sudo-stripped shells
+# hit a configuration where systemd_is_pid1 is true yet systemd-inhibit exits
+# non-zero when it actually tries to take the lock. `--list` round-trips to
+# logind over dbus and fails cleanly in those environments, so we probe it
+# BEFORE exec to keep the wrap decision local to this process. Without this
+# gate, exec would succeed, bash would be replaced by systemd-inhibit, and
+# the child would bail before handing off to triple-review — the user would
+# never see a review run at all. Typical runtime on a healthy system is a
+# few milliseconds.
+systemd_inhibitor_reachable() {
+  systemd-inhibit --list >/dev/null 2>&1
+}
+
+# Emit the sleep-inhibitor wrapper command tokens (one per line) on stdout.
+# Empty output = do not wrap. Silent fall-through on unknown OS / missing
+# inhibitor / missing logind. bash 3.2 compatible — no mapfile.
+#
+# On macOS: `-i` inhibits idle sleep on both AC and battery (primary goal for
+# "user walks away" scenarios); `-s` adds system-sleep inhibition that applies
+# only on AC power, per `man caffeinate(8)`: "this assertion is valid only
+# when system is running on AC power". Both together cover idle + manual
+# Apple-menu sleep on desktop / AC-connected laptop; battery laptop still
+# gets idle sleep protection from `-i` alone.
+#
+# On Linux: `--what=idle:sleep` drops `shutdown` from systemd-inhibit's
+# default (`idle:sleep:shutdown`, per `man systemd-inhibit`) — a background
+# tool must never block an operator-initiated shutdown. `handle-lid-switch`
+# is not in the default either, and is intentionally left unset so that
+# lid-close still suspends if the user intends that. Three guards precede
+# the emit:
+#   (1) has_systemd_inhibit — binary on PATH
+#   (2) systemd_is_pid1 — systemd is PID 1 (`/run/systemd/system` exists)
+#   (3) systemd_inhibitor_reachable — dbus round-trip succeeds, which (2)
+#       alone does not guarantee (see the helper's docstring)
+# Any failing guard causes silent fall-through: triple-review runs without
+# the wrap, which is preferable to exec'ing into a wrapper that would bail
+# before starting the review.
+select_sleep_inhibitor_cmd() {
+  case "$(uname)" in
+    Darwin)
+      has_caffeinate || return 0
+      printf '%s\n' caffeinate -i -s
+      ;;
+    Linux)
+      has_systemd_inhibit || return 0
+      systemd_is_pid1 || return 0
+      systemd_inhibitor_reachable || return 0
+      printf '%s\n' systemd-inhibit --what=idle:sleep --why='triple-review in progress'
+      ;;
+  esac
+}
+
+# Self-exec under a sleep-inhibitor wrapper on first entry; no-op on re-entry.
+# TRIPLE_REVIEW_SLEEP_INHIBITED gate ensures the wrapped child does not loop.
+# `shopt -s execfail` lets bash return control after a failed exec instead of
+# terminating with rc=126/127. `set -e` must be disabled around the exec call,
+# otherwise a failing exec returns non-zero and `set -e` exits the shell before
+# the `||` fallback branch runs (verified empirically on bash 5.3 — the branch
+# never fires under `set -Eeuo pipefail` without the toggle).
+#
+# Re-entry shape: `"${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"` rather than
+# `"$0" "$@"`. The inhibitor wrapper runs `execve` on its argv internally,
+# and `execve` requires the target file to carry the execute bit. Git stores
+# this script as mode 0644 (chezmoi apply sets 0755 only in the installed
+# copy), so any source-tree invocation — `bash dot_local/bin/...` during
+# local iteration, the bats wrapper, a developer hitting F5 from the repo —
+# would `execve($0)` on a 0644 file and bail rc=126, skipping the review
+# entirely. Going through the running bash interpreter decouples the wrap
+# path from file mode and matches production (installed, 0755) behavior.
+maybe_wrap_with_inhibitor() {
+  [ -n "${TRIPLE_REVIEW_SLEEP_INHIBITED:-}" ] && return 0
+  local wrapper=() line
+  while IFS= read -r line; do
+    [ -n "$line" ] && wrapper+=("$line")
+  done < <(select_sleep_inhibitor_cmd)
+  ((${#wrapper[@]} == 0)) && return 0
+  export TRIPLE_REVIEW_SLEEP_INHIBITED=1
+  printf '[triple-review] Wrapping with sleep inhibitor: %s\n' "${wrapper[*]}" >&2
+  shopt -s execfail
+  set +e
+  # SC2093: `shopt -s execfail` above lets bash return control here on exec
+  # failure; code after the exec is the execfail fallback path, not dead.
+  # shellcheck disable=SC2093
+  exec "${wrapper[@]}" "${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"
+  local exec_rc=$?
+  set -e
+  warn "Sleep inhibitor exec failed (inhibitor='${wrapper[0]}', rc=$exec_rc); continuing without wrap"
+  unset TRIPLE_REVIEW_SLEEP_INHIBITED
+  return 0
+}
+
 print_usage() {
   cat <<'EOF'
 Usage: triple-review
@@ -42,6 +151,21 @@ and falls back to origin/HEAD if no PR is associated with the current branch.
 Intermediate outputs are preserved in $TMPDIR/triple-review-* (macOS auto-cleans).
 
 Requirements: gh, git, claude on $PATH; inside a git work tree.
+
+Environment variables:
+  TRIPLE_REVIEW_SLEEP_INHIBITED
+    Set to any non-empty value to skip the auto-wrap with `caffeinate -i -s`
+    (macOS) / `systemd-inhibit` (Linux). Useful when already wrapping
+    manually, or when running under an environment where the inhibitor
+    would fail (e.g. non-logind Linux).
+
+Notes:
+  - By default, long runs are wrapped with the OS's sleep inhibitor to
+    prevent idle/manual sleep from suspending the 20-60 minute review.
+  - On macOS, `caffeinate -i` prevents idle sleep on both AC and battery;
+    `-s` additionally prevents system sleep but only on AC power.
+  - Laptop clamshell sleep on battery is NOT prevented — OS enforces it
+    at the hardware level. Connect AC power before closing the lid.
 
 Design rationale: docs/adr/0012-triple-review-bash-script.md.
 EOF
@@ -427,6 +551,12 @@ main() {
     esac
   fi
 
+  # Wrap the long-running review under the OS sleep inhibitor before any
+  # other work so progress-monitor heartbeats and claude -p children are
+  # not suspended if the user walks away. Runs after arg validation so
+  # --help and unknown-arg paths do not pay the wrap cost.
+  maybe_wrap_with_inhibitor "$@"
+
   check_prerequisites
 
   local base workdir
@@ -574,14 +704,14 @@ main() {
   # and quotes inside summary.md are inert literals in the resulting string.
   # Size: aggregated summary is typically <50KB, well under Linux ARG_MAX (~2MB).
   #
-  # exec failure fallback: by default a failed `exec` in a non-interactive
-  # bash terminates the shell with rc 126/127 BEFORE the `||` branch runs
-  # (confirmed empirically — `exec nosuchcmd || fallback` prints only the
-  # exec error and exits). `shopt -s execfail` flips that behavior so a
-  # failed exec returns control to the script, letting the `|| { ... }`
-  # fallback fire. The full summary is already on stdout above, so we
-  # exit 0 and rely on the warn banner for diagnostics instead of
-  # letting wrappers misread rc != 0 as "triple-review failed".
+  # exec failure fallback: by default a failed `exec` terminates the shell
+  # with rc 126/127. `shopt -s execfail` makes bash return control on exec
+  # failure, but `set -e` still exits the shell before any `||` branch can
+  # run because the failed exec returns non-zero. Disable `-e` around the
+  # call so the fallback path (warn + exit 0) actually executes — the full
+  # summary is already on stdout above, so we exit 0 and rely on the warn
+  # banner for diagnostics instead of letting wrappers misread rc != 0 as
+  # "triple-review failed".
   #
   # TTY gate: piped/redirected invocations (e.g. captured by a wrapper) keep
   # the path-only fallback so automation doesn't jump into a broken interactive
@@ -589,12 +719,17 @@ main() {
   if [ -t 1 ]; then
     printf '\n---\n[triple-review] Launching interactive Claude Code session with findings...\n'
     shopt -s execfail
+    set +e
+    # SC2093: `shopt -s execfail` above lets bash return control here on exec
+    # failure; code after the exec is the execfail fallback path, not dead.
+    # shellcheck disable=SC2093
     exec claude -- "$(cat "$workdir/summary.md")
 
-上記の 対応必須 / 要検討 項目への対応方針を提案してください。" || {
-      warn "exec claude failed (binary missing or argv too large). The full summary above is the canonical output; reference $workdir/summary.md to continue manually."
-      exit 0
-    }
+上記の 対応必須 / 要検討 項目への対応方針を提案してください。"
+    local exec_rc=$?
+    set -e
+    warn "exec claude failed (rc=$exec_rc; binary missing or argv too large). The full summary above is the canonical output; reference $workdir/summary.md to continue manually."
+    exit 0
   fi
   printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n' "$workdir"
 }

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# Minimal uname stub for triple-review bats tests. Honors:
+#   TEST_FAKE_UNAME  value written to stdout for bare `uname` invocations.
+# When unset, delegates to /usr/bin/uname so non-OS-detection call sites
+# (e.g. `uname -a` in future) keep working.
+set -euo pipefail
+
+if [ -n "${TEST_FAKE_UNAME:-}" ] && [ "$#" -eq 0 ]; then
+  printf '%s\n' "$TEST_FAKE_UNAME"
+  exit 0
+fi
+exec /usr/bin/uname "$@"

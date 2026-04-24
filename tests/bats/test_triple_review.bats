@@ -430,3 +430,224 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage: triple-review"* ]]
 }
+
+# =============================================================================
+# Tier 2-H: sleep inhibitor selection (select_sleep_inhibitor_cmd + maybe_wrap)
+# Function override pattern is used instead of PATH-based stubs because real
+# macOS always has /usr/bin/caffeinate and real Ubuntu always has
+# /usr/bin/systemd-inhibit; stripping /usr/bin from PATH to fake "command
+# absent" would also strip uname/printf/head/grep and break the script
+# itself. Overriding has_caffeinate / has_systemd_inhibit / systemd_is_pid1 at
+# the function level sidesteps that problem.
+# =============================================================================
+
+@test "T2-23 select_sleep_inhibitor: Darwin + caffeinate present -> 'caffeinate -i -s'" {
+  export TEST_FAKE_UNAME=Darwin
+  run bash -c "source '$SRC_SCRIPT'; has_caffeinate() { return 0; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'caffeinate\n-i\n-s' ]
+}
+
+@test "T2-24 select_sleep_inhibitor: Darwin + caffeinate absent -> empty" {
+  export TEST_FAKE_UNAME=Darwin
+  run bash -c "source '$SRC_SCRIPT'; has_caffeinate() { return 1; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-25 select_sleep_inhibitor: Linux + all prereqs satisfied -> 3 tokens" {
+  # Override all three guards so the test does not depend on the host's
+  # systemd/dbus state (real CI Ubuntu containers have no logind).
+  export TEST_FAKE_UNAME=Linux
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--why=triple-review in progress' ]
+}
+
+@test "T2-26 select_sleep_inhibitor: Linux + systemd-inhibit present + systemd not PID 1 -> empty" {
+  export TEST_FAKE_UNAME=Linux
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 1; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-27 select_sleep_inhibitor: Linux + systemd-inhibit absent -> empty" {
+  export TEST_FAKE_UNAME=Linux
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 1; }; systemd_is_pid1() { return 0; }; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-28 select_sleep_inhibitor: unknown OS (FreeBSD) -> empty" {
+  export TEST_FAKE_UNAME=FreeBSD
+  run bash -c "source '$SRC_SCRIPT'; select_sleep_inhibitor_cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-29 maybe_wrap: TRIPLE_REVIEW_SLEEP_INHIBITED set -> no-op return, no exec" {
+  export TRIPLE_REVIEW_SLEEP_INHIBITED=1
+  run bash -c "source '$SRC_SCRIPT'; maybe_wrap_with_inhibitor; echo REACHED"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"REACHED"* ]]
+}
+
+# =============================================================================
+# Tier 2-I: maybe_wrap exec fallback + success path + call-site integration.
+# Regression guard for the `set -Eeuo pipefail` + `exec ... || fallback`
+# dead-code bug: without `set +e` around exec, a failing exec under set -e
+# exits the shell before the `||` branch can fire, leaving the warn banner
+# unreachable and TRIPLE_REVIEW_SLEEP_INHIBITED stuck to 1 for wrappers.
+# =============================================================================
+
+@test "T2-30 maybe_wrap: exec failure -> fallback fires, gate unset, rc=0" {
+  # Override select_sleep_inhibitor_cmd to emit a path that does not exist.
+  # The `||` fallback must fire: warn banner on stderr, gate unset so the
+  # next invocation is free to try again, rc=0 so main() proceeds.
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    select_sleep_inhibitor_cmd() { printf '%s\n' /nonexistent/inhibitor; }
+    maybe_wrap_with_inhibitor
+    printf 'AFTER_RC=%s\n' \"\$?\"
+    printf 'SLEEP_GATE=[%s]\n' \"\${TRIPLE_REVIEW_SLEEP_INHIBITED:-<unset>}\"
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AFTER_RC=0"* ]]
+  [[ "$output" == *"SLEEP_GATE=[<unset>]"* ]]
+  [[ "$stderr" == *"Sleep inhibitor exec failed"* ]]
+  [[ "$stderr" == *"/nonexistent/inhibitor"* ]]
+}
+
+@test "T2-31 maybe_wrap: exec success -> bash re-entry + argv forwarded, gate=1 exported" {
+  # Fake wrapper that records argv + the TRIPLE_REVIEW_SLEEP_INHIBITED value
+  # it inherited, then exits 0. After exec, the bats subshell is replaced
+  # by this wrapper; inspection happens via the capture file.
+  #
+  # Contract: the wrapper receives [bash, BASH_SOURCE[0], ...positional args].
+  # Going through the bash interpreter decouples the wrap path from file mode
+  # — git stores the script as 0644 and execve-ing it directly would bail
+  # rc=126 on any source-tree invocation.
+  local fake="$SCRATCH_DIR/fake_wrap"
+  local capture="$SCRATCH_DIR/wrap_capture"
+  cat > "$fake" <<STUB
+#!/usr/bin/env bash
+{
+  printf 'ARGC=%d\n' "\$#"
+  for a in "\$@"; do
+    printf 'ARG=%s\n' "\$a"
+  done
+  printf 'SLEEP_GATE=%s\n' "\${TRIPLE_REVIEW_SLEEP_INHIBITED:-<unset>}"
+} > '$capture'
+exit 0
+STUB
+  chmod +x "$fake"
+
+  run bash -c "
+    source '$SRC_SCRIPT'
+    select_sleep_inhibitor_cmd() { printf '%s\n' '$fake'; }
+    maybe_wrap_with_inhibitor foo bar baz
+  "
+  [ "$status" -eq 0 ]
+  # argv after exec: [bash, BASH_SOURCE[0]=SRC_SCRIPT, foo, bar, baz] = 5 tokens.
+  grep -q '^ARGC=5$' "$capture"
+  # First arg is the bash interpreter (absolute or bare).
+  grep -qE '^ARG=(bash|/.*/bash)$' "$capture"
+  # Second arg is the sourced script path.
+  grep -qF "ARG=$SRC_SCRIPT" "$capture"
+  grep -q '^ARG=foo$' "$capture"
+  grep -q '^ARG=bar$' "$capture"
+  grep -q '^ARG=baz$' "$capture"
+  # Gate must be exported to 1 BEFORE exec so the re-entered child is a no-op.
+  grep -q '^SLEEP_GATE=1$' "$capture"
+}
+
+@test "T2-36 argv shape: bash-prefixed re-entry survives 0644 file, \$0-direct fails" {
+  # Regression guard for the Phase 4 fix. The source file is 0644 in git
+  # (chezmoi sets 0755 only on apply), so a real inhibitor doing
+  # `execve("$0")` — as the pre-Phase-4 code shape would produce — bails
+  # rc=126 before the review can run. The current `bash "$BASH_SOURCE[0]"`
+  # shape lets bash interpret the script without requiring the execute bit.
+  #
+  # Two assertions pin both directions so a reverter has to explain away
+  # a broken test rather than a silent behavior change.
+
+  [ ! -x "$SRC_SCRIPT" ]
+
+  # Positive: what maybe_wrap_with_inhibitor emits today works on 0644.
+  run bash -c "exec bash '$SRC_SCRIPT' --help"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: triple-review"* ]]
+
+  # Negative: the \$0-direct shape the Phase 4 fix replaced. Pin the rc=126
+  # so future refactors can't silently reintroduce the failure mode.
+  run bash -c "exec '$SRC_SCRIPT' --help"
+  [ "$status" -eq 126 ]
+}
+
+@test "T2-32 call-site: --help does not pay wrap cost" {
+  # With systemd-inhibit/caffeinate actually available on the host, moving
+  # maybe_wrap_with_inhibitor above the arg-validation block would emit the
+  # wrap banner for --help. Guard the current ordering.
+  run --separate-stderr triple-review --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: triple-review"* ]]
+  [[ "$stderr" != *"Wrapping with sleep inhibitor"* ]]
+}
+
+@test "T2-33 call-site: unknown-arg exits before wrap" {
+  run --separate-stderr triple-review bogus
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Unknown argument: bogus"* ]]
+  [[ "$stderr" != *"Wrapping with sleep inhibitor"* ]]
+}
+
+# =============================================================================
+# Tier 2-J: systemd-inhibit dbus readiness probe.
+# Guards against the WSL2 / rootless container / sudo-stripped case where
+# systemd-inhibit is installed and /run/systemd/system exists, but the
+# session dbus bus logind listens on is unreachable — in which case exec'ing
+# the wrapper would replace bash and the child would bail before running
+# triple-review, leaving the user with no review.
+# =============================================================================
+
+@test "T2-34 select_sleep_inhibitor: Linux + all present but dbus probe fails -> empty" {
+  export TEST_FAKE_UNAME=Linux
+  run bash -c "
+    source '$SRC_SCRIPT'
+    has_systemd_inhibit() { return 0; }
+    systemd_is_pid1() { return 0; }
+    systemd_inhibitor_reachable() { return 1; }
+    select_sleep_inhibitor_cmd
+  "
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit --list" {
+  # PATH stub controls systemd-inhibit's behavior so we exercise the real
+  # probe implementation end-to-end rather than just mocking the helper.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub"
+  mkdir -p "$stub_dir"
+
+  # Success path: --list exits 0.
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1" == "--list" ]]; then
+  exit 0
+fi
+exit 2
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 0 ]
+
+  # Failure path: --list exits non-zero, mimicking dbus unavailable.
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+echo "Failed to connect to bus" >&2
+exit 1
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 1 ]
+}
