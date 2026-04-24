@@ -93,7 +93,6 @@ chezmoi apply
   - `ghostty/` - Ghostty terminal configuration
   - `git/` - Git configuration
   - `google_ime/` - Google IME dictionary
-  - `iterm2/` - iTerm2 terminal preferences
   - `nano/` - Nano editor configuration
   - `private_karabiner/` - Karabiner-Elements keyboard customization
   - `starship.toml` - Starship prompt configuration
@@ -310,5 +309,5 @@ For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/
   - `encrypted_` prefix indicates age-encrypted files
   - `.chezmoiignore` lists files excluded from `chezmoi apply` (e.g., `AGENTS.md`, `CLAUDE.md`)
 - Template files (`.tmpl`) are processed before being applied to the target system
-- The repository includes configurations for macOS-specific tools (Homebrew, iTerm2, Karabiner)
+- The repository includes configurations for macOS-specific tools (Homebrew, Karabiner)
 - **Security**: All sensitive files are encrypted with age. The age private key itself is password-protected in the repository.

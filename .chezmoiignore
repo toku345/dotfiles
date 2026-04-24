@@ -14,8 +14,6 @@ tests
 .config/karabiner/**
 .config/fish
 .config/fish/**
-.config/iterm2
-.config/iterm2/**
 .config/cmux
 .config/cmux/**
 .config/ghostty
