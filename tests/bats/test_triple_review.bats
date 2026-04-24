@@ -487,3 +487,85 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"REACHED"* ]]
 }
+
+# =============================================================================
+# Tier 2-I: maybe_wrap exec fallback + success path + call-site integration.
+# Regression guard for the `set -Eeuo pipefail` + `exec ... || fallback`
+# dead-code bug: without `set +e` around exec, a failing exec under set -e
+# exits the shell before the `||` branch can fire, leaving the warn banner
+# unreachable and TRIPLE_REVIEW_SLEEP_INHIBITED stuck to 1 for wrappers.
+# =============================================================================
+
+@test "T2-30 maybe_wrap: exec failure -> fallback fires, gate unset, rc=0" {
+  # Override select_sleep_inhibitor_cmd to emit a path that does not exist.
+  # The `||` fallback must fire: warn banner on stderr, gate unset so the
+  # next invocation is free to try again, rc=0 so main() proceeds.
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    select_sleep_inhibitor_cmd() { printf '%s\n' /nonexistent/inhibitor; }
+    maybe_wrap_with_inhibitor
+    printf 'AFTER_RC=%s\n' \"\$?\"
+    printf 'SLEEP_GATE=[%s]\n' \"\${TRIPLE_REVIEW_SLEEP_INHIBITED:-<unset>}\"
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AFTER_RC=0"* ]]
+  [[ "$output" == *"SLEEP_GATE=[<unset>]"* ]]
+  [[ "$stderr" == *"Sleep inhibitor exec failed"* ]]
+  [[ "$stderr" == *"/nonexistent/inhibitor"* ]]
+}
+
+@test "T2-31 maybe_wrap: exec success -> argv forwarded, gate=1 exported" {
+  # Fake wrapper that records argv + the TRIPLE_REVIEW_SLEEP_INHIBITED value
+  # it inherited, then exits 0. After exec, the bats subshell is replaced
+  # by this wrapper; inspection happens via the capture file.
+  #
+  # Note: when the script is sourced (as in bats), `\$0` resolves to "bash"
+  # rather than the source path — this is expected sourcing semantics. What
+  # matters for the contract is that `\$0` is passed through as-is and the
+  # three positional args follow, so the wrapper receives 4 tokens total.
+  local fake="$SCRATCH_DIR/fake_wrap"
+  local capture="$SCRATCH_DIR/wrap_capture"
+  cat > "$fake" <<STUB
+#!/usr/bin/env bash
+{
+  printf 'ARGC=%d\n' "\$#"
+  for a in "\$@"; do
+    printf 'ARG=%s\n' "\$a"
+  done
+  printf 'SLEEP_GATE=%s\n' "\${TRIPLE_REVIEW_SLEEP_INHIBITED:-<unset>}"
+} > '$capture'
+exit 0
+STUB
+  chmod +x "$fake"
+
+  run bash -c "
+    source '$SRC_SCRIPT'
+    select_sleep_inhibitor_cmd() { printf '%s\n' '$fake'; }
+    maybe_wrap_with_inhibitor foo bar baz
+  "
+  [ "$status" -eq 0 ]
+  # argv after exec: \$0 (sourcing shell's \$0 under bats) + three forwarded args.
+  grep -q '^ARGC=4$' "$capture"
+  grep -q '^ARG=foo$' "$capture"
+  grep -q '^ARG=bar$' "$capture"
+  grep -q '^ARG=baz$' "$capture"
+  # Gate must be exported to 1 BEFORE exec so the re-entered child is a no-op.
+  grep -q '^SLEEP_GATE=1$' "$capture"
+}
+
+@test "T2-32 call-site: --help does not pay wrap cost" {
+  # With systemd-inhibit/caffeinate actually available on the host, moving
+  # maybe_wrap_with_inhibitor above the arg-validation block would emit the
+  # wrap banner for --help. Guard the current ordering.
+  run --separate-stderr triple-review --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: triple-review"* ]]
+  [[ "$stderr" != *"Wrapping with sleep inhibitor"* ]]
+}
+
+@test "T2-33 call-site: unknown-arg exits before wrap" {
+  run --separate-stderr triple-review bogus
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Unknown argument: bogus"* ]]
+  [[ "$stderr" != *"Wrapping with sleep inhibitor"* ]]
+}

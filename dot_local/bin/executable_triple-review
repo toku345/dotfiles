@@ -71,9 +71,11 @@ select_sleep_inhibitor_cmd() {
 
 # Self-exec under a sleep-inhibitor wrapper on first entry; no-op on re-entry.
 # TRIPLE_REVIEW_SLEEP_INHIBITED gate ensures the wrapped child does not loop.
-# `shopt -s execfail` lets the script recover if the wrapper exec fails (e.g.
-# systemd-inhibit refuses due to dbus unavailability the static guards missed)
-# instead of dying with rc=126/127 and preventing triple-review from running.
+# `shopt -s execfail` lets bash return control after a failed exec instead of
+# terminating with rc=126/127. `set -e` must be disabled around the exec call,
+# otherwise a failing exec returns non-zero and `set -e` exits the shell before
+# the `||` fallback branch runs (verified empirically on bash 5.3 — the branch
+# never fires under `set -Eeuo pipefail` without the toggle).
 maybe_wrap_with_inhibitor() {
   [ -n "${TRIPLE_REVIEW_SLEEP_INHIBITED:-}" ] && return 0
   local wrapper=() line
@@ -84,11 +86,13 @@ maybe_wrap_with_inhibitor() {
   export TRIPLE_REVIEW_SLEEP_INHIBITED=1
   printf '[triple-review] Wrapping with sleep inhibitor: %s\n' "${wrapper[*]}" >&2
   shopt -s execfail
-  exec "${wrapper[@]}" "$0" "$@" || {
-    warn "Sleep inhibitor exec failed (inhibitor='${wrapper[0]}'); continuing without wrap"
-    unset TRIPLE_REVIEW_SLEEP_INHIBITED
-    return 0
-  }
+  set +e
+  exec "${wrapper[@]}" "$0" "$@"
+  local exec_rc=$?
+  set -e
+  warn "Sleep inhibitor exec failed (inhibitor='${wrapper[0]}', rc=$exec_rc); continuing without wrap"
+  unset TRIPLE_REVIEW_SLEEP_INHIBITED
+  return 0
 }
 
 print_usage() {
@@ -661,14 +665,14 @@ main() {
   # and quotes inside summary.md are inert literals in the resulting string.
   # Size: aggregated summary is typically <50KB, well under Linux ARG_MAX (~2MB).
   #
-  # exec failure fallback: by default a failed `exec` in a non-interactive
-  # bash terminates the shell with rc 126/127 BEFORE the `||` branch runs
-  # (confirmed empirically — `exec nosuchcmd || fallback` prints only the
-  # exec error and exits). `shopt -s execfail` flips that behavior so a
-  # failed exec returns control to the script, letting the `|| { ... }`
-  # fallback fire. The full summary is already on stdout above, so we
-  # exit 0 and rely on the warn banner for diagnostics instead of
-  # letting wrappers misread rc != 0 as "triple-review failed".
+  # exec failure fallback: by default a failed `exec` terminates the shell
+  # with rc 126/127. `shopt -s execfail` makes bash return control on exec
+  # failure, but `set -e` still exits the shell before any `||` branch can
+  # run because the failed exec returns non-zero. Disable `-e` around the
+  # call so the fallback path (warn + exit 0) actually executes — the full
+  # summary is already on stdout above, so we exit 0 and rely on the warn
+  # banner for diagnostics instead of letting wrappers misread rc != 0 as
+  # "triple-review failed".
   #
   # TTY gate: piped/redirected invocations (e.g. captured by a wrapper) keep
   # the path-only fallback so automation doesn't jump into a broken interactive
@@ -676,12 +680,14 @@ main() {
   if [ -t 1 ]; then
     printf '\n---\n[triple-review] Launching interactive Claude Code session with findings...\n'
     shopt -s execfail
+    set +e
     exec claude -- "$(cat "$workdir/summary.md")
 
-上記の 対応必須 / 要検討 項目への対応方針を提案してください。" || {
-      warn "exec claude failed (binary missing or argv too large). The full summary above is the canonical output; reference $workdir/summary.md to continue manually."
-      exit 0
-    }
+上記の 対応必須 / 要検討 項目への対応方針を提案してください。"
+    local exec_rc=$?
+    set -e
+    warn "exec claude failed (rc=$exec_rc; binary missing or argv too large). The full summary above is the canonical output; reference $workdir/summary.md to continue manually."
+    exit 0
   fi
   printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n' "$workdir"
 }
