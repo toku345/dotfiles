@@ -29,7 +29,7 @@ warn() {
 # always has /usr/bin/caffeinate and real Ubuntu always has
 # /usr/bin/systemd-inhibit; stripping /usr/bin from PATH to simulate "command
 # absent" would also strip uname/printf/head/grep and break the script
-# itself. Function override sidesteps the issue. has_logind is similarly
+# itself. Function override sidesteps the issue. systemd_is_pid1 is similarly
 # extracted so the Linux path can be unit-tested on macOS (where
 # /run/systemd/system never exists).
 has_caffeinate() {
@@ -38,13 +38,13 @@ has_caffeinate() {
 has_systemd_inhibit() {
   command -v systemd-inhibit >/dev/null 2>&1
 }
-has_logind() {
+systemd_is_pid1() {
   [ -d /run/systemd/system ]
 }
 # Dbus readiness probe. `[ -d /run/systemd/system ]` confirms systemd is PID 1
 # but does NOT confirm the session dbus bus logind listens on is reachable —
 # WSL2 without systemd-genie, rootless podman, and some sudo-stripped shells
-# hit a configuration where has_logind is true yet systemd-inhibit exits
+# hit a configuration where systemd_is_pid1 is true yet systemd-inhibit exits
 # non-zero when it actually tries to take the lock. `--list` round-trips to
 # logind over dbus and fails cleanly in those environments, so we probe it
 # BEFORE exec to keep the wrap decision local to this process. Without this
@@ -74,7 +74,7 @@ systemd_inhibitor_reachable() {
 # lid-close still suspends if the user intends that. Three guards precede
 # the emit:
 #   (1) has_systemd_inhibit — binary on PATH
-#   (2) has_logind — systemd is PID 1 (`/run/systemd/system` exists)
+#   (2) systemd_is_pid1 — systemd is PID 1 (`/run/systemd/system` exists)
 #   (3) systemd_inhibitor_reachable — dbus round-trip succeeds, which (2)
 #       alone does not guarantee (see the helper's docstring)
 # Any failing guard causes silent fall-through: triple-review runs without
@@ -88,7 +88,7 @@ select_sleep_inhibitor_cmd() {
       ;;
     Linux)
       has_systemd_inhibit || return 0
-      has_logind || return 0
+      systemd_is_pid1 || return 0
       systemd_inhibitor_reachable || return 0
       printf '%s\n' systemd-inhibit --what=idle:sleep --why='triple-review in progress'
       ;;

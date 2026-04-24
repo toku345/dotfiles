@@ -437,7 +437,7 @@ STUB
 # macOS always has /usr/bin/caffeinate and real Ubuntu always has
 # /usr/bin/systemd-inhibit; stripping /usr/bin from PATH to fake "command
 # absent" would also strip uname/printf/head/grep and break the script
-# itself. Overriding has_caffeinate / has_systemd_inhibit / has_logind at
+# itself. Overriding has_caffeinate / has_systemd_inhibit / systemd_is_pid1 at
 # the function level sidesteps that problem.
 # =============================================================================
 
@@ -459,21 +459,21 @@ STUB
   # Override all three guards so the test does not depend on the host's
   # systemd/dbus state (real CI Ubuntu containers have no logind).
   export TEST_FAKE_UNAME=Linux
-  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; has_logind() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd"
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd"
   [ "$status" -eq 0 ]
   [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--why=triple-review in progress' ]
 }
 
-@test "T2-26 select_sleep_inhibitor: Linux + systemd-inhibit present + no logind -> empty" {
+@test "T2-26 select_sleep_inhibitor: Linux + systemd-inhibit present + systemd not PID 1 -> empty" {
   export TEST_FAKE_UNAME=Linux
-  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; has_logind() { return 1; }; select_sleep_inhibitor_cmd"
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 1; }; select_sleep_inhibitor_cmd"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
 
 @test "T2-27 select_sleep_inhibitor: Linux + systemd-inhibit absent -> empty" {
   export TEST_FAKE_UNAME=Linux
-  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 1; }; has_logind() { return 0; }; select_sleep_inhibitor_cmd"
+  run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 1; }; systemd_is_pid1() { return 0; }; select_sleep_inhibitor_cmd"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -615,7 +615,7 @@ STUB
   run bash -c "
     source '$SRC_SCRIPT'
     has_systemd_inhibit() { return 0; }
-    has_logind() { return 0; }
+    systemd_is_pid1() { return 0; }
     systemd_inhibitor_reachable() { return 1; }
     select_sleep_inhibitor_cmd
   "
