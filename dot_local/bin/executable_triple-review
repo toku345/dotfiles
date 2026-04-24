@@ -123,6 +123,9 @@ maybe_wrap_with_inhibitor() {
   printf '[triple-review] Wrapping with sleep inhibitor: %s\n' "${wrapper[*]}" >&2
   shopt -s execfail
   set +e
+  # SC2093: `shopt -s execfail` above lets bash return control here on exec
+  # failure; code after the exec is the execfail fallback path, not dead.
+  # shellcheck disable=SC2093
   exec "${wrapper[@]}" "${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"
   local exec_rc=$?
   set -e
@@ -717,6 +720,9 @@ main() {
     printf '\n---\n[triple-review] Launching interactive Claude Code session with findings...\n'
     shopt -s execfail
     set +e
+    # SC2093: `shopt -s execfail` above lets bash return control here on exec
+    # failure; code after the exec is the execfail fallback path, not dead.
+    # shellcheck disable=SC2093
     exec claude -- "$(cat "$workdir/summary.md")
 
 上記の 対応必須 / 要検討 項目への対応方針を提案してください。"
