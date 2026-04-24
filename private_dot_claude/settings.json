@@ -162,19 +162,6 @@
     ],
     "defaultMode": "auto"
   },
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v afplay >/dev/null && afplay /System/Library/Sounds/Glass.aiff || true"
-          }
-        ]
-      }
-    ]
-  },
   "statusLine": {
     "type": "command",
     "command": "$HOME/.claude/statusline-command.sh"
@@ -197,7 +184,8 @@
       "source": {
         "source": "github",
         "repo": "openai/codex-plugin-cc"
-      }
+      },
+      "autoUpdate": true
     }
   },
   "language": "Japanese",
@@ -230,6 +218,7 @@
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
+  "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
-  "skipAutoPermissionPrompt": true
+  "tui": "fullscreen"
 }

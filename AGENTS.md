@@ -15,6 +15,10 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 ### Chezmoi Operations
 
+**Worktree gotcha**: `chezmoi diff` / `chezmoi apply` always reads from the main source directory (`~/.local/share/chezmoi/`), not the current git worktree. Do not run `chezmoi apply` from a worktree — changes must be merged to main first.
+
+**Source-path gotcha**: `chezmoi apply <source-path>` errors with `not managed`. chezmoi accepts only target paths (e.g. `~/.config/...`) as arguments. Run `chezmoi apply` without args to apply all managed files, or resolve with `chezmoi target-path <source-file>` first.
+
 ```bash
 # Apply changes from the source directory to your home directory
 chezmoi apply
@@ -85,6 +89,7 @@ chezmoi apply
 - `private_dot_config/` - Configuration files that will be placed in `~/.config/`
   - `asdf/` - asdf version manager configuration
   - `private_fish/` - Fish shell configuration
+  - `cmux/` - cmux terminal multiplexer settings
   - `ghostty/` - Ghostty terminal configuration
   - `git/` - Git configuration
   - `google_ime/` - Google IME dictionary
@@ -96,6 +101,7 @@ chezmoi apply
 - `private_dot_ssh/` - SSH configuration
 - `private_dot_claude/` - Claude Code configuration
   - `skills/` - Claude Code skills (maps to `~/.claude/skills/`)
+    - ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `agents/` - Claude Code custom agents
   - `settings.json` - Claude Code settings
   - `CLAUDE.md` - Global Claude Code instructions (distinct from root `CLAUDE.md` symlink)
@@ -108,6 +114,24 @@ chezmoi apply
 - `key.txt.age` - Encrypted age key
 
 ## Key Configuration Files
+
+### Git Worktree Commands (`gw`, `gb`, `gbd`)
+
+- `git gtr` flags are long-form only (`--delete-branch`, `--track none`); short flags like `-D` do not exist. Always verify with `git gtr help <cmd>` or the source at `/opt/homebrew/Cellar/git-gtr/*/lib/commands/`
+- `git gtr rm` returns exit 0 even when worktree removal fails (uses `continue` internally). Check worktree existence after removal to detect actual failure
+- `%(worktreepath)` in `git for-each-ref` is set for both main and linked worktrees. To target only linked worktrees, explicitly exclude the main worktree's branch
+
+### cmux (Terminal Multiplexer)
+
+- cmux は libghostty を内蔵し、ターミナル描画設定は `~/.config/ghostty/config` を読む
+- `cmux themes list` で読み込み元の Ghostty config パスを確認可能
+- cmux 固有の設定（sidebar, shortcuts, automation 等）は `~/.config/cmux/settings.json`
+
+### Ghostty Configuration
+
+- 設定変更を即座に試す場合は `~/.config/ghostty/config` を直接編集する（worktree のソースではなく実ファイル）
+- Ghostty は `Cmd+Shift+,` でホットリロード。`macos-titlebar-style` 等一部の設定は新しいウィンドウにのみ適用
+- cmux は Ghostty config 変更後に再起動が必要な場合がある
 
 ### Fish Shell (`config.fish`)
 
@@ -124,6 +148,7 @@ The main shell configuration that sets up:
 - **direnv**: Environment variable management per directory
 - **fzf**: Fuzzy finder integration for history search and directory navigation
 - **starship**: Cross-shell prompt
+- **git-gtr**: Git worktree runner (`git gtr new/go/list`). Used internally by `gw`/`gb`/`gbd`. Track mode behavior can be verified in `/opt/homebrew/Cellar/git-gtr/*/lib/core.sh`
 
 ## Working with This Repository
 
@@ -134,6 +159,12 @@ When making changes:
 3. Apply changes with `chezmoi apply`
 4. Commit changes to git from the source directory
 
+### Responding to PR Review Comments
+
+1. Verify each finding against codebase facts (trace code paths, confirm shell control flow semantics)
+2. Classify Accept/Reject with evidence before starting implementation
+3. When findings depend on external tool behavior, verify in a test repository
+
 ## Definition of Done（chezmoi 固有）
 
 グローバル DoD に加え、このリポジトリでは変更種別に応じて以下を確認する。
@@ -141,6 +172,7 @@ When making changes:
 ### 設定ファイル変更時
 
 - **構文チェック通過**: Fish shell は `chezmoi cat <file> | fish -n`（.tmpl でも安全）、その他は `chezmoi apply --dry-run` でエラーなし
+- **Fish function testing**: After `chezmoi apply`, run `fish -c "cd /path/to/repo; func_name args"` for non-interactive execution. For functions using fzf or other interactive input, simulate the logic path directly
 - **chezmoi diff 確認**: `chezmoi diff` で意図した差分のみが出力される
 - **chezmoi apply 成功**: `chezmoi apply -v` がエラーなく完了する
 
@@ -155,6 +187,22 @@ When making changes:
 - **ターゲットパス確認**: `chezmoi target-path <source-file>` で意図した配置先を確認
 
 ## Go Template Usage Policy
+
+### Fish Shell Gotchas
+
+- `test -n (command substitution)` with empty output becomes `test -n` (no args), which returns **true** in fish. Always capture into a variable first: `set -l val (cmd); test -n "$val"`
+- `$pipestatus` is available after command substitution (`set x (a | b)` still exposes `$pipestatus[1..N]`). Branch on individual pipe stages instead of a single `$status` to avoid misclassifying left-side failures as right-side cancellations.
+- `ls` is an embedded fish function that adds `--color=auto`/`-F`. In pipelines whose consumer needs raw filenames (e.g. fzf input), use `command ls -1 --` to bypass the function and any future user override (eza/lsd/icon wrappers).
+- `return ""` (empty arg from an unset variable) fails with `invalid integer` and exits 2. Guard with `test -n "$v"; and return $v; or return 1`.
+- fzf exit codes: `0`=selection, `1`=no match, `2`=error, `126`/`127`=become-action errors, `130`=Ctrl-C/Esc. Treat `1` and `130` as user cancel; everything else fail-loud.
+- `fish -c` subprocesses source `config.fish` by default. If the parent prepended a dir to `PATH`, `fish_add_path` inside `config.fish` may reorder via `fish_user_paths` and push the new dir behind system binaries. Use `fish --no-config -c` whenever a test stub or PATH-override must win in the child.
+- `set -l out (cmd)` splits multi-line stdout into a fish list, one element per line. Passing a bare `$out` as an argument then expands to that many positional args. Capture with `| string collect` (trims trailing newlines, preserves internal ones) or explicitly join before passing.
+- In `set -l x (cmd | string collect)`, `$status` reflects `string collect`'s exit (1 if no input, 0 otherwise), not `cmd`'s. Use `$pipestatus[1]` immediately on the next line before any other command resets it.
+
+### CI での chezmoi テンプレート検証
+
+- `promptBoolOnce` 等の init 専用関数は `chezmoi execute-template` 単体では未定義エラーになる。`--init` フラグで有効化する
+- テンプレートで chezmoi data を参照する際、CI 等データ未定義環境では `.key` が失敗する。`index . "key"` を使えばキー未定義時に nil を返しエラーにならない
 
 ### Principles
 
@@ -188,6 +236,28 @@ switch (uname)
     case Linux
         # Linux
 end
+```
+
+## Bats Testing (tests/bats/)
+
+- **`executable_*` は git で mode 0644** (chezmoi apply 時に 0755): PATH 経由で直接実行するテストは `ln -sf` ではなく exec wrapper (`exec bash "$SRC" "$@"`) を使う
+- **Source-guard パターン**: `if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi` を末尾に置くと bats で `source` して関数単体テスト可能
+- **`run bash -c "source '$SRC'; func args"` 形式**: スクリプトの `set -Eeuo pipefail` を bats 本体に漏らさない
+- **`run --separate-stderr`**: stderr 単独アサーションに使用。bats 1.5+ (`bats_require_minimum_version 1.5.0` 宣言必須)
+- **async プロセステスト**: 固定 `sleep` より polling ループ (`for ((i=0; i<30; i++)); do cond && break; sleep 0.1; done`) が CI (Ubuntu runner) で flakiness を回避
+- **PATH-override スタブ内の `command date` は PATH を再参照**: スタブ自身を再帰呼び出して fork 爆発する。`/bin/date` 等の絶対パスを使う
+- **macOS ローカル pass の落とし穴**: `~/.local/bin/*` にある chezmoi apply 済みスクリプトが PATH shadow でテスト stub を隠蔽しバグを温存する。Docker Ubuntu で cross-check する
+
+### Docker での Ubuntu CI parity 検証
+
+push 前に CI (ubuntu-latest + `apt-get install bats`) と同等環境で実走:
+
+```bash
+docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
+  apt-get update -qq >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats git procps >/dev/null
+  bats tests/bats/
+'
 ```
 
 ## Security
@@ -230,6 +300,7 @@ For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
 - `git push -u` needs `.git/config` write access to persist upstream tracking. In this repository's current sandbox, cwd write access covers `.git/config`, so no extra allowlist entry is needed. If Git reports `could not write config file .git/config`, do not assume upstream was set. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#resolved-limitations)
 - `denyOnly` bare globs (`*.key`, `.env.*`) only protect files within cwd — `sandbox-runtime` resolves them relative to cwd. Absolute-path entries (`~/.docker/config.json`) work system-wide. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
+- fish シェル経由の Bash ヒアドキュメントで `!` が `\!` にエスケープされることがある。`!` を含むファイルは `Write` ツールで直接書き込む
 
 ## Important Notes
 

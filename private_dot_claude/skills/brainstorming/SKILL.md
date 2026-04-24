@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: ソクラテス式対話で要件と設計を詰めてから実装方針を固めるブレインストーミングスキル。「ブレスト」「設計を考えたい」「どう実装すべきか」「アーキテクチャを相談したい」「設計相談」「プランを立てて」「計画を立てたい」「プランニングして」「実装の前に整理したい」「方針を決めたい」などのリクエストで発動する。
+description: ソクラテス式対話で要件と設計を詰めてから実装方針を固めるブレインストーミングスキル。「ブレスト」「設計を考えたい」「どう実装すべきか」「アーキテクチャを相談したい」「設計相談」「実装の前に整理したい」「方針を決めたい」などのリクエストで発動する。
 ---
 
 <!--
@@ -29,22 +29,25 @@ description: ソクラテス式対話で要件と設計を詰めてから実装�
   SOFTWARE.
 
   Customizations from original:
-  - Removed Visual Companion (browser-based tool) — using Mermaid code blocks instead
+  - Removed Visual Companion (browser-based tool) — using ASCII art diagrams instead
   - Removed writing-plans skill invocation — using Claude Code plan mode instead
   - Did not adopt git worktree automation from the broader superpowers ecosystem
   - Removed references to other superpowers skills (writing-plans, frontend-design, mcp-builder, elements-of-style)
   - Added explicit scope pre-assessment step
-  - Changed design doc path to project-relative default (original: docs/superpowers/specs/)
-  - Converted Process Flow from graphviz to Mermaid
-  - Deferred git commit from write-time to after user approval (step 8), making it opt-in
+  - Replaced design spec output with ADR(s) (project convention, default: docs/adr/)
+  - Converted Process Flow from graphviz to ASCII art (terminal-readable)
+  - Relaxed one-question-at-a-time rule — allow batching 2-3 related questions
+  - Prefer hypothesis-driven questioning over interrogation style
+  - Added branch safety check before committing
+  - Simplified transition to plan mode
   - Description in Japanese for trigger phrase matching
 -->
 
 # Brainstorming Ideas Into Designs
 
-Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
+Help turn ideas into fully formed designs through natural collaborative dialogue.
 
-Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
+Start by understanding the current project context, then ask focused questions to refine the idea. Once you understand what you're building, present the design, get user approval, and record key decisions as ADRs.
 
 <HARD-GATE>
 Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
@@ -59,33 +62,72 @@ Every project goes through this process. A todo list, a single-function utility,
 You MUST create a task for each of these items and complete them in order:
 
 1. **Explore project context and assess scope** — check files, docs, recent commits. Evaluate whether the request contains multiple independent subsystems that should be decomposed first.
-2. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
+2. **Ask clarifying questions** — batch 2-3 related questions per message; prefer hypothesis-driven ("here's my understanding, correct me") over open-ended interrogation
 3. **Propose 2-3 approaches** — with trade-offs and your recommendation
-4. **Present design** — in sections scaled to their complexity, get user approval after each section. Use Mermaid diagrams where they aid understanding.
-5. **Write design doc** — save to `YYYY-MM-DD-<topic>-design.md` (default: `docs/plans/`; adapt to the project's conventions)
-6. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-7. **User reviews written spec** — ask user to review the spec file before proceeding
-8. **Commit design doc** — after user approval, commit the spec to git (opt-in: skip if the user prefers not to commit)
+4. **Present design** — in sections scaled to their complexity, get user approval after each section. Use ASCII art diagrams where they aid understanding.
+5. **Write ADR(s)** — record key design decisions to the project's ADR directory (default: `docs/adr/NNNN-<slug>.md`; adapt to the project's conventions). Auto-detect next number.
+6. **Commit ADR(s)** — after user confirms the ADR(s), verify branch safety and commit to git (opt-in: skip if the user prefers not to commit)
 
 ## Process Flow
 
-```mermaid
-flowchart TB
-    A[Explore project context] --> B{Multiple independent\nsubsystems?}
-    B -->|yes| C[Decompose into\nsub-projects first]
-    C --> D[Brainstorm first\nsub-project]
-    D --> E[Ask clarifying questions]
-    B -->|no| E
-    E --> F[Propose 2-3 approaches]
-    F --> G[Present design sections]
-    G --> H{User approves\ndesign?}
-    H -->|no, revise| G
-    H -->|yes| I[Write design doc]
-    I --> J[Spec self-review\nfix inline]
-    J --> K{User reviews\nspec?}
-    K -->|changes requested| I
-    K -->|approved| L[Commit design doc]
-    L --> M([Guide user to\nplan mode])
+```
++---------------------------+
+| Explore project context   |
++---------------------------+
+            |
+            v
+   +------------------+
+   | Multiple         |
+   | subsystems?      |
+   +------------------+
+    |yes          |no
+    v             |
++--------------+  |
+| Decompose    |  |
+| sub-projects |  |
++--------------+  |
+    |             |
+    v             v
++---------------------------+
+| Ask clarifying questions  |
++---------------------------+
+            |
+            v
++---------------------------+
+| Propose 2-3 approaches   |
++---------------------------+
+            |
+            v
++---------------------------+
+| Present design sections   |<-----+
++---------------------------+      |
+            |                      |
+            v                      |
+   +------------------+            |
+   | User approves?   |--- no ----+
+   +------------------+
+            |yes
+            v
++---------------------------+
+| Write ADR(s)              |<-----+
++---------------------------+      |
+            |                      |
+            v                      |
+   +------------------+            |
+   | User confirms    |            |
+   | ADR?             |            |
+   +------------------+            |
+    |yes          |no -------------+
+    v
++---------------------------+
+| Commit (opt-in,           |
+| branch safety)            |
++---------------------------+
+            |
+            v
++---------------------------+
+| Guide user to plan mode   |
++---------------------------+
 ```
 
 ## The Process
@@ -94,10 +136,11 @@ flowchart TB
 
 - Check out the current project state first (files, docs, recent commits)
 - Before asking detailed questions, assess scope: if the request describes multiple independent subsystems (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately. Don't spend questions refining details of a project that needs to be decomposed first.
-- If the project is too large for a single spec, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own spec → plan → implementation cycle.
-- For appropriately-scoped projects, ask questions one at a time to refine the idea
+- If the project is too large for a single design, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own design → ADR(s) → plan → implementation cycle.
+- For appropriately-scoped projects, ask focused questions to refine the idea
+- Prefer hypothesis-driven questions ("Based on X, I'm assuming Y — is that right?") over open-ended interrogation ("What do you want for Y?"). This builds on what you've already learned and feels collaborative rather than like a questionnaire.
+- Batch 2-3 closely related questions in a single message when they share context (e.g., "For the auth layer: do you need OAuth, and if so, which providers? Also, should sessions be stateless (JWT) or server-side?"). Unrelated topics should still be separate messages.
 - Prefer multiple-choice questions when possible, but open-ended is fine too
-- Only one question per message — if a topic needs more exploration, break it into multiple questions
 - Focus on understanding: purpose, constraints, success criteria
 
 **Exploring approaches:**
@@ -113,7 +156,7 @@ flowchart TB
 - Ask after each section whether it looks right so far
 - Cover: architecture, components, data flow, error handling, testing
 - Be ready to go back and clarify if something doesn't make sense
-- **Use Mermaid diagrams** to illustrate architecture, state transitions, sequence flows, or data flows wherever they aid understanding. Embed them as fenced code blocks (` ```mermaid `).
+- **Use ASCII art diagrams** to illustrate architecture, state transitions, sequence flows, or data flows wherever they aid understanding. Use plain ASCII characters (`+`, `-`, `|`, `>`, `v`) for box-and-arrow diagrams so they render correctly in terminals.
 
 **Design for isolation and clarity:**
 
@@ -130,48 +173,60 @@ flowchart TB
 
 ## After the Design
 
-**Documentation:**
+**Writing ADR(s):**
 
-- Write the validated design (spec) to `YYYY-MM-DD-<topic>-design.md` (default: `docs/plans/`; adapt to the project's conventions)
-  - User preferences for spec location override this default
-- Do NOT commit yet — wait for user approval (see User Review Gate below)
+After the user approves the design, record key design decisions as ADR(s):
 
-**Spec Self-Review:**
-After writing the spec document, look at it with fresh eyes:
+- Auto-detect the project's ADR directory and next number: list files in the ADR directory (default: `docs/adr/`; adapt to the project's conventions), find the highest `NNNN` prefix, and increment by 1 (zero-padded to 4 digits). If no ADR directory exists, create `docs/adr/` starting at `0001`.
+- Use this ADR format:
+  ```
+  # ADR NNNN: <Title>
 
-1. **Placeholder scan:** Any "TBD", "TODO", incomplete sections, or vague requirements? Fix them.
-2. **Internal consistency:** Do any sections contradict each other? Does the architecture match the feature descriptions?
-3. **Scope check:** Is this focused enough for a single implementation plan, or does it need decomposition?
-4. **Ambiguity check:** Could any requirement be interpreted two different ways? If so, pick one and make it explicit.
+  ## Status
 
-Fix any issues inline. No need to re-review — just fix and move on.
+  Accepted
 
-**User Review Gate:**
-After the spec review loop passes, ask the user to review the written spec before proceeding:
+  ## Context
 
-> "Spec written to `<path>`. Please review it and let me know if you want to make any changes before we move to implementation planning."
+  <Why this decision was needed — the forces at play>
 
-Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
+  ## Decision
 
-**Commit after approval:**
-Once the user approves the spec, commit the design document to git. If the user prefers not to commit, skip this step.
+  <What was decided and why>
 
-**Transition to implementation planning:**
+  ## Consequences
 
-After the user approves the spec, guide them to implementation planning. Adapt the message to the current context:
+  <What follows from this decision — positive, negative, and risks>
+  ```
+- One ADR per distinct design decision. If the brainstorming session produced a single cohesive decision, write one ADR. If it produced multiple independent decisions, write separate ADRs.
+- The ADR captures the *decision and its rationale*, not the full design. The design conversation itself is the primary record of requirements and exploration.
 
-> If already in plan mode: "Design approved. The spec is at `<path>`. You can continue in this session to create the implementation plan."
->
-> If not in plan mode: "Design approved. To create an implementation plan, switch to plan mode (Shift+Tab) and reference the design doc at `<path>`."
+After writing, present the ADR(s) to the user and ask for confirmation before proceeding.
 
-Do NOT write code, scaffold projects, or take any implementation action. The brainstorming skill's responsibility ends when the spec is approved and the user is guided to implementation planning.
+**Commit after approval (opt-in):**
+
+If the user prefers not to commit, skip this step. When committing:
+
+1. **Branch safety check**: Verify the current branch is suitable for commits.
+   - Reject detached HEAD state (`git branch --show-current` returns empty).
+   - Detect the repository's default branch (`git rev-parse --abbrev-ref origin/HEAD 2>/dev/null`; strip the `origin/` prefix before comparing). If detection fails, check against common defaults: `main`, `master`, `trunk`, `develop`.
+   - If on the default branch, warn the user and suggest creating a feature branch before committing. Do not commit to the default branch without explicit user confirmation.
+2. Commit the ADR file(s) to git.
+
+**Transition to plan mode:**
+
+After the design is approved, let the user know they can proceed:
+
+> "Requirements are clear and ADR(s) written. Switch to plan mode when you're ready to create an implementation plan."
+
+Do NOT write code, scaffold projects, or take any implementation action. The brainstorming skill's responsibility ends when the design is approved and the user is guided to plan mode.
 
 ## Key Principles
 
-- **One question at a time** — Don't overwhelm with multiple questions
+- **Focused, hypothesis-driven questions** — Batch 2-3 related questions; lead with your understanding for the user to confirm or correct
 - **Multiple choice preferred** — Easier to answer than open-ended when possible
 - **YAGNI ruthlessly** — Remove unnecessary features from all designs
 - **Explore alternatives** — Always propose 2-3 approaches before settling
 - **Incremental validation** — Present design, get approval before moving on
 - **Be flexible** — Go back and clarify when something doesn't make sense
-- **Visualize with Mermaid** — Use diagrams for architecture, state machines, sequences, and data flows
+- **Visualize with ASCII art** — Use diagrams for architecture, state machines, sequences, and data flows

@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# ghostty-theme-preview: render a Ghostty theme file as an ANSI truecolor
+# preview. Used as the fzf --preview command by ghostty-theme, and also
+# usable standalone by passing a direct theme file path.
+#
+# Usage:
+#   ghostty-theme-preview <theme-file-path>
+#   ghostty-theme-preview --map <tsv-file> <theme-name>
+set -euo pipefail
+
+if (( BASH_VERSINFO[0] < 4 )); then
+  printf 'ghostty-theme-preview: bash %d.%d is too old; this script requires bash 4+.\n' \
+    "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" >&2
+  exit 2
+fi
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ghostty-theme-preview <theme-file-path>
+  ghostty-theme-preview --map <tsv-file> <theme-name>
+EOF
+}
+
+theme_file=""
+case "${1:-}" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --map)
+    if (( $# < 3 )); then
+      printf 'preview: --map requires <tsv-file> <theme-name>\n' >&2
+      exit 2
+    fi
+    map_file="$2"
+    theme_name="$3"
+    if [[ ! -f "$map_file" ]]; then
+      printf 'preview: map file not found: %s\n' "$map_file" >&2
+      exit 1
+    fi
+    # TSV lookup: first field is name, second is path. Names can contain spaces
+    # but tabs are the field separator.
+    while IFS=$'\t' read -r n p; do
+      if [[ "$n" == "$theme_name" ]]; then
+        theme_file="$p"
+        break
+      fi
+    done < "$map_file"
+    if [[ -z "$theme_file" ]]; then
+      printf 'preview: theme not in map: %s\n' "$theme_name" >&2
+      exit 1
+    fi
+    ;;
+  '')
+    usage >&2
+    exit 2
+    ;;
+  *)
+    theme_file="$1"
+    ;;
+esac
+
+if [[ ! -f "$theme_file" ]]; then
+  printf 'preview: file not found: %s\n' "$theme_file" >&2
+  exit 1
+fi
+
+hex='[0-9a-fA-F]'
+palette_re="^[[:space:]]*palette[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*=[[:space:]]*#(${hex}{2})(${hex}{2})(${hex}{2})[[:space:]]*$"
+keys=(background foreground cursor-color cursor-text selection-background selection-foreground)
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+  if [[ "$line" =~ $palette_re ]]; then
+    idx=${BASH_REMATCH[1]}
+    rh=${BASH_REMATCH[2]}
+    gh=${BASH_REMATCH[3]}
+    bh=${BASH_REMATCH[4]}
+    printf 'palette %2d  \e[48;2;%d;%d;%dm      \e[0m  #%s%s%s\n' \
+      "$idx" "$((16#$rh))" "$((16#$gh))" "$((16#$bh))" "$rh" "$gh" "$bh"
+    continue
+  fi
+  for key in "${keys[@]}"; do
+    kv_re="^[[:space:]]*${key}[[:space:]]*=[[:space:]]*#(${hex}{2})(${hex}{2})(${hex}{2})[[:space:]]*$"
+    if [[ "$line" =~ $kv_re ]]; then
+      rh=${BASH_REMATCH[1]}
+      gh=${BASH_REMATCH[2]}
+      bh=${BASH_REMATCH[3]}
+      printf '%-20s  \e[48;2;%d;%d;%dm      \e[0m  #%s%s%s\n' \
+        "$key" "$((16#$rh))" "$((16#$gh))" "$((16#$bh))" "$rh" "$gh" "$bh"
+      break
+    fi
+  done
+done < "$theme_file"

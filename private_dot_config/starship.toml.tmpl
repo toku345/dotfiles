@@ -5,6 +5,26 @@ add_newline = true
 scan_timeout = 100
 command_timeout = 5000
 
+{{- if eq .chezmoi.os "linux" }}
+# ===== Linux: Bracketed Segments preset (Unicode box-drawing, no Nerd Font glyphs) =====
+
+format = """
+[┌───────────────────](bold green)
+[│](bold green)$directory$git_branch$git_status$character
+"""
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
+
+[hostname]
+ssh_only = true
+format = "[$ssh_symbol$hostname]($style) "
+style = "bold blue"
+
+{{- else if eq .chezmoi.os "darwin" }}
+# ===== macOS: Nerd Font Symbols Preset =====
+
 [character]
 success_symbol = "[➜](bold green)"
 error_symbol = "[✗](bold red)"
@@ -164,3 +184,14 @@ symbol = " "
 
 [spack]
 symbol = "🅢 "
+
+{{- if index . "vpn_check" }}
+
+[custom.vpn]
+description = "VPN connection status"
+command = "$HOME/.config/starship/check-vpn.sh"
+when = "test -x $HOME/.config/starship/check-vpn.sh"
+unsafe_no_escape = true
+format = "$output"
+{{- end }}
+{{- end }}

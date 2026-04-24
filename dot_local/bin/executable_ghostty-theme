@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# ghostty-theme: apply a Ghostty bundled/user theme to the current surface via OSC.
+# Delegates theme discovery to `command ghostty +list-themes --plain --path` and
+# validates the chosen theme via `ghostty +validate-config --config-file=<path>`
+# before emitting the OSC sequences.
+#
+# Usage:
+#   ghostty-theme [theme-name]         apply by name, or launch fzf picker if omitted
+#   ghostty-theme --help               show this help
+set -euo pipefail
+
+if (( BASH_VERSINFO[0] < 4 )); then
+  printf 'ghostty-theme: bash %d.%d is too old; this script requires bash 4+.\n' \
+    "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" >&2
+  printf 'On macOS: `brew install bash` and ensure Homebrew bash is on PATH before /bin/bash.\n' >&2
+  exit 2
+fi
+
+usage() {
+  cat <<'EOF'
+Usage: ghostty-theme [theme-name]
+
+Apply a Ghostty theme to the current surface using OSC escape sequences.
+
+Positional argument:
+  theme-name    Name of a theme reported by `ghostty +list-themes --plain`.
+                Omit to launch an fzf picker with live preview.
+
+Environment:
+  GHOSTTY_RESOURCES_DIR  Honored by Ghostty itself to locate bundled themes.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+esac
+
+if ! command -v ghostty >/dev/null 2>&1; then
+  printf 'ghostty-theme: `ghostty` CLI not found on PATH.\n' >&2
+  # On macOS the .app bundle ships the CLI but PATH wiring depends on shell
+  # integration. If the app is installed, point at the bundled binary instead
+  # of telling the user to reinstall.
+  if [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then
+    printf 'Ghostty.app is installed but its CLI is not on PATH.\n' >&2
+    printf 'Either enable Ghostty shell integration, or add:\n' >&2
+    printf '  export PATH="/Applications/Ghostty.app/Contents/MacOS:$PATH"\n' >&2
+  else
+    printf 'Install Ghostty from https://ghostty.org/.\n' >&2
+  fi
+  exit 127
+fi
+
+# --- Discover themes -------------------------------------------------------
+# Process substitution (`while ... < <(ghostty ...)`) would swallow failures
+# even under `set -euo pipefail`, so capture + check exit code explicitly.
+set +e
+themes_out=$(command ghostty +list-themes --plain --path 2>/dev/null)
+list_rc=$?
+set -e
+if (( list_rc != 0 )); then
+  # Re-run with stderr flowing to the user's terminal so Ghostty's actual
+  # error message is visible. stdout is dropped (the command already failed
+  # and the theme list is unusable). 2>&1 would defeat the purpose.
+  command ghostty +list-themes --plain --path >/dev/null || true
+  printf 'ghostty-theme: "ghostty +list-themes" failed (exit %d). Is Ghostty installed?\n' \
+    "$list_rc" >&2
+  exit "$list_rc"
+fi
+
+declare -A theme_paths=()
+names=()
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  if [[ "$line" =~ ^(.*)\ \((resources|user)\)\ (.*)$ ]]; then
+    name="${BASH_REMATCH[1]}"
+    src="${BASH_REMATCH[2]}"
+    path="${BASH_REMATCH[3]}"
+    # `+x` distinguishes "key set" from "empty value" so names are appended
+    # exactly once, preserving Ghostty's emission order.
+    if [[ -z "${theme_paths[$name]+x}" ]]; then
+      names+=("$name")
+      theme_paths[$name]="$path"
+    elif [[ "$src" == "user" ]]; then
+      # Ghostty emits resources first, user second; user overrides resources.
+      theme_paths[$name]="$path"
+    fi
+  fi
+done <<< "$themes_out"
+
+if (( ${#names[@]} == 0 )); then
+  printf 'ghostty-theme: no themes reported by "ghostty +list-themes".\n' >&2
+  exit 1
+fi
+
+# --- Resolve theme name ----------------------------------------------------
+theme_name=""
+if (( $# >= 1 )) && [[ -n "$1" ]]; then
+  theme_name="$1"
+else
+  # Interactive pick via fzf.
+  if ! command -v fzf >/dev/null 2>&1; then
+    printf 'ghostty-theme: fzf not found; pass a theme name as argument.\n' >&2
+    exit 127
+  fi
+
+  # Ghostty-theme-preview lives alongside this script. Prefer the sibling
+  # path so fzf's preview finds it even when ~/.local/bin is not on PATH
+  # for the fzf subprocess (rare, but happens in some sandboxes).
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  preview_cmd="$script_dir/ghostty-theme-preview"
+  if [[ ! -x "$preview_cmd" ]]; then
+    preview_cmd="ghostty-theme-preview"
+  fi
+
+  map_file=$(mktemp)
+  trap 'rm -f "$map_file"' EXIT
+  for name in "${names[@]}"; do
+    printf '%s\t%s\n' "$name" "${theme_paths[$name]}"
+  done > "$map_file"
+
+  # fzf evaluates --preview via `$SHELL -c`, so $preview_cmd and $map_file must
+  # be shell-escaped to survive paths with spaces. printf %q produces a safely
+  # quoted form. fzf itself already quotes the {} substitution.
+  printf -v preview_expr '%q --map %q {}' "$preview_cmd" "$map_file"
+  set +e
+  theme_name=$(printf '%s\n' "${names[@]}" | fzf \
+    --layout=reverse \
+    --preview "$preview_expr" \
+    --preview-window right:50%)
+  fzf_rc=$?
+  set -e
+
+  case $fzf_rc in
+    0)
+      : # selection made
+      ;;
+    1 | 130)
+      # no match (1) or cancel Esc/Ctrl-C (130): silent success
+      exit 0
+      ;;
+    *)
+      printf 'ghostty-theme: fzf exited with status %d\n' "$fzf_rc" >&2
+      exit "$fzf_rc"
+      ;;
+  esac
+fi
+
+theme_path="${theme_paths[$theme_name]:-}"
+if [[ -z "$theme_path" ]]; then
+  printf "ghostty-theme: theme '%s' not found. Run 'ghostty +list-themes --plain' for the list.\n" \
+    "$theme_name" >&2
+  exit 1
+fi
+
+if [[ ! -f "$theme_path" ]]; then
+  printf "ghostty-theme: resolved path for '%s' is not a file: %s\n" \
+    "$theme_name" "$theme_path" >&2
+  exit 1
+fi
+
+# --- Validate before applying ---------------------------------------------
+set +e
+validate_err=$(command ghostty +validate-config --config-file="$theme_path" 2>&1)
+validate_rc=$?
+set -e
+if (( validate_rc != 0 )); then
+  printf "ghostty-theme: theme '%s' failed validation (exit %d):\n%s\n" \
+    "$theme_name" "$validate_rc" "$validate_err" >&2
+  exit "$validate_rc"
+fi
+
+# --- Emit OSC ---------------------------------------------------------------
+hex='[0-9a-fA-F]'
+palette_re="^[[:space:]]*palette[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*=[[:space:]]*(#${hex}{6})[[:space:]]*$"
+
+declare -A osc_codes=(
+  [background]=11
+  [foreground]=10
+  [cursor-color]=12
+  [selection-background]=17
+  [selection-foreground]=19
+)
+# Note: `cursor-text` is intentionally absent. Ghostty themes can declare it
+# for the preview (see ghostty-theme-preview), but no standard OSC code
+# exists for cursor text color, so it cannot be applied to the live surface.
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+  if [[ "$line" =~ $palette_re ]]; then
+    printf '\e]4;%s;%s\e\\' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    continue
+  fi
+  for key in "${!osc_codes[@]}"; do
+    kv_re="^[[:space:]]*${key}[[:space:]]*=[[:space:]]*(#${hex}{6})[[:space:]]*$"
+    if [[ "$line" =~ $kv_re ]]; then
+      printf '\e]%s;%s\e\\' "${osc_codes[$key]}" "${BASH_REMATCH[1]}"
+      break
+    fi
+  done
+done < "$theme_path"
+
+printf "ghostty-theme: applied '%s'\n" "$theme_name"

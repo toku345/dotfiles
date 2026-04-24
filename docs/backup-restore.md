@@ -174,6 +174,30 @@ git push backup main
    - iTerm2の設定
    - Nerd Fontのインストール
 
+#### Linux ホスト (Ubuntu / DGX OS) の場合
+
+上記 1〜4 の手順で `Homebrew` を `Linuxbrew` に読み替え、apt による前提パッケージの導入と組み合わせます。復旧に必要な 3 要素（GitHub アカウント / 1Password / key.txt.age のパスワード）は macOS と共通です。
+
+Linux 固有の詳細手順は [docs/linux-setup.md](linux-setup.md) を参照してください。要約すると:
+
+```bash
+# Step 1: apt prereqs
+sudo apt-get update
+sudo apt-get install -y build-essential curl file git procps
+
+# Step 2: Linuxbrew
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+# Step 3: chezmoi + age
+brew install chezmoi age
+
+# Step 4: init + apply
+chezmoi init --apply toku345
+```
+
+macOS 専用設定は [`.chezmoiignore`](../.chezmoiignore) の OS 分岐により Linux では自動的にスキップされます（除外対象の正確な一覧は同ファイルを参照）。
+
 ### age鍵を紛失した場合の対処法
 
 **重要**: age鍵を紛失した場合、既存の暗号化ファイルを復号することはできません。

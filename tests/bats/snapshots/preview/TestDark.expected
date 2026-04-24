@@ -1,0 +1,14 @@
+palette  0  [48;2;29;31;33m      [0m  #1d1f21
+palette  1  [48;2;204;102;102m      [0m  #cc6666
+palette  2  [48;2;181;189;104m      [0m  #b5bd68
+palette  3  [48;2;240;198;116m      [0m  #f0c674
+palette  4  [48;2;129;162;190m      [0m  #81a2be
+palette  5  [48;2;178;148;187m      [0m  #b294bb
+palette  6  [48;2;138;190;183m      [0m  #8abeb7
+palette  7  [48;2;197;200;198m      [0m  #c5c8c6
+background            [48;2;29;31;33m      [0m  #1d1f21
+foreground            [48;2;197;200;198m      [0m  #c5c8c6
+cursor-color          [48;2;197;200;198m      [0m  #c5c8c6
+cursor-text           [48;2;29;31;33m      [0m  #1d1f21
+selection-background  [48;2;55;59;65m      [0m  #373b41
+selection-foreground  [48;2;197;200;198m      [0m  #c5c8c6

@@ -1,0 +1,3 @@
+{{- if or (ne .chezmoi.os "darwin") (not (index . "vpn_check")) }}
+check-vpn.sh
+{{- end }}
