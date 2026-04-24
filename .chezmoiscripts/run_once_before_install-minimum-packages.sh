@@ -17,8 +17,8 @@ elif [ "$CHEZMOI_OS" = "linux" ]; then
     sudo apt-get update
     sudo apt-get install -y build-essential curl file git procps
 
-    if [ ! -e /home/linuxbrew/.linuxbrew/bin/brew ]; then
-        echo "Error: Linuxbrew not found at /home/linuxbrew/.linuxbrew. See docs/linux-setup.md" >&2
+    if [ ! -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+        echo "Error: Linuxbrew not found or not executable at /home/linuxbrew/.linuxbrew. See docs/linux-setup.md" >&2
         exit 1
     fi
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
@@ -27,4 +27,8 @@ elif [ "$CHEZMOI_OS" = "linux" ]; then
     brew install gh tmux starship fzf eza bat fd ripgrep \
                  git-delta direnv nano aspell git-secrets
     brew install coderabbitai/tap/git-gtr
+
+else
+    echo "Error: unsupported CHEZMOI_OS='${CHEZMOI_OS:-unset}'" >&2
+    exit 1
 fi
