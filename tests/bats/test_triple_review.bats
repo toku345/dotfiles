@@ -435,8 +435,10 @@ STUB
 # Tier 2-H: sleep inhibitor selection (select_sleep_inhibitor_cmd + maybe_wrap)
 # Function override pattern is used instead of PATH-based stubs because real
 # macOS always has /usr/bin/caffeinate and real Ubuntu always has
-# /usr/bin/systemd-inhibit — command-not-found scenarios cannot be reliably
-# simulated via PATH manipulation alone.
+# /usr/bin/systemd-inhibit; stripping /usr/bin from PATH to fake "command
+# absent" would also strip uname/printf/head/grep and break the script
+# itself. Overriding has_caffeinate / has_systemd_inhibit / has_logind at
+# the function level sidesteps that problem.
 # =============================================================================
 
 @test "T2-23 select_sleep_inhibitor: Darwin + caffeinate present -> 'caffeinate -i -s'" {

@@ -25,11 +25,13 @@ warn() {
   printf '\033[33m%s\033[0m\n' "$1" >&2
 }
 
-# Extracted so bats tests can override via function redefinition (works around
-# the reality that real macOS always has /usr/bin/caffeinate and real Ubuntu
-# always has /usr/bin/systemd-inhibit, making "command absent" PATH-based
-# mocking unreliable). has_logind is similarly extracted so the Linux path can
-# be unit-tested on macOS (where /run/systemd/system never exists).
+# Extracted so bats tests can override via function redefinition. real macOS
+# always has /usr/bin/caffeinate and real Ubuntu always has
+# /usr/bin/systemd-inhibit; stripping /usr/bin from PATH to simulate "command
+# absent" would also strip uname/printf/head/grep and break the script
+# itself. Function override sidesteps the issue. has_logind is similarly
+# extracted so the Linux path can be unit-tested on macOS (where
+# /run/systemd/system never exists).
 has_caffeinate() {
   command -v caffeinate >/dev/null 2>&1
 }
@@ -51,10 +53,12 @@ has_logind() {
 # Apple-menu sleep on desktop / AC-connected laptop; battery laptop still
 # gets idle sleep protection from `-i` alone.
 #
-# On Linux: `--what=idle:sleep` prevents idle-triggered sleep but deliberately
-# does NOT include `handle-lid-switch` — closing the lid should still suspend
-# if the user intends that. logind must be running (`/run/systemd/system`
-# exists) or systemd-inhibit exits nonzero at runtime.
+# On Linux: `--what=idle:sleep` drops `shutdown` from systemd-inhibit's
+# default (`idle:sleep:shutdown`, per `man systemd-inhibit`) — a background
+# tool must never block an operator-initiated shutdown. `handle-lid-switch`
+# is not in the default either, and is intentionally left unset so that
+# lid-close still suspends if the user intends that. logind must be running
+# (`/run/systemd/system` exists) or systemd-inhibit exits nonzero at runtime.
 select_sleep_inhibitor_cmd() {
   case "$(uname)" in
     Darwin)
