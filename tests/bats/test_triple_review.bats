@@ -518,15 +518,15 @@ STUB
   [[ "$stderr" == *"/nonexistent/inhibitor"* ]]
 }
 
-@test "T2-31 maybe_wrap: exec success -> argv forwarded, gate=1 exported" {
+@test "T2-31 maybe_wrap: exec success -> bash re-entry + argv forwarded, gate=1 exported" {
   # Fake wrapper that records argv + the TRIPLE_REVIEW_SLEEP_INHIBITED value
   # it inherited, then exits 0. After exec, the bats subshell is replaced
   # by this wrapper; inspection happens via the capture file.
   #
-  # Note: when the script is sourced (as in bats), `\$0` resolves to "bash"
-  # rather than the source path — this is expected sourcing semantics. What
-  # matters for the contract is that `\$0` is passed through as-is and the
-  # three positional args follow, so the wrapper receives 4 tokens total.
+  # Contract: the wrapper receives [bash, BASH_SOURCE[0], ...positional args].
+  # Going through the bash interpreter decouples the wrap path from file mode
+  # — git stores the script as 0644 and execve-ing it directly would bail
+  # rc=126 on any source-tree invocation.
   local fake="$SCRATCH_DIR/fake_wrap"
   local capture="$SCRATCH_DIR/wrap_capture"
   cat > "$fake" <<STUB
@@ -548,13 +548,40 @@ STUB
     maybe_wrap_with_inhibitor foo bar baz
   "
   [ "$status" -eq 0 ]
-  # argv after exec: \$0 (sourcing shell's \$0 under bats) + three forwarded args.
-  grep -q '^ARGC=4$' "$capture"
+  # argv after exec: [bash, BASH_SOURCE[0]=SRC_SCRIPT, foo, bar, baz] = 5 tokens.
+  grep -q '^ARGC=5$' "$capture"
+  # First arg is the bash interpreter (absolute or bare).
+  grep -qE '^ARG=(bash|/.*/bash)$' "$capture"
+  # Second arg is the sourced script path.
+  grep -qF "ARG=$SRC_SCRIPT" "$capture"
   grep -q '^ARG=foo$' "$capture"
   grep -q '^ARG=bar$' "$capture"
   grep -q '^ARG=baz$' "$capture"
   # Gate must be exported to 1 BEFORE exec so the re-entered child is a no-op.
   grep -q '^SLEEP_GATE=1$' "$capture"
+}
+
+@test "T2-36 argv shape: bash-prefixed re-entry survives 0644 file, \$0-direct fails" {
+  # Regression guard for the Phase 4 fix. The source file is 0644 in git
+  # (chezmoi sets 0755 only on apply), so a real inhibitor doing
+  # `execve("$0")` — as the pre-Phase-4 code shape would produce — bails
+  # rc=126 before the review can run. The current `bash "$BASH_SOURCE[0]"`
+  # shape lets bash interpret the script without requiring the execute bit.
+  #
+  # Two assertions pin both directions so a reverter has to explain away
+  # a broken test rather than a silent behavior change.
+
+  [ ! -x "$SRC_SCRIPT" ]
+
+  # Positive: what maybe_wrap_with_inhibitor emits today works on 0644.
+  run bash -c "exec bash '$SRC_SCRIPT' --help"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: triple-review"* ]]
+
+  # Negative: the \$0-direct shape the Phase 4 fix replaced. Pin the rc=126
+  # so future refactors can't silently reintroduce the failure mode.
+  run bash -c "exec '$SRC_SCRIPT' --help"
+  [ "$status" -eq 126 ]
 }
 
 @test "T2-32 call-site: --help does not pay wrap cost" {

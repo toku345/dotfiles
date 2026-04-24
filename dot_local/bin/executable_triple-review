@@ -102,6 +102,16 @@ select_sleep_inhibitor_cmd() {
 # otherwise a failing exec returns non-zero and `set -e` exits the shell before
 # the `||` fallback branch runs (verified empirically on bash 5.3 — the branch
 # never fires under `set -Eeuo pipefail` without the toggle).
+#
+# Re-entry shape: `"${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"` rather than
+# `"$0" "$@"`. The inhibitor wrapper runs `execve` on its argv internally,
+# and `execve` requires the target file to carry the execute bit. Git stores
+# this script as mode 0644 (chezmoi apply sets 0755 only in the installed
+# copy), so any source-tree invocation — `bash dot_local/bin/...` during
+# local iteration, the bats wrapper, a developer hitting F5 from the repo —
+# would `execve($0)` on a 0644 file and bail rc=126, skipping the review
+# entirely. Going through the running bash interpreter decouples the wrap
+# path from file mode and matches production (installed, 0755) behavior.
 maybe_wrap_with_inhibitor() {
   [ -n "${TRIPLE_REVIEW_SLEEP_INHIBITED:-}" ] && return 0
   local wrapper=() line
@@ -113,7 +123,7 @@ maybe_wrap_with_inhibitor() {
   printf '[triple-review] Wrapping with sleep inhibitor: %s\n' "${wrapper[*]}" >&2
   shopt -s execfail
   set +e
-  exec "${wrapper[@]}" "$0" "$@"
+  exec "${wrapper[@]}" "${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"
   local exec_rc=$?
   set -e
   warn "Sleep inhibitor exec failed (inhibitor='${wrapper[0]}', rc=$exec_rc); continuing without wrap"
