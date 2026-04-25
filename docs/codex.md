@@ -11,7 +11,7 @@
 `config.chezmoi.toml` は新規環境向けの bootstrap baseline として使う。
 管理対象は安全方針と明確に opt-in した機能に絞る。
 
-## 管理しないもの
+## 管理しないもの (files)
 
 - `~/.codex/auth.json`
 - `~/.codex/history.jsonl`
@@ -20,13 +20,15 @@
 - `~/.codex/logs_*.sqlite*`
 - `~/.codex/cache/`
 - `~/.codex/rules/default.rules`
-- `model`
-- `model_reasoning_effort`
-- `plan_mode_reasoning_effort`
-- `[projects."/absolute/path"]`
-- `[mcp_servers.*]`
-- `[notice.*]`
-- `[tui.*]`
+
+`config.toml` 内の local-only な TOML keys / sections は「local-only とする section」を参照する。
+
+## マシン固有の上書き
+
+`chezmoi apply` は `~/.codex/AGENTS.md` を repo の内容で全置換する。
+マシン固有の guidance や一時的な調整は、Codex 公式の `~/.codex/AGENTS.override.md` (untracked) を使う。
+override が存在する場合 Codex は `AGENTS.md` ではなく override を読む。
+参照: <https://developers.openai.com/codex/guides/agents-md>
 
 ## なぜ `config.toml` を直接管理しないか
 

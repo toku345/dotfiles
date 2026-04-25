@@ -1,4 +1,8 @@
-# AGENTS.md
+# Personal AGENTS
+
+- For bug fixes, first isolate the failing layer and check whether the issue can be closed with a minimal local fix before changing broader UX or queueing behavior.
+- Keep bug fixes separate from product or UX improvements. If a broader redesign is still attractive, treat it as a follow-up change instead of folding it into the incident fix.
+- In Codex/TUI investigations, prefer fixing the exact stale-state or error-handling gap near the crash path over reshaping upstream message flow unless the root cause is clearly architectural.
 
 ## Global Preferences
 

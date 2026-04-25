@@ -3,11 +3,8 @@
 # Codex reads ~/.codex/config.toml. This file is kept separate so chezmoi can
 # initialize stable defaults without overwriting local state that Codex updates.
 #
-# Keep these local-only settings in ~/.codex/config.toml:
-# - model / model_reasoning_effort / plan_mode_reasoning_effort
-# - [projects."..."]
-# - [mcp_servers.*]
-# - [notice.*]
+# See docs/codex.md "local-only とする section" for the canonical list of
+# settings that must stay in ~/.codex/config.toml only.
 
 personality = "pragmatic"
 approvals_reviewer = "auto_review"
