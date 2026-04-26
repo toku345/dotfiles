@@ -186,17 +186,6 @@ const llmClient = createLLMClient(...);
 interface LambdaEvent { ... }
 ```
 
-## Subagent 起動基準（Opus 4.7 仕様）
-
-以下のいずれかに該当する場合のみ明示的に起動する:
-
-- 複数ファイルへの並列作業（fanning out across files）
-- 独立した複数タスクの並列処理（independent items）
-- メインコンテキスト保護のための大規模調査結果のサマリー化
-
-それ以外は自身の推論で完結させる。Opus 4.7 では公式が
-「サブエージェント委譲は慎重に」と方針転換しており、毎回起動は逆効果。
-
 ## Codex の使い分け
 
 | 用途 | 手段 | 起動者 |
