@@ -39,79 +39,42 @@ chezmoi update
 chezmoi apply -v
 ```
 
-### Working with Templates
-
-Files ending in `.tmpl` are chezmoi templates that use Go's text/template syntax. The primary template is:
-
-- `.chezmoi.toml.tmpl` - Chezmoi configuration (defines `scriptEnv` for scripts)
-
 ### Encrypted Files
 
-Files with `.age` extension are encrypted using the age encryption tool. This repository uses a **two-layer security model**:
+`.age` files use a two-layer model: `key.txt.age` (in repo, password-protected via 1Password) → `~/key.txt` (local age private key) → `encrypted_*.age` files (SSH config, Google IME dict, etc.). See [docs/security.md](docs/security.md) for details.
 
-#### Security Architecture
-
-```text
-key.txt.age (in repository, password-protected)
-    ↓ Decrypt with password from 1Password
-~/key.txt (local age identity/private key)
-    ↓ Decrypt other encrypted files
-encrypted_*.age (SSH config, Google IME dictionary, etc.)
-```
-
-**Key Points:**
-- `key.txt.age` is stored in the repository, encrypted with a password (scrypt)
-- The password is stored in 1Password
-- Only those with the password can extract the age private key
-- The age private key is used to decrypt other encrypted files
-
-#### Working with Encrypted Files
+One-time setup:
 
 ```bash
-# Install age
 brew install age
-
-# Decrypt key.txt.age to get the private key (one-time setup)
-age -d -o ~/key.txt "$(chezmoi source-path)/key.txt.age"
-# Enter password from 1Password
-
-# Set correct permissions
+age -d -o ~/key.txt "$(chezmoi source-path)/key.txt.age"  # password from 1Password
 chmod 600 ~/key.txt
-
-# Chezmoi will automatically use ~/key.txt to decrypt other files
 chezmoi apply
 ```
 
-**Note:** Never commit `~/key.txt` (the unencrypted private key) to the repository. Only `key.txt.age` (password-protected) should be in the repository.
+**Critical**: never commit `~/key.txt`. Only `key.txt.age` belongs in the repo.
 
 ## Repository Structure
 
-- `private_dot_config/` - Configuration files that will be placed in `~/.config/`
-  - `asdf/` - asdf version manager configuration
-  - `private_fish/` - Fish shell configuration
-  - `cmux/` - cmux terminal multiplexer settings
-  - `ghostty/` - Ghostty terminal configuration
-  - `git/` - Git configuration
-  - `google_ime/` - Google IME dictionary
-  - `iterm2/` - iTerm2 terminal preferences
-  - `nano/` - Nano editor configuration
-  - `private_karabiner/` - Karabiner-Elements keyboard customization
-  - `starship.toml` - Starship prompt configuration
-  - `tmux/` - Tmux configuration
-- `private_dot_ssh/` - SSH configuration
-- `private_dot_claude/` - Claude Code configuration
-  - `skills/` - Claude Code skills (maps to `~/.claude/skills/`)
-    - ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
-  - `agents/` - Claude Code custom agents
-  - `settings.json` - Claude Code settings
-  - `CLAUDE.md` - Global Claude Code instructions (distinct from root `CLAUDE.md` symlink)
-  - `executable_statusline-command.sh` - Status line script
-- `.chezmoiscripts/` - One-time setup scripts run by chezmoi
-- `.github/` - GitHub Actions workflows (CI, security checks)
-- `docs/` - Detailed documentation (security, backup/restore)
-- `dot_ocamlinit` - OCaml initialization file
-- `images/` - Documentation images
-- `key.txt.age` - Encrypted age key
+主要なツリー（自明なサブディレクトリは省略）:
+
+- `private_dot_config/` → `~/.config/`（fish, ghostty, cmux, starship, tmux, karabiner 等）
+- `private_dot_ssh/` → `~/.ssh/`
+- `private_dot_claude/` → `~/.claude/`（Claude Code 設定）
+  - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
+  - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
+- `.chezmoiscripts/` - one-time setup scripts run by chezmoi
+- `.github/`, `docs/`, `images/`, `key.txt.age`（age 暗号鍵）
+
+### chezmoi 命名規則（target deploy を制御）
+
+- `dot_<name>` → `.<name>`
+- `private_<name>` → mode 0600（dir は 0700）
+- `encrypted_<name>` → age 暗号化
+- `executable_<name>` → mode 0755
+- `*.tmpl` → Go text/template として処理してから配置
+- `.chezmoiignore` → `chezmoi apply` から除外（例: `AGENTS.md`, `CLAUDE.md`）
+- 主要 template: `.chezmoi.toml.tmpl`（chezmoi 設定、`scriptEnv` 定義）
 
 ## Key Configuration Files
 
@@ -150,21 +113,6 @@ The main shell configuration that sets up:
 - **starship**: Cross-shell prompt
 - **git-gtr**: Git worktree runner (`git gtr new/go/list`). Used internally by `gw`/`gb`/`gbd`. Track mode behavior can be verified in `/opt/homebrew/Cellar/git-gtr/*/lib/core.sh`
 
-## Working with This Repository
-
-When making changes:
-
-1. Edit files in the chezmoi source directory (`~/.local/share/chezmoi/`)
-2. Test changes with `chezmoi diff` before applying
-3. Apply changes with `chezmoi apply`
-4. Commit changes to git from the source directory
-
-### Responding to PR Review Comments
-
-1. Verify each finding against codebase facts (trace code paths, confirm shell control flow semantics)
-2. Classify Accept/Reject with evidence before starting implementation
-3. When findings depend on external tool behavior, verify in a test repository
-
 ## Definition of Done（chezmoi 固有）
 
 グローバル DoD に加え、このリポジトリでは変更種別に応じて以下を確認する。
@@ -186,9 +134,7 @@ When making changes:
 - **命名規則準拠**: `dot_`, `private_`, `encrypted_` プレフィックスが正しい
 - **ターゲットパス確認**: `chezmoi target-path <source-file>` で意図した配置先を確認
 
-## Go Template Usage Policy
-
-### Fish Shell Gotchas
+## Fish Shell Gotchas
 
 - `test -n (command substitution)` with empty output becomes `test -n` (no args), which returns **true** in fish. Always capture into a variable first: `set -l val (cmd); test -n "$val"`
 - `$pipestatus` is available after command substitution (`set x (a | b)` still exposes `$pipestatus[1..N]`). Branch on individual pipe stages instead of a single `$status` to avoid misclassifying left-side failures as right-side cancellations.
@@ -199,35 +145,9 @@ When making changes:
 - `set -l out (cmd)` splits multi-line stdout into a fish list, one element per line. Passing a bare `$out` as an argument then expands to that many positional args. Capture with `| string collect` (trims trailing newlines, preserves internal ones) or explicitly join before passing.
 - In `set -l x (cmd | string collect)`, `$status` reflects `string collect`'s exit (1 if no input, 0 otherwise), not `cmd`'s. Use `$pipestatus[1]` immediately on the next line before any other command resets it.
 
-### CI での chezmoi テンプレート検証
-
-- `promptBoolOnce` 等の init 専用関数は `chezmoi execute-template` 単体では未定義エラーになる。`--init` フラグで有効化する
-- テンプレートで chezmoi data を参照する際、CI 等データ未定義環境では `.key` が失敗する。`index . "key"` を使えばキー未定義時に nil を返しエラーにならない
-
-### Principles
-
-- Use Go Templates only in chezmoi configuration files (`.chezmoi.toml.tmpl`)
-- Use environment variables or runtime detection in shell scripts (`.chezmoiscripts/`) and config files
-
-### Rationale
-
-- Full compatibility with ShellCheck and editor extensions
-- Syntax highlighting preserved by avoiding `.tmpl` extension
-
-### Environment Variables
-
-chezmoi automatically provides environment variables to scripts in `.chezmoiscripts/`:
-
-- `$CHEZMOI` - Set to `1` when run by chezmoi
-- `$CHEZMOI_OS` - OS type (darwin, linux, etc.)
-- `$CHEZMOI_ARCH` - Architecture (arm64, amd64, etc.)
-- `$CHEZMOI_SOURCE_DIR` - chezmoi source directory
-
-**Note:** You can use `scriptEnv` to define custom variables, but do not override auto-provided variables above - they will cause warnings.
-
 ### OS Detection in Config Files
 
-Config files like `config.fish` use runtime OS detection. According to [fish-shell official documentation](https://fishshell.com/docs/current/language.html), `switch (uname)` is the canonical way:
+`config.fish` 等 shell config では runtime OS 判定を使う。fish 公式仕様に従い `switch (uname)` が canonical:
 
 ```fish
 switch (uname)
@@ -237,6 +157,24 @@ switch (uname)
         # Linux
 end
 ```
+
+## Go Template Usage Policy
+
+### Principles
+
+- Go Templates は chezmoi 設定ファイル (`.chezmoi.toml.tmpl`) のみで使う
+- shell scripts (`.chezmoiscripts/`) や config ファイルでは環境変数 / runtime 判定を使う
+
+理由: ShellCheck / エディタ拡張との互換性、`.tmpl` 拡張子を避けることでシンタックスハイライトが保たれる。
+
+### CI での chezmoi テンプレート検証
+
+- `promptBoolOnce` 等の init 専用関数は `chezmoi execute-template` 単体では未定義エラーになる。`--init` フラグで有効化する
+- テンプレートで chezmoi data を参照する際、CI 等データ未定義環境では `.key` が失敗する。`index . "key"` を使えばキー未定義時に nil を返しエラーにならない
+
+### Environment Variables (chezmoi 自動提供)
+
+`.chezmoiscripts/` 配下のスクリプトに自動付与される: `$CHEZMOI` (=`1`), `$CHEZMOI_OS`, `$CHEZMOI_ARCH`, `$CHEZMOI_SOURCE_DIR`。`scriptEnv` で独自変数を追加可だが、上記の自動提供変数は上書きしないこと（警告が出る）。
 
 ## Bats Testing (tests/bats/)
 
@@ -262,34 +200,11 @@ docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
 
 ## Security
 
-### Automated Security Checks
+CI runs plaintext key / age encryption / secret pattern checks on every push (`.github/workflows/security-checks.yml`). For details, see [docs/security.md](docs/security.md).
 
-This repository includes CI/CD security checks that run automatically on every push and pull request:
+## Backup and Recovery
 
-- **Plaintext Key Detection** - Prevents accidental commit of unencrypted `~/key.txt`
-- **Age Encryption Verification** - Validates all `.age` files are properly encrypted
-- **Secret Pattern Detection** - Scans for AWS keys, private keys, GitHub tokens, and API keys
-
-The workflow runs in GitHub Actions (`.github/workflows/security-checks.yml`) and will fail if any security issues are detected.
-
-### Security Best Practices
-
-**Critical Rules:**
-- DO commit `key.txt.age` (password-protected)
-- NEVER commit `~/key.txt` (plaintext private key)
-- NEVER commit plaintext secrets or API keys
-
-For detailed security procedures, see [docs/security.md](docs/security.md)
-
-## Backup and Recovery Strategy
-
-Disaster recovery requires only **3 things**:
-
-1. **GitHub account access** - to clone the repository
-2. **1Password account access** - to retrieve the key.txt.age password
-3. **key.txt.age password** - stored in 1Password
-
-For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/backup-restore.md)
+Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password (stored in 1Password). See [docs/backup-restore.md](docs/backup-restore.md).
 
 ## Sandbox Gotchas
 
@@ -307,13 +222,3 @@ For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/
 - `/output-style <name>` は公式スラッシュコマンドとして**存在しない**。切替は `/config` メニュー経由のみで、反映は次の新規セッションから。`--output-style` CLI フラグも公式 CLI reference に未記載
 - User-scope `~/.claude/settings.json` の `outputStyle` はシステムプロンプトを直接置換し、headless `claude -p` にも適用される。`dot_local/bin/executable_triple-review` 等の slash command + 並列 headless + aggregation 経路を汚染しうるため、ペルソナ等は project-scope `.claude/settings.local.json` での opt-in を検討する。詳細は issue #154
 
-## Important Notes
-
-- This repository uses chezmoi's naming conventions:
-  - `dot_` prefix becomes `.` in the target
-  - `private_` prefix sets permissions to 0600
-  - `encrypted_` prefix indicates age-encrypted files
-  - `.chezmoiignore` lists files excluded from `chezmoi apply` (e.g., `AGENTS.md`, `CLAUDE.md`)
-- Template files (`.tmpl`) are processed before being applied to the target system
-- The repository includes configurations for macOS-specific tools (Homebrew, iTerm2, Karabiner)
-- **Security**: All sensitive files are encrypted with age. The age private key itself is password-protected in the repository.
