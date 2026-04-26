@@ -54,15 +54,30 @@ YAGNI, KISS, DRY。
 エラー時はログを出力して即座に停止する（fail loud）。
 今ある要件だけに対して実装し、コードは直接変更する。
 
-## 着手前ゲート（破壊的・共有影響操作）
+## 着手前ゲート（auto-mode 分類器ガイド）
 
-以下は独断で実行せず、必ず No.13 の判断を仰ぐ:
+auto-mode 分類器は CLAUDE.md と `autoMode.{environment,allow,soft_deny}` を読み、destructive / scope-escalation 操作を判定する。
+本セクションは分類器の判断材料および No.13 への意図表明として記述する。
+組み込み規則は `claude auto-mode defaults`、実効設定は `claude auto-mode config` で確認。
 
-- main / master / develop への直接コミット・push
-- `--force`, `--force-with-lease` での push、強制更新
-- `rm -rf`, `git reset --hard`, `git clean -fd`
-- 既存依存のメジャーアップデート、lockfile 大量再生成
-- `chezmoi apply`（worktree 内では特に厳禁）
+### 既定 soft_deny でカバーされる操作
+
+- main/master/develop への直接 push → `Git Push to Default Branch`
+- `--force`, `--force-with-lease` push → `Git Destructive`
+- `rm -rf`, `git reset --hard`, `git clean -fdx`, `git checkout .` → `Irreversible Local Destruction`
+- 既存依存のメジャーアップデート・lockfile 再生成 → 文脈に応じ `Code from External` / `Modify Shared Resources`
+
+### 明示許可している例外（`autoMode.allow`）
+
+- `chezmoi apply`: 本リポジトリの正常運用。home dir への書き込みは scope escalation ではなく意図的
+
+### ハード block（`permissions.deny`）
+
+現状は秘密ファイル系（`.env`, `id_rsa`, `~/.aws/credentials` 等）のみ。
+auto-mode 分類器の判定では不十分な absolute な禁止が判明した場合のみ追加する。
+
+分類器が block した操作は必ず No.13 の判断を仰ぐ。
+`--dangerously-skip-permissions` 等の自己付与は禁止（`Self-Modification` で block される）。
 
 ## レビュー・分析方針
 

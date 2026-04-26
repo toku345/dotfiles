@@ -162,6 +162,17 @@
     ],
     "defaultMode": "auto"
   },
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "Personal dotfiles management on macOS using chezmoi. Source repo: github.com/toku345/dotfiles. Source state at /Users/toku345/.local/share/chezmoi/ template-renders to ~/.config/, ~/.claude/, ~/.ssh/, etc. via `chezmoi apply`.",
+      "Trusted source control: github.com/toku345 (personal repos)."
+    ],
+    "allow": [
+      "$defaults",
+      "Chezmoi Apply: `chezmoi apply` writing template-rendered files to ~/ (e.g. ~/.config/, ~/.claude/, ~/.ssh/) is the intended operation of this dotfiles repo, not Irreversible Local Destruction or scope escalation. Source state is git-tracked at /Users/toku345/.local/share/chezmoi/."
+    ]
+  },
   "statusLine": {
     "type": "command",
     "command": "$HOME/.claude/statusline-command.sh"
