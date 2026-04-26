@@ -302,6 +302,11 @@ For detailed setup and recovery instructions, see [docs/backup-restore.md](docs/
 - `denyOnly` bare globs (`*.key`, `.env.*`) only protect files within cwd — `sandbox-runtime` resolves them relative to cwd. Absolute-path entries (`~/.docker/config.json`) work system-wide. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
 - fish シェル経由の Bash ヒアドキュメントで `!` が `\!` にエスケープされることがある。`!` を含むファイルは `Write` ツールで直接書き込む
 
+## Claude Code Configuration Quirks
+
+- `/output-style <name>` は公式スラッシュコマンドとして**存在しない**。切替は `/config` メニュー経由のみで、反映は次の新規セッションから。`--output-style` CLI フラグも公式 CLI reference に未記載
+- User-scope `~/.claude/settings.json` の `outputStyle` はシステムプロンプトを直接置換し、headless `claude -p` にも適用される。`dot_local/bin/executable_triple-review` 等の slash command + 並列 headless + aggregation 経路を汚染しうるため、ペルソナ等は project-scope `.claude/settings.local.json` での opt-in を検討する。詳細は issue #154
+
 ## Important Notes
 
 - This repository uses chezmoi's naming conventions:
