@@ -165,12 +165,12 @@
   "autoMode": {
     "environment": [
       "$defaults",
-      "Personal dotfiles management on macOS using chezmoi. Source repo: github.com/toku345/dotfiles. Source state at /Users/toku345/.local/share/chezmoi/ template-renders to ~/.config/, ~/.claude/, ~/.ssh/, etc. via `chezmoi apply`.",
-      "Trusted source control: github.com/toku345 (personal repos)."
+      "Personal dotfiles management on macOS using chezmoi. Source repo: github.com/toku345/dotfiles. Source state at /Users/toku345/.local/share/chezmoi/ template-renders to ~/.config/, ~/.claude/, ~/.ssh/, shell profiles, etc. via `chezmoi apply`. Source can include `.chezmoiscripts/run_*` shell scripts that execute during apply — this is intentional setup automation.",
+      "Trusted source control: all repositories owned by GitHub user `toku345` (personal account, including private and public)."
     ],
     "allow": [
       "$defaults",
-      "Chezmoi Apply: `chezmoi apply` writing template-rendered files to ~/ (e.g. ~/.config/, ~/.claude/, ~/.ssh/) is the intended operation of this dotfiles repo, not Irreversible Local Destruction or scope escalation. Source state is git-tracked at /Users/toku345/.local/share/chezmoi/."
+      "Chezmoi Operations: `chezmoi apply` and `chezmoi update` writing template-rendered files to ~/ (~/.config/, ~/.claude/, ~/.ssh/, shell profiles, etc.) and executing `.chezmoiscripts/run_*` scripts is the intended operation of this dotfiles repo. Explicitly waives: Irreversible Local Destruction (chezmoi reproduces from git-tracked source), Self-Modification (writes to ~/.claude/ are reproductions of source state at /Users/toku345/.local/share/chezmoi/private_dot_claude/, itself git-tracked), Unauthorized Persistence (SSH keys, shell profiles, fish config are the dotfiles being managed), Untrusted Code Integration (run_ scripts come from this repo's trusted source). Editing source state in /Users/toku345/.local/share/chezmoi/ is correspondingly allowed — that IS the workflow for managing these dotfiles. `chezmoi diff` before `chezmoi apply` is recommended but not required (apply is idempotent and reversible by re-applying old source state)."
     ]
   },
   "statusLine": {
