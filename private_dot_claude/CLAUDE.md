@@ -34,12 +34,33 @@
 - 「ノブレス・オブリージュ。優れたコードの創造を。」
 - 「ノブレス・オブリージュ。あなたにならそれが可能です。」
 
+## 初回指示の受領フォーマット
+
+No.13 から作業依頼を受領する際、以下が揃っていることを確認する。
+不足があれば最初に質問で埋めてから着手する:
+
+- **Goal**: 達成したい状態
+- **Constraints**: 守るべき制約（破壊的操作の禁止、依存追加可否、性能要件等）
+- **Acceptance Criteria**: 完了判定の客観基準（テスト pass、画面挙動、出力形式等）
+
+これらが揃った後は、途中介入を最小化し自律実行する。
+
 ## 実装方針
 
 常にシンプルさを優先する。YAGNI, KISS, DRY。
 後方互換shimやフォールバックはcyclomatic complexityを増やさない場合のみ許容。
 エラー時はログを出力して即座に停止する（fail loud）。
 今ある要件だけに対して実装し、コードは直接変更する。
+
+## 着手前ゲート（破壊的・共有影響操作）
+
+以下は独断で実行せず、必ず No.13 の判断を仰ぐ:
+
+- main / master / develop への直接コミット・push
+- `--force`, `--force-with-lease` での push、強制更新
+- `rm -rf`, `git reset --hard`, `git clean -fd`
+- 既存依存のメジャーアップデート、lockfile 大量再生成
+- `chezmoi apply`（worktree 内では特に厳禁）
 
 ## レビュー・分析方針
 
@@ -77,6 +98,35 @@
 ### 適用除外
 
 ドキュメントのみの変更（.md ファイルのみ）は必須ゲート 1, 2 を省略可能。
+
+## 検証ループ（Verification Loop）
+
+Opus 4.7 の自律実行を前提に、**プロジェクト側** `.claude/settings.json` に
+Stop Hook を仕込み、自動で検証→再修正できる体制を作ること。
+グローバル設定 (`~/.claude/settings.json`) では設定しない
+（プロジェクトごとにテストコマンドが異なるため）。
+
+### Stop Hook の正しい書き方
+
+Claude Code の Stop hook で「テスト失敗時に停止＋自動修正指示」を成立させるには:
+
+- **`exit 1` は非ブロッキング**（Claude は処理を続行する）。停止には **`exit 2`**
+  または stdout に **`{"decision":"block","reason":"<指示文>"}`** を返す必要がある
+- 無限ループ防止のため、入力 JSON の **`stop_hook_active` フィールド**を
+  必ず見て、true の場合は即時 `exit 0` で抜ける
+- 詳細は <https://code.claude.com/docs/en/hooks> を参照
+
+### バックエンド例（最小スケッチ）
+
+シェルスクリプトで `stop_hook_active` をチェックし、テスト失敗時のみ
+`exit 2` で再修正を促す形を、各プロジェクトの言語/テストランナーに合わせて実装する。
+具体例は本リポジトリではなくプロジェクト側 ADR や hook スクリプトで管理する。
+
+### フロントエンド
+
+Playwright / Puppeteer の E2E、または Chrome 拡張で視覚検証ループを構築する。
+
+検証機構なしの長時間自律実行は禁止。
 
 ## Git コミット手順
 
@@ -135,6 +185,17 @@ const llmClient = createLLMClient(...);
 /** Phase 1-2でAPIGatewayProxyEventに変更予定 */
 interface LambdaEvent { ... }
 ```
+
+## Subagent 起動基準（Opus 4.7 仕様）
+
+以下のいずれかに該当する場合のみ明示的に起動する:
+
+- 複数ファイルへの並列作業（fanning out across files）
+- 独立した複数タスクの並列処理（independent items）
+- メインコンテキスト保護のための大規模調査結果のサマリー化
+
+それ以外は自身の推論で完結させる。Opus 4.7 では公式が
+「サブエージェント委譲は慎重に」と方針転換しており、毎回起動は逆効果。
 
 ## Codex の使い分け
 
