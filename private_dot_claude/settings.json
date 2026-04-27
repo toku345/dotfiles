@@ -165,12 +165,7 @@
   "autoMode": {
     "environment": [
       "$defaults",
-      "Personal dotfiles management on macOS using chezmoi. Source repo: github.com/toku345/dotfiles. Source state at ~/.local/share/chezmoi/ template-renders to ~/.config/, ~/.claude/, ~/.ssh/, shell profiles, etc. The user runs `chezmoi apply` themselves to deploy changes to the home directory — the agent does NOT auto-apply.",
       "Trusted source control: all repositories owned by GitHub user `toku345` (personal account). Trust scope is source-control operations only (push, pull, clone, diff) on user-intended source repos. It does NOT waive: Untrusted Code Integration (executing lifecycle scripts from a cloned personal repo still requires the same review as any external code), Create Public Surface (changing visibility to public or `gh repo create --public` still requires explicit user instruction), or Data Exfiltration (when the working repo is unrelated to the dotfiles workflow, pushing its files into a `toku345/*` personal repo as 'backup' is still exfil — trust covers operations on user-intended source repos, not arbitrary cross-repo content moves)."
-    ],
-    "allow": [
-      "$defaults",
-      "Chezmoi Source Edits: Editing source state files in ~/.local/share/chezmoi/ (private_dot_claude/, private_dot_config/, .chezmoiscripts/, etc.) is the intended workflow for managing these dotfiles, even though the contents control agent config and home-dir state. This rule waives Self-Modification for source-state edits ONLY. `chezmoi apply` is intentionally NOT in this allow list — it falls through to default classification so the user confirms each apply, which is the gate against shell-rc/SSH propagation and `run_*` script execution. Hard carve-outs even for source edits (NOT covered, fall through to default classification): (a) adding NEW `.chezmoiscripts/run_*` script files; (b) persistence-relevant edits to EXISTING `.chezmoiscripts/run_*` files (adding new install commands, fetch URLs, or external invocations); (c) any edit under `private_dot_ssh/` that adds key material, or any edit anywhere that introduces a public-key-shaped string; (d) any edit introducing a NEW external execution surface — `curl|bash`, `iex (iwr ...)`, `wget -O- | sh`, `nix-shell -p` with new packages, `brew install` from non-core taps, or changing an existing fetch URL to a new host. Edits that don't hit (a)–(d) are covered."
     ]
   },
   "statusLine": {
