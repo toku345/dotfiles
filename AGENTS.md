@@ -200,7 +200,7 @@ docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
 
 ## Security
 
-CI runs plaintext key / age encryption / secret pattern checks on every push (`.github/workflows/security-checks.yml`). For details, see [docs/security.md](docs/security.md).
+CI runs plaintext key / age encryption / secret pattern checks on pushes to main/master and on pull requests (`.github/workflows/security-checks.yml`). For details, see [docs/security.md](docs/security.md).
 
 ## Backup and Recovery
 
