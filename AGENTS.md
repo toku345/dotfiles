@@ -221,5 +221,5 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 
 - `/output-style <name>` は公式スラッシュコマンドとして**存在しない**。切替は `/config` メニュー経由のみで、反映は次の新規セッションから。`--output-style` CLI フラグも公式 CLI reference に未記載
 - User-scope `~/.claude/settings.json` の `outputStyle` はシステムプロンプトを直接置換し、headless `claude -p` にも適用される。`~/.local/bin/triple-review`（chezmoi source は `dot_local/bin/executable_triple-review`）等の slash command + 並列 headless + aggregation 経路を汚染しうるため、ペルソナ等は project-scope `.claude/settings.local.json` での opt-in を検討する。詳細は issue #154
-- `verbose: true` は **公式設定として未文書化**。documented キーは `viewMode`（`"default"` / `"verbose"` / `"focus"`）で、default 値が `"verbose"` のため明示記載不要。`--verbose` CLI フラグ説明の "verbose mode setting from config" は `viewMode` を指す（公式 settings reference: <https://code.claude.com/docs/en/settings>）
+- `verbose: true` は **公式設定として未文書化**。documented キーは `viewMode`（`"default"` / `"verbose"` / `"focus"`、default は `"default"`）。verbose な transcript view を維持するには `"viewMode": "verbose"` を明示する必要がある（公式 settings reference: <https://code.claude.com/docs/en/settings>）。`--verbose` CLI フラグ (<https://code.claude.com/docs/en/cli-reference>) は別物で、ランタイム上書きとして `viewMode` 設定とは独立に効く
 
