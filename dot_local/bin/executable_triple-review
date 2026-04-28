@@ -581,7 +581,15 @@ main() {
   local pid_sec=$!
   CHILDREN+=("$pid_sec")
 
-  claude -p "/codex:adversarial-review --wait --base $base --scope branch" > "$workdir/adv.md" 2>&1 &
+  # `--model gpt-5.4` pin: codex-cli 0.125.0 + plugin 1.0.4 returns a 400 from
+  # OpenAI on the default gpt-5.5, but the plugin's structured-output path does
+  # not propagate the error as a turn/error notification — captureTurn awaits
+  # turn/completed forever (upstream #183), the broker stays "busy" and a
+  # second codex app-server spawns via the disableBroker fallback. End result:
+  # adv.md stays empty / placeholder, both reviewers and the user see nothing.
+  # Workaround tracked at upstream openai/codex-plugin-cc#270; revert this pin
+  # when the model-default issue is resolved there.
+  claude -p "/codex:adversarial-review --wait --model gpt-5.4 --base $base --scope branch" > "$workdir/adv.md" 2>&1 &
   local pid_adv=$!
   CHILDREN+=("$pid_adv")
 

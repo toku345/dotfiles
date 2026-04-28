@@ -200,6 +200,7 @@
     "filesystem": {
       "allowWrite": [
         "/tmp",
+        "~/.claude/plugins/data",
         "~/.ssh/known_hosts"
       ],
       "allowRead": [
