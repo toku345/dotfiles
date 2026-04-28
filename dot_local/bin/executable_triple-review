@@ -16,6 +16,14 @@ CHILDREN=()
 MONITOR_PID=""
 MONITOR_START_TS=""
 
+# Codex plugin version pin — see ADR 0012 (Known limitation — codex plugin
+# model default broken on codex-cli 0.125.0 + plugin 1.0.4). Pinned so a
+# future plugin upgrade does not silently change the CLI contract under us.
+# Update both this constant and ADR 0012 atomically when upstream
+# openai/codex-plugin-cc#270 / #183 are resolved and we revert the workaround.
+readonly CODEX_PLUGIN_VERSION="1.0.4"
+readonly CODEX_COMPANION="$HOME/.claude/plugins/cache/openai-codex/codex/${CODEX_PLUGIN_VERSION}/scripts/codex-companion.mjs"
+
 err() {
   printf '\033[31m%s\033[0m\n' "$1" >&2
   exit 1
@@ -141,16 +149,19 @@ Usage: triple-review
 Aggregate pre-PR review findings from three reviewers into a Japanese
 priority-based summary (対応必須 / 要検討 / 対応不要 / 矛盾).
 
-Reviewers run in parallel via headless `claude -p`:
-  - /pr-review-toolkit:review-pr
-  - /security-review
-  - /codex:adversarial-review
+Reviewers run in parallel:
+  - /pr-review-toolkit:review-pr (via headless `claude -p`)
+  - /security-review (via headless `claude -p`)
+  - codex-companion adversarial-review (direct node invocation; bypasses
+    `claude -p` because the slash-command dispatch hangs in headless mode —
+    see ADR 0012)
 
 Zero arguments. The script auto-detects the PR base branch via `gh pr view`
 and falls back to origin/HEAD if no PR is associated with the current branch.
 Intermediate outputs are preserved in $TMPDIR/triple-review-* (macOS auto-cleans).
 
-Requirements: gh, git, claude on $PATH; inside a git work tree.
+Requirements: gh, git, claude, node on $PATH; codex plugin installed at the
+pinned version (see ADR 0012); inside a git work tree.
 
 Environment variables:
   TRIPLE_REVIEW_SLEEP_INHIBITED
@@ -181,6 +192,10 @@ check_prerequisites() {
   require_cmd gh
   require_cmd git
   require_cmd claude
+  require_cmd node
+  if [ ! -f "$CODEX_COMPANION" ]; then
+    err "Codex companion script not found at $CODEX_COMPANION (codex plugin ${CODEX_PLUGIN_VERSION} not installed). See ADR 0012."
+  fi
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     err "Not inside a git work tree. Run triple-review from within a repository."
   fi
@@ -581,15 +596,24 @@ main() {
   local pid_sec=$!
   CHILDREN+=("$pid_sec")
 
-  # `--model gpt-5.4` pin: codex-cli 0.125.0 + plugin 1.0.4 returns a 400 from
-  # OpenAI on the default gpt-5.5, but the plugin's structured-output path does
-  # not propagate the error as a turn/error notification — captureTurn awaits
-  # turn/completed forever (upstream #183), the broker stays "busy" and a
-  # second codex app-server spawns via the disableBroker fallback. End result:
-  # adv.md stays empty / placeholder, both reviewers and the user see nothing.
-  # Workaround tracked at upstream openai/codex-plugin-cc#270; revert this pin
-  # when the model-default issue is resolved there.
-  claude -p "/codex:adversarial-review --wait --model gpt-5.4 --base $base --scope branch" > "$workdir/adv.md" 2>&1 &
+  # ADV invocation bypasses `claude -p "/codex:adversarial-review --wait …"`.
+  # The slash-command dispatch path under headless `claude -p` hangs at
+  # `phase: starting` even with the model pin (root cause not fully isolated
+  # but reproducible on codex-cli 0.125.0 + plugin 1.0.4). Direct CLI
+  # invocation runs the same companion code in foreground and completes
+  # normally — verified end-to-end. See ADR 0012 (Workaround — direct
+  # codex-companion invocation).
+  #
+  # `--model gpt-5.4` pin (still required even on the direct path): codex-cli
+  # 0.125.0 + plugin 1.0.4 returns a 400 from OpenAI on the default gpt-5.5;
+  # the plugin's structured-output handler swallows the error so captureTurn
+  # awaits turn/completed forever (upstream openai/codex-plugin-cc#183, root
+  # cause #270). Revert when upstream #270 is resolved.
+  #
+  # stderr is split into adv.err so adv.md stays as pure review markdown for
+  # the aggregator (bare CLI emits `[codex] ...` progress lines on stderr).
+  node "$CODEX_COMPANION" adversarial-review --base "$base" --scope branch --model gpt-5.4 \
+    > "$workdir/adv.md" 2> "$workdir/adv.err" &
   local pid_adv=$!
   CHILDREN+=("$pid_adv")
 
