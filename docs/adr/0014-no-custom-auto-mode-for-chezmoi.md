@@ -189,6 +189,9 @@ Anthropic 既定 (`$defaults`) のみで運用する。**
   classifier-agnostic な「破壊的・共有影響操作」の最小リストに置換した。
   これにより削除された旧記述: 「明示許可している例外」サブセクション、「`chezmoi apply` 自体は意図的に
   未登録」記述、`Self-Modification` rule name の誤用箇所
+- 「初回指示の受領フォーマット」に auto-mode active / headless (`claude -p`) 適用除外を追記
+  (PR #159)。harness の "Make reasonable assumptions" 注入および対話チャネル不在環境で
+  「質問で埋める」原則が silent failure / aggregation 汚染を起こすため
 
 ### Risks
 
