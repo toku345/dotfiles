@@ -17,11 +17,11 @@
       "Bash(git status:*)",
       "Bash(git show:*)",
       "Bash(git blame:*)",
-      "Bash(npm run *)",
+      "Bash(npm run:*)",
       "Bash(npm test:*)",
       "Bash(npm list:*)",
       "Bash(npm install:*)",
-      "Bash(yarn run *)",
+      "Bash(yarn run:*)",
       "Bash(yarn test:*)",
       "Bash(yarn add:*)",
       "Bash(cargo build:*)",
@@ -217,8 +217,9 @@
     ]
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
+  "verbose": true,
   "tui": "fullscreen"
 }
