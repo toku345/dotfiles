@@ -220,6 +220,5 @@
   "effortLevel": "xhigh",
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
-  "verbose": true,
   "tui": "fullscreen"
 }
