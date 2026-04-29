@@ -189,6 +189,8 @@ require_cmd() {
 # CODEX_COMPANION. Glob over the versioned cache dir; if multiple versions are
 # installed (e.g. an old version was not pruned), `sort -V` picks the newest
 # so we never silently bind to a stale contract. Fail-loud on 0 hits.
+# Requires modern `sort -V`: GNU sort (Linux) or Apple sort 2.3+ (macOS
+# Sequoia / later). Older macOS BSD sort silently fell back to lexicographic.
 resolve_codex_companion() {
   local script_rel="scripts/codex-companion.mjs"
   shopt -s nullglob
