@@ -706,6 +706,31 @@ STUB
   grep -qx -- '/bin/true' "$witness"
 }
 
+@test "T2-39 systemd_inhibitor_reachable: hanging systemd-inhibit -> bounded by timeout(1)" {
+  # Codex adversarial review surfaced this gap: a degraded logind/polkit
+  # path that waits indefinitely instead of returning immediately would
+  # hang the probe without an explicit timeout, blocking startup before
+  # the wrap-skip fallback can fire. TRIPLE_REVIEW_PROBE_TIMEOUT lets the
+  # test compress the 5s production budget so CI doesn't pay it.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_hang"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+sleep 30
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  local before=$SECONDS
+  PATH="$stub_dir:$PATH" TRIPLE_REVIEW_PROBE_TIMEOUT=1 \
+    run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  local elapsed=$((SECONDS - before))
+  # GNU timeout returns 124 on timeout; either way the probe must signal
+  # failure so select_sleep_inhibitor_cmd falls through to wrap-skip.
+  [ "$status" -ne 0 ]
+  # Wide ceiling tolerates CI scheduler jitter while still failing loud
+  # if the timeout wrap is removed (sleep 30 would otherwise stall here).
+  [ "$elapsed" -lt 5 ]
+}
+
 # =============================================================================
 # Tier 3-A: check_prerequisites fail-fast matrix.
 # Each required-command path must abort with a clear diagnostic so an

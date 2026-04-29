@@ -52,25 +52,17 @@ has_systemd_inhibit() {
 systemd_is_pid1() {
   [ -d /run/systemd/system ]
 }
-# Acquisition probe (NOT a mere reachability probe). `[ -d /run/systemd/system ]`
-# confirms systemd is PID 1 but does NOT confirm two distinct prerequisites:
-# (1) the session dbus bus logind listens on is reachable (WSL2 without
-# systemd-genie, rootless podman, sudo-stripped shells hit this), and (2) the
-# polkit policy permits acquisition of `org.freedesktop.login1.inhibit-*`
-# (restrictive policy on hardened multi-user hosts and some distro defaults
-# gate it behind `auth_admin`). An earlier implementation used `--list`,
-# which round-trips dbus to logind but does NOT exercise the polkit decision
-# a real `--what=idle:sleep --mode=block` lock would trigger. Restrictive
-# polkit lets `--list` pass yet denies the actual sleep-inhibit acquisition;
-# with the old probe the wrap decision said "go", `exec` replaced bash with
-# systemd-inhibit, polkit denied, the wrapper exited non-zero, and
-# triple-review never ran (Issue #158). This probe instead invokes the same
-# polkit action the production wrap will hit, with `/bin/true` as the wrapped
-# command so the inhibitor releases the lock within milliseconds. Healthy
-# systems return in <100ms; polkit denial returns <200ms; dbus hang is
-# bounded by systemd-inhibit's client-side timeout.
+# Guard 3: acquisition probe — exercises the same polkit action the production
+# wrap will trigger, then immediately releases via /bin/true. `timeout(1)`
+# caps a hung dbus call (sd-bus default method timeout is ~25s, too long for
+# a startup guard); timeout / non-zero / polkit denial all fall through to
+# wrap-skip. WSL2 / rootless / restrictive-polkit rationale and the --list
+# regression that motivated this shape: ADR-0012 "Probe vs. acquisition
+# (guard 3)". Issue #158 has the original repro. TRIPLE_REVIEW_PROBE_TIMEOUT
+# is a test-only knob; production callers must not set it.
 systemd_inhibitor_reachable() {
-  systemd-inhibit --what=idle:sleep --mode=block \
+  timeout "${TRIPLE_REVIEW_PROBE_TIMEOUT:-5}" \
+    systemd-inhibit --what=idle:sleep --mode=block \
     --why='triple-review probe' /bin/true >/dev/null 2>&1
 }
 
