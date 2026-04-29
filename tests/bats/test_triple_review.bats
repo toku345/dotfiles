@@ -685,8 +685,16 @@ STUB
 @test "T2-38 systemd_inhibitor_reachable: invokes acquisition probe with expected argv" {
   # Witness records argv so we can verify the probe asks for the same lock
   # the production wrap takes (--what=idle:sleep --mode=block /bin/true).
-  # heredoc is unquoted so $witness expands to the test-side path; $@/$*
-  # are escaped so they remain bash-runtime references inside the stub.
+  # Three quoting layers cooperate to keep $witness from being expanded at
+  # the wrong time:
+  #   - heredoc is unquoted (`<<STUB`), so $witness expands at heredoc-emit
+  #     time to the test-side path.
+  #   - \$@ / \$* are escaped, so they survive heredoc expansion and remain
+  #     bash-runtime references inside the stub.
+  #   - the emitted '$witness' is single-quoted within the stub source, so
+  #     stub-runtime never re-expands it (defense against literal $ chars in
+  #     SCRATCH_DIR; the single quotes also block any future editor that
+  #     drops the heredoc-time expansion in favor of stub-time expansion).
   local stub_dir="$SCRATCH_DIR/inhibit_stub_argv"
   local witness="$SCRATCH_DIR/inhibit_argv"
   mkdir -p "$stub_dir"
@@ -704,6 +712,18 @@ STUB
   grep -qx -- '--what=idle:sleep' "$witness"
   grep -qx -- '--mode=block' "$witness"
   grep -qx -- '/bin/true' "$witness"
+
+  # Drift guard: T2-25 fixes the production wrap argv and T2-38 (above)
+  # fixes the probe witness, but both are independent literals. A
+  # synchronized rename (e.g. --mode=block -> --mode=delay in both call
+  # sites at once) would slip past both tests. Assert the lock-defining
+  # tokens appear in the production wrap output as well, so probe and
+  # wrap cannot drift apart silently.
+  export TEST_FAKE_UNAME=Linux
+  local wrap_output
+  wrap_output=$(bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd")
+  echo "$wrap_output" | grep -qFx -- '--what=idle:sleep'
+  echo "$wrap_output" | grep -qFx -- '--mode=block'
 }
 
 @test "T2-39 systemd_inhibitor_reachable: hanging systemd-inhibit -> bounded by timeout(1)" {
