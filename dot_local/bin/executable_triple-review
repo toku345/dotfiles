@@ -602,7 +602,7 @@ main() {
   printf 'Running 3 reviewers in parallel...\n'
   printf 'Base branch: %s\n' "$base"
   printf 'Work dir:    %s\n' "$workdir"
-  printf '(Tip: tail -f %s/*.md for live per-reviewer output)\n' "$workdir"
+  printf '(Tip: tail -f %s/*.md %s/*.err for live per-reviewer output)\n' "$workdir" "$workdir"
 
   claude -p "/pr-review-toolkit:review-pr" > "$workdir/pr.md" 2>&1 &
   local pid_pr=$!
@@ -666,6 +666,15 @@ main() {
   if ! check_reviewer_result ADV "$rc_adv" "$workdir/adv.md"; then
     fail_count=$((fail_count + 1))
     missing="${missing:+$missing, }ADV"
+    # ADV stderr is captured separately to keep adv.md as pure markdown for the
+    # aggregator, but on failure that means the real diagnostic (companion
+    # crash, 4xx body, model rejection, contract drift) is hidden in adv.err
+    # unless we surface it here. Symmetric with the aggregation-failure tail
+    # below.
+    if [ -s "$workdir/adv.err" ]; then
+      printf -- '--- tail of adv.err ---\n' >&2
+      tail -n 40 "$workdir/adv.err" >&2
+    fi
   fi
 
   if [ "$fail_count" -eq 3 ]; then
