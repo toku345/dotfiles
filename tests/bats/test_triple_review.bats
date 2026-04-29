@@ -455,13 +455,15 @@ STUB
   [ -z "$output" ]
 }
 
-@test "T2-25 select_sleep_inhibitor: Linux + all prereqs satisfied -> 3 tokens" {
+@test "T2-25 select_sleep_inhibitor: Linux + all prereqs satisfied -> 4 tokens" {
   # Override all three guards so the test does not depend on the host's
   # systemd/dbus state (real CI Ubuntu containers have no logind).
+  # --mode=block is spelled out so the production wrap argv is literally
+  # aligned with the acquisition probe's argv (probe-vs-wrap drift guard).
   export TEST_FAKE_UNAME=Linux
   run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd"
   [ "$status" -eq 0 ]
-  [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--why=triple-review in progress' ]
+  [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--mode=block\n--why=triple-review in progress' ]
 }
 
 @test "T2-26 select_sleep_inhibitor: Linux + systemd-inhibit present + systemd not PID 1 -> empty" {
@@ -623,25 +625,27 @@ STUB
   [ -z "$output" ]
 }
 
-@test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit --list" {
+@test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit acquisition probe" {
   # PATH stub controls systemd-inhibit's behavior so we exercise the real
   # probe implementation end-to-end rather than just mocking the helper.
   local stub_dir="$SCRATCH_DIR/inhibit_stub"
   mkdir -p "$stub_dir"
 
-  # Success path: --list exits 0.
+  # Success path: acquisition probe (--what=idle:sleep --mode=block /bin/true)
+  # exits 0. Other argv shapes exit 2 so a regression that drops the new
+  # tokens fails the test instead of silently passing.
   cat > "$stub_dir/systemd-inhibit" <<'STUB'
 #!/usr/bin/env bash
-if [[ "$1" == "--list" ]]; then
-  exit 0
-fi
+case "$*" in
+  *--what=idle:sleep*--mode=block*/bin/true*) exit 0;;
+esac
 exit 2
 STUB
   chmod +x "$stub_dir/systemd-inhibit"
   PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
   [ "$status" -eq 0 ]
 
-  # Failure path: --list exits non-zero, mimicking dbus unavailable.
+  # Failure path: any invocation exits non-zero, mimicking dbus unavailable.
   cat > "$stub_dir/systemd-inhibit" <<'STUB'
 #!/usr/bin/env bash
 echo "Failed to connect to bus" >&2
@@ -650,6 +654,105 @@ STUB
   chmod +x "$stub_dir/systemd-inhibit"
   PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
   [ "$status" -eq 1 ]
+}
+
+@test "T2-37 systemd_inhibitor_reachable: polkit denial detected (regression vs --list-only probe)" {
+  # Simulate restrictive polkit policy: --list passes (dbus reachable) but
+  # --what=idle:sleep --mode=block fails (acquisition denied by polkit).
+  # The old probe used --list and would mistakenly succeed; the new
+  # acquisition probe must detect the denial and return non-zero so
+  # select_sleep_inhibitor_cmd falls through to wrap-skip.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_polkit"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *--what=idle:sleep*--mode=block*/bin/true*)
+    echo "Failed to inhibit: Access denied" >&2
+    exit 1
+    ;;
+  *--list*)
+    exit 0
+    ;;
+esac
+exit 2
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 1 ]
+}
+
+@test "T2-38 systemd_inhibitor_reachable: invokes acquisition probe with expected argv" {
+  # Witness records argv so we can verify the probe asks for the same lock
+  # the production wrap takes (--what=idle:sleep --mode=block /bin/true).
+  # Three quoting layers cooperate to keep $witness from being expanded at
+  # the wrong time:
+  #   - heredoc is unquoted (`<<STUB`), so $witness expands at heredoc-emit
+  #     time to the test-side path.
+  #   - \$@ / \$* are escaped, so they survive heredoc expansion and remain
+  #     bash-runtime references inside the stub.
+  #   - the emitted '$witness' is single-quoted within the stub source, so
+  #     stub-runtime never re-expands it (defense against literal $ chars in
+  #     SCRATCH_DIR; the single quotes also block any future editor that
+  #     drops the heredoc-time expansion in favor of stub-time expansion).
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_argv"
+  local witness="$SCRATCH_DIR/inhibit_argv"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/systemd-inhibit" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > '$witness'
+case "\$*" in
+  *--what=idle:sleep*--mode=block*/bin/true*) exit 0;;
+esac
+exit 3
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 0 ]
+  grep -qx -- '--what=idle:sleep' "$witness"
+  grep -qx -- '--mode=block' "$witness"
+  grep -qx -- '/bin/true' "$witness"
+
+  # Drift guard: T2-25 fixes the production wrap argv and T2-38 (above)
+  # fixes the probe witness, but both are independent literals. A
+  # synchronized rename (e.g. --mode=block -> --mode=delay in both call
+  # sites at once) would slip past both tests. Assert the lock-defining
+  # tokens appear in the production wrap output as well, so probe and
+  # wrap cannot drift apart silently.
+  export TEST_FAKE_UNAME=Linux
+  local wrap_output
+  wrap_output=$(bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd")
+  echo "$wrap_output" | grep -qFx -- '--what=idle:sleep'
+  echo "$wrap_output" | grep -qFx -- '--mode=block'
+}
+
+@test "T2-39 systemd_inhibitor_reachable: hanging systemd-inhibit -> bounded by timeout(1)" {
+  # Codex adversarial review surfaced this gap: a degraded logind/polkit
+  # path that waits indefinitely instead of returning immediately would
+  # hang the probe without an explicit timeout, blocking startup before
+  # the wrap-skip fallback can fire. TRIPLE_REVIEW_PROBE_TIMEOUT lets the
+  # test compress the 5s production budget so CI doesn't pay it.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_hang"
+  mkdir -p "$stub_dir"
+  # `exec /bin/sleep 30` replaces the stub bash with sleep itself so
+  # `timeout(1)` SIGTERMs the sleeper directly. Without `exec`, bash's
+  # default signal disposition leaves the forked sleep as an orphan that
+  # outlives the test by ~30s.
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+exec /bin/sleep 30
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  local before=$SECONDS
+  PATH="$stub_dir:$PATH" TRIPLE_REVIEW_PROBE_TIMEOUT=1 \
+    run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  local elapsed=$((SECONDS - before))
+  # GNU timeout returns 124 on timeout; either way the probe must signal
+  # failure so select_sleep_inhibitor_cmd falls through to wrap-skip.
+  [ "$status" -ne 0 ]
+  # Wide ceiling tolerates CI scheduler jitter while still failing loud
+  # if the timeout wrap is removed (sleep 30 would otherwise stall here).
+  [ "$elapsed" -lt 5 ]
 }
 
 # =============================================================================
