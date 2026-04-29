@@ -106,23 +106,17 @@ select_sleep_inhibitor_cmd() {
   esac
 }
 
-# Self-exec under a sleep-inhibitor wrapper on first entry; no-op on re-entry.
-# TRIPLE_REVIEW_SLEEP_INHIBITED gate ensures the wrapped child does not loop.
-# `shopt -s execfail` lets bash return control after a failed exec instead of
-# terminating with rc=126/127. `set -e` must be disabled around the exec call,
-# otherwise a failing exec returns non-zero and `set -e` exits the shell before
-# the `||` fallback branch runs (verified empirically on bash 5.3 — the branch
-# never fires under `set -Eeuo pipefail` without the toggle).
-#
-# Re-entry shape: `"${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"` rather than
-# `"$0" "$@"`. The inhibitor wrapper runs `execve` on its argv internally,
-# and `execve` requires the target file to carry the execute bit. Git stores
-# this script as mode 0644 (chezmoi apply sets 0755 only in the installed
-# copy), so any source-tree invocation — `bash dot_local/bin/...` during
-# local iteration, the bats wrapper, a developer hitting F5 from the repo —
-# would `execve($0)` on a 0644 file and bail rc=126, skipping the review
-# entirely. Going through the running bash interpreter decouples the wrap
-# path from file mode and matches production (installed, 0755) behavior.
+# Self-exec under a sleep-inhibitor wrapper on first entry (no-op on re-entry,
+# gated by TRIPLE_REVIEW_SLEEP_INHIBITED). Two non-obvious shapes; full
+# rationale in ADR 0012 §"Sleep inhibition":
+# - `shopt -s execfail` + `set +e`/`set -e` toggle: lets bash recover when the
+#   exec itself fails, instead of `set -Eeuo pipefail` exiting the shell
+#   before the `||` fallback branch can fire.
+# - `"${BASH:-bash}" "${BASH_SOURCE[0]}"` re-entry (not `exec "$0"`): git
+#   stores this script as 0644 (chezmoi sets 0755 only on apply), so an
+#   `execve($0)` from the inhibitor would rc=126 on any source-tree run.
+#   Routing through the running bash interpreter decouples the wrap path
+#   from file mode.
 maybe_wrap_with_inhibitor() {
   [ -n "${TRIPLE_REVIEW_SLEEP_INHIBITED:-}" ] && return 0
   local wrapper=() line
@@ -612,22 +606,13 @@ main() {
   local pid_sec=$!
   CHILDREN+=("$pid_sec")
 
-  # ADV invocation bypasses `claude -p "/codex:adversarial-review --wait …"`.
-  # The slash-command dispatch path under headless `claude -p` hangs at
-  # `phase: starting` even with the model pin (root cause not fully isolated
-  # but reproducible on codex-cli 0.125.0 + plugin 1.0.4). Direct CLI
-  # invocation runs the same companion code in foreground and completes
-  # normally — verified end-to-end. See ADR 0012 (Workaround — direct
-  # codex-companion invocation).
-  #
-  # `--model gpt-5.4` pin (still required even on the direct path): codex-cli
-  # 0.125.0 + plugin 1.0.4 returns a 400 from OpenAI on the default gpt-5.5;
-  # the plugin's structured-output handler swallows the error so captureTurn
-  # awaits turn/completed forever (upstream openai/codex-plugin-cc#183, root
-  # cause #270). Revert when upstream #270 is resolved.
-  #
-  # stderr is split into adv.err so adv.md stays as pure review markdown for
-  # the aggregator (bare CLI emits `[codex] ...` progress lines on stderr).
+  # ADV invocation: direct codex-companion, bypassing `claude -p` slash
+  # dispatch (which hangs at `phase: starting` in headless mode). `--model
+  # gpt-5.4` pin works around the captureTurn-await-forever bug on the
+  # default gpt-5.5. stderr → adv.err keeps adv.md as pure markdown for the
+  # aggregator. Full rationale and revert plan in ADR 0012 §"Workaround —
+  # direct codex-companion invocation" and §"Known limitation — codex
+  # plugin model default broken on …".
   node "$CODEX_COMPANION" adversarial-review --base "$base" --scope branch --model gpt-5.4 \
     > "$workdir/adv.md" 2> "$workdir/adv.err" &
   local pid_adv=$!
