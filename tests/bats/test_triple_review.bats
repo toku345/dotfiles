@@ -455,13 +455,15 @@ STUB
   [ -z "$output" ]
 }
 
-@test "T2-25 select_sleep_inhibitor: Linux + all prereqs satisfied -> 3 tokens" {
+@test "T2-25 select_sleep_inhibitor: Linux + all prereqs satisfied -> 4 tokens" {
   # Override all three guards so the test does not depend on the host's
   # systemd/dbus state (real CI Ubuntu containers have no logind).
+  # --mode=block is spelled out so the production wrap argv is literally
+  # aligned with the acquisition probe's argv (probe-vs-wrap drift guard).
   export TEST_FAKE_UNAME=Linux
   run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd"
   [ "$status" -eq 0 ]
-  [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--why=triple-review in progress' ]
+  [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--mode=block\n--why=triple-review in progress' ]
 }
 
 @test "T2-26 select_sleep_inhibitor: Linux + systemd-inhibit present + systemd not PID 1 -> empty" {
@@ -623,25 +625,27 @@ STUB
   [ -z "$output" ]
 }
 
-@test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit --list" {
+@test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit acquisition probe" {
   # PATH stub controls systemd-inhibit's behavior so we exercise the real
   # probe implementation end-to-end rather than just mocking the helper.
   local stub_dir="$SCRATCH_DIR/inhibit_stub"
   mkdir -p "$stub_dir"
 
-  # Success path: --list exits 0.
+  # Success path: acquisition probe (--what=idle:sleep --mode=block /bin/true)
+  # exits 0. Other argv shapes exit 2 so a regression that drops the new
+  # tokens fails the test instead of silently passing.
   cat > "$stub_dir/systemd-inhibit" <<'STUB'
 #!/usr/bin/env bash
-if [[ "$1" == "--list" ]]; then
-  exit 0
-fi
+case "$*" in
+  *--what=idle:sleep*--mode=block*/bin/true*) exit 0;;
+esac
 exit 2
 STUB
   chmod +x "$stub_dir/systemd-inhibit"
   PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
   [ "$status" -eq 0 ]
 
-  # Failure path: --list exits non-zero, mimicking dbus unavailable.
+  # Failure path: any invocation exits non-zero, mimicking dbus unavailable.
   cat > "$stub_dir/systemd-inhibit" <<'STUB'
 #!/usr/bin/env bash
 echo "Failed to connect to bus" >&2
@@ -650,4 +654,537 @@ STUB
   chmod +x "$stub_dir/systemd-inhibit"
   PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
   [ "$status" -eq 1 ]
+}
+
+@test "T2-37 systemd_inhibitor_reachable: polkit denial detected (regression vs --list-only probe)" {
+  # Simulate restrictive polkit policy: --list passes (dbus reachable) but
+  # --what=idle:sleep --mode=block fails (acquisition denied by polkit).
+  # The old probe used --list and would mistakenly succeed; the new
+  # acquisition probe must detect the denial and return non-zero so
+  # select_sleep_inhibitor_cmd falls through to wrap-skip.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_polkit"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *--what=idle:sleep*--mode=block*/bin/true*)
+    echo "Failed to inhibit: Access denied" >&2
+    exit 1
+    ;;
+  *--list*)
+    exit 0
+    ;;
+esac
+exit 2
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 1 ]
+}
+
+@test "T2-38 systemd_inhibitor_reachable: invokes acquisition probe with expected argv" {
+  # Witness records argv so we can verify the probe asks for the same lock
+  # the production wrap takes (--what=idle:sleep --mode=block /bin/true).
+  # Three quoting layers cooperate to keep $witness from being expanded at
+  # the wrong time:
+  #   - heredoc is unquoted (`<<STUB`), so $witness expands at heredoc-emit
+  #     time to the test-side path.
+  #   - \$@ / \$* are escaped, so they survive heredoc expansion and remain
+  #     bash-runtime references inside the stub.
+  #   - the emitted '$witness' is single-quoted within the stub source, so
+  #     stub-runtime never re-expands it (defense against literal $ chars in
+  #     SCRATCH_DIR; the single quotes also block any future editor that
+  #     drops the heredoc-time expansion in favor of stub-time expansion).
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_argv"
+  local witness="$SCRATCH_DIR/inhibit_argv"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/systemd-inhibit" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > '$witness'
+case "\$*" in
+  *--what=idle:sleep*--mode=block*/bin/true*) exit 0;;
+esac
+exit 3
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 0 ]
+  grep -qx -- '--what=idle:sleep' "$witness"
+  grep -qx -- '--mode=block' "$witness"
+  grep -qx -- '/bin/true' "$witness"
+
+  # Drift guard: T2-25 fixes the production wrap argv and T2-38 (above)
+  # fixes the probe witness, but both are independent literals. A
+  # synchronized rename (e.g. --mode=block -> --mode=delay in both call
+  # sites at once) would slip past both tests. Assert the lock-defining
+  # tokens appear in the production wrap output as well, so probe and
+  # wrap cannot drift apart silently.
+  export TEST_FAKE_UNAME=Linux
+  local wrap_output
+  wrap_output=$(bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd")
+  echo "$wrap_output" | grep -qFx -- '--what=idle:sleep'
+  echo "$wrap_output" | grep -qFx -- '--mode=block'
+}
+
+@test "T2-39 systemd_inhibitor_reachable: hanging systemd-inhibit -> bounded by timeout(1)" {
+  # Codex adversarial review surfaced this gap: a degraded logind/polkit
+  # path that waits indefinitely instead of returning immediately would
+  # hang the probe without an explicit timeout, blocking startup before
+  # the wrap-skip fallback can fire. TRIPLE_REVIEW_PROBE_TIMEOUT lets the
+  # test compress the 5s production budget so CI doesn't pay it.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_hang"
+  mkdir -p "$stub_dir"
+  # `exec /bin/sleep 30` replaces the stub bash with sleep itself so
+  # `timeout(1)` SIGTERMs the sleeper directly. Without `exec`, bash's
+  # default signal disposition leaves the forked sleep as an orphan that
+  # outlives the test by ~30s.
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+exec /bin/sleep 30
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  local before=$SECONDS
+  PATH="$stub_dir:$PATH" TRIPLE_REVIEW_PROBE_TIMEOUT=1 \
+    run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  local elapsed=$((SECONDS - before))
+  # GNU timeout returns 124 on timeout; either way the probe must signal
+  # failure so select_sleep_inhibitor_cmd falls through to wrap-skip.
+  [ "$status" -ne 0 ]
+  # Wide ceiling tolerates CI scheduler jitter while still failing loud
+  # if the timeout wrap is removed (sleep 30 would otherwise stall here).
+  [ "$elapsed" -lt 5 ]
+}
+
+# =============================================================================
+# Tier 3-A: check_prerequisites fail-fast matrix.
+# Each required-command path must abort with a clear diagnostic so an
+# incomplete environment surfaces before reviewers spawn. Also covers the
+# new dynamic codex-companion resolver: 0 installed versions must err out
+# at startup instead of failing 30s into the parallel run.
+# =============================================================================
+
+@test "T3-1 check_prerequisites: missing gh -> abort" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_cmd() {
+      [ \"\$1\" = 'gh' ] && err 'Required command not found in PATH: gh'
+      return 0
+    }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Required command not found in PATH: gh"* ]]
+}
+
+@test "T3-2 check_prerequisites: missing git -> abort" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_cmd() {
+      [ \"\$1\" = 'git' ] && err 'Required command not found in PATH: git'
+      return 0
+    }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Required command not found in PATH: git"* ]]
+}
+
+@test "T3-3 check_prerequisites: missing claude -> abort" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_cmd() {
+      [ \"\$1\" = 'claude' ] && err 'Required command not found in PATH: claude'
+      return 0
+    }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Required command not found in PATH: claude"* ]]
+}
+
+@test "T3-4 check_prerequisites: missing node -> abort" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_cmd() {
+      [ \"\$1\" = 'node' ] && err 'Required command not found in PATH: node'
+      return 0
+    }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Required command not found in PATH: node"* ]]
+}
+
+@test "T3-5 check_prerequisites: companion not found -> abort with ADR pointer" {
+  # Empty cache root simulates a fresh install where the codex plugin has
+  # not been added yet. The resolver must err with a recognizable hint.
+  local empty_cache="$SCRATCH_DIR/empty_cache"
+  mkdir -p "$empty_cache"
+  run --separate-stderr bash -c "
+    export CODEX_COMPANION_CACHE_ROOT='$empty_cache'
+    source '$SRC_SCRIPT'
+    require_cmd() { return 0; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Codex companion script not found"* ]]
+  [[ "$stderr" == *"ADR 0012"* ]]
+}
+
+# =============================================================================
+# Tier 3-B: resolve_codex_companion version selection.
+# The dynamic resolver must pick the highest installed version so a leftover
+# older copy alongside a newer one does not silently bind us to the older
+# CLI contract. Empty-cache case is covered by T3-5 above.
+# =============================================================================
+
+@test "T3-6 resolve_codex_companion: multiple versions -> highest selected" {
+  local cache="$SCRATCH_DIR/multi_version_cache"
+  # Out-of-order on disk to confirm the test exercises sort -V, not directory
+  # listing order. 1.0.10 must beat 1.0.4 numerically, not lexicographically.
+  for v in 1.0.4 1.0.10 1.0.2; do
+    mkdir -p "$cache/$v/scripts"
+    : > "$cache/$v/scripts/codex-companion.mjs"
+  done
+  run --separate-stderr bash -c "
+    export CODEX_COMPANION_CACHE_ROOT='$cache'
+    source '$SRC_SCRIPT'
+    resolve_codex_companion
+  "
+  [ "$status" -eq 0 ]
+  [ "$output" = "$cache/1.0.10/scripts/codex-companion.mjs" ]
+}
+
+# =============================================================================
+# Tier 3-C: ADV invocation contract snapshot.
+# The bypass-claude-p workaround (ADR 0012) hinges on four argv tokens and a
+# stdout/stderr split. Pin them as a source-level snapshot so a refactor that
+# silently drops `--model gpt-5.4` (reverting the captureTurn-await-forever
+# workaround) or merges the streams (re-hiding the diagnostic from M2) fails
+# this test instead of regressing in production.
+# =============================================================================
+
+@test "T3-7 ADV invocation contract: source contains required argv + redirection" {
+  # grep -F -- terminates option parsing so tokens starting with `--` are
+  # treated as the search pattern, not as flags.
+  grep -F -- 'node "$CODEX_COMPANION" adversarial-review' "$SRC_SCRIPT"
+  grep -F -- '--base "$base"' "$SRC_SCRIPT"
+  grep -F -- '--scope branch' "$SRC_SCRIPT"
+  grep -F -- '--model gpt-5.4' "$SRC_SCRIPT"
+  grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' "$SRC_SCRIPT"
+}
+
+# =============================================================================
+# Tier 4: codex broker cleanup (issue #162).
+# triple-review's bare-CLI ADV reviewer creates an `app-server-broker.mjs`
+# that lives past the review and re-parents to PID 1 once triple-review
+# `exec`s into the auto-handoff `claude --` session. The auto-handoff
+# `SessionEnd` hook then stalls trying to graceful-shutdown the orphan,
+# producing `SessionEnd hook ... failed: Hook cancelled`. We close that
+# hole with a snapshot/teardown helper that drives the plugin's
+# broker-lifecycle.mjs API.
+#
+# The helper imports broker-lifecycle.mjs and process.mjs from the codex
+# plugin cache. To exercise the helper without depending on the real
+# plugin (Docker Ubuntu CI lacks it), each test seeds a minimal mock cache
+# matching the API surface the helper consumes.
+# =============================================================================
+
+# Build a fake codex plugin cache layout with mock library files. The mocks
+# implement just enough of broker-lifecycle.mjs / process.mjs for the helper
+# to drive snapshot/teardown end-to-end. State is rooted at $1/state, broker
+# JSON is at $MOCK_BROKER_STATE_FILE, shutdown calls are appended to
+# $MOCK_BROKER_SHUTDOWN_LOG, and kill calls are appended to $MOCK_KILL_LOG.
+# The mock layout matches the real plugin (cache_root/<version>/scripts/lib).
+seed_mock_codex_cache() {
+  local root="$1"
+  local lib_dir="$root/1.0.4/scripts/lib"
+  mkdir -p "$lib_dir"
+  # Mock broker-lifecycle.mjs — minimal subset of the real exports. State
+  # location is controlled by env var so tests can pre-populate broker.json
+  # to model "broker exists" vs "broker absent" without rebuilding the
+  # mock cache between tests.
+  cat > "$lib_dir/broker-lifecycle.mjs" <<'MOCK_BROKER'
+import fs from "node:fs";
+
+function statePath() {
+  return process.env.MOCK_BROKER_STATE_FILE || "";
+}
+
+export function loadBrokerSession(_cwd) {
+  const p = statePath();
+  if (!p || !fs.existsSync(p)) return null;
+  return JSON.parse(fs.readFileSync(p, "utf8"));
+}
+
+export async function sendBrokerShutdown(endpoint) {
+  const log = process.env.MOCK_BROKER_SHUTDOWN_LOG;
+  if (log) fs.appendFileSync(log, `${endpoint}\n`);
+}
+
+export function teardownBrokerSession({ endpoint, pidFile, logFile, sessionDir, pid, killProcess }) {
+  if (Number.isFinite(pid) && killProcess) {
+    try { killProcess(pid); } catch { /* ignore */ }
+  }
+  for (const f of [pidFile, logFile]) {
+    if (f && fs.existsSync(f)) fs.unlinkSync(f);
+  }
+  if (typeof endpoint === "string" && endpoint.startsWith("unix:")) {
+    const sock = endpoint.slice(5);
+    if (fs.existsSync(sock)) fs.unlinkSync(sock);
+  }
+  if (sessionDir && fs.existsSync(sessionDir)) {
+    try { fs.rmdirSync(sessionDir); } catch { /* non-empty or missing */ }
+  }
+}
+
+export function clearBrokerSession(_cwd) {
+  const p = statePath();
+  if (p && fs.existsSync(p)) fs.unlinkSync(p);
+}
+MOCK_BROKER
+  cat > "$lib_dir/process.mjs" <<'MOCK_PROC'
+import fs from "node:fs";
+
+export function terminateProcessTree(pid) {
+  const log = process.env.MOCK_KILL_LOG;
+  if (log) fs.appendFileSync(log, `${pid}\n`);
+  return { attempted: true, delivered: false, method: "test-mock" };
+}
+MOCK_PROC
+}
+
+# Resolve the helper script path. Tests run from the chezmoi worktree,
+# so the helper lives next to triple-review under its `executable_` name.
+broker_helper_path() {
+  printf '%s/executable_triple-review-broker-cleanup\n' "$SRC_BIN_DIR"
+}
+
+@test "T4-1 helper snapshot: no broker.json -> existed=false" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"  # absent
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" snapshot "$SCRATCH_REPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"existed":false}' ]
+}
+
+@test "T4-2 helper snapshot: broker.json present -> existed=true" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"
+  printf '{"endpoint":"unix:/tmp/x.sock","pid":42}\n' > "$MOCK_BROKER_STATE_FILE"
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" snapshot "$SCRATCH_REPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"existed":true}' ]
+}
+
+@test "T4-3 helper teardown: snapshot.existed=true -> no-op (broker.json kept)" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"
+  printf '{"endpoint":"unix:/tmp/x.sock","pid":42}\n' > "$MOCK_BROKER_STATE_FILE"
+  export MOCK_BROKER_SHUTDOWN_LOG="$SCRATCH_DIR/shutdown.log"
+  export MOCK_KILL_LOG="$SCRATCH_DIR/kill.log"
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" teardown "$SCRATCH_REPO" '{"existed":true}'
+  [ "$status" -eq 0 ]
+  # Conservative skip: pre-existing broker belongs to a concurrent session.
+  [ -f "$MOCK_BROKER_STATE_FILE" ]
+  [ ! -f "$MOCK_BROKER_SHUTDOWN_LOG" ]
+  [ ! -f "$MOCK_KILL_LOG" ]
+}
+
+@test "T4-4 helper teardown: snapshot.existed=false but no broker now -> no-op" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"  # absent
+  export MOCK_BROKER_SHUTDOWN_LOG="$SCRATCH_DIR/shutdown.log"
+  export MOCK_KILL_LOG="$SCRATCH_DIR/kill.log"
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" teardown "$SCRATCH_REPO" '{"existed":false}'
+  [ "$status" -eq 0 ]
+  [ ! -f "$MOCK_BROKER_SHUTDOWN_LOG" ]
+  [ ! -f "$MOCK_KILL_LOG" ]
+}
+
+@test "T4-5 helper teardown: existed=false + broker present -> shutdown + kill + clear" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"
+  local session_dir="$SCRATCH_DIR/cxc-test"
+  local sock_path="$session_dir/broker.sock"
+  local pid_file="$session_dir/broker.pid"
+  local log_file="$session_dir/broker.log"
+  mkdir -p "$session_dir"
+  : > "$sock_path"
+  : > "$pid_file"
+  : > "$log_file"
+  cat > "$MOCK_BROKER_STATE_FILE" <<EOF
+{
+  "endpoint": "unix:$sock_path",
+  "pidFile": "$pid_file",
+  "logFile": "$log_file",
+  "sessionDir": "$session_dir",
+  "pid": 999999
+}
+EOF
+  export MOCK_BROKER_SHUTDOWN_LOG="$SCRATCH_DIR/shutdown.log"
+  export MOCK_KILL_LOG="$SCRATCH_DIR/kill.log"
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" teardown "$SCRATCH_REPO" '{"existed":false}'
+  [ "$status" -eq 0 ]
+  # Graceful shutdown was attempted via the broker socket.
+  [ -f "$MOCK_BROKER_SHUTDOWN_LOG" ]
+  grep -qF "unix:$sock_path" "$MOCK_BROKER_SHUTDOWN_LOG"
+  # Process kill was attempted with the recorded broker pid.
+  [ -f "$MOCK_KILL_LOG" ]
+  grep -qx '999999' "$MOCK_KILL_LOG"
+  # Broker artifacts and state file are gone.
+  [ ! -f "$MOCK_BROKER_STATE_FILE" ]
+  [ ! -f "$sock_path" ]
+  [ ! -f "$pid_file" ]
+  [ ! -f "$log_file" ]
+  [ ! -d "$session_dir" ]
+}
+
+@test "T4-6 helper resolves highest installed plugin version (natural compare)" {
+  local cache="$SCRATCH_DIR/cache"
+  # Seed three versions out of lexicographic order. Real lib files only go
+  # into 1.0.10 — if helper picks 1.0.4 or 1.0.9 instead, the import fails
+  # with ERR_MODULE_NOT_FOUND. Empty lib dirs are deliberate so the wrong
+  # pick is loud, not silent.
+  for v in 1.0.4 1.0.10 1.0.9; do
+    mkdir -p "$cache/$v/scripts/lib"
+  done
+  local lib_dir="$cache/1.0.10/scripts/lib"
+  cat > "$lib_dir/broker-lifecycle.mjs" <<'MOCK'
+export function loadBrokerSession() { return null; }
+export async function sendBrokerShutdown() {}
+export function teardownBrokerSession() {}
+export function clearBrokerSession() {}
+MOCK
+  cat > "$lib_dir/process.mjs" <<'MOCK'
+export function terminateProcessTree() {}
+MOCK
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+  run --separate-stderr node "$(broker_helper_path)" snapshot "$SCRATCH_REPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"existed":false}' ]
+}
+
+@test "T4-7 helper missing cache -> non-zero with diagnostic" {
+  export CODEX_COMPANION_CACHE_ROOT="$SCRATCH_DIR/nonexistent_cache"
+  run --separate-stderr node "$(broker_helper_path)" snapshot "$SCRATCH_REPO"
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"codex plugin cache not found"* ]]
+}
+
+# =============================================================================
+# Tier 4-B: bash-side integration of the cleanup helper.
+# =============================================================================
+
+@test "T4-8 resolve_broker_cleanup_helper: finds executable_-prefixed helper in source tree" {
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_broker_cleanup_helper"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$SRC_BIN_DIR/executable_triple-review-broker-cleanup" ]
+}
+
+@test "T4-9 cleanup_codex_broker: idempotent (BROKER_CLEANUP_DONE guard)" {
+  # First call sets BROKER_CLEANUP_DONE=1; subsequent calls must early-return
+  # before invoking the helper. The helper is wired to a fail-loud script —
+  # if any call past the first invoked it, stderr would contain the warn.
+  local fail_helper="$SCRATCH_DIR/fail_helper"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fail_helper"
+  chmod +x "$fail_helper"
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    BROKER_CLEANUP_HELPER='$fail_helper'
+    BROKER_PRE_SNAPSHOT='{\"existed\":true}'
+    INITIAL_PWD=/tmp
+    cleanup_codex_broker
+    cleanup_codex_broker
+    cleanup_codex_broker
+    printf 'done=%s\n' \"\$BROKER_CLEANUP_DONE\"
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"done=1"* ]]
+  # Helper would have stayed silent only if early-skip via existed=true held;
+  # both layers (idempotency guard + existed=true skip) are intentional.
+}
+
+@test "T4-10 cleanup_codex_broker: no-op when BROKER_PRE_SNAPSHOT empty" {
+  # No pre-snapshot means main() never called the helper (early abort path).
+  # Cleanup must not invoke the helper either.
+  local fail_helper="$SCRATCH_DIR/fail_helper"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fail_helper"
+  chmod +x "$fail_helper"
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    BROKER_CLEANUP_HELPER='$fail_helper'
+    BROKER_PRE_SNAPSHOT=''
+    INITIAL_PWD=/tmp
+    cleanup_codex_broker
+  "
+  [ "$status" -eq 0 ]
+  # Helper exit-1 would have triggered the warn; absence of stderr proves the
+  # helper was not invoked.
+  [ -z "$stderr" ]
+}
+
+@test "T4-11 cleanup_codex_broker: no-op when helper file missing" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    BROKER_CLEANUP_HELPER='$SCRATCH_DIR/nonexistent_helper'
+    BROKER_PRE_SNAPSHOT='{\"existed\":false}'
+    INITIAL_PWD=/tmp
+    cleanup_codex_broker
+  "
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+}
+
+@test "T4-12 cleanup_codex_broker: helper failure -> warn, no abort" {
+  local fail_helper="$SCRATCH_DIR/fail_helper"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fail_helper"
+  chmod +x "$fail_helper"
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    BROKER_CLEANUP_HELPER='$fail_helper'
+    BROKER_PRE_SNAPSHOT='{\"existed\":false}'
+    INITIAL_PWD=/tmp
+    cleanup_codex_broker
+    printf 'survived\n'
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == "survived" ]]
+  [[ "$stderr" == *"Codex broker teardown failed"* ]]
+}
+
+@test "T4-13 kill_children calls cleanup_codex_broker even when CHILDREN empty" {
+  # Regression for the 'early-return when CHILDREN is empty' path that was
+  # restructured. The trap target must always reach the broker cleanup so
+  # post-aggregation failures (CHILDREN already drained by remove_pid)
+  # still tear down the broker.
+  local marker="$SCRATCH_DIR/cleanup_called"
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    cleanup_codex_broker() { touch '$marker'; }
+    CHILDREN=()
+    MONITOR_PID=''
+    kill_children
+  "
+  [ "$status" -eq 0 ]
+  [ -f "$marker" ]
 }
