@@ -200,7 +200,7 @@
     "filesystem": {
       "allowWrite": [
         "/tmp",
-        "~/.claude/plugins/data",
+        "~/.claude/plugins/data/codex-openai-codex",
         "~/.ssh/known_hosts"
       ],
       "allowRead": [
