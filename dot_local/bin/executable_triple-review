@@ -52,19 +52,26 @@ has_systemd_inhibit() {
 systemd_is_pid1() {
   [ -d /run/systemd/system ]
 }
-# Dbus readiness probe. `[ -d /run/systemd/system ]` confirms systemd is PID 1
-# but does NOT confirm the session dbus bus logind listens on is reachable —
-# WSL2 without systemd-genie, rootless podman, and some sudo-stripped shells
-# hit a configuration where systemd_is_pid1 is true yet systemd-inhibit exits
-# non-zero when it actually tries to take the lock. `--list` round-trips to
-# logind over dbus and fails cleanly in those environments, so we probe it
-# BEFORE exec to keep the wrap decision local to this process. Without this
-# gate, exec would succeed, bash would be replaced by systemd-inhibit, and
-# the child would bail before handing off to triple-review — the user would
-# never see a review run at all. Typical runtime on a healthy system is a
-# few milliseconds.
+# Acquisition probe (NOT a mere reachability probe). `[ -d /run/systemd/system ]`
+# confirms systemd is PID 1 but does NOT confirm two distinct prerequisites:
+# (1) the session dbus bus logind listens on is reachable (WSL2 without
+# systemd-genie, rootless podman, sudo-stripped shells hit this), and (2) the
+# polkit policy permits acquisition of `org.freedesktop.login1.inhibit-*`
+# (restrictive policy on hardened multi-user hosts and some distro defaults
+# gate it behind `auth_admin`). An earlier implementation used `--list`,
+# which round-trips dbus to logind but does NOT exercise the polkit decision
+# a real `--what=idle:sleep --mode=block` lock would trigger. Restrictive
+# polkit lets `--list` pass yet denies the actual sleep-inhibit acquisition;
+# with the old probe the wrap decision said "go", `exec` replaced bash with
+# systemd-inhibit, polkit denied, the wrapper exited non-zero, and
+# triple-review never ran (Issue #158). This probe instead invokes the same
+# polkit action the production wrap will hit, with `/bin/true` as the wrapped
+# command so the inhibitor releases the lock within milliseconds. Healthy
+# systems return in <100ms; polkit denial returns <200ms; dbus hang is
+# bounded by systemd-inhibit's client-side timeout.
 systemd_inhibitor_reachable() {
-  systemd-inhibit --list >/dev/null 2>&1
+  systemd-inhibit --what=idle:sleep --mode=block \
+    --why='triple-review probe' /bin/true >/dev/null 2>&1
 }
 
 # Emit the sleep-inhibitor wrapper command tokens (one per line) on stdout.
@@ -86,8 +93,9 @@ systemd_inhibitor_reachable() {
 # the emit:
 #   (1) has_systemd_inhibit — binary on PATH
 #   (2) systemd_is_pid1 — systemd is PID 1 (`/run/systemd/system` exists)
-#   (3) systemd_inhibitor_reachable — dbus round-trip succeeds, which (2)
-#       alone does not guarantee (see the helper's docstring)
+#   (3) systemd_inhibitor_reachable — acquisition probe via /bin/true;
+#       verifies BOTH dbus reachability AND polkit permission to acquire
+#       the sleep-inhibit lock (see the helper's docstring)
 # Any failing guard causes silent fall-through: triple-review runs without
 # the wrap, which is preferable to exec'ing into a wrapper that would bail
 # before starting the review.

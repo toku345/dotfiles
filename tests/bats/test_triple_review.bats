@@ -623,25 +623,27 @@ STUB
   [ -z "$output" ]
 }
 
-@test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit --list" {
+@test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit acquisition probe" {
   # PATH stub controls systemd-inhibit's behavior so we exercise the real
   # probe implementation end-to-end rather than just mocking the helper.
   local stub_dir="$SCRATCH_DIR/inhibit_stub"
   mkdir -p "$stub_dir"
 
-  # Success path: --list exits 0.
+  # Success path: acquisition probe (--what=idle:sleep --mode=block /bin/true)
+  # exits 0. Other argv shapes exit 2 so a regression that drops the new
+  # tokens fails the test instead of silently passing.
   cat > "$stub_dir/systemd-inhibit" <<'STUB'
 #!/usr/bin/env bash
-if [[ "$1" == "--list" ]]; then
-  exit 0
-fi
+case "$*" in
+  *--what=idle:sleep*--mode=block*/bin/true*) exit 0;;
+esac
 exit 2
 STUB
   chmod +x "$stub_dir/systemd-inhibit"
   PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
   [ "$status" -eq 0 ]
 
-  # Failure path: --list exits non-zero, mimicking dbus unavailable.
+  # Failure path: any invocation exits non-zero, mimicking dbus unavailable.
   cat > "$stub_dir/systemd-inhibit" <<'STUB'
 #!/usr/bin/env bash
 echo "Failed to connect to bus" >&2
@@ -650,6 +652,56 @@ STUB
   chmod +x "$stub_dir/systemd-inhibit"
   PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
   [ "$status" -eq 1 ]
+}
+
+@test "T2-37 systemd_inhibitor_reachable: polkit denial detected (regression vs --list-only probe)" {
+  # Simulate restrictive polkit policy: --list passes (dbus reachable) but
+  # --what=idle:sleep --mode=block fails (acquisition denied by polkit).
+  # The old probe used --list and would mistakenly succeed; the new
+  # acquisition probe must detect the denial and return non-zero so
+  # select_sleep_inhibitor_cmd falls through to wrap-skip.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_polkit"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *--what=idle:sleep*--mode=block*)
+    echo "Failed to inhibit: Access denied" >&2
+    exit 1
+    ;;
+  *--list*)
+    exit 0
+    ;;
+esac
+exit 2
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 1 ]
+}
+
+@test "T2-38 systemd_inhibitor_reachable: invokes acquisition probe with expected argv" {
+  # Witness records argv so we can verify the probe asks for the same lock
+  # the production wrap takes (--what=idle:sleep --mode=block /bin/true).
+  # heredoc is unquoted so $witness expands to the test-side path; $@/$*
+  # are escaped so they remain bash-runtime references inside the stub.
+  local stub_dir="$SCRATCH_DIR/inhibit_stub_argv"
+  local witness="$SCRATCH_DIR/inhibit_argv"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/systemd-inhibit" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > '$witness'
+case "\$*" in
+  *--what=idle:sleep*--mode=block*/bin/true*) exit 0;;
+esac
+exit 3
+STUB
+  chmod +x "$stub_dir/systemd-inhibit"
+  PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
+  [ "$status" -eq 0 ]
+  grep -qx -- '--what=idle:sleep' "$witness"
+  grep -qx -- '--mode=block' "$witness"
+  grep -qx -- '/bin/true' "$witness"
 }
 
 # =============================================================================
