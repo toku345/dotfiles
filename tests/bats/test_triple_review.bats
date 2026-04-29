@@ -734,9 +734,13 @@ STUB
   # test compress the 5s production budget so CI doesn't pay it.
   local stub_dir="$SCRATCH_DIR/inhibit_stub_hang"
   mkdir -p "$stub_dir"
+  # `exec /bin/sleep 30` replaces the stub bash with sleep itself so
+  # `timeout(1)` SIGTERMs the sleeper directly. Without `exec`, bash's
+  # default signal disposition leaves the forked sleep as an orphan that
+  # outlives the test by ~30s.
   cat > "$stub_dir/systemd-inhibit" <<'STUB'
 #!/usr/bin/env bash
-sleep 30
+exec /bin/sleep 30
 STUB
   chmod +x "$stub_dir/systemd-inhibit"
   local before=$SECONDS
