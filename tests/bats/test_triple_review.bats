@@ -651,3 +651,126 @@ STUB
   PATH="$stub_dir:$PATH" run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
   [ "$status" -eq 1 ]
 }
+
+# =============================================================================
+# Tier 3-A: check_prerequisites fail-fast matrix.
+# Each required-command path must abort with a clear diagnostic so an
+# incomplete environment surfaces before reviewers spawn. Also covers the
+# new dynamic codex-companion resolver: 0 installed versions must err out
+# at startup instead of failing 30s into the parallel run.
+# =============================================================================
+
+@test "T3-1 check_prerequisites: missing gh -> abort" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_cmd() {
+      [ \"\$1\" = 'gh' ] && err 'Required command not found in PATH: gh'
+      return 0
+    }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Required command not found in PATH: gh"* ]]
+}
+
+@test "T3-2 check_prerequisites: missing git -> abort" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_cmd() {
+      [ \"\$1\" = 'git' ] && err 'Required command not found in PATH: git'
+      return 0
+    }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Required command not found in PATH: git"* ]]
+}
+
+@test "T3-3 check_prerequisites: missing claude -> abort" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_cmd() {
+      [ \"\$1\" = 'claude' ] && err 'Required command not found in PATH: claude'
+      return 0
+    }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Required command not found in PATH: claude"* ]]
+}
+
+@test "T3-4 check_prerequisites: missing node -> abort" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_cmd() {
+      [ \"\$1\" = 'node' ] && err 'Required command not found in PATH: node'
+      return 0
+    }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Required command not found in PATH: node"* ]]
+}
+
+@test "T3-5 check_prerequisites: companion not found -> abort with ADR pointer" {
+  # Empty cache root simulates a fresh install where the codex plugin has
+  # not been added yet. The resolver must err with a recognizable hint.
+  local empty_cache="$SCRATCH_DIR/empty_cache"
+  mkdir -p "$empty_cache"
+  run --separate-stderr bash -c "
+    export CODEX_COMPANION_CACHE_ROOT='$empty_cache'
+    source '$SRC_SCRIPT'
+    require_cmd() { return 0; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Codex companion script not found"* ]]
+  [[ "$stderr" == *"ADR 0012"* ]]
+}
+
+# =============================================================================
+# Tier 3-B: resolve_codex_companion version selection.
+# The dynamic resolver must pick the highest installed version so a leftover
+# older copy alongside a newer one does not silently bind us to the older
+# CLI contract. Empty-cache case is covered by T3-5 above.
+# =============================================================================
+
+@test "T3-6 resolve_codex_companion: multiple versions -> highest selected" {
+  local cache="$SCRATCH_DIR/multi_version_cache"
+  # Out-of-order on disk to confirm the test exercises sort -V, not directory
+  # listing order. 1.0.10 must beat 1.0.4 numerically, not lexicographically.
+  for v in 1.0.4 1.0.10 1.0.2; do
+    mkdir -p "$cache/$v/scripts"
+    : > "$cache/$v/scripts/codex-companion.mjs"
+  done
+  run --separate-stderr bash -c "
+    export CODEX_COMPANION_CACHE_ROOT='$cache'
+    source '$SRC_SCRIPT'
+    resolve_codex_companion
+  "
+  [ "$status" -eq 0 ]
+  [ "$output" = "$cache/1.0.10/scripts/codex-companion.mjs" ]
+}
+
+# =============================================================================
+# Tier 3-C: ADV invocation contract snapshot.
+# The bypass-claude-p workaround (ADR 0012) hinges on four argv tokens and a
+# stdout/stderr split. Pin them as a source-level snapshot so a refactor that
+# silently drops `--model gpt-5.4` (reverting the captureTurn-await-forever
+# workaround) or merges the streams (re-hiding the diagnostic from M2) fails
+# this test instead of regressing in production.
+# =============================================================================
+
+@test "T3-7 ADV invocation contract: source contains required argv + redirection" {
+  # grep -F -- terminates option parsing so tokens starting with `--` are
+  # treated as the search pattern, not as flags.
+  grep -F -- 'node "$CODEX_COMPANION" adversarial-review' "$SRC_SCRIPT"
+  grep -F -- '--base "$base"' "$SRC_SCRIPT"
+  grep -F -- '--scope branch' "$SRC_SCRIPT"
+  grep -F -- '--model gpt-5.4' "$SRC_SCRIPT"
+  grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' "$SRC_SCRIPT"
+}

@@ -185,7 +185,7 @@
         "source": "github",
         "repo": "openai/codex-plugin-cc"
       },
-      "autoUpdate": true
+      "autoUpdate": false
     }
   },
   "language": "Japanese",
@@ -200,6 +200,7 @@
     "filesystem": {
       "allowWrite": [
         "/tmp",
+        "~/.claude/plugins/data/codex-openai-codex",
         "~/.ssh/known_hosts"
       ],
       "allowRead": [

@@ -16,6 +16,17 @@ CHILDREN=()
 MONITOR_PID=""
 MONITOR_START_TS=""
 
+# Codex companion path — resolved dynamically at startup. The plugin cache
+# layout is `<root>/<version>/scripts/codex-companion.mjs` with no `latest`
+# symlink, so any hard-coded version eventually breaks when the cache is
+# pruned or a new version is installed. Pinning to the cache path itself is
+# also unsafe: cache is not a stable interface. We resolve the highest
+# installed version at runtime and rely on `autoUpdate: false` in
+# settings.json (Codex marketplace) to prevent silent contract drift between
+# resolution and the workaround revert. See ADR 0012.
+CODEX_COMPANION=""
+CODEX_COMPANION_CACHE_ROOT="${CODEX_COMPANION_CACHE_ROOT:-$HOME/.claude/plugins/cache/openai-codex/codex}"
+
 err() {
   printf '\033[31m%s\033[0m\n' "$1" >&2
   exit 1
@@ -95,23 +106,17 @@ select_sleep_inhibitor_cmd() {
   esac
 }
 
-# Self-exec under a sleep-inhibitor wrapper on first entry; no-op on re-entry.
-# TRIPLE_REVIEW_SLEEP_INHIBITED gate ensures the wrapped child does not loop.
-# `shopt -s execfail` lets bash return control after a failed exec instead of
-# terminating with rc=126/127. `set -e` must be disabled around the exec call,
-# otherwise a failing exec returns non-zero and `set -e` exits the shell before
-# the `||` fallback branch runs (verified empirically on bash 5.3 — the branch
-# never fires under `set -Eeuo pipefail` without the toggle).
-#
-# Re-entry shape: `"${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"` rather than
-# `"$0" "$@"`. The inhibitor wrapper runs `execve` on its argv internally,
-# and `execve` requires the target file to carry the execute bit. Git stores
-# this script as mode 0644 (chezmoi apply sets 0755 only in the installed
-# copy), so any source-tree invocation — `bash dot_local/bin/...` during
-# local iteration, the bats wrapper, a developer hitting F5 from the repo —
-# would `execve($0)` on a 0644 file and bail rc=126, skipping the review
-# entirely. Going through the running bash interpreter decouples the wrap
-# path from file mode and matches production (installed, 0755) behavior.
+# Self-exec under a sleep-inhibitor wrapper on first entry (no-op on re-entry,
+# gated by TRIPLE_REVIEW_SLEEP_INHIBITED). Two non-obvious shapes; full
+# rationale in ADR 0012 §"Sleep inhibition":
+# - `shopt -s execfail` + `set +e`/`set -e` toggle: lets bash recover when the
+#   exec itself fails, instead of `set -Eeuo pipefail` exiting the shell
+#   before the `||` fallback branch can fire.
+# - `"${BASH:-bash}" "${BASH_SOURCE[0]}"` re-entry (not `exec "$0"`): git
+#   stores this script as 0644 (chezmoi sets 0755 only on apply), so an
+#   `execve($0)` from the inhibitor would rc=126 on any source-tree run.
+#   Routing through the running bash interpreter decouples the wrap path
+#   from file mode.
 maybe_wrap_with_inhibitor() {
   [ -n "${TRIPLE_REVIEW_SLEEP_INHIBITED:-}" ] && return 0
   local wrapper=() line
@@ -141,16 +146,19 @@ Usage: triple-review
 Aggregate pre-PR review findings from three reviewers into a Japanese
 priority-based summary (対応必須 / 要検討 / 対応不要 / 矛盾).
 
-Reviewers run in parallel via headless `claude -p`:
-  - /pr-review-toolkit:review-pr
-  - /security-review
-  - /codex:adversarial-review
+Reviewers run in parallel:
+  - /pr-review-toolkit:review-pr (via headless `claude -p`)
+  - /security-review (via headless `claude -p`)
+  - codex-companion adversarial-review (direct node invocation; bypasses
+    `claude -p` because the slash-command dispatch hangs in headless mode —
+    see ADR 0012)
 
 Zero arguments. The script auto-detects the PR base branch via `gh pr view`
 and falls back to origin/HEAD if no PR is associated with the current branch.
 Intermediate outputs are preserved in $TMPDIR/triple-review-* (macOS auto-cleans).
 
-Requirements: gh, git, claude on $PATH; inside a git work tree.
+Requirements: gh, git, claude, node on $PATH; codex plugin installed at the
+pinned version (see ADR 0012); inside a git work tree.
 
 Environment variables:
   TRIPLE_REVIEW_SLEEP_INHIBITED
@@ -177,10 +185,29 @@ require_cmd() {
   fi
 }
 
+# Resolve the highest installed codex-companion script and store in
+# CODEX_COMPANION. Glob over the versioned cache dir; if multiple versions are
+# installed (e.g. an old version was not pruned), `sort -V` picks the newest
+# so we never silently bind to a stale contract. Fail-loud on 0 hits.
+# Requires modern `sort -V`: GNU sort (Linux) or Apple sort 2.3+ (macOS
+# Sequoia / later). Older macOS BSD sort silently fell back to lexicographic.
+resolve_codex_companion() {
+  local script_rel="scripts/codex-companion.mjs"
+  shopt -s nullglob
+  local matches=("$CODEX_COMPANION_CACHE_ROOT"/*/"$script_rel")
+  shopt -u nullglob
+  if ((${#matches[@]} == 0)); then
+    err "Codex companion script not found under $CODEX_COMPANION_CACHE_ROOT/*/$script_rel. Install via /plugin install codex@openai-codex (see ADR 0012)."
+  fi
+  printf '%s\n' "${matches[@]}" | sort -V | tail -n1
+}
+
 check_prerequisites() {
   require_cmd gh
   require_cmd git
   require_cmd claude
+  require_cmd node
+  CODEX_COMPANION=$(resolve_codex_companion)
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     err "Not inside a git work tree. Run triple-review from within a repository."
   fi
@@ -571,7 +598,7 @@ main() {
   printf 'Running 3 reviewers in parallel...\n'
   printf 'Base branch: %s\n' "$base"
   printf 'Work dir:    %s\n' "$workdir"
-  printf '(Tip: tail -f %s/*.md for live per-reviewer output)\n' "$workdir"
+  printf '(Tip: tail -f %s/*.md %s/*.err for live per-reviewer output)\n' "$workdir" "$workdir"
 
   claude -p "/pr-review-toolkit:review-pr" > "$workdir/pr.md" 2>&1 &
   local pid_pr=$!
@@ -581,7 +608,15 @@ main() {
   local pid_sec=$!
   CHILDREN+=("$pid_sec")
 
-  claude -p "/codex:adversarial-review --wait --base $base --scope branch" > "$workdir/adv.md" 2>&1 &
+  # ADV invocation: direct codex-companion, bypassing `claude -p` slash
+  # dispatch (which hangs at `phase: starting` in headless mode). `--model
+  # gpt-5.4` pin works around the captureTurn-await-forever bug on the
+  # default gpt-5.5. stderr → adv.err keeps adv.md as pure markdown for the
+  # aggregator. Full rationale and revert plan in ADR 0012 §"Workaround —
+  # direct codex-companion invocation" and §"Known limitation — codex
+  # plugin model default broken on …".
+  node "$CODEX_COMPANION" adversarial-review --base "$base" --scope branch --model gpt-5.4 \
+    > "$workdir/adv.md" 2> "$workdir/adv.err" &
   local pid_adv=$!
   CHILDREN+=("$pid_adv")
 
@@ -618,6 +653,15 @@ main() {
   if ! check_reviewer_result ADV "$rc_adv" "$workdir/adv.md"; then
     fail_count=$((fail_count + 1))
     missing="${missing:+$missing, }ADV"
+    # ADV stderr is captured separately to keep adv.md as pure markdown for the
+    # aggregator, but on failure that means the real diagnostic (companion
+    # crash, 4xx body, model rejection, contract drift) is hidden in adv.err
+    # unless we surface it here. Symmetric with the aggregation-failure tail
+    # below.
+    if [ -s "$workdir/adv.err" ]; then
+      printf -- '--- tail of adv.err ---\n' >&2
+      tail -n 40 "$workdir/adv.err" >&2
+    fi
   fi
 
   if [ "$fail_count" -eq 3 ]; then
