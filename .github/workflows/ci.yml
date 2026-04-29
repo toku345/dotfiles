@@ -28,18 +28,35 @@ jobs:
           # Use process substitution to avoid word splitting on filenames
           while IFS= read -r script; do
             [ -z "$script" ] && continue
-            FOUND=1
-            echo ""
-            echo "Checking: $script"
 
             if echo "$script" | grep -q '\.tmpl$'; then
+              FOUND=1
+              echo ""
+              echo "Checking: $script"
               # Strip Go template syntax before checking
               # Replace {{ ... }} with PLACEHOLDER to avoid parse errors
               sed 's/{{[^}]*}}/PLACEHOLDER/g' "$script" | \
                 shellcheck --severity=warning - || FAILED=1
-            else
-              shellcheck --severity=warning "$script" || FAILED=1
+              continue
             fi
+
+            # The chezmoi `executable_` prefix sets mode 0755 on deploy
+            # but does not imply a shell interpreter — e.g.
+            # dot_local/bin/executable_triple-review-broker-cleanup is Node.
+            # Filter by shebang so non-shell executables don't fail with
+            # SC1127 / SC1011 / SC1083 noise. The regex covers bash/sh/
+            # dash/ksh/zsh either as a direct interpreter (#!/bin/bash)
+            # or via env (#!/usr/bin/env bash), with or without args.
+            shebang=$(head -n1 "$script" 2>/dev/null || true)
+            if ! [[ "$shebang" =~ ^#!.*[[:space:]/](bash|sh|dash|ksh|zsh)([[:space:]]|$) ]]; then
+              echo "Skipping non-shell script: $script"
+              continue
+            fi
+
+            FOUND=1
+            echo ""
+            echo "Checking: $script"
+            shellcheck --severity=warning "$script" || FAILED=1
           done < <(find .chezmoiscripts dot_local/bin tests/bats/bin \
               -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" \) \
               2>/dev/null)
