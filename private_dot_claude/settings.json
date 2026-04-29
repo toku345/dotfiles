@@ -185,7 +185,7 @@
         "source": "github",
         "repo": "openai/codex-plugin-cc"
       },
-      "autoUpdate": true
+      "autoUpdate": false
     }
   },
   "language": "Japanese",
