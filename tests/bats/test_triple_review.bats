@@ -667,7 +667,7 @@ STUB
   cat > "$stub_dir/systemd-inhibit" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
-  *--what=idle:sleep*--mode=block*)
+  *--what=idle:sleep*--mode=block*/bin/true*)
     echo "Failed to inhibit: Access denied" >&2
     exit 1
     ;;
