@@ -27,6 +27,21 @@ MONITOR_START_TS=""
 CODEX_COMPANION=""
 CODEX_COMPANION_CACHE_ROOT="${CODEX_COMPANION_CACHE_ROOT:-$HOME/.claude/plugins/cache/openai-codex/codex}"
 
+# Codex broker cleanup state. The bare-CLI ADV reviewer leaves an
+# `app-server-broker.mjs` running after completion (broker lifecycle is
+# normally tied to the Claude Code session that launched the slash command,
+# but the bare-CLI path has no session). The auto-handoff `exec claude --`
+# then adopts the orphan broker and the `SessionEnd` hook stalls trying to
+# shut it down (~60s timeout → "Hook cancelled"). To prevent that, we
+# snapshot whether a broker already existed at startup and only tear down
+# brokers we actually created — concurrent same-repo Claude Code sessions
+# are left alone. Issue #162; ADR 0012 §"Known side effect — orphan broker
+# after auto-handoff session quit".
+INITIAL_PWD=""
+BROKER_CLEANUP_HELPER=""
+BROKER_PRE_SNAPSHOT=""
+BROKER_CLEANUP_DONE=0
+
 err() {
   printf '\033[31m%s\033[0m\n' "$1" >&2
   exit 1
@@ -200,6 +215,50 @@ resolve_codex_companion() {
     err "Codex companion script not found under $CODEX_COMPANION_CACHE_ROOT/*/$script_rel. Install via /plugin install codex@openai-codex (see ADR 0012)."
   fi
   printf '%s\n' "${matches[@]}" | sort -V | tail -n1
+}
+
+# Resolve the broker cleanup helper sibling. Two candidates because chezmoi
+# stores executable scripts with an `executable_` prefix in the source tree
+# (mode 0644) and strips it on `chezmoi apply` (mode 0755). The unprefixed
+# name wins in production (~/.local/bin/), the prefixed name wins for bats
+# tests that source-execute from the chezmoi worktree without applying.
+# Returns empty string on miss; the broker-cleanup path then degrades to a
+# warn at runtime instead of aborting the review.
+resolve_broker_cleanup_helper() {
+  local self_dir candidate
+  self_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  for candidate in \
+    "$self_dir/triple-review-broker-cleanup" \
+    "$self_dir/executable_triple-review-broker-cleanup"; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 0
+}
+
+# Idempotent codex broker teardown. Drives the helper through its `teardown`
+# subcommand, which calls into the codex plugin's broker-lifecycle.mjs API:
+# graceful shutdown via the broker socket, then process kill + sessionDir +
+# socket file cleanup. Safe to call multiple times — guarded by
+# BROKER_CLEANUP_DONE so the trap path and the pre-handoff path can both
+# invoke it without double-tearing-down.
+#
+# No-op when:
+#   - Pre-snapshot was never taken (helper missing or main() aborted early)
+#   - Pre-snapshot showed a broker already existed (concurrent session owns it)
+#   - The helper file itself is missing
+cleanup_codex_broker() {
+  [ "$BROKER_CLEANUP_DONE" = 1 ] && return 0
+  BROKER_CLEANUP_DONE=1
+  [ -z "$BROKER_PRE_SNAPSHOT" ] && return 0
+  [ -z "$BROKER_CLEANUP_HELPER" ] && return 0
+  [ -f "$BROKER_CLEANUP_HELPER" ] || return 0
+  [ -z "$INITIAL_PWD" ] && return 0
+  if ! node "$BROKER_CLEANUP_HELPER" teardown "$INITIAL_PWD" "$BROKER_PRE_SNAPSHOT" >/dev/null 2>&1; then
+    warn "Codex broker teardown failed (issue #162). If 'pgrep -af app-server-broker.mjs' shows an entry whose --cwd matches this repo, kill it manually: read PID from <cxc-dir>/broker.pid, then 'kill <pid>'."
+  fi
 }
 
 check_prerequisites() {
@@ -440,30 +499,35 @@ kill_children() {
     kill "$MONITOR_PID" 2>/dev/null || true
     MONITOR_PID=""
   fi
-  if ((${#CHILDREN[@]} == 0)); then
-    return 0
+
+  # Restructured from an early-return so cleanup_codex_broker fires even
+  # after CHILDREN has been drained by remove_pid (normal completion path
+  # with subsequent failure: aggregator exits non-zero → trap fires →
+  # CHILDREN already empty, but the orphan broker still needs teardown).
+  if ((${#CHILDREN[@]} > 0)); then
+    local all_pids=() pid descendant
+    for pid in "${CHILDREN[@]}"; do
+      [ -z "$pid" ] && continue
+      all_pids+=("$pid")
+      while IFS= read -r descendant; do
+        [ -n "$descendant" ] && all_pids+=("$descendant")
+      done < <(collect_descendants "$pid")
+    done
+
+    for pid in "${all_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -TERM "$pid" 2>/dev/null || true
+      fi
+    done
+    sleep 0.2
+    for pid in "${all_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
+    done
   fi
 
-  local all_pids=() pid descendant
-  for pid in "${CHILDREN[@]}"; do
-    [ -z "$pid" ] && continue
-    all_pids+=("$pid")
-    while IFS= read -r descendant; do
-      [ -n "$descendant" ] && all_pids+=("$descendant")
-    done < <(collect_descendants "$pid")
-  done
-
-  for pid in "${all_pids[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid" 2>/dev/null || true
-    fi
-  done
-  sleep 0.2
-  for pid in "${all_pids[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -KILL "$pid" 2>/dev/null || true
-    fi
-  done
+  cleanup_codex_broker
 }
 
 # Build the aggregation prompt via unquoted heredoc so reviewer contents are
@@ -593,6 +657,25 @@ main() {
     err "Failed to create temporary work directory."
   fi
 
+  # Snapshot whether a codex broker already exists for this workspace
+  # BEFORE the bare-CLI ADV runs. Brokers are per-workspace singletons
+  # in the plugin model, so a pre-existing one belongs to a concurrent
+  # same-repo Claude Code session — we must not tear that down. Falling
+  # back to "existed=true" on snapshot failure (helper missing, codex
+  # plugin cache gone) means the post-run cleanup safely no-ops; the
+  # orphan-broker side effect returns but the review itself is preserved.
+  INITIAL_PWD="$PWD"
+  BROKER_CLEANUP_HELPER=$(resolve_broker_cleanup_helper)
+  if [ -n "$BROKER_CLEANUP_HELPER" ]; then
+    if ! BROKER_PRE_SNAPSHOT=$(node "$BROKER_CLEANUP_HELPER" snapshot "$INITIAL_PWD" 2>/dev/null); then
+      warn "Broker pre-snapshot failed; skipping post-run codex broker teardown. Orphan broker may remain (issue #162)."
+      BROKER_PRE_SNAPSHOT='{"existed":true}'
+    fi
+  else
+    warn "triple-review-broker-cleanup helper not found; skipping post-run codex broker teardown. Orphan broker may remain (issue #162)."
+    BROKER_PRE_SNAPSHOT='{"existed":true}'
+  fi
+
   trap kill_children EXIT INT TERM
 
   printf 'Running 3 reviewers in parallel...\n'
@@ -709,6 +792,13 @@ main() {
     cat "$workdir/summary.md" >&2
     exit 1
   fi
+
+  # Synchronous codex broker teardown BEFORE clearing the trap and
+  # exec'ing into interactive `claude --`. After exec, the parent process
+  # is replaced; any deferred cleanup would never run. cleanup_codex_broker
+  # is idempotent so a Ctrl+C between here and the exec re-enters via the
+  # trap without double-tearing-down.
+  cleanup_codex_broker
 
   trap - EXIT INT TERM
 
