@@ -774,3 +774,314 @@ STUB
   grep -F -- '--model gpt-5.4' "$SRC_SCRIPT"
   grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' "$SRC_SCRIPT"
 }
+
+# =============================================================================
+# Tier 4: codex broker cleanup (issue #162).
+# triple-review's bare-CLI ADV reviewer creates an `app-server-broker.mjs`
+# that lives past the review and re-parents to PID 1 once triple-review
+# `exec`s into the auto-handoff `claude --` session. The auto-handoff
+# `SessionEnd` hook then stalls trying to graceful-shutdown the orphan,
+# producing `SessionEnd hook ... failed: Hook cancelled`. We close that
+# hole with a snapshot/teardown helper that drives the plugin's
+# broker-lifecycle.mjs API.
+#
+# The helper imports broker-lifecycle.mjs and process.mjs from the codex
+# plugin cache. To exercise the helper without depending on the real
+# plugin (Docker Ubuntu CI lacks it), each test seeds a minimal mock cache
+# matching the API surface the helper consumes.
+# =============================================================================
+
+# Build a fake codex plugin cache layout with mock library files. The mocks
+# implement just enough of broker-lifecycle.mjs / process.mjs for the helper
+# to drive snapshot/teardown end-to-end. State is rooted at $1/state, broker
+# JSON is at $MOCK_BROKER_STATE_FILE, shutdown calls are appended to
+# $MOCK_BROKER_SHUTDOWN_LOG, and kill calls are appended to $MOCK_KILL_LOG.
+# The mock layout matches the real plugin (cache_root/<version>/scripts/lib).
+seed_mock_codex_cache() {
+  local root="$1"
+  local lib_dir="$root/1.0.4/scripts/lib"
+  mkdir -p "$lib_dir"
+  # Mock broker-lifecycle.mjs — minimal subset of the real exports. State
+  # location is controlled by env var so tests can pre-populate broker.json
+  # to model "broker exists" vs "broker absent" without rebuilding the
+  # mock cache between tests.
+  cat > "$lib_dir/broker-lifecycle.mjs" <<'MOCK_BROKER'
+import fs from "node:fs";
+
+function statePath() {
+  return process.env.MOCK_BROKER_STATE_FILE || "";
+}
+
+export function loadBrokerSession(_cwd) {
+  const p = statePath();
+  if (!p || !fs.existsSync(p)) return null;
+  return JSON.parse(fs.readFileSync(p, "utf8"));
+}
+
+export async function sendBrokerShutdown(endpoint) {
+  const log = process.env.MOCK_BROKER_SHUTDOWN_LOG;
+  if (log) fs.appendFileSync(log, `${endpoint}\n`);
+}
+
+export function teardownBrokerSession({ endpoint, pidFile, logFile, sessionDir, pid, killProcess }) {
+  if (Number.isFinite(pid) && killProcess) {
+    try { killProcess(pid); } catch { /* ignore */ }
+  }
+  for (const f of [pidFile, logFile]) {
+    if (f && fs.existsSync(f)) fs.unlinkSync(f);
+  }
+  if (typeof endpoint === "string" && endpoint.startsWith("unix:")) {
+    const sock = endpoint.slice(5);
+    if (fs.existsSync(sock)) fs.unlinkSync(sock);
+  }
+  if (sessionDir && fs.existsSync(sessionDir)) {
+    try { fs.rmdirSync(sessionDir); } catch { /* non-empty or missing */ }
+  }
+}
+
+export function clearBrokerSession(_cwd) {
+  const p = statePath();
+  if (p && fs.existsSync(p)) fs.unlinkSync(p);
+}
+MOCK_BROKER
+  cat > "$lib_dir/process.mjs" <<'MOCK_PROC'
+import fs from "node:fs";
+
+export function terminateProcessTree(pid) {
+  const log = process.env.MOCK_KILL_LOG;
+  if (log) fs.appendFileSync(log, `${pid}\n`);
+  return { attempted: true, delivered: false, method: "test-mock" };
+}
+MOCK_PROC
+}
+
+# Resolve the helper script path. Tests run from the chezmoi worktree,
+# so the helper lives next to triple-review under its `executable_` name.
+broker_helper_path() {
+  printf '%s/executable_triple-review-broker-cleanup\n' "$SRC_BIN_DIR"
+}
+
+@test "T4-1 helper snapshot: no broker.json -> existed=false" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"  # absent
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" snapshot "$SCRATCH_REPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"existed":false}' ]
+}
+
+@test "T4-2 helper snapshot: broker.json present -> existed=true" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"
+  printf '{"endpoint":"unix:/tmp/x.sock","pid":42}\n' > "$MOCK_BROKER_STATE_FILE"
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" snapshot "$SCRATCH_REPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"existed":true}' ]
+}
+
+@test "T4-3 helper teardown: snapshot.existed=true -> no-op (broker.json kept)" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"
+  printf '{"endpoint":"unix:/tmp/x.sock","pid":42}\n' > "$MOCK_BROKER_STATE_FILE"
+  export MOCK_BROKER_SHUTDOWN_LOG="$SCRATCH_DIR/shutdown.log"
+  export MOCK_KILL_LOG="$SCRATCH_DIR/kill.log"
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" teardown "$SCRATCH_REPO" '{"existed":true}'
+  [ "$status" -eq 0 ]
+  # Conservative skip: pre-existing broker belongs to a concurrent session.
+  [ -f "$MOCK_BROKER_STATE_FILE" ]
+  [ ! -f "$MOCK_BROKER_SHUTDOWN_LOG" ]
+  [ ! -f "$MOCK_KILL_LOG" ]
+}
+
+@test "T4-4 helper teardown: snapshot.existed=false but no broker now -> no-op" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"  # absent
+  export MOCK_BROKER_SHUTDOWN_LOG="$SCRATCH_DIR/shutdown.log"
+  export MOCK_KILL_LOG="$SCRATCH_DIR/kill.log"
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" teardown "$SCRATCH_REPO" '{"existed":false}'
+  [ "$status" -eq 0 ]
+  [ ! -f "$MOCK_BROKER_SHUTDOWN_LOG" ]
+  [ ! -f "$MOCK_KILL_LOG" ]
+}
+
+@test "T4-5 helper teardown: existed=false + broker present -> shutdown + kill + clear" {
+  local cache="$SCRATCH_DIR/cache"
+  seed_mock_codex_cache "$cache"
+  export MOCK_BROKER_STATE_FILE="$SCRATCH_DIR/broker.json"
+  local session_dir="$SCRATCH_DIR/cxc-test"
+  local sock_path="$session_dir/broker.sock"
+  local pid_file="$session_dir/broker.pid"
+  local log_file="$session_dir/broker.log"
+  mkdir -p "$session_dir"
+  : > "$sock_path"
+  : > "$pid_file"
+  : > "$log_file"
+  cat > "$MOCK_BROKER_STATE_FILE" <<EOF
+{
+  "endpoint": "unix:$sock_path",
+  "pidFile": "$pid_file",
+  "logFile": "$log_file",
+  "sessionDir": "$session_dir",
+  "pid": 999999
+}
+EOF
+  export MOCK_BROKER_SHUTDOWN_LOG="$SCRATCH_DIR/shutdown.log"
+  export MOCK_KILL_LOG="$SCRATCH_DIR/kill.log"
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+
+  run --separate-stderr node "$(broker_helper_path)" teardown "$SCRATCH_REPO" '{"existed":false}'
+  [ "$status" -eq 0 ]
+  # Graceful shutdown was attempted via the broker socket.
+  [ -f "$MOCK_BROKER_SHUTDOWN_LOG" ]
+  grep -qF "unix:$sock_path" "$MOCK_BROKER_SHUTDOWN_LOG"
+  # Process kill was attempted with the recorded broker pid.
+  [ -f "$MOCK_KILL_LOG" ]
+  grep -qx '999999' "$MOCK_KILL_LOG"
+  # Broker artifacts and state file are gone.
+  [ ! -f "$MOCK_BROKER_STATE_FILE" ]
+  [ ! -f "$sock_path" ]
+  [ ! -f "$pid_file" ]
+  [ ! -f "$log_file" ]
+  [ ! -d "$session_dir" ]
+}
+
+@test "T4-6 helper resolves highest installed plugin version (natural compare)" {
+  local cache="$SCRATCH_DIR/cache"
+  # Seed three versions out of lexicographic order. Real lib files only go
+  # into 1.0.10 — if helper picks 1.0.4 or 1.0.9 instead, the import fails
+  # with ERR_MODULE_NOT_FOUND. Empty lib dirs are deliberate so the wrong
+  # pick is loud, not silent.
+  for v in 1.0.4 1.0.10 1.0.9; do
+    mkdir -p "$cache/$v/scripts/lib"
+  done
+  local lib_dir="$cache/1.0.10/scripts/lib"
+  cat > "$lib_dir/broker-lifecycle.mjs" <<'MOCK'
+export function loadBrokerSession() { return null; }
+export async function sendBrokerShutdown() {}
+export function teardownBrokerSession() {}
+export function clearBrokerSession() {}
+MOCK
+  cat > "$lib_dir/process.mjs" <<'MOCK'
+export function terminateProcessTree() {}
+MOCK
+  export CODEX_COMPANION_CACHE_ROOT="$cache"
+  run --separate-stderr node "$(broker_helper_path)" snapshot "$SCRATCH_REPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"existed":false}' ]
+}
+
+@test "T4-7 helper missing cache -> non-zero with diagnostic" {
+  export CODEX_COMPANION_CACHE_ROOT="$SCRATCH_DIR/nonexistent_cache"
+  run --separate-stderr node "$(broker_helper_path)" snapshot "$SCRATCH_REPO"
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"codex plugin cache not found"* ]]
+}
+
+# =============================================================================
+# Tier 4-B: bash-side integration of the cleanup helper.
+# =============================================================================
+
+@test "T4-8 resolve_broker_cleanup_helper: finds executable_-prefixed helper in source tree" {
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_broker_cleanup_helper"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$SRC_BIN_DIR/executable_triple-review-broker-cleanup" ]
+}
+
+@test "T4-9 cleanup_codex_broker: idempotent (BROKER_CLEANUP_DONE guard)" {
+  # First call sets BROKER_CLEANUP_DONE=1; subsequent calls must early-return
+  # before invoking the helper. The helper is wired to a fail-loud script —
+  # if any call past the first invoked it, stderr would contain the warn.
+  local fail_helper="$SCRATCH_DIR/fail_helper"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fail_helper"
+  chmod +x "$fail_helper"
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    BROKER_CLEANUP_HELPER='$fail_helper'
+    BROKER_PRE_SNAPSHOT='{\"existed\":true}'
+    INITIAL_PWD=/tmp
+    cleanup_codex_broker
+    cleanup_codex_broker
+    cleanup_codex_broker
+    printf 'done=%s\n' \"\$BROKER_CLEANUP_DONE\"
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"done=1"* ]]
+  # Helper would have stayed silent only if early-skip via existed=true held;
+  # both layers (idempotency guard + existed=true skip) are intentional.
+}
+
+@test "T4-10 cleanup_codex_broker: no-op when BROKER_PRE_SNAPSHOT empty" {
+  # No pre-snapshot means main() never called the helper (early abort path).
+  # Cleanup must not invoke the helper either.
+  local fail_helper="$SCRATCH_DIR/fail_helper"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fail_helper"
+  chmod +x "$fail_helper"
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    BROKER_CLEANUP_HELPER='$fail_helper'
+    BROKER_PRE_SNAPSHOT=''
+    INITIAL_PWD=/tmp
+    cleanup_codex_broker
+  "
+  [ "$status" -eq 0 ]
+  # Helper exit-1 would have triggered the warn; absence of stderr proves the
+  # helper was not invoked.
+  [ -z "$stderr" ]
+}
+
+@test "T4-11 cleanup_codex_broker: no-op when helper file missing" {
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    BROKER_CLEANUP_HELPER='$SCRATCH_DIR/nonexistent_helper'
+    BROKER_PRE_SNAPSHOT='{\"existed\":false}'
+    INITIAL_PWD=/tmp
+    cleanup_codex_broker
+  "
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+}
+
+@test "T4-12 cleanup_codex_broker: helper failure -> warn, no abort" {
+  local fail_helper="$SCRATCH_DIR/fail_helper"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fail_helper"
+  chmod +x "$fail_helper"
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    BROKER_CLEANUP_HELPER='$fail_helper'
+    BROKER_PRE_SNAPSHOT='{\"existed\":false}'
+    INITIAL_PWD=/tmp
+    cleanup_codex_broker
+    printf 'survived\n'
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == "survived" ]]
+  [[ "$stderr" == *"Codex broker teardown failed"* ]]
+}
+
+@test "T4-13 kill_children calls cleanup_codex_broker even when CHILDREN empty" {
+  # Regression for the 'early-return when CHILDREN is empty' path that was
+  # restructured. The trap target must always reach the broker cleanup so
+  # post-aggregation failures (CHILDREN already drained by remove_pid)
+  # still tear down the broker.
+  local marker="$SCRATCH_DIR/cleanup_called"
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    cleanup_codex_broker() { touch '$marker'; }
+    CHILDREN=()
+    MONITOR_PID=''
+    kill_children
+  "
+  [ "$status" -eq 0 ]
+  [ -f "$marker" ]
+}
