@@ -109,7 +109,7 @@ select_sleep_inhibitor_cmd() {
       has_systemd_inhibit || return 0
       systemd_is_pid1 || return 0
       systemd_inhibitor_reachable || return 0
-      printf '%s\n' systemd-inhibit --what=idle:sleep --why='triple-review in progress'
+      printf '%s\n' systemd-inhibit --what=idle:sleep --mode=block --why='triple-review in progress'
       ;;
   esac
 }

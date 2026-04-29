@@ -455,13 +455,15 @@ STUB
   [ -z "$output" ]
 }
 
-@test "T2-25 select_sleep_inhibitor: Linux + all prereqs satisfied -> 3 tokens" {
+@test "T2-25 select_sleep_inhibitor: Linux + all prereqs satisfied -> 4 tokens" {
   # Override all three guards so the test does not depend on the host's
   # systemd/dbus state (real CI Ubuntu containers have no logind).
+  # --mode=block is spelled out so the production wrap argv is literally
+  # aligned with the acquisition probe's argv (probe-vs-wrap drift guard).
   export TEST_FAKE_UNAME=Linux
   run bash -c "source '$SRC_SCRIPT'; has_systemd_inhibit() { return 0; }; systemd_is_pid1() { return 0; }; systemd_inhibitor_reachable() { return 0; }; select_sleep_inhibitor_cmd"
   [ "$status" -eq 0 ]
-  [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--why=triple-review in progress' ]
+  [ "$output" = $'systemd-inhibit\n--what=idle:sleep\n--mode=block\n--why=triple-review in progress' ]
 }
 
 @test "T2-26 select_sleep_inhibitor: Linux + systemd-inhibit present + systemd not PID 1 -> empty" {
