@@ -108,7 +108,6 @@ docker run --rm -it ubuntu:24.04 bash -c '
 - install script が Linux 分岐を実行し、apt + Linuxbrew でツール群が揃う
 - `~/.bashrc`, `~/.bash_profile`, `~/.config/starship.toml` が生成される
 - macOS 専用ファイル群は[`.chezmoiignore`](../.chezmoiignore) の Linux 分岐に列挙されたパスが**生成されない**
-- `~/.config/iterm2/shell_integration.fish` は iTerm2 script の OS guard により作成されない
 
 AGENTS.md の「Docker での Ubuntu CI parity 検証」節も併せて参照してください。
 

@@ -11,24 +11,13 @@ toku345's dotfiles managed by chezmoi.
    brew install age
    ```
 
-4. Initialize chezmoi
+3. Initialize chezmoi
 
    ```sh
    chezmoi init --apply toku345
    ```
 
 ## Additional Setup
-
-### iTerm2
-
-Set the following value in iTerm2 preferences.
-
-- General > Preferences
-  - Load preferences from a custom folder or URL: `/User/<username>/.config/iterm2`
-  - Save changes: `Manually`
-    - **Note**: If set to `Automatically`, the settings will be overwritten unexpectedly.
-
-![iterm2](images/iterm2_preferences.jpg)
 
 ### Starship
 

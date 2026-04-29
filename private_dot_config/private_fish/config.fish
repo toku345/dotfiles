@@ -39,11 +39,6 @@ set --erase _asdf_shims
 ## starship
 type -q starship; and starship init fish | source
 
-## iTerm2
-if test -e $HOME/.config/iterm2/shell_integration.fish
-    source $HOME/.config/iterm2/shell_integration.fish
-end
-
 ## Rust
 # https://www.rust-lang.org/tools/install
 fish_add_path $HOME/.cargo/bin

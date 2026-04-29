@@ -171,7 +171,6 @@ git push backup main
 
 5. **追加セットアップ**
    - [README.md](../README.md)の「Additional Setup」セクションを参照
-   - iTerm2の設定
    - Nerd Fontのインストール
 
 #### Linux ホスト (Ubuntu / DGX OS) の場合
@@ -375,7 +374,6 @@ mv .local/share/chezmoi.backup .local/share/chezmoi
 #### 検証
 - [ ] シェル設定が正しく読み込まれることを確認
 - [ ] 各種ツール（asdf、direnvなど）の動作確認
-- [ ] iTerm2の設定を手動で設定
 - [ ] Nerd Fontがインストールされていることを確認
 
 ### リカバリーチェックリスト
