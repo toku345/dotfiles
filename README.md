@@ -29,4 +29,4 @@ A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal
 
 `~/.claude/settings.json` contains only environment-agnostic plugins shared across all machines. Language-specific plugins (e.g., `typescript-lsp`, `pyright-lsp`) should be added per-project in each repository's `.claude/settings.json`.
 
-Note: `outputStyle` (persona) is an exception — set as a personal preference at user scope. See [docs/adr/0015-multi-persona-output-styles.md](docs/adr/0015-multi-persona-output-styles.md) for rationale.
+Note: `outputStyle` (persona) is an exception — set as a personal preference at user scope. Per-repo overrides via `<repo>/.claude/settings.local.json` still take precedence over the user-scope default. See [docs/adr/0015-multi-persona-output-styles.md](docs/adr/0015-multi-persona-output-styles.md) for rationale.

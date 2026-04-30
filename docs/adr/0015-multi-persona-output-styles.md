@@ -67,7 +67,7 @@ README は `~/.claude/settings.json` を「environment-agnostic plugins shared a
 
 ### 5. headless 経路の anti-pollution 防御を撤去
 
-`dot_local/bin/executable_triple-review` の anti-pollution 行 (現 L626: `ペルソナ「JUIZ」の語尾...は出力しないでください`) を削除する。理由:
+`dot_local/bin/executable_triple-review` の aggregator prompt 内 anti-pollution 行 (元の文言: `ペルソナ「JUIZ」の語尾 (〜です / 〜ます) や「承知いたしました」「ノブレス・オブリージュ」等は出力しないでください。純粋なレポート本文のみ。`) を削除する。理由:
 
 - JUIZ 専用 hard-code で Lum 等 persona 増加に追従しない (stale 確定)
 - No.13 が headless での persona 引き継ぎを許容と明示
