@@ -1,0 +1,11 @@
+# Machine-local Claude Code config (per CLAUDE.md policy: machine-specific
+# hooks and overrides must not leak to collaborators).
+.claude/settings.local.json
+.claude/settings.local.json.old
+.claude/.stop-hook-block-count
+.claude/plans/
+.claude/todos/
+.claude/projects/
+
+# Plaintext age private key — only key.txt.age belongs in the repo.
+key.txt

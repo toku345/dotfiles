@@ -1,0 +1,130 @@
+---
+name: chezmoi-target-resolver
+description: >
+  Resolve chezmoi source paths (private_*, dot_*, executable_*, *.tmpl)
+  to target paths before invoking `chezmoi apply`, `chezmoi diff`, or
+  `chezmoi cat` with a path argument. Use whenever you are about to run
+  a chezmoi command on a specific file in a chezmoi source tree, or
+  when the user gives you a source-style path to apply, diff, or cat.
+  Skip if the path is already a target path (e.g. `~/.config/...`,
+  `~/.zshrc`, etc.) or if no path argument is being passed.
+---
+
+# chezmoi-target-resolver
+
+## Why this skill exists
+
+`chezmoi apply <source-path>` fails with `<path> not managed`. chezmoi
+accepts only **target paths** (the deployed location, like
+`~/.config/fish/config.fish`) as positional arguments — never source
+paths (like `private_dot_config/fish/config.fish`). Same for
+`chezmoi diff` and `chezmoi cat`.
+
+`chezmoi cat` is a partial exception: it accepts both, but the source
+form is fragile across chezmoi versions. Always normalise to a target
+path first.
+
+This is the single most common chezmoi mistake. AGENTS.md documents it
+under "Source-path gotcha".
+
+## When this skill triggers
+
+Before you run any of the following with a path argument, run this
+skill first:
+
+- `chezmoi apply <path>`
+- `chezmoi diff <path>`
+- `chezmoi cat <path>`
+- `chezmoi managed <path>`
+
+Skip the skill when:
+
+- Running `chezmoi apply` / `chezmoi diff` with no path (applies/diffs everything; that already works).
+- Running `chezmoi edit <source>` (this command takes source paths).
+- Running `chezmoi add <target>` (adding a new target file from $HOME).
+
+## Procedure
+
+1. **Check you're in a chezmoi context**:
+   ```bash
+   chezmoi source-path >/dev/null 2>&1 || { echo "not a chezmoi context"; exit 1; }
+   ```
+   If this fails, abort the skill and tell the user to cd into a
+   chezmoi-managed location.
+
+2. **Classify the path** by inspecting it (no shell call needed for the
+   common cases):
+
+   | Path shape | Verdict |
+   |---|---|
+   | Begins with `private_`, `dot_`, `encrypted_`, `executable_`, `run_once_`, `run_onchange_` | Source path — resolve |
+   | Ends in `.tmpl` | Source path — resolve |
+   | Lives under `.chezmoiscripts/` | Source path — resolve |
+   | Begins with `~/` or `/home/` or `/Users/<name>/` | Target path — use as-is |
+   | Anything else | Run `chezmoi target-path <path>` and trust the result |
+
+3. **Resolve** when classified as a source path:
+   ```bash
+   target=$(chezmoi target-path -- "$source") || {
+     echo "chezmoi cannot resolve $source — is it managed?" >&2
+     exit 1
+   }
+   ```
+
+   - If `chezmoi target-path` exits non-zero, do **not** silently fall
+     back to the source path. Report the error and stop. (`apply` would
+     fail anyway, with a worse message.)
+   - The `--` is intentional: source paths can begin with `-` after
+     stripping a prefix.
+
+4. **Run the chezmoi command** with the resolved target:
+   ```bash
+   chezmoi apply -- "$target"
+   ```
+   Note: `chezmoi apply` always reads from
+   `~/.local/share/chezmoi/`, **not** the current git worktree. If
+   the user is inside a worktree (different commit, different
+   branch), make this explicit before running, and consider
+   refusing — apply-ing from a worktree silently uses main's source.
+
+## Worked examples
+
+**Example 1**: User says "apply the new fish config".
+
+```bash
+src="private_dot_config/private_fish/config.fish"
+tgt=$(chezmoi target-path -- "$src")        # → ~/.config/fish/config.fish
+chezmoi apply -- "$tgt"
+```
+
+(Recursive chezmoi prefixes: `private_dot_config/private_fish/` deploys
+to `~/.config/fish/`, with both directories getting mode 0700.)
+
+**Example 2**: User says "diff this template".
+
+```bash
+src=".chezmoi.toml.tmpl"
+tgt=$(chezmoi target-path -- "$src")        # → ~/.config/chezmoi/chezmoi.toml
+chezmoi diff -- "$tgt"
+```
+
+**Example 3**: User passes `~/.config/ghostty/config`.
+
+Already a target path. Use as-is — no resolution needed.
+
+## Sandbox notes
+
+`chezmoi` reads `~/.config/chezmoi/chezmoistate.boltdb` and so requires
+`dangerouslyDisableSandbox: true` on Claude Code's macOS sandbox (see
+AGENTS.md "Sandbox Gotchas"). When running these commands via Bash,
+expect a sandbox prompt the first time.
+
+## What to return to the caller
+
+After running the resolved chezmoi command, report:
+
+1. The original source path the user mentioned.
+2. The resolved target path you used.
+3. The exit status of the chezmoi command.
+
+Do not mutate any files. This skill is only about argument resolution.
