@@ -221,6 +221,7 @@
   "effortLevel": "xhigh",
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
+  "outputStyle": "JUIZ",
   "viewMode": "verbose",
   "tui": "fullscreen"
 }
