@@ -29,8 +29,9 @@ fish_changed=()
 for f in "${changed[@]}"; do
   [ -f "$f" ] || continue
   case "$f" in
-    tests/bats/*.bats|tests/bats/test_helper*.bash|tests/bats/bin/*) bats_changed+=("$f") ;;
-    dot_local/bin/executable_*|.chezmoiscripts/*.sh)                  shell_changed+=("$f") ;;
+    tests/bats/*.bats)                                                 bats_changed+=("$f") ;;
+    tests/bats/test_helper*.bash|tests/bats/bin/*)                     bats_changed+=("$f"); shell_changed+=("$f") ;;
+    dot_local/bin/executable_*|.chezmoiscripts/*.sh)                   shell_changed+=("$f") ;;
     *.fish)                                                            fish_changed+=("$f") ;;
   esac
 done
@@ -61,6 +62,12 @@ fi
 if [ ${#shell_changed[@]} -gt 0 ] && command -v shellcheck >/dev/null 2>&1; then
   shell_targets=()
   for f in "${shell_changed[@]}"; do
+    case "$f" in
+      tests/bats/test_helper*.bash|tests/bats/bin/*)
+        shell_targets+=("$f")
+        continue
+        ;;
+    esac
     head=$(head -n1 "$f" 2>/dev/null || true)
     if [[ "$head" =~ ^#!.*[[:space:]/](bash|sh|dash|ksh|zsh)([[:space:]]|$) ]]; then
       shell_targets+=("$f")
