@@ -104,9 +104,14 @@ rm -rf "$TMPDIR"
 
 **Re-encrypt other .age files:**
 ```bash
+# Fail loudly on any step — never overwrite an encrypted file with an
+# untrusted result. `set -o pipefail` makes pipeline failures fatal too.
+set -euo pipefail
+
 # Create a secure temporary directory
 TMPDIR="$(mktemp -d)"
 chmod 700 "$TMPDIR"
+trap 'rm -rf "$TMPDIR"' EXIT
 
 # Find all .age files (excluding key.txt.age)
 git ls-files '*.age' | grep -v '^key\.txt\.age$'
@@ -115,29 +120,20 @@ git ls-files '*.age' | grep -v '^key\.txt\.age$'
 NEW_PUBLIC_KEY=$(grep "^# public key: " ~/key.txt.new | sed 's/^# public key: //')
 if [ -z "$NEW_PUBLIC_KEY" ]; then
   echo "ERROR: Could not extract public key from ~/key.txt.new" >&2
-  rm -rf "$TMPDIR"
   exit 1
 fi
 
-# For each file, decrypt with old key and re-encrypt with new key
-# Example for Google IME dictionary:
-age -d -i ~/key.txt.backup \
-  -o "$TMPDIR/temp_decrypted.txt" \
-  private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age
+# For each file: decrypt with old key, re-encrypt with new key, verify
+# decryption with the new key, then atomically replace the original.
+# Any failure aborts the script with the original file untouched.
+F=private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age
 
-age -r "$NEW_PUBLIC_KEY" \
-  -o private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new \
-  "$TMPDIR/temp_decrypted.txt"
+age -d -i ~/key.txt.backup -o "$TMPDIR/temp_decrypted.txt" "$F"
+age -r "$NEW_PUBLIC_KEY"   -o "$F.new"                     "$TMPDIR/temp_decrypted.txt"
+age -d -i ~/key.txt.new    -o /dev/null                    "$F.new"
 
-# Verify decryption works with new key
-age -d -i ~/key.txt.new -o /dev/null private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new
-
-# Replace old with new
-mv private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new \
-   private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age
-
-# Clean up the temporary directory
-rm -rf "$TMPDIR"
+# Atomic replace only after the .new file has been proven decryptable.
+mv "$F.new" "$F"
 ```
 
 #### 3. Update Local Key
@@ -384,10 +380,26 @@ git diff
 rg -i 'AKIA[0-9A-Z]{16}' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' .
 rg -e '-----BEGIN.*PRIVATE KEY-----' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' .
 
-# Verify encrypted files
-git ls-files '*.age' | while IFS= read -r f; do
-  head -n 1 "$f" | grep -qE 'age-encryption.org|BEGIN AGE ENCRYPTED' && echo "OK: $f" || echo "ERROR: $f"
-done
+# Verify encrypted files. Aggregates failures and exits non-zero so this
+# block is safe to embed in CI / pre-commit, not just eyeball checks.
+(
+  set -uo pipefail
+  failed=0
+  while IFS= read -r f; do
+    if ! head_line=$(head -n 1 "$f"); then
+      echo "ERROR: cannot read $f" >&2
+      failed=1
+      continue
+    fi
+    if printf '%s\n' "$head_line" | grep -qE 'age-encryption.org|BEGIN AGE ENCRYPTED'; then
+      echo "OK: $f"
+    else
+      echo "ERROR: $f does not look like an age file" >&2
+      failed=1
+    fi
+  done < <(git ls-files '*.age')
+  exit "$failed"
+)
 ```
 
 ### Key Management
