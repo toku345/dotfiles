@@ -58,7 +58,7 @@ When a test fails inside the container but is known to pass on macOS, before sug
 | `bats` reports `command -v` returning the wrong tool | PATH ordering or executable-bit difference (git stores `0644`, chezmoi-apply gives `0755`) | `git ls-files -s tests/bats/bin/<file>` |
 | `command date` recurses / fork-bombs | A PATH-overriding stub re-runs itself instead of calling `/bin/date` | grep for `command date` inside stubs |
 | Test passes on first run, hangs on second | bats test leaks a long-running process; check polling loop substitution | grep for fixed `sleep` instead of polling loop |
-| `set -Eeuo pipefail` script's `||` fallback never fires | `execfail` interaction with `set -e` (see `AGENTS.md` Bash Script Gotchas) | grep for `exec ` followed by `||` |
+| `set -Eeuo pipefail` script's <code>&#124;&#124;</code> fallback never fires | `execfail` interaction with `set -e` (see `AGENTS.md` Bash Script Gotchas) | grep for <code>exec</code> followed by <code>&#124;&#124;</code> |
 
 When pointing at a fix, cite the `AGENTS.md` section by name so the user can read the canonical guidance.
 
