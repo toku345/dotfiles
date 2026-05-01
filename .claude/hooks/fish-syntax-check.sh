@@ -5,13 +5,23 @@
 #
 # Wired in .claude/settings.local.json with matcher "Edit|Write".
 
-set -euo pipefail
+set -Eeuo pipefail
 
 if ! payload=$(cat); then
+  echo "fish-syntax-check: failed to read hook payload; skipping." >&2
   exit 0
 fi
 
-file=$(jq -r '.tool_input.file_path // empty' <<<"$payload" 2>/dev/null || echo "")
+if ! command -v jq >/dev/null 2>&1; then
+  echo "fish-syntax-check: jq not installed; skipping." >&2
+  exit 0
+fi
+
+if ! file=$(jq -er '.tool_input.file_path // empty' <<<"$payload"); then
+  # `jq -e` returns non-zero on null/empty — that just means no file_path
+  # in this payload (e.g. tool variant we don't care about). Exit silently.
+  exit 0
+fi
 [ -n "$file" ] || exit 0
 [ -f "$file" ] || exit 0
 
@@ -20,7 +30,10 @@ case "$file" in
   *) exit 0 ;;
 esac
 
-command -v fish >/dev/null 2>&1 || exit 0
+if ! command -v fish >/dev/null 2>&1; then
+  echo "fish-syntax-check: fish not installed; skipping $file." >&2
+  exit 0
+fi
 
 if out=$(fish -n "$file" 2>&1); then
   exit 0
