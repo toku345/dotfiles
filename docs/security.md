@@ -294,6 +294,26 @@ automatically — no periodic maintenance is required. If a value blocks a
 legitimately-needed fresh package, dependency resolution simply pins to an
 older version (fail-safe).
 
+### Defense scope (what is and isn't blocked)
+
+A few subtleties that are easy to read past in the table above:
+
+- **Time-based isolation does not stop build-time code execution.** uv's
+  `exclude-newer` only filters which distributions are *resolvable*; once
+  a sdist is selected, its `setup.py` / PEP 517 build backend still
+  executes arbitrary Python at install time. `no-build = true` is what
+  closes that path. pip's `only-binary = :all:` plays the same role.
+  Treat `exclude-newer` and `no-build` as complementary, not redundant.
+- **`ignore-scripts=true` silently skips lifecycle scripts.** Many npm
+  packages legitimately rely on `postinstall` to fetch platform binaries
+  or run native builds. Under this default, `npm install` / `bun install`
+  succeed but the runtime later fails with a missing module or binary.
+  When troubleshooting an unexplained "module not found" right after
+  install, re-run with `--ignore-scripts=false` for that single package
+  to confirm whether a postinstall is the cause.
+- **`~/.npmrc` and `~/.bunfig.toml` are independent.** Disabling scripts
+  in one file does not cover the other tool — see the table above.
+
 ### Temporary overrides (when a trusted package needs to bypass a defense)
 
 ```bash
