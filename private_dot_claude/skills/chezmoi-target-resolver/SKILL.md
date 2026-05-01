@@ -29,8 +29,23 @@ under "Source-path gotcha".
 
 ## When this skill triggers
 
-Before you run any of the following with a path argument, run this
-skill first:
+**Invocation model**: This skill is **auto-invoked** by Claude Code
+when the description above matches the current task — there is no
+slash command and no manual `Skill` call. The matcher fires when
+Claude is about to run `chezmoi apply`, `chezmoi diff`, or
+`chezmoi cat` with a path argument. To suppress this skill for a
+specific request, tell Claude "skip the chezmoi-target-resolver
+skill" or pass an already-resolved target path so the description
+no longer matches.
+
+**Hard gate (global-scope safety)**: This skill lives under
+`~/.claude/skills/` (user-global) but only makes sense in a chezmoi
+source tree. The first procedure step calls `chezmoi source-path`
+and aborts otherwise — do **not** weaken that check. The skill must
+be a no-op outside chezmoi-managed contexts so it never disturbs
+non-chezmoi projects.
+
+Trigger when about to run any of the following with a path argument:
 
 - `chezmoi apply <path>`
 - `chezmoi diff <path>`
@@ -42,6 +57,7 @@ Skip the skill when:
 - Running `chezmoi apply` / `chezmoi diff` with no path (applies/diffs everything; that already works).
 - Running `chezmoi edit <source>` (this command takes source paths).
 - Running `chezmoi add <target>` (adding a new target file from $HOME).
+- Not inside a chezmoi-managed source tree (see hard gate above).
 
 ## Procedure
 
@@ -81,11 +97,15 @@ Skip the skill when:
    ```bash
    chezmoi apply -- "$target"
    ```
-   Note: `chezmoi apply` always reads from
-   `~/.local/share/chezmoi/`, **not** the current git worktree. If
-   the user is inside a worktree (different commit, different
-   branch), make this explicit before running, and consider
-   refusing — apply-ing from a worktree silently uses main's source.
+   **Worktree prohibition (hard rule)**: `chezmoi apply` always
+   reads from `~/.local/share/chezmoi/`, **not** the current git
+   worktree. Do **not** run `chezmoi apply` from a git worktree —
+   changes must be merged to main first. If `git rev-parse --git-dir`
+   resolves under `.git/worktrees/`, refuse and tell the user to
+   merge to main and `cd ~/.local/share/chezmoi` (or their main
+   chezmoi source path) before applying. Same caveat applies to
+   `chezmoi diff` when verifying intended deploys, since it would
+   silently compare against main's source rather than the worktree.
 
 ## Worked examples
 
