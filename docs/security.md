@@ -286,12 +286,16 @@ attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_
 | File | Setting | Effect |
 | --- | --- | --- |
 | `~/.npmrc` | `ignore-scripts=true` | Disables `pre/postinstall` lifecycle scripts for both npm and bun. Blocks the most common arbitrary-code-execution vector. |
+| `~/.bunfig.toml` | `[install] minimumReleaseAge = 604800` | Time-based isolation for bun's npm package manager. Refuses npm packages younger than 7 days (in seconds). Mirrors uv's `exclude-newer`. |
+| `~/.bunfig.toml` | `[install] ignoreScripts = true` | Belt-and-suspenders for `~/.npmrc`. Even stronger than npm's equivalent — overrides `trustedDependencies` allowlists. |
 | `~/.config/pip/pip.conf` | `[install] only-binary = :all:` | Refuses sdists; installs pre-built wheels only. Prevents `setup.py` / build-backend code from executing at install time. |
-| `~/.config/uv/uv.toml` | `exclude-newer = "<commit date - 7d>"` | Time-based isolation: refuses to resolve PyPI distributions uploaded within the last ~7 days. Most malicious versions are detected and yanked inside this window. |
+| `~/.config/uv/uv.toml` | `exclude-newer = "7 days"` | Time-based isolation: refuses to resolve PyPI distributions uploaded within the last 7 days. Most malicious versions are detected and yanked inside this window. |
 
-The `exclude-newer` value should be bumped roughly weekly; the policy is
-"commit date minus 7 days." If you forget, dependency resolution simply pins
-to older versions — fail-safe behavior.
+Both time-based settings (`minimumReleaseAge`, `exclude-newer`) are expressed
+as **durations**, not absolute dates, so the cooldown window slides
+automatically — no periodic maintenance is required. If a value blocks a
+legitimately-needed fresh package, dependency resolution simply pins to an
+older version (fail-safe).
 
 ### Temporary overrides (when a trusted package needs to bypass a defense)
 
@@ -299,24 +303,31 @@ to older versions — fail-safe behavior.
 # npm/bun: allow lifecycle scripts for a single install (vetted native builds)
 npm install --ignore-scripts=false <pkg>
 
+# bun: widen the cooldown for a single project (edit project-local bunfig.toml)
+#   [install]
+#   minimumReleaseAge = 0      # disables cooldown for this project only
+
 # pip: allow sdist for a specific package that ships no wheel
 pip install --no-binary <pkg> <pkg>
 
-# uv: temporarily widen the time window
-uv add --exclude-newer=<YYYY-MM-DD> <pkg>
+# uv: temporarily widen the time window (duration or absolute date both accepted)
+uv add --exclude-newer="0 seconds" <pkg>
 # or per-invocation
-UV_EXCLUDE_NEWER=<YYYY-MM-DD> uv pip install <pkg>
+UV_EXCLUDE_NEWER="0 seconds" uv pip install <pkg>
+# or persistent per-package override in uv.toml:
+#   exclude-newer-package = { foo = "0 seconds" }
 ```
 
-Use overrides only for the single command that needs them — never edit the
-config files to weaken global defaults.
+Use overrides only for the single command (or single project) that needs
+them — never edit the user-global config files to weaken defaults.
 
 ### Verification
 
 ```bash
-npm config get ignore-scripts            # → true
-pip config list                           # → install.only-binary = :all:
-grep exclude-newer ~/.config/uv/uv.toml   # → exclude-newer = "..."
+npm config get ignore-scripts                     # → true
+grep -E 'minimumReleaseAge|ignoreScripts' ~/.bunfig.toml
+pip config list                                    # → install.only-binary = :all:
+grep exclude-newer ~/.config/uv/uv.toml            # → exclude-newer = "7 days"
 ```
 
 ## Best Practices

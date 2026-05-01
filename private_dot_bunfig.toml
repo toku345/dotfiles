@@ -1,0 +1,20 @@
+# Bun global config (~/.bunfig.toml). Shallow-merged with project-local
+# bunfig.toml; project values override these for the project.
+# Reference: https://bun.com/docs/runtime/bunfig#global-vs-local
+
+[install]
+# Time-based isolation for bun's npm package manager. Mirrors uv's
+# `exclude-newer = "7 days"` — refuses to install npm packages younger
+# than the configured duration. 7 days = 604800 seconds. This is a
+# duration, not a date, so no periodic bumping is required.
+# Reference: https://bun.com/docs/runtime/bunfig#install-minimumreleaseage
+minimumReleaseAge = 604800
+
+# Belt-and-suspenders: also disable lifecycle scripts here. ~/.npmrc's
+# `ignore-scripts=true` already covers bun, but a project-local bunfig.toml
+# could re-enable scripts; setting it here in the global bunfig means a
+# project must explicitly override BOTH layers to run lifecycle scripts.
+# When true, bun also ignores `trustedDependencies`, so this is strictly
+# stronger than npm's equivalent.
+# Reference: https://bun.com/docs/runtime/bunfig#install-ignorescripts
+ignoreScripts = true
