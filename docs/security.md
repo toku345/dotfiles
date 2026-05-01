@@ -300,22 +300,32 @@ older version (fail-safe).
 ### Temporary overrides (when a trusted package needs to bypass a defense)
 
 ```bash
-# npm/bun: allow lifecycle scripts for a single install (vetted native builds)
-npm install --ignore-scripts=false <pkg>
+# npm: allow lifecycle scripts for a single install (vetted native builds)
+npm install --no-ignore-scripts <pkg>
+# bun: no --ignore-scripts CLI flag exists — trust the package explicitly
+bun pm trust <pkg>
 
-# bun: widen the cooldown for a single project (edit project-local bunfig.toml)
-#   [install]
-#   minimumReleaseAge = 0      # disables cooldown for this project only
+# bun: widen the cooldown
+#   per-invocation:
+bun add --minimum-release-age 0 <pkg>
+#   per-project (edit project-local bunfig.toml):
+#     [install]
+#     minimumReleaseAge = 0
+#   per-package (persistent, in ~/.bunfig.toml):
+#     [install]
+#     minimumReleaseAgeExcludes = ["@types/node", "typescript"]
 
-# pip: allow sdist for a specific package that ships no wheel
-pip install --no-binary <pkg> <pkg>
+# pip: allow sdist for a specific package that ships no wheel.
+# Must disable the global only-binary in the same invocation, otherwise
+# the two flags are additive and pip exits with "No matching distribution":
+PIP_ONLY_BINARY=:none: pip install --no-binary=<pkg> <pkg>
 
-# uv: temporarily widen the time window (duration or absolute date both accepted)
-uv add --exclude-newer="0 seconds" <pkg>
-# or per-invocation
+# uv: temporarily widen the time window (per-invocation, no config edit)
 UV_EXCLUDE_NEWER="0 seconds" uv pip install <pkg>
-# or persistent per-package override in uv.toml:
+# or persistent per-package override in ~/.config/uv/uv.toml:
 #   exclude-newer-package = { foo = "0 seconds" }
+# Note: `uv add --exclude-newer=...` writes the value into pyproject.toml
+# (project-scoped persistent), so it is not actually a one-shot override.
 ```
 
 Use overrides only for the single command (or single project) that needs

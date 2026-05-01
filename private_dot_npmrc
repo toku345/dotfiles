@@ -7,5 +7,7 @@
 # Reference: https://blog.flatt.tech/entry/mini_shai_hulud
 #
 # Override (one-shot, only for vetted packages that genuinely need scripts,
-# e.g. native builds): npm install --ignore-scripts=false <pkg>
+# e.g. native builds):
+#   npm install --no-ignore-scripts <pkg>
+#   bun pm trust <pkg>          # bun has no --ignore-scripts CLI flag
 ignore-scripts=true

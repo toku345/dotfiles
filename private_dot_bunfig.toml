@@ -14,7 +14,7 @@ minimumReleaseAge = 604800
 # `ignore-scripts=true` already covers bun, but a project-local bunfig.toml
 # could re-enable scripts; setting it here in the global bunfig means a
 # project must explicitly override BOTH layers to run lifecycle scripts.
-# When true, bun also ignores `trustedDependencies`, so this is strictly
-# stronger than npm's equivalent.
+# Use `bun pm trust <pkg>` to explicitly run scripts for a vetted package
+# (this is bun's canonical opt-in; bun has no --ignore-scripts CLI flag).
 # Reference: https://bun.com/docs/runtime/bunfig#install-ignorescripts
 ignoreScripts = true
