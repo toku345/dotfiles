@@ -1,0 +1,11 @@
+# Supply chain defense: disable lifecycle scripts (preinstall/postinstall/etc.)
+# for npm AND bun (bun reads ~/.npmrc for npm-compatible options).
+#
+# Background: Mini Shai-Hulud (2026-04) abused npm postinstall to download
+# malicious payloads via the official bun runtime. Disabling lifecycle scripts
+# is the single highest-leverage mitigation for this class of attack.
+# Reference: https://blog.flatt.tech/entry/mini_shai_hulud
+#
+# Override (one-shot, only for vetted packages that genuinely need scripts,
+# e.g. native builds): npm install --ignore-scripts=false <pkg>
+ignore-scripts=true

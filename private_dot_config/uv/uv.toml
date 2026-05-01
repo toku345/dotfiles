@@ -1,0 +1,13 @@
+# Supply chain defense (time-based isolation): ignore PyPI distributions
+# uploaded within the last ~7 days. Most malicious package versions are
+# discovered and yanked within this window, so refusing to resolve fresh
+# uploads cheaply blocks the bulk of "freshly-published-and-already-pwned"
+# incidents (e.g. Mini Shai-Hulud, 2026-04).
+#
+# Operational policy: bump this date roughly weekly. The value below is
+# always set to (commit date - 7 days).
+#
+# Override (one-shot):
+#   uv add --exclude-newer=<later-date> <pkg>
+#   UV_EXCLUDE_NEWER=<later-date> uv pip install <pkg>
+exclude-newer = "2026-04-24T00:00:00Z"

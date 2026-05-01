@@ -8,7 +8,8 @@ This guide covers security best practices and emergency procedures for managing 
 2. [Emergency Key Rotation](#emergency-key-rotation)
 3. [CI/CD Security Checks](#cicd-security-checks)
 4. [Audit Trail](#audit-trail)
-5. [Best Practices](#best-practices)
+5. [Package Manager Supply Chain Defense](#package-manager-supply-chain-defense)
+6. [Best Practices](#best-practices)
 
 ## Security Overview
 
@@ -272,6 +273,51 @@ git log --pretty=format:"%h %ad %s" --date=short -- '*.age'
 1. **Meaningful commit messages** - Explain why encrypted files changed
 2. **Separate commits** - Don't mix encrypted file changes with other changes
 3. **Review before push** - Always check `git diff` before pushing
+
+## Package Manager Supply Chain Defense
+
+Hardening defaults are committed for npm/bun, pip, and uv to mitigate the class of
+attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_hulud)
+(2026-04, npm postinstall + malicious bun runtime download) and the
+`lightning@2.6.2/2.6.3` PyPI compromise (2026-04).
+
+### Defenses in place
+
+| File | Setting | Effect |
+| --- | --- | --- |
+| `~/.npmrc` | `ignore-scripts=true` | Disables `pre/postinstall` lifecycle scripts for both npm and bun. Blocks the most common arbitrary-code-execution vector. |
+| `~/.config/pip/pip.conf` | `[install] only-binary = :all:` | Refuses sdists; installs pre-built wheels only. Prevents `setup.py` / build-backend code from executing at install time. |
+| `~/.config/uv/uv.toml` | `exclude-newer = "<commit date - 7d>"` | Time-based isolation: refuses to resolve PyPI distributions uploaded within the last ~7 days. Most malicious versions are detected and yanked inside this window. |
+
+The `exclude-newer` value should be bumped roughly weekly; the policy is
+"commit date minus 7 days." If you forget, dependency resolution simply pins
+to older versions — fail-safe behavior.
+
+### Temporary overrides (when a trusted package needs to bypass a defense)
+
+```bash
+# npm/bun: allow lifecycle scripts for a single install (vetted native builds)
+npm install --ignore-scripts=false <pkg>
+
+# pip: allow sdist for a specific package that ships no wheel
+pip install --no-binary <pkg> <pkg>
+
+# uv: temporarily widen the time window
+uv add --exclude-newer=<YYYY-MM-DD> <pkg>
+# or per-invocation
+UV_EXCLUDE_NEWER=<YYYY-MM-DD> uv pip install <pkg>
+```
+
+Use overrides only for the single command that needs them — never edit the
+config files to weaken global defaults.
+
+### Verification
+
+```bash
+npm config get ignore-scripts            # → true
+pip config list                           # → install.only-binary = :all:
+grep exclude-newer ~/.config/uv/uv.toml   # → exclude-newer = "..."
+```
 
 ## Best Practices
 
