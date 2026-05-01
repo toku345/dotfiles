@@ -146,7 +146,7 @@ triple-review adversarial レビューで「Override の suspend 対象が『per
 - override section の末尾文を「該当しない通常応答に限り、以降の persona 規則を全て適用する」に変更し、output-style 本体の persona 規則 section 全てを Override 非発動時のみ適用される条件付き規則として位置付け (persona 拡張時の section 個別更新を不要化)
 - `~/.claude/CLAUDE.md` (chezmoi source: `private_dot_claude/CLAUDE.md`) の headless 適用除外にも strict envelope 例外を追加し、persona 切替に依存しない二重ガードとした (Lum.md の override + CLAUDE.md の例外)
 
-検証要件は本 Decision 7 末尾の triple-review 1 PR 実走に加え、後続 PR (issue #167 follow-up) で `triple-review` aggregator に runtime envelope validator を追加することで自動化予定。
+検証要件は本 Decision 7 末尾の triple-review 1 PR 実走に加え、後続 PR で `triple-review` aggregator に runtime envelope validator を追加することで自動化予定 (実装済: `dot_local/bin/executable_triple-review` の `assert_envelope_valid` + `tests/bats/test_triple_review_envelope_validator.bats`)。validator は (a) 最初の非空行が `### 対応必須` に厳密一致すること、(b) fenced code block 外に persona marker (`PERSONA_MARKERS_REGEX`) が出現しないこと、を assert する。コードブロック内引用は許容することで、Lum.md 自身を改修する PR の review 時の false positive を回避する。
 
 ## Consequences
 
