@@ -290,6 +290,7 @@ attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_
 | `~/.bunfig.toml` | `[install] ignoreScripts = true` | Disables lifecycle scripts for **bun only**. bun does not honor `~/.npmrc`'s `ignore-scripts`, so this is a separate defense, not a backup. As a global toggle it skips scripts even for packages listed in a project's `trustedDependencies`. |
 | `~/.config/pip/pip.conf` | `[install] only-binary = :all:` | Refuses sdists; installs pre-built wheels only. Prevents `setup.py` / build-backend code from executing at install time. |
 | `~/.config/uv/uv.toml` | `exclude-newer = "7 days"` | Time-based isolation: refuses to resolve PyPI distributions uploaded within the last 7 days. Most malicious versions are detected and yanked inside this window. |
+| `~/.config/uv/uv.toml` | `no-build = true` | Refuses sdists; installs pre-built wheels only. Mirrors pip's `only-binary = :all:`. Prevents PEP 517 build-backend / `setup.py` code from executing at install time — `exclude-newer` alone does not close this path. |
 
 Both time-based settings (`minimumReleaseAge`, `exclude-newer`) are expressed
 as **durations**, not absolute dates, so the cooldown window slides
@@ -328,6 +329,11 @@ UV_EXCLUDE_NEWER="0 seconds" uv pip install <pkg>
 #   exclude-newer-package = { foo = "0 seconds" }
 # Note: `uv add --exclude-newer=...` writes the value into pyproject.toml
 # (project-scoped persistent), so it is not actually a one-shot override.
+
+# uv: allow sdist for a specific package that ships no wheel.
+UV_NO_BUILD=0 uv pip install <pkg>
+# or persistent per-package override in ~/.config/uv/uv.toml:
+#   no-build-package = ["foo"]
 ```
 
 Use overrides only for the single command (or single project) that needs
@@ -339,7 +345,7 @@ them — never edit the user-global config files to weaken defaults.
 npm config get ignore-scripts                     # → true
 grep -E 'minimumReleaseAge|ignoreScripts' ~/.bunfig.toml
 pip config list                                    # → install.only-binary = :all:
-grep exclude-newer ~/.config/uv/uv.toml            # → exclude-newer = "7 days"
+grep -E 'exclude-newer|no-build' ~/.config/uv/uv.toml  # → both settings present
 ```
 
 ## Best Practices

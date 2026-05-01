@@ -14,3 +14,15 @@
 #   UV_EXCLUDE_NEWER=<duration-or-date> uv pip install <pkg>
 # Per-package override (persistent): exclude-newer-package = { foo = "30 days" }
 exclude-newer = "7 days"
+
+# Refuse source distributions; install pre-built wheels only. Mirrors pip's
+# `only-binary = :all:`. Closes the build-backend / setup.py code execution
+# path that `exclude-newer` alone cannot block — sdist build steps run
+# arbitrary Python at install time even when the upload is older than the
+# cooldown.
+#
+# Override (one-shot): UV_NO_BUILD=0 uv pip install <pkg>
+# Per-package persistent (in this file):
+#   no-build-package = ["foo"]
+# Reference: https://docs.astral.sh/uv/reference/settings/#no-build
+no-build = true
