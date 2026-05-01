@@ -4,9 +4,10 @@
 # uploads cheaply blocks the bulk of "freshly-published-and-already-pwned"
 # incidents (e.g. Mini Shai-Hulud, 2026-04).
 #
-# Duration form (uv >= 0.6, friendly or ISO 8601) is preferred over an
-# absolute timestamp because it requires no periodic maintenance —
+# Duration form (friendly like "7 days" or ISO 8601 like "P7D") is preferred
+# over an absolute timestamp because it requires no periodic maintenance —
 # the cooldown window slides with the current time automatically.
+# Reference: https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns
 #
 # Override (one-shot):
 #   uv add --exclude-newer=<duration-or-date> <pkg>

@@ -285,9 +285,9 @@ attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_
 
 | File | Setting | Effect |
 | --- | --- | --- |
-| `~/.npmrc` | `ignore-scripts=true` | Disables `pre/postinstall` lifecycle scripts for both npm and bun. Blocks the most common arbitrary-code-execution vector. |
+| `~/.npmrc` | `ignore-scripts=true` | Disables `pre/postinstall` lifecycle scripts for **npm only**. Blocks the most common arbitrary-code-execution vector. |
 | `~/.bunfig.toml` | `[install] minimumReleaseAge = 604800` | Time-based isolation for bun's npm package manager. Refuses npm packages younger than 7 days (in seconds). Mirrors uv's `exclude-newer`. |
-| `~/.bunfig.toml` | `[install] ignoreScripts = true` | Belt-and-suspenders for `~/.npmrc`. Even stronger than npm's equivalent — overrides `trustedDependencies` allowlists. |
+| `~/.bunfig.toml` | `[install] ignoreScripts = true` | Disables lifecycle scripts for **bun only**. bun does not honor `~/.npmrc`'s `ignore-scripts`, so this is a separate defense, not a backup. As a global toggle it skips scripts even for packages listed in a project's `trustedDependencies`. |
 | `~/.config/pip/pip.conf` | `[install] only-binary = :all:` | Refuses sdists; installs pre-built wheels only. Prevents `setup.py` / build-backend code from executing at install time. |
 | `~/.config/uv/uv.toml` | `exclude-newer = "7 days"` | Time-based isolation: refuses to resolve PyPI distributions uploaded within the last 7 days. Most malicious versions are detected and yanked inside this window. |
 
@@ -301,9 +301,11 @@ older version (fail-safe).
 
 ```bash
 # npm: allow lifecycle scripts for a single install (vetted native builds)
-npm install --no-ignore-scripts <pkg>
-# bun: no --ignore-scripts CLI flag exists — trust the package explicitly
-bun pm trust <pkg>
+npm install --ignore-scripts=false <pkg>
+# bun: same shape — one-shot override of bunfig's ignoreScripts
+bun install --ignore-scripts=false <pkg>
+# bun: persistent allowlist (writes trustedDependencies into project package.json)
+bun install --trust <pkg>
 
 # bun: widen the cooldown
 #   per-invocation:
