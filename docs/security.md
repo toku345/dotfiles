@@ -123,17 +123,19 @@ if [ -z "$NEW_PUBLIC_KEY" ]; then
   exit 1
 fi
 
-# For each file: decrypt with old key, re-encrypt with new key, verify
-# decryption with the new key, then atomically replace the original.
-# Any failure aborts the script with the original file untouched.
-F=private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age
-
-age -d -i ~/key.txt.backup -o "$TMPDIR/temp_decrypted.txt" "$F"
-age -r "$NEW_PUBLIC_KEY"   -o "$F.new"                     "$TMPDIR/temp_decrypted.txt"
-age -d -i ~/key.txt.new    -o /dev/null                    "$F.new"
-
-# Atomic replace only after the .new file has been proven decryptable.
-mv "$F.new" "$F"
+# For each tracked .age file (excluding key.txt.age): decrypt with old
+# key, re-encrypt with new key, verify decryption with the new key, then
+# atomically replace the original. `set -euo pipefail` plus the verify
+# step ensure any per-iteration failure aborts before the corresponding
+# mv runs, so an .age file is never overwritten with an unreadable
+# replacement. Files rotated in earlier iterations stay rotated.
+while IFS= read -r F; do
+  age -d -i ~/key.txt.backup -o "$TMPDIR/temp_decrypted.txt" "$F"
+  age -r "$NEW_PUBLIC_KEY"   -o "$F.new"                     "$TMPDIR/temp_decrypted.txt"
+  age -d -i ~/key.txt.new    -o /dev/null                    "$F.new"
+  # Atomic replace only after the .new file has been proven decryptable.
+  mv "$F.new" "$F"
+done < <(git ls-files '*.age' | grep -v '^key\.txt\.age$')
 ```
 
 #### 3. Update Local Key
