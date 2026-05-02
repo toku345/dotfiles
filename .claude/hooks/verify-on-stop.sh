@@ -46,8 +46,15 @@ fish_changed=()
 for f in "${changed[@]}"; do
   [ -f "$f" ] || continue
   case "$f" in
-    tests/bats/*.bats)                                                 bats_changed+=("$f") ;;
-    tests/bats/test_helper*.bash|tests/bats/bin/*)                     bats_changed+=("$f"); shell_changed+=("$f") ;;
+    # Shell helpers / stub binaries also need shellcheck. Match these
+    # before the broader `tests/bats/*` pattern below, since case stops
+    # at the first match — otherwise the broad pattern would shadow the
+    # shell-specific append.
+    tests/bats/bin/*|tests/bats/*.bash)                                bats_changed+=("$f"); shell_changed+=("$f") ;;
+    # Catch every other file under tests/bats/ — including fixtures,
+    # snapshots, and *.bats — since any of them can change a test
+    # outcome and so must trigger the bats gate.
+    tests/bats/*)                                                      bats_changed+=("$f") ;;
     dot_local/bin/executable_*|.chezmoiscripts/*.sh)                   shell_changed+=("$f") ;;
     *.fish)                                                            fish_changed+=("$f") ;;
   esac
