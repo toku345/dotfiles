@@ -62,9 +62,12 @@ init_repo_with_relevant_file() {
   touch "$PROJECT_DIR/tests/bats/dummy.bats"
   git -C "$PROJECT_DIR" add tests/bats/dummy.bats
 
-  run "$HOOK_VERIFY" <<<'{}'
+  run --separate-stderr "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 2 ]
-  [[ "$output" == *"git enumeration failed"* ]]
+  # The hook prints its diagnostic to stderr; --separate-stderr keeps
+  # the assertion specific to that stream so a regression that moved
+  # the message to stdout would not silently pass.
+  [[ "$stderr" == *"git enumeration failed"* ]]
 }
 
 # -----------------------------------------------------------------------------
@@ -87,9 +90,9 @@ init_repo_with_relevant_file() {
   mkdir -p "$PROJECT_DIR/.claude"
   printf 'garbage' > "$PROJECT_DIR/.claude/.stop-hook-block-count"
 
-  run "$HOOK_VERIFY" <<<'{}'
+  run --separate-stderr "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"state file corrupted"* ]]
+  [[ "$stderr" == *"state file corrupted"* ]]
   [ ! -e "$PROJECT_DIR/.claude/.stop-hook-block-count" ]
 }
 
@@ -121,9 +124,9 @@ STUB
   mkdir -p "$PROJECT_DIR/.claude"
   printf '3' > "$PROJECT_DIR/.claude/.stop-hook-block-count"
 
-  PATH="$stub_dir:$PATH" run "$HOOK_VERIFY" <<<'{}'
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"blocked 3 times consecutively"* ]]
+  [[ "$stderr" == *"blocked 3 times consecutively"* ]]
   [ ! -e "$PROJECT_DIR/.claude/.stop-hook-block-count" ]
   # Critical: the fish gate must not have been invoked. If this assertion
   # fails, the auto-allow check has been moved or otherwise no longer
