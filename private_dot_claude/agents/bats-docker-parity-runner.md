@@ -52,8 +52,8 @@ mirrors the GitHub Actions environment:
   them — running with too few packages will silently `skip` tests
   that need them and hide the parity gap you were looking for.
 - **Scope**: mount the repo at the container's working directory and
-  execute `bats tests/bats/`, or pass the specific `.bats` files the
-  user named.
+  run the bats suite for the full `tests/bats/` tree (or the specific
+  `.bats` files the user requested).
 - **Output**: stream stdout/stderr to the user as the run progresses;
   long apt installs are expected.
 
