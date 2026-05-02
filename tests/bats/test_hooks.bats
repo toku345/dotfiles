@@ -135,6 +135,39 @@ STUB
 }
 
 # -----------------------------------------------------------------------------
+# L1 regression: any tests/bats/*.bash file (not just test_helper*) is bats
+# helper code that gets sourced — these have no shebang by convention but
+# still need shellcheck. The earlier matcher widening (commit 4987af5)
+# collected them into shell_changed but the downstream shebang-bypass case
+# only listed `tests/bats/test_helper*.bash`, so non-test_helper helpers
+# were silently dropped at the no-shebang check. Verify the bypass and
+# the classification stay aligned.
+# -----------------------------------------------------------------------------
+
+@test "L1: tests/bats/*.bash without shebang reaches shellcheck" {
+  if ! command -v shellcheck >/dev/null 2>&1 || ! command -v fish >/dev/null 2>&1; then
+    skip "shellcheck/fish not installed; cannot exercise the gate path"
+  fi
+
+  # Sourced helper, deliberately no shebang. SC2034 (unused variable) is
+  # warning-severity, so `shellcheck --severity=warning` surfaces it —
+  # but only if the file actually reaches shellcheck. Before the fix
+  # this file fell through the bypass case (match was test_helper-only),
+  # then the no-shebang path silently dropped it from shell_targets.
+  init_repo_with_relevant_file "tests/bats/utils.bash" \
+'# shellcheck shell=bash
+# Sourced helper for bats tests; no shebang.
+some_unused_var=42
+'
+
+  run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  # Diagnostic must mention the filename — proves shellcheck ran on it
+  # rather than silently skipping.
+  [[ "$stderr" == *"utils.bash"* ]]
+}
+
+# -----------------------------------------------------------------------------
 # fish-syntax-check: PostToolUse hook on Edit/Write. Must skip silently for
 # unrelated paths and return a `decision: block` JSON envelope when the
 # edited *.fish file fails `fish -n`.

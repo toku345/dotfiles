@@ -100,7 +100,12 @@ if [ ${#shell_changed[@]} -gt 0 ]; then
     shell_targets=()
     for f in "${shell_changed[@]}"; do
       case "$f" in
-        tests/bats/test_helper*.bash|tests/bats/bin/*)
+        # All bats helper bash files and stub binaries: source-style
+        # helpers conventionally lack shebangs, so bypass the shebang
+        # sniff and shellcheck them unconditionally. The pattern must
+        # mirror the wider `tests/bats/*.bash` rule above so a new
+        # helper like `tests/bats/utils.bash` is not silently dropped.
+        tests/bats/bin/*|tests/bats/*.bash)
           shell_targets+=("$f")
           continue
           ;;
