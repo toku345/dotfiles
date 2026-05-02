@@ -316,25 +316,30 @@ A few subtleties that are easy to read past in the table above:
 
 ### Recovery workflow (when a package legitimately needs lifecycle scripts)
 
-The straightforward-looking per-package overrides are easy to misuse:
+The per-tool flags interact with the user-global defenses in different —
+and easy-to-misread — ways:
 
 - `npm install --ignore-scripts=false <pkg>` re-enables lifecycle scripts
   for the **entire invocation**, including every transitive dependency —
   not just `<pkg>`. A single recovery command therefore widens the trust
   surface across all packages being resolved at the same time.
-- `bun install --ignore-scripts=false` only governs the *project's own*
-  lifecycle scripts; bun gates dependency scripts independently via
-  `trustedDependencies` and the built-in default-trusted list
-  (`bun pm default-trusted`), so this flag does not unblock a blocked
-  postinstall on a dependency.
-- Under global `bunfig.toml` `ignoreScripts = true`, the toggle skips
-  scripts even for packages listed in a project's `trustedDependencies`
-  (see the defenses table), so `bun add --trust <pkg>` does not by
-  itself restore lifecycle scripts while the global toggle is active.
+- bun's `--ignore-scripts` flag is a boolean toggle (`bun install/add
+  --ignore-scripts`); it has no `=false` form. Even disabling the
+  setting via a project-local `bunfig.toml [install] ignoreScripts =
+  false` only governs the *project's own* scripts unless dependency
+  scripts are also trusted (defaults plus `trustedDependencies`).
+- Under user-global `~/.bunfig.toml` `ignoreScripts = true`, `bun add
+  --trust` and `trustedDependencies` alone do **not** restore a
+  dependency's lifecycle scripts — verified empirically against bun
+  1.3.3. Two paths actually unblock them under that global default:
+  `bun pm trust <pkg>` (post-install retry; scoped to the named deps)
+  and a project-local `bunfig.toml` setting `ignoreScripts = false`
+  combined with `trustedDependencies`.
 
-The recommended path is to do recovery in a **throwaway project**, audit
-the resolved lockfile and trust list, then return to the main workspace
-with only the metadata that survived review:
+The recommended workflow is to do recovery in a **throwaway project**,
+verify the scripts work and the lockfile/trust list are clean, then
+carry only the audited metadata (and the per-project override, if
+needed) back to the main workspace:
 
 ```bash
 # 1. Spin up an isolated workspace outside the daily project tree.
@@ -342,17 +347,24 @@ mkdir -p "/tmp/recovery-$(date +%s)" && cd "$_"
 echo '{"name":"recovery","private":true}' > package.json
 
 # 2. Install so the lockfile reflects the real dependency graph.
-#    bun: dep scripts are blocked by default; review what bun blocked.
+#    bun: dep scripts are blocked by default — review what bun blocked
+#    and, if any are required, retry with `bun pm trust` (overrides
+#    user-global ignoreScripts for those exact packages).
 bun install <pkg>
 bun pm untrusted
+bun pm trust <pkg>
 #    npm: re-running scripts is invocation-wide — only do this in the
 #    throwaway, never in the main workspace.
 npm install --ignore-scripts=false <pkg>
 
 # 3. Audit the lockfile diff (trusted deps, transitive surface, sources)
-#    before copying the dependency entry — and only that entry — back
-#    into the real project. The main workspace's global defenses stay
-#    intact throughout.
+#    before copying the dependency entry back into the real project.
+#    For bun, also commit the resulting `trustedDependencies` entry. If
+#    the package's scripts must also run in the main repo's daily
+#    install (rare; most native deps publish prebuilt binaries), add a
+#    project-local `bunfig.toml` with `[install] ignoreScripts = false`
+#    so the override is repo-scoped and does not weaken any other
+#    project. The user-global defenses stay intact throughout.
 ```
 
 Per-package overrides for the non-script gates remain safe and narrow:

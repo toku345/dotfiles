@@ -99,24 +99,36 @@ init_repo_with_relevant_file() {
 # gate could trap Claude in an infinite Stop loop.
 # -----------------------------------------------------------------------------
 
-@test "MAX_BLOCKS: counter at limit auto-allows stop and clears state" {
-  if ! command -v fish >/dev/null 2>&1; then
-    skip "fish not installed; cannot exercise the gate path"
-  fi
+@test "MAX_BLOCKS: counter at limit auto-allows BEFORE gates run" {
+  # Use a `fish` PATH stub that writes a marker when invoked, so the
+  # critical assertion is "marker absent" → the auto-allow branch fired
+  # before any gate ran. Without the stub a regression that moved the
+  # auto-allow check below the gates would still pass: the failing fish
+  # gate's stderr would land in errors[] and the later auto-allow would
+  # discard it before exit, masking the regression.
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local marker="$BATS_TEST_TMPDIR/fish-was-invoked"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/fish" <<STUB
+#!/usr/bin/env bash
+touch '$marker'
+exit 1
+STUB
+  chmod +x "$stub_dir/fish"
 
-  # Invalid fish syntax → gate would fail and increment the counter, but
-  # because count starts at MAX_BLOCKS the auto-allow branch fires *before*
-  # any gate runs. Use a deliberate syntax error so the test would also
-  # catch a regression where the auto-allow was moved below the gates.
   init_repo_with_relevant_file "broken.fish" "function foo\n"
 
   mkdir -p "$PROJECT_DIR/.claude"
   printf '3' > "$PROJECT_DIR/.claude/.stop-hook-block-count"
 
-  run "$HOOK_VERIFY" <<<'{}'
+  PATH="$stub_dir:$PATH" run "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$output" == *"blocked 3 times consecutively"* ]]
   [ ! -e "$PROJECT_DIR/.claude/.stop-hook-block-count" ]
+  # Critical: the fish gate must not have been invoked. If this assertion
+  # fails, the auto-allow check has been moved or otherwise no longer
+  # fires before the gates.
+  [ ! -e "$marker" ]
 }
 
 # -----------------------------------------------------------------------------
