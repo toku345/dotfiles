@@ -183,7 +183,7 @@ some_unused_var=42
   local payload
   payload=$(jq -n --arg p "$target" '{tool_input: {file_path: $p}}')
 
-  run bash -c "printf %s '$payload' | '$HOOK_FISH'"
+  run "$HOOK_FISH" <<<"$payload"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -198,7 +198,7 @@ some_unused_var=42
   local payload
   payload=$(jq -n --arg p "$target" '{tool_input: {file_path: $p}}')
 
-  run bash -c "printf %s '$payload' | '$HOOK_FISH'"
+  run "$HOOK_FISH" <<<"$payload"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -214,7 +214,7 @@ some_unused_var=42
   local payload
   payload=$(jq -n --arg p "$target" '{tool_input: {file_path: $p}}')
 
-  run bash -c "printf %s '$payload' | '$HOOK_FISH'"
+  run "$HOOK_FISH" <<<"$payload"
   [ "$status" -eq 0 ]
   # The hook prints a JSON envelope on stdout and exits 0 (Claude reads
   # `decision` from stdout, not from the exit status).
