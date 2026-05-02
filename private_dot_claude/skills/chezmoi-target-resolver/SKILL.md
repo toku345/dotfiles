@@ -61,12 +61,33 @@ Skip the skill when:
 
 ## Procedure
 
-1. **Check you're in a chezmoi context**:
+1. **Check you're in a chezmoi source tree (or a worktree of it)**:
+   `chezmoi source-path` alone only proves chezmoi is configured on the
+   machine — it does not prove the cwd belongs to that source. As a
+   user-global skill this would otherwise fire in arbitrary projects
+   where chezmoi happens to be installed. Resolve the source root and
+   gate on cwd descendancy, accepting git worktrees of the source.
    ```bash
-   chezmoi source-path >/dev/null 2>&1 || { echo "not a chezmoi context"; exit 1; }
+   src_root=$(chezmoi source-path 2>/dev/null) || {
+     echo "chezmoi not configured; skill is a no-op" >&2; exit 1
+   }
+   # `git rev-parse --git-common-dir` returns the common `.git` for
+   # both the main checkout and any of its worktrees. dirname of that
+   # is the main checkout's top-level. Compare to src_root via
+   # realpath so symlinks and trailing slashes don't break the match.
+   if git_common=$(git rev-parse --git-common-dir 2>/dev/null); then
+     repo_root=$(realpath -- "$(dirname "$git_common")")
+   else
+     repo_root=$(realpath -- "$PWD")
+   fi
+   [[ "$repo_root" == "$(realpath -- "$src_root")" ]] || {
+     echo "cwd is not inside chezmoi source tree ($src_root); skill is a no-op" >&2
+     exit 1
+   }
    ```
-   If this fails, abort the skill and tell the user to cd into a
-   chezmoi-managed location.
+   If either check fails, abort the skill and tell the user this
+   workflow only runs inside a chezmoi source tree (or a worktree of
+   it) — they should cd accordingly.
 
 2. **Classify the path** by inspecting it (no shell call needed for the
    common cases):
