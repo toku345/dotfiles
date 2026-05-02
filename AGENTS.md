@@ -19,25 +19,7 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 **Source-path gotcha**: `chezmoi apply <source-path>` errors with `not managed`. chezmoi accepts only target paths (e.g. `~/.config/...`) as arguments. Run `chezmoi apply` without args to apply all managed files, or resolve with `chezmoi target-path <source-file>` first.
 
-```bash
-# Apply changes from the source directory to your home directory
-chezmoi apply
-
-# Edit a file in the source directory (opens in default editor)
-chezmoi edit <file>
-
-# Add a file from your home directory to the source state
-chezmoi add <file>
-
-# See what changes would be made
-chezmoi diff
-
-# Update the source state from the repository
-chezmoi update
-
-# Run chezmoi in verbose mode for debugging
-chezmoi apply -v
-```
+よく使うコマンド: `chezmoi apply` / `chezmoi diff` / `chezmoi edit <file>` / `chezmoi add <file>` / `chezmoi update` (= git pull + apply)
 
 ### Encrypted Files
 
@@ -66,15 +48,11 @@ chezmoi apply
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
 - `.github/`, `docs/`, `images/`, `key.txt.age`（age 暗号鍵）
 
-### chezmoi 命名規則（target deploy を制御）
+### chezmoi 命名規則の project 固有用法
 
-- `dot_<name>` → `.<name>`
-- `private_<name>` → mode 0600（dir は 0700）
-- `encrypted_<name>` → age 暗号化
-- `executable_<name>` → mode 0755
-- `*.tmpl` → Go text/template として処理してから配置
-- `.chezmoiignore` → `chezmoi apply` から除外（例: `AGENTS.md`, `CLAUDE.md`）
-- 主要 template: `.chezmoi.toml.tmpl`（chezmoi 設定、`scriptEnv` 定義）
+- `.chezmoiignore` で `AGENTS.md` / `CLAUDE.md` は apply 除外済 (リポジトリドキュメントのため)
+- **新規ファイル追加時は `chezmoi add ~/<target-path>` を使う** (mode から `private_` / `executable_` を auto-detect、prefix を手で付ける必要なし)。暗号化は `chezmoi add --encrypt`、template は `--template` フラグ
+- security/mode-critical な prefix: `private_` (0600) / `executable_` (0755) / `encrypted_` (age)。直接 Write/cp で source dir に置く際は手動付与必要
 
 ## Key Configuration Files
 
@@ -98,20 +76,11 @@ chezmoi apply
 
 ### Fish Shell (`config.fish`)
 
-The main shell configuration that sets up:
-
-- Package managers: Homebrew, asdf
-- Programming languages: Rust, Go, Java, Scala, OCaml, Haskell
-- Development tools: direnv, shadowenv, fzf
-- Custom aliases and functions for git operations
+メインの shell 設定。具体内容は `private_dot_config/fish/config.fish` を参照。
 
 ### Development Environment
 
-- **asdf**: Version manager for multiple runtime versions
-- **direnv**: Environment variable management per directory
-- **fzf**: Fuzzy finder integration for history search and directory navigation
-- **starship**: Cross-shell prompt
-- **git-gtr**: Git worktree runner (`git gtr new/go/list`). Used internally by `gw`/`gb`/`gbd`. Track mode behavior can be verified in `/opt/homebrew/Cellar/git-gtr/*/lib/core.sh`
+- **git-gtr**: Git worktree runner (`git gtr new/go/list`)。`gw`/`gb`/`gbd` の内部実装。track mode 挙動は `/opt/homebrew/Cellar/git-gtr/*/lib/core.sh` で確認可能
 
 ## Definition of Done（chezmoi 固有）
 
@@ -219,7 +188,7 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - `chezmoi apply` / `chezmoi diff` require `dangerouslyDisableSandbox` (needs `~/.config/chezmoi/chezmoistate.boltdb`)
 - `GODEBUG=x509usefallbackroots=1` is ineffective for `gh` — do not use
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
-- `git push -u` needs `.git/config` write access to persist upstream tracking. In this repository's current sandbox, cwd write access covers `.git/config`, so no extra allowlist entry is needed. If Git reports `could not write config file .git/config`, do not assume upstream was set. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#resolved-limitations)
+- `git push -u` で `could not write config file .git/config` エラーが出たら upstream 設定失敗を疑う。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#resolved-limitations)
 - `denyOnly` bare globs (`*.key`, `.env.*`) only protect files within cwd — `sandbox-runtime` resolves them relative to cwd. Absolute-path entries (`~/.docker/config.json`) work system-wide. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
 - fish シェル経由の Bash ヒアドキュメントで `!` が `\!` にエスケープされることがある。`!` を含むファイルは `Write` ツールで直接書き込む
 
@@ -278,11 +247,14 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 
 ## Claude Code Configuration Quirks
 
-- `/output-style <name>` は公式スラッシュコマンドとして**存在しない**。切替は `/config` メニュー経由のみで、反映は次の新規セッションから。`--output-style` CLI フラグも公式 CLI reference に未記載
-- User-scope `~/.claude/settings.json` の `outputStyle` はシステムプロンプトを直接置換し、headless `claude -p` にも適用される (Agent tool 経由の subagents には伝播しない: 公式仕様 "Output styles directly affect the main agent loop")
-- 本リポジトリは JUIZ persona を user-scope default に設定 (ADR 0015 で容認)
-- リポジトリ単位の上書きは `<repo>/.claude/settings.local.json` で `outputStyle` を指定 (precedence 上 project-local > user)
-- triple-review の anti-pollution prompt は撤去済 (ADR 0015 Decision 5)
-- 詳細: `docs/adr/0015-multi-persona-output-styles.md`
-- `verbose: true` は **公式設定として未文書化**。documented キーは `viewMode`（`"default"` / `"verbose"` / `"focus"`、default は `"default"`）。verbose な transcript view を維持するには `"viewMode": "verbose"` を明示する必要がある（公式 settings reference: <https://code.claude.com/docs/en/settings>）。`--verbose` CLI フラグ (<https://code.claude.com/docs/en/cli-reference>) は別物で、ランタイム上書きとして `viewMode` 設定とは独立に効く
+- `outputStyle` 切替は `/config` メニュー経由のみ (公式スラッシュコマンド・CLI フラグ未提供)、反映は次の新規セッションから
+- `outputStyle` はシステムプロンプトを直接置換し headless `claude -p` にも適用 (Agent tool 経由の subagents には伝播しない)
+- precedence: project-local (`<repo>/.claude/settings.local.json`) > user-global (`~/.claude/settings.json`)
+- 本リポジトリは JUIZ persona を user-global default に設定。triple-review の anti-pollution prompt は撤去済。詳細: `docs/adr/0015-multi-persona-output-styles.md`
+- `verbose: true` (公式 doc 未記載だが実在) — UI ラベル "Verbose output"、default `true`、turn-by-turn logging を制御 (`--verbose` CLI flag の persistent 版)
+- `viewMode` (`"default"` / `"verbose"` / `"focus"`、default `"default"`) — startup transcript view を制御。`verbose` とは別レイヤーで両者独立。verbose 表示にしたければ明示設定必要。<https://code.claude.com/docs/en/settings>
+- `/config` UI 表示値は **effective default**（stored ≠ displayed）。settings.json に該当キーが無くても UI は default を表示する。**閲覧のみでは settings.json は書き換わらず**、UI で toggle した時のみ書き込まれる (2026-05-02 実機検証)
+- `/config` toggle 後の運用: `chezmoi diff` で新規キー確認 → 公式 doc 照会 → default / undocumented キーは `chezmoi apply` で live をクリーンアップ (source 主導削除)、必要なキーのみ `chezmoi re-add` で source に取り込み
+- `agentPushNotifEnabled` (公式 doc 未記載) — UI ラベル "Push when Claude decides"、default `true`。実モバイル push は Remote Control 有効時のみ発火 (changelog 2026-04-15)
+- `teammateMode` (documented, default `"auto"`) — agent team teammates 表示モード (`auto` / `in-process` / `tmux`)。明示値が default と同一なら settings 記載は redundant
 
