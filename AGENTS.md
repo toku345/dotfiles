@@ -51,6 +51,8 @@ chezmoi apply
 ### chezmoi 命名規則の project 固有用法
 
 - `.chezmoiignore` で `AGENTS.md` / `CLAUDE.md` は apply 除外済 (リポジトリドキュメントのため)
+- **新規ファイル追加時は `chezmoi add ~/<target-path>` を使う** (mode から `private_` / `executable_` を auto-detect、prefix を手で付ける必要なし)。暗号化は `chezmoi add --encrypt`、template は `--template` フラグ
+- security/mode-critical な prefix: `private_` (0600) / `executable_` (0755) / `encrypted_` (age)。直接 Write/cp で source dir に置く際は手動付与必要
 
 ## Key Configuration Files
 
