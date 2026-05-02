@@ -43,20 +43,33 @@ fi
 bats_changed=()
 shell_changed=()
 fish_changed=()
+# Classification is content-agnostic: a deletion under tests/bats/ should
+# still trigger the bats gate (a removed test_helper.bash can break other
+# tests via coupling). The existence guard is applied per-operation —
+# only shellcheck and `fish -n` need a readable file; the bats gate runs
+# the whole tree regardless.
 for f in "${changed[@]}"; do
-  [ -f "$f" ] || continue
   case "$f" in
     # Shell helpers / stub binaries also need shellcheck. Match these
     # before the broader `tests/bats/*` pattern below, since case stops
     # at the first match — otherwise the broad pattern would shadow the
     # shell-specific append.
-    tests/bats/bin/*|tests/bats/*.bash)                                bats_changed+=("$f"); shell_changed+=("$f") ;;
+    tests/bats/bin/*|tests/bats/*.bash)
+      bats_changed+=("$f")
+      [ -f "$f" ] && shell_changed+=("$f")
+      ;;
     # Catch every other file under tests/bats/ — including fixtures,
     # snapshots, and *.bats — since any of them can change a test
     # outcome and so must trigger the bats gate.
-    tests/bats/*)                                                      bats_changed+=("$f") ;;
-    dot_local/bin/executable_*|.chezmoiscripts/*.sh)                   shell_changed+=("$f") ;;
-    *.fish)                                                            fish_changed+=("$f") ;;
+    tests/bats/*)
+      bats_changed+=("$f")
+      ;;
+    dot_local/bin/executable_*|.chezmoiscripts/*.sh)
+      [ -f "$f" ] && shell_changed+=("$f")
+      ;;
+    *.fish)
+      [ -f "$f" ] && fish_changed+=("$f")
+      ;;
   esac
 done
 
