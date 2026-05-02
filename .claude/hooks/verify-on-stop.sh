@@ -21,11 +21,24 @@ fi
 # Drain stdin so the upstream pipe never blocks. We don't use the payload.
 cat >/dev/null
 
-# git failures here mean the repo is broken; surface them rather than swallowing.
-mapfile -t changed < <({
-  git diff --name-only HEAD
-  git ls-files --others --exclude-standard
-} | sort -u)
+# git failures here mean the repo is broken; surface them rather than
+# swallowing. Process substitution would hide the producer's exit status
+# (pipefail does not cross `< <(...)`), so capture via command substitution
+# and short-circuit the brace group with `&&` to ensure either git failure
+# propagates through pipefail to the `if !` branch.
+if ! git_output=$( {
+    git diff --name-only HEAD && \
+    git ls-files --others --exclude-standard;
+  } | sort -u ); then
+  echo "verify-on-stop: git enumeration failed; blocking stop." >&2
+  exit 2
+fi
+mapfile -t changed <<<"$git_output"
+# A heredoc on empty input produces a single empty element; drop it so the
+# downstream emptiness check correctly identifies "no changed files".
+if [ ${#changed[@]} -eq 1 ] && [ -z "${changed[0]}" ]; then
+  changed=()
+fi
 
 bats_changed=()
 shell_changed=()
