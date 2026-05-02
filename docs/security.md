@@ -336,8 +336,10 @@ bun add --minimum-release-age 0 <pkg>
 
 # pip: allow sdist for a specific package that ships no wheel.
 # Must disable the global only-binary in the same invocation, otherwise
-# the two flags are additive and pip exits with "No matching distribution":
-PIP_ONLY_BINARY=:none: pip install --no-binary=<pkg> <pkg>
+# the two flags are additive and pip exits with "No matching distribution".
+# Use the CLI form — it takes the highest precedence over pip.conf and
+# avoids the ambiguity of env→config merging for cumulative options:
+pip install --only-binary=:none: --no-binary=<pkg> <pkg>
 
 # uv: temporarily widen the time window (per-invocation, no config edit)
 UV_EXCLUDE_NEWER="0 seconds" uv pip install <pkg>
