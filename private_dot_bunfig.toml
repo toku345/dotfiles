@@ -14,9 +14,12 @@ minimumReleaseAge = 604800
 # ~/.npmrc's `ignore-scripts=true` does NOT cover bun — bun reads bunfig.toml
 # for this setting. This row is bun's primary script defense, not a backup.
 #
-# Override (one-shot, only for vetted packages that genuinely need scripts):
-#   bun install --ignore-scripts=false <pkg>
-# Persistent allowlist (writes `trustedDependencies` into project package.json):
-#   bun install --trust <pkg>
+# Recovery: when a package legitimately needs lifecycle scripts, do not
+# relax this setting in the daily project tree. The per-invocation flag
+# `--ignore-scripts=false` only governs the project's own scripts, and
+# `bun add --trust` does not restore dependency scripts while this global
+# toggle is active. Use the isolated-workspace flow in
+# docs/security.md ("Recovery workflow") to install + audit + carry only
+# the vetted metadata back.
 # Reference: https://bun.com/docs/runtime/bunfig#install-ignorescripts
 ignoreScripts = true

@@ -7,7 +7,10 @@
 # is the single highest-leverage mitigation for this class of attack.
 # Reference: https://blog.flatt.tech/entry/mini_shai_hulud
 #
-# Override (one-shot, only for vetted packages that genuinely need scripts,
-# e.g. native builds):
-#   npm install --ignore-scripts=false <pkg>
+# Recovery: do not run `npm install --ignore-scripts=false <pkg>` in the
+# daily project tree — the flag re-enables lifecycle scripts for the
+# entire invocation, including every transitive dependency, not just the
+# named package. Instead use the isolated-workspace flow in
+# docs/security.md ("Recovery workflow") so the override stays scoped to
+# a throwaway project and only audited metadata returns to the main repo.
 ignore-scripts=true

@@ -308,22 +308,56 @@ A few subtleties that are easy to read past in the table above:
   packages legitimately rely on `postinstall` to fetch platform binaries
   or run native builds. Under this default, `npm install` / `bun install`
   succeed but the runtime later fails with a missing module or binary.
-  When troubleshooting an unexplained "module not found" right after
-  install, re-run with `--ignore-scripts=false` for that single package
-  to confirm whether a postinstall is the cause.
+  When such a failure is suspected, follow the *isolated recovery* flow
+  in the next section rather than relaxing the defense in the daily
+  project tree.
 - **`~/.npmrc` and `~/.bunfig.toml` are independent.** Disabling scripts
   in one file does not cover the other tool — see the table above.
 
-### Temporary overrides (when a trusted package needs to bypass a defense)
+### Recovery workflow (when a package legitimately needs lifecycle scripts)
+
+The straightforward-looking per-package overrides are easy to misuse:
+
+- `npm install --ignore-scripts=false <pkg>` re-enables lifecycle scripts
+  for the **entire invocation**, including every transitive dependency —
+  not just `<pkg>`. A single recovery command therefore widens the trust
+  surface across all packages being resolved at the same time.
+- `bun install --ignore-scripts=false` only governs the *project's own*
+  lifecycle scripts; bun gates dependency scripts independently via
+  `trustedDependencies` and the built-in default-trusted list
+  (`bun pm default-trusted`), so this flag does not unblock a blocked
+  postinstall on a dependency.
+- Under global `bunfig.toml` `ignoreScripts = true`, the toggle skips
+  scripts even for packages listed in a project's `trustedDependencies`
+  (see the defenses table), so `bun add --trust <pkg>` does not by
+  itself restore lifecycle scripts while the global toggle is active.
+
+The recommended path is to do recovery in a **throwaway project**, audit
+the resolved lockfile and trust list, then return to the main workspace
+with only the metadata that survived review:
 
 ```bash
-# npm: allow lifecycle scripts for a single install (vetted native builds)
-npm install --ignore-scripts=false <pkg>
-# bun: same shape — one-shot override of bunfig's ignoreScripts
-bun install --ignore-scripts=false <pkg>
-# bun: persistent allowlist (writes trustedDependencies into project package.json)
-bun install --trust <pkg>
+# 1. Spin up an isolated workspace outside the daily project tree.
+mkdir -p "/tmp/recovery-$(date +%s)" && cd "$_"
+echo '{"name":"recovery","private":true}' > package.json
 
+# 2. Install so the lockfile reflects the real dependency graph.
+#    bun: dep scripts are blocked by default; review what bun blocked.
+bun install <pkg>
+bun pm untrusted
+#    npm: re-running scripts is invocation-wide — only do this in the
+#    throwaway, never in the main workspace.
+npm install --ignore-scripts=false <pkg>
+
+# 3. Audit the lockfile diff (trusted deps, transitive surface, sources)
+#    before copying the dependency entry — and only that entry — back
+#    into the real project. The main workspace's global defenses stay
+#    intact throughout.
+```
+
+Per-package overrides for the non-script gates remain safe and narrow:
+
+```bash
 # bun: widen the cooldown
 #   per-invocation:
 bun add --minimum-release-age 0 <pkg>
