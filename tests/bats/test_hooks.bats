@@ -12,13 +12,31 @@ setup() {
   # path) instead of BASH_SOURCE.
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   HOOK_VERIFY="$REPO_ROOT/.claude/hooks/verify-on-stop.sh"
-  export REPO_ROOT HOOK_VERIFY
+  HOOK_FISH="$REPO_ROOT/.claude/hooks/fish-syntax-check.sh"
+  export REPO_ROOT HOOK_VERIFY HOOK_FISH
 
   # Per-test scratch project. CLAUDE_PROJECT_DIR isolates the hook from the
   # real chezmoi worktree so tests never touch repo-level state.
   PROJECT_DIR="$BATS_TEST_TMPDIR/project"
   mkdir -p "$PROJECT_DIR"
   export CLAUDE_PROJECT_DIR="$PROJECT_DIR"
+}
+
+# init_repo_with_relevant_file <path> [<content>]
+# Creates a healthy git repo at $PROJECT_DIR with one initial commit, then
+# stages an additional file at <path> so the verify-on-stop change-detection
+# has a non-empty changed[] array. Used by tests that need to exercise the
+# state-file / counter logic, which only runs after the empty-changed[]
+# early-exit at the top of the script.
+init_repo_with_relevant_file() {
+  local rel="$1" content="${2:-}"
+  git init -q "$PROJECT_DIR"
+  # `git diff HEAD` requires at least one commit to exist.
+  git -C "$PROJECT_DIR" -c user.email=t@t -c user.name=t \
+    commit --allow-empty -q -m init
+  mkdir -p "$PROJECT_DIR/$(dirname "$rel")"
+  printf '%s' "$content" > "$PROJECT_DIR/$rel"
+  git -C "$PROJECT_DIR" add "$rel"
 }
 
 # -----------------------------------------------------------------------------
@@ -47,4 +65,113 @@ setup() {
   run "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 2 ]
   [[ "$output" == *"git enumeration failed"* ]]
+}
+
+# -----------------------------------------------------------------------------
+# State file recovery: non-numeric content must reset the counter and warn,
+# never crash the hook (the regex guard exists for exactly this).
+# -----------------------------------------------------------------------------
+
+@test "state-file: non-numeric content is reset with warning" {
+  if ! command -v fish >/dev/null 2>&1; then
+    skip "fish not installed; cannot exercise the gate path"
+  fi
+
+  # A valid fish file is a relevant-but-passing change: changed[] is
+  # non-empty (so the empty-changed early-exit does not pre-empt the
+  # state-file read), the gate succeeds (so the script reaches the
+  # success branch and removes the state file), and the corrupted
+  # state file forces the parser warning + reset path.
+  init_repo_with_relevant_file "scratch.fish" "# valid fish\n"
+
+  mkdir -p "$PROJECT_DIR/.claude"
+  printf 'garbage' > "$PROJECT_DIR/.claude/.stop-hook-block-count"
+
+  run "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state file corrupted"* ]]
+  [ ! -e "$PROJECT_DIR/.claude/.stop-hook-block-count" ]
+}
+
+# -----------------------------------------------------------------------------
+# MAX_BLOCKS auto-allow: after MAX_BLOCKS consecutive blocks the hook must
+# release the stop and clear the counter, otherwise a persistently broken
+# gate could trap Claude in an infinite Stop loop.
+# -----------------------------------------------------------------------------
+
+@test "MAX_BLOCKS: counter at limit auto-allows stop and clears state" {
+  if ! command -v fish >/dev/null 2>&1; then
+    skip "fish not installed; cannot exercise the gate path"
+  fi
+
+  # Invalid fish syntax → gate would fail and increment the counter, but
+  # because count starts at MAX_BLOCKS the auto-allow branch fires *before*
+  # any gate runs. Use a deliberate syntax error so the test would also
+  # catch a regression where the auto-allow was moved below the gates.
+  init_repo_with_relevant_file "broken.fish" "function foo\n"
+
+  mkdir -p "$PROJECT_DIR/.claude"
+  printf '3' > "$PROJECT_DIR/.claude/.stop-hook-block-count"
+
+  run "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"blocked 3 times consecutively"* ]]
+  [ ! -e "$PROJECT_DIR/.claude/.stop-hook-block-count" ]
+}
+
+# -----------------------------------------------------------------------------
+# fish-syntax-check: PostToolUse hook on Edit/Write. Must skip silently for
+# unrelated paths and return a `decision: block` JSON envelope when the
+# edited *.fish file fails `fish -n`.
+# -----------------------------------------------------------------------------
+
+@test "fish-syntax-check: non-.fish path is a silent no-op" {
+  if ! command -v jq >/dev/null 2>&1; then
+    skip "jq not installed; hook would no-op anyway"
+  fi
+  local target="$BATS_TEST_TMPDIR/notes.txt"
+  printf 'hello\n' > "$target"
+
+  local payload
+  payload=$(jq -n --arg p "$target" '{tool_input: {file_path: $p}}')
+
+  run bash -c "printf %s '$payload' | '$HOOK_FISH'"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "fish-syntax-check: valid fish file exits silently" {
+  if ! command -v fish >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    skip "fish/jq not installed"
+  fi
+  local target="$BATS_TEST_TMPDIR/ok.fish"
+  printf 'function greet\n  echo hello\nend\n' > "$target"
+
+  local payload
+  payload=$(jq -n --arg p "$target" '{tool_input: {file_path: $p}}')
+
+  run bash -c "printf %s '$payload' | '$HOOK_FISH'"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "fish-syntax-check: syntax error emits decision: block JSON" {
+  if ! command -v fish >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    skip "fish/jq not installed"
+  fi
+  local target="$BATS_TEST_TMPDIR/broken.fish"
+  # Unterminated function: fish -n flags this as a parse error.
+  printf 'function broken\n' > "$target"
+
+  local payload
+  payload=$(jq -n --arg p "$target" '{tool_input: {file_path: $p}}')
+
+  run bash -c "printf %s '$payload' | '$HOOK_FISH'"
+  [ "$status" -eq 0 ]
+  # The hook prints a JSON envelope on stdout and exits 0 (Claude reads
+  # `decision` from stdout, not from the exit status).
+  decision=$(jq -r '.decision' <<<"$output")
+  [ "$decision" = "block" ]
+  hook_event=$(jq -r '.hookSpecificOutput.hookEventName' <<<"$output")
+  [ "$hook_event" = "PostToolUse" ]
 }
