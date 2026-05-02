@@ -285,4 +285,9 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - triple-review の anti-pollution prompt は撤去済 (ADR 0015 Decision 5)
 - 詳細: `docs/adr/0015-multi-persona-output-styles.md`
 - `verbose: true` は **公式設定として未文書化**。documented キーは `viewMode`（`"default"` / `"verbose"` / `"focus"`、default は `"default"`）。verbose な transcript view を維持するには `"viewMode": "verbose"` を明示する必要がある（公式 settings reference: <https://code.claude.com/docs/en/settings>）。`--verbose` CLI フラグ (<https://code.claude.com/docs/en/cli-reference>) は別物で、ランタイム上書きとして `viewMode` 設定とは独立に効く
+- `/config` UI 表示値は **effective default**（stored ≠ displayed）。settings.json に該当キーが無くても UI は default を表示する。**閲覧のみでは settings.json は書き換わらず**、UI で toggle した時のみ書き込まれる (2026-05-02 実機検証)
+- `/config` toggle 後の運用: `chezmoi diff` で新規キー確認 → 公式 doc 照会 → default / undocumented キーは `chezmoi apply` で live をクリーンアップ (source 主導削除)、必要なキーのみ `chezmoi re-add` で source に取り込み
+- `verbose: true` 補足: settings key として実在し UI ラベル "Verbose output" で toggle 可能 (default `true`)。turn-by-turn logging を制御する `--verbose` CLI flag の persistent 版で、`viewMode` (transcript view) とは独立した別レイヤー
+- `agentPushNotifEnabled` (公式 doc 未記載) — UI ラベル "Push when Claude decides"、default `true`。実モバイル push は Remote Control 有効時のみ発火 (changelog 2026-04-15)
+- `teammateMode` (documented, default `"auto"`) — agent team teammates 表示モード (`auto` / `in-process` / `tmux`)。明示値が default と同一なら settings 記載は redundant
 
