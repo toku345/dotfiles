@@ -1,0 +1,16 @@
+# Supply chain defense: disable npm lifecycle scripts (preinstall/postinstall
+# /install/prepare). Scope: npm only. bun does not read ~/.npmrc for this
+# setting — its equivalent lives in ~/.bunfig.toml (`[install] ignoreScripts`).
+#
+# Background: Mini Shai-Hulud (2026-04) abused npm postinstall to download
+# malicious payloads via the official bun runtime. Disabling lifecycle scripts
+# is the single highest-leverage mitigation for this class of attack.
+# Reference: https://blog.flatt.tech/entry/mini_shai_hulud
+#
+# Recovery: do not run `npm install --ignore-scripts=false <pkg>` in the
+# daily project tree — the flag re-enables lifecycle scripts for the
+# entire invocation, including every transitive dependency, not just the
+# named package. Instead use the isolated-workspace flow in
+# docs/security.md ("Recovery workflow") so the override stays scoped to
+# a throwaway project and only audited metadata returns to the main repo.
+ignore-scripts=true

@@ -8,7 +8,8 @@ This guide covers security best practices and emergency procedures for managing 
 2. [Emergency Key Rotation](#emergency-key-rotation)
 3. [CI/CD Security Checks](#cicd-security-checks)
 4. [Audit Trail](#audit-trail)
-5. [Best Practices](#best-practices)
+5. [Package Manager Supply Chain Defense](#package-manager-supply-chain-defense)
+6. [Best Practices](#best-practices)
 
 ## Security Overview
 
@@ -103,9 +104,14 @@ rm -rf "$TMPDIR"
 
 **Re-encrypt other .age files:**
 ```bash
+# Fail loudly on any step — never overwrite an encrypted file with an
+# untrusted result. `set -o pipefail` makes pipeline failures fatal too.
+set -euo pipefail
+
 # Create a secure temporary directory
 TMPDIR="$(mktemp -d)"
 chmod 700 "$TMPDIR"
+trap 'rm -rf "$TMPDIR"' EXIT
 
 # Find all .age files (excluding key.txt.age)
 git ls-files '*.age' | grep -v '^key\.txt\.age$'
@@ -114,29 +120,22 @@ git ls-files '*.age' | grep -v '^key\.txt\.age$'
 NEW_PUBLIC_KEY=$(grep "^# public key: " ~/key.txt.new | sed 's/^# public key: //')
 if [ -z "$NEW_PUBLIC_KEY" ]; then
   echo "ERROR: Could not extract public key from ~/key.txt.new" >&2
-  rm -rf "$TMPDIR"
   exit 1
 fi
 
-# For each file, decrypt with old key and re-encrypt with new key
-# Example for Google IME dictionary:
-age -d -i ~/key.txt.backup \
-  -o "$TMPDIR/temp_decrypted.txt" \
-  private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age
-
-age -r "$NEW_PUBLIC_KEY" \
-  -o private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new \
-  "$TMPDIR/temp_decrypted.txt"
-
-# Verify decryption works with new key
-age -d -i ~/key.txt.new -o /dev/null private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new
-
-# Replace old with new
-mv private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age.new \
-   private_dot_config/google_ime/encrypted_google_ime_dictionary.txt.age
-
-# Clean up the temporary directory
-rm -rf "$TMPDIR"
+# For each tracked .age file (excluding key.txt.age): decrypt with old
+# key, re-encrypt with new key, verify decryption with the new key, then
+# atomically replace the original. `set -euo pipefail` plus the verify
+# step ensure any per-iteration failure aborts before the corresponding
+# mv runs, so an .age file is never overwritten with an unreadable
+# replacement. Files rotated in earlier iterations stay rotated.
+while IFS= read -r F; do
+  age -d -i ~/key.txt.backup -o "$TMPDIR/temp_decrypted.txt" "$F"
+  age -r "$NEW_PUBLIC_KEY"   -o "$F.new"                     "$TMPDIR/temp_decrypted.txt"
+  age -d -i ~/key.txt.new    -o /dev/null                    "$F.new"
+  # Atomic replace only after the .new file has been proven decryptable.
+  mv "$F.new" "$F"
+done < <(git ls-files '*.age' | grep -v '^key\.txt\.age$')
 ```
 
 #### 3. Update Local Key
@@ -273,6 +272,148 @@ git log --pretty=format:"%h %ad %s" --date=short -- '*.age'
 2. **Separate commits** - Don't mix encrypted file changes with other changes
 3. **Review before push** - Always check `git diff` before pushing
 
+## Package Manager Supply Chain Defense
+
+Hardening defaults are committed for npm/bun, pip, and uv to mitigate the class of
+attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_hulud)
+(2026-04, npm postinstall + malicious bun runtime download) and the
+`lightning@2.6.2/2.6.3` PyPI compromise (2026-04).
+
+### Defenses in place
+
+| File | Setting | Effect |
+| --- | --- | --- |
+| `~/.npmrc` | `ignore-scripts=true` | Disables `pre/postinstall` lifecycle scripts for **npm only**. Blocks the most common arbitrary-code-execution vector. |
+| `~/.bunfig.toml` | `[install] minimumReleaseAge = 604800` | Time-based isolation for bun's npm package manager. Refuses npm packages younger than 7 days (in seconds). Mirrors uv's `exclude-newer`. |
+| `~/.bunfig.toml` | `[install] ignoreScripts = true` | Disables lifecycle scripts for **bun only**. bun does not honor `~/.npmrc`'s `ignore-scripts`, so this is a separate defense, not a backup. As a global toggle it skips scripts even for packages listed in a project's `trustedDependencies`. |
+| `~/.config/pip/pip.conf` | `[install] only-binary = :all:` | Refuses sdists; installs pre-built wheels only. Prevents `setup.py` / build-backend code from executing at install time. |
+| `~/.config/uv/uv.toml` | `exclude-newer = "7 days"` | Time-based isolation: refuses to resolve PyPI distributions uploaded within the last 7 days. Most malicious versions are detected and yanked inside this window. |
+| `~/.config/uv/uv.toml` | `no-build = true` | Refuses sdists; installs pre-built wheels only. Mirrors pip's `only-binary = :all:`. Prevents PEP 517 build-backend / `setup.py` code from executing at install time — `exclude-newer` alone does not close this path. |
+
+Both time-based settings (`minimumReleaseAge`, `exclude-newer`) are expressed
+as **durations**, not absolute dates, so the cooldown window slides
+automatically — no periodic maintenance is required. If a value blocks a
+legitimately-needed fresh package, dependency resolution simply pins to an
+older version (fail-safe).
+
+### Defense scope (what is and isn't blocked)
+
+A few subtleties that are easy to read past in the table above:
+
+- **Time-based isolation does not stop build-time code execution.** uv's
+  `exclude-newer` only filters which distributions are *resolvable*; once
+  a sdist is selected, its `setup.py` / PEP 517 build backend still
+  executes arbitrary Python at install time. `no-build = true` is what
+  closes that path. pip's `only-binary = :all:` plays the same role.
+  Treat `exclude-newer` and `no-build` as complementary, not redundant.
+- **`ignore-scripts=true` silently skips lifecycle scripts.** Many npm
+  packages legitimately rely on `postinstall` to fetch platform binaries
+  or run native builds. Under this default, `npm install` / `bun install`
+  succeed but the runtime later fails with a missing module or binary.
+  When such a failure is suspected, follow the *isolated recovery* flow
+  in the next section rather than relaxing the defense in the daily
+  project tree.
+- **`~/.npmrc` and `~/.bunfig.toml` are independent.** Disabling scripts
+  in one file does not cover the other tool — see the table above.
+
+### Recovery workflow (when a package legitimately needs lifecycle scripts)
+
+The per-tool flags interact with the user-global defenses in different —
+and easy-to-misread — ways:
+
+- `npm install --ignore-scripts=false <pkg>` re-enables lifecycle scripts
+  for the **entire invocation**, including every transitive dependency —
+  not just `<pkg>`. A single recovery command therefore widens the trust
+  surface across all packages being resolved at the same time.
+- bun's `--ignore-scripts` flag is a boolean toggle (`bun install/add
+  --ignore-scripts`); it has no `=false` form. Even disabling the
+  setting via a project-local `bunfig.toml [install] ignoreScripts =
+  false` only governs the *project's own* scripts unless dependency
+  scripts are also trusted (defaults plus `trustedDependencies`).
+- Under user-global `~/.bunfig.toml` `ignoreScripts = true`, `bun add
+  --trust` and `trustedDependencies` alone do **not** restore a
+  dependency's lifecycle scripts — verified empirically against bun
+  1.3.3. Two paths actually unblock them under that global default:
+  `bun pm trust <pkg>` (post-install retry; scoped to the named deps)
+  and a project-local `bunfig.toml` setting `ignoreScripts = false`
+  combined with `trustedDependencies`.
+
+The recommended workflow is to do recovery in a **throwaway project**,
+verify the scripts work and the lockfile/trust list are clean, then
+carry only the audited metadata (and the per-project override, if
+needed) back to the main workspace:
+
+```bash
+# 1. Spin up an isolated workspace outside the daily project tree.
+mkdir -p "/tmp/recovery-$(date +%s)" && cd "$_"
+echo '{"name":"recovery","private":true}' > package.json
+
+# 2. Install so the lockfile reflects the real dependency graph.
+#    bun: dep scripts are blocked by default — review what bun blocked
+#    and, if any are required, retry with `bun pm trust` (overrides
+#    user-global ignoreScripts for those exact packages).
+bun install <pkg>
+bun pm untrusted
+bun pm trust <pkg>
+#    npm: re-running scripts is invocation-wide — only do this in the
+#    throwaway, never in the main workspace.
+npm install --ignore-scripts=false <pkg>
+
+# 3. Audit the lockfile diff (trusted deps, transitive surface, sources)
+#    before copying the dependency entry back into the real project.
+#    For bun, also commit the resulting `trustedDependencies` entry. If
+#    the package's scripts must also run in the main repo's daily
+#    install (rare; most native deps publish prebuilt binaries), add a
+#    project-local `bunfig.toml` with `[install] ignoreScripts = false`
+#    so the override is repo-scoped and does not weaken any other
+#    project. The user-global defenses stay intact throughout.
+```
+
+Per-package overrides for the non-script gates remain safe and narrow:
+
+```bash
+# bun: widen the cooldown
+#   per-invocation:
+bun add --minimum-release-age 0 <pkg>
+#   per-project (edit project-local bunfig.toml):
+#     [install]
+#     minimumReleaseAge = 0
+#   per-package (persistent, in ~/.bunfig.toml):
+#     [install]
+#     minimumReleaseAgeExcludes = ["@types/node", "typescript"]
+
+# pip: allow sdist for a specific package that ships no wheel.
+# Must disable the global only-binary in the same invocation, otherwise
+# the two flags are additive and pip exits with "No matching distribution".
+# Use the CLI form — it takes the highest precedence over pip.conf and
+# avoids the ambiguity of env→config merging for cumulative options:
+pip install --only-binary=:none: --no-binary=<pkg> <pkg>
+
+# uv: temporarily widen the time window (per-invocation, no config edit)
+UV_EXCLUDE_NEWER="0 seconds" uv pip install <pkg>
+# or persistent per-package override in ~/.config/uv/uv.toml:
+#   exclude-newer-package = { foo = "0 seconds" }
+# Note: `uv add --exclude-newer=...` writes the value into pyproject.toml
+# (project-scoped persistent), so it is not actually a one-shot override.
+
+# uv: allow sdist for a specific package that ships no wheel.
+UV_NO_BUILD=0 uv pip install <pkg>
+# or persistent per-package override in ~/.config/uv/uv.toml:
+#   no-build-package = ["foo"]
+```
+
+Use overrides only for the single command (or single project) that needs
+them — never edit the user-global config files to weaken defaults.
+
+### Verification
+
+```bash
+npm config get ignore-scripts                     # → true
+grep -E 'minimumReleaseAge|ignoreScripts' ~/.bunfig.toml
+pip config list                                    # → install.only-binary = :all:
+grep -E 'exclude-newer|no-build' ~/.config/uv/uv.toml  # → both settings present
+```
+
 ## Best Practices
 
 ### Daily Operations
@@ -309,10 +450,26 @@ git diff
 rg -i 'AKIA[0-9A-Z]{16}' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' .
 rg -e '-----BEGIN.*PRIVATE KEY-----' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' .
 
-# Verify encrypted files
-git ls-files '*.age' | while IFS= read -r f; do
-  head -n 1 "$f" | grep -qE 'age-encryption.org|BEGIN AGE ENCRYPTED' && echo "OK: $f" || echo "ERROR: $f"
-done
+# Verify encrypted files. Aggregates failures and exits non-zero so this
+# block is safe to embed in CI / pre-commit, not just eyeball checks.
+(
+  set -uo pipefail
+  failed=0
+  while IFS= read -r f; do
+    if ! head_line=$(head -n 1 "$f"); then
+      echo "ERROR: cannot read $f" >&2
+      failed=1
+      continue
+    fi
+    if printf '%s\n' "$head_line" | grep -qE 'age-encryption.org|BEGIN AGE ENCRYPTED'; then
+      echo "OK: $f"
+    else
+      echo "ERROR: $f does not look like an age file" >&2
+      failed=1
+    fi
+  done < <(git ls-files '*.age')
+  exit "$failed"
+)
 ```
 
 ### Key Management

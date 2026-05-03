@@ -1,0 +1,28 @@
+# Supply chain defense (time-based isolation): ignore PyPI distributions
+# uploaded within the last 7 days. Most malicious package versions are
+# discovered and yanked within this window, so refusing to resolve fresh
+# uploads cheaply blocks the bulk of "freshly-published-and-already-pwned"
+# incidents (e.g. Mini Shai-Hulud, 2026-04).
+#
+# Duration form (friendly like "7 days" or ISO 8601 like "P7D") is preferred
+# over an absolute timestamp because it requires no periodic maintenance —
+# the cooldown window slides with the current time automatically.
+# Reference: https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns
+#
+# Override (one-shot):
+#   uv add --exclude-newer=<duration-or-date> <pkg>
+#   UV_EXCLUDE_NEWER=<duration-or-date> uv pip install <pkg>
+# Per-package override (persistent): exclude-newer-package = { foo = "30 days" }
+exclude-newer = "7 days"
+
+# Refuse source distributions; install pre-built wheels only. Mirrors pip's
+# `only-binary = :all:`. Closes the build-backend / setup.py code execution
+# path that `exclude-newer` alone cannot block — sdist build steps run
+# arbitrary Python at install time even when the upload is older than the
+# cooldown.
+#
+# Override (one-shot): UV_NO_BUILD=0 uv pip install <pkg>
+# Per-package persistent (in this file):
+#   no-build-package = ["foo"]
+# Reference: https://docs.astral.sh/uv/reference/settings/#no-build
+no-build = true

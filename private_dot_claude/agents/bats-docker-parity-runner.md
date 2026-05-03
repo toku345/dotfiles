@@ -25,28 +25,41 @@ fish-as-bash invocations, etc.) is caught locally.
 
 ## Preconditions (verify before doing anything else)
 
-Run these checks in order. Report any failure verbatim and stop.
+Verify these conditions in order. Report any failure verbatim and stop.
 
-1. **chezmoi-style repo**: `test -d tests/bats && test -f tests/bats/test_helper.bash`. If false, reply with one line: "Not a chezmoi bats repo (tests/bats missing) — refusing to run." and exit.
-2. **docker daemon reachable**: `docker version --format '{{.Server.Version}}'`. If this fails, surface the error and stop.
-3. **Repo is at the project root**: `git rev-parse --show-toplevel` should equal `$PWD`. If not, `cd` to the toplevel before running the container.
+1. **Repo shape**: confirm this is a chezmoi-style dotfiles repo by
+   checking that `tests/bats/` exists and contains a bats test_helper.
+   If it does not, reply with one line — `Not a chezmoi bats repo
+   (tests/bats missing) — refusing to run.` — and exit.
+2. **Docker daemon reachable**: confirm the local Docker daemon
+   responds. Use whichever probe you trust (a simple `docker version`
+   call is enough); if it fails, surface the underlying error and
+   stop.
+3. **Repo is at the project root**: make sure the working directory
+   is the git toplevel so the container mount captures the whole
+   tree. If you are deeper, cd to the toplevel before invoking the
+   container.
 
 ## Standard Run
 
-Invoke the same image and packages CI uses:
+Run the bats suite inside an isolated Ubuntu 24.04 container that
+mirrors the GitHub Actions environment:
 
-```bash
-docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
-  set -e
-  apt-get update -qq >/dev/null
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats git procps >/dev/null
-  bats tests/bats/
-'
-```
+- **Image**: `ubuntu:24.04` (close enough to `ubuntu-latest` for
+  parity work; adjust only if the real CI runner image changes).
+- **Packages**: at minimum `bats`, `git`, `procps`. Add `fish`, `jq`,
+  `shellcheck`, `nodejs`, etc. when the suite under test depends on
+  them — running with too few packages will silently `skip` tests
+  that need them and hide the parity gap you were looking for.
+- **Scope**: mount the repo at the container's working directory and
+  run the bats suite for the full `tests/bats/` tree (or the specific
+  `.bats` files the user requested).
+- **Output**: stream stdout/stderr to the user as the run progresses;
+  long apt installs are expected.
 
-If the user names a specific bats file (e.g. `tests/bats/test_triple_review.bats`), pass it instead of the directory.
-
-Stream stdout/stderr to the user as the run progresses. Do not silence output — long Ubuntu installs are normal.
+Pick the concrete `docker run` invocation, package install command
+and any flags you want — there is no canonical command to copy
+verbatim, only the constraints above.
 
 ## Diagnostic Heuristics
 
