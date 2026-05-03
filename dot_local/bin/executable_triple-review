@@ -373,6 +373,49 @@ is_error_token_only() {
   return 1
 }
 
+# Persona markers that must NOT appear in aggregator prose (defense-in-depth
+# for ADR 0016 Decision 7's headless override). Currently Lum-only since Lum
+# is the only persona whose voice produces these tokens. Add new persona
+# markers (alternation, not separate calls) when additional persona
+# output-styles ship; consider extracting to a fixture file once N >= 3.
+PERSONA_MARKERS_REGEX='だっちゃ|ダーリン|っちゃ！|うちに任せる|うちが教えて|えへへ'
+
+# Validate aggregator summary.md against the strict envelope contract
+# (build_aggregation_prompt §"指示"): the first non-blank line MUST equal
+# `### 対応必須`, and persona markers MUST NOT leak into prose. Persona
+# markers inside fenced code blocks are allowed because reviewers may
+# legitimately quote source-under-review (e.g. PRs that modify Lum.md
+# itself). Sets REJECT_REASON in the caller's scope on failure.
+#
+# Fail-loud rationale: ADR 0016 Decision 7 mandates manual triple-review
+# verification per persona shift; this function automates that gate so
+# future model updates or prompt tweaks cannot silently regress.
+assert_envelope_valid() {
+  local path="$1"
+  REJECT_REASON=""
+  if [ ! -s "$path" ]; then
+    REJECT_REASON="summary.md missing or empty"
+    return 1
+  fi
+  local first_nonblank
+  first_nonblank=$(awk 'NF { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }' "$path")
+  if [ "$first_nonblank" != "### 対応必須" ]; then
+    REJECT_REASON="envelope: first non-blank line must be exactly '### 対応必須' (got: '${first_nonblank:-<empty>}')"
+    return 1
+  fi
+  local found
+  # Strip fenced code blocks via awk, then grep for persona markers in the
+  # remaining prose. `|| true` keeps the pipeline rc at 0 under set -o
+  # pipefail when grep finds no match (empty $found is the success signal).
+  found=$(awk '/^```/ { in_code = !in_code; next } !in_code { print }' "$path" \
+    | grep -E "$PERSONA_MARKERS_REGEX" || true)
+  if [ -n "$found" ]; then
+    REJECT_REASON="persona marker(s) detected outside code blocks:"$'\n'"$found"
+    return 1
+  fi
+  return 0
+}
+
 # Classify a reviewer's result: exit code, empty-file guard, and narrow
 # error-banner detection. Exit-zero reviewers whose output is truly empty
 # or consists solely of a terminal-error banner are treated as failed so
@@ -789,6 +832,19 @@ main() {
     printf '\033[31mAggregation produced an error token. Raw reviewer outputs preserved at: %s\033[0m\n' "$workdir" >&2
     printf -- '--- content of summary.md ---\n' >&2
     cat "$workdir/summary.md" >&2
+    exit 1
+  fi
+
+  # Envelope contract enforcement: aggregator output MUST start with
+  # `### 対応必須` (per build_aggregation_prompt §"指示") and MUST NOT leak
+  # persona voice into prose. Without this gate, persona residue from the
+  # headless override (ADR 0016 Decision 7) silently slips past manual
+  # verification on persona/prompt updates. See assert_envelope_valid.
+  if ! assert_envelope_valid "$workdir/summary.md"; then
+    printf '\033[31mAggregation envelope validation failed: %s\033[0m\n' "$REJECT_REASON" >&2
+    printf 'Raw reviewer outputs preserved at: %s\n' "$workdir" >&2
+    printf -- '--- head of summary.md ---\n' >&2
+    head -n 20 "$workdir/summary.md" >&2
     exit 1
   fi
 
