@@ -1254,22 +1254,109 @@ MOCK
 # (ADR 0017).
 # -----------------------------------------------------------------------------
 
-@test "WRAPPER-1: claude_p_neutral is invoked at 3 spawn sites" {
-  # `[[:space:]]` after the function name excludes the definition line
-  # `claude_p_neutral() {`. If /codex:adversarial-review reverts to
-  # `claude -p` (currently uses direct codex-companion invocation per
-  # ADR 0012), update count to 4.
-  count=$(grep -cE '^[[:space:]]*(if !? *)?claude_p_neutral[[:space:]]' "$SRC_SCRIPT")
-  [ "$count" -eq 3 ]
+@test "WRAPPER-1A: PR reviewer spawn site uses claude_p_neutral" {
+  # Spawn-site-specific assertion (replaces aggregate count==3) so a missing
+  # wrapper at one site is diagnosable without staring at a bare count.
+  # awk skips line-start `#` comments to prevent documentation that mentions
+  # the spawn-site literal from satisfying the test.
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /claude_p_neutral[[:space:]]+"\/pr-review-toolkit:review-pr"/ { print }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
+}
+
+@test "WRAPPER-1B: security reviewer spawn site uses claude_p_neutral" {
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /claude_p_neutral[[:space:]]+"\/security-review"/ { print }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
+}
+
+@test "WRAPPER-1C: aggregator spawn site uses claude_p_neutral with stdin pipe" {
+  # Aggregator uniquely uses stdin redirection (`< prompt.txt`); other sites
+  # take the slash command as a positional arg. Pattern is comment-skipped
+  # but NOT line-start-anchored: the actual code is
+  # `if ! claude_p_neutral < "$workdir/prompt.txt" > ...` so a `^[[:space:]]*`
+  # anchor would false-fail on the `if !` prefix.
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /claude_p_neutral[[:space:]]*</ { print }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
 }
 
 @test "WRAPPER-2: wrapper definition forces outputStyle=triple-review" {
-  run grep -nE 'claude -p --settings.*"outputStyle":"triple-review"' "$SRC_SCRIPT"
-  [ "$status" -eq 0 ]
+  # Relaxed from a full literal: tolerates JSON whitespace variations
+  # (`{"outputStyle":"triple-review"}`, `{ "outputStyle" : "triple-review" }`)
+  # so future style refactors don't have to update this regex.
+  # awk skips line-start `#` comments — the script's docstring at line 278
+  # quotes the same JSON payload and would otherwise satisfy the test even
+  # if the actual wrapper definition were removed.
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /outputStyle.*triple-review/ { print }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
 }
 
-@test "WRAPPER-3: no bare claude -p invocations exist outside the wrapper" {
-  bare=$(grep -nE '^[[:space:]]*(if !? *)?claude -p\b' "$SRC_SCRIPT" \
-         | grep -v -- '--settings' || true)
-  [ -z "$bare" ] || { printf 'Bare claude -p (use claude_p_neutral):\n%s\n' "$bare" >&2; return 1; }
+@test "WRAPPER-3: no bare claude -p invocations exist outside claude_p_neutral()" {
+  # awk-based body exclusion: tracks the `claude_p_neutral() { ... }` block
+  # and reports `claude -p` occurrences anywhere else. Survives multi-line
+  # refactors (e.g. `claude -p \\` continuation with `--settings` on the next
+  # line) that defeated the previous `grep -v -- '--settings'` filter.
+  # Comment lines (line-start `#`) are skipped — the script documents the
+  # `claude -p` API in several comments; only executable references count.
+  bare=$(awk '
+    /^claude_p_neutral\(\)[[:space:]]*\{/ { in_wrapper = 1; next }
+    in_wrapper && /^\}/ { in_wrapper = 0; next }
+    in_wrapper { next }
+    /^[[:space:]]*#/ { next }
+    /claude[[:space:]]+-p([[:space:]]|$)/ { print FILENAME ":" NR ":" $0 }
+  ' "$SRC_SCRIPT")
+  [ -z "$bare" ] || { printf 'Bare claude -p outside claude_p_neutral():\n%s\n' "$bare" >&2; return 1; }
+}
+
+# -----------------------------------------------------------------------------
+# WRAPPER-B*: behavior tests via the tests/bats/bin/claude PATH-shadow stub.
+# Static WRAPPER-1/2/3 prove the wrapper is *invoked*; these prove the *argv*
+# and *stdin* it produces are correct (Codex adversarial feedback gap: JSON
+# quoting, `"$@"` preservation).
+# -----------------------------------------------------------------------------
+
+@test "WRAPPER-B1: claude_p_neutral argv layout: -p, --settings, JSON single arg, user arg" {
+  export MOCK_CLAUDE_LOG="$SCRATCH_DIR/claude.argv.log"
+  run bash -c "source '$SRC_SCRIPT'; claude_p_neutral '/pr-review-toolkit:review-pr'"
+  [ "$status" -eq 0 ]
+  # 4 positional args: -p / --settings / JSON / user arg
+  [ "$(wc -l < "$MOCK_CLAUDE_LOG")" -eq 4 ]
+  [ "$(sed -n '1p' "$MOCK_CLAUDE_LOG")" = '-p' ]
+  [ "$(sed -n '2p' "$MOCK_CLAUDE_LOG")" = '--settings' ]
+  # JSON must arrive as ONE argv element (not whitespace-split into pieces)
+  [ "$(sed -n '3p' "$MOCK_CLAUDE_LOG")" = '{"outputStyle":"triple-review"}' ]
+  [ "$(sed -n '4p' "$MOCK_CLAUDE_LOG")" = '/pr-review-toolkit:review-pr' ]
+}
+
+@test "WRAPPER-B2: claude_p_neutral preserves stdin verbatim (aggregator path)" {
+  export MOCK_CLAUDE_STDIN_LOG="$SCRATCH_DIR/claude.stdin.log"
+  local payload='### prompt header
+multi-line body
+with "quotes" and $dollar signs and `backticks`'
+  run bash -c "source '$SRC_SCRIPT'; printf '%s' \"\$1\" | claude_p_neutral" \
+    bash "$payload"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$MOCK_CLAUDE_STDIN_LOG")" = "$payload" ]
+}
+
+@test "WRAPPER-B3: claude_p_neutral preserves multiple user args under \"\$@\"" {
+  export MOCK_CLAUDE_LOG="$SCRATCH_DIR/claude.argv.log"
+  # User args containing spaces must remain single argv elements (not split).
+  run bash -c "source '$SRC_SCRIPT'; claude_p_neutral 'arg with spaces' '/another/arg' 'third'"
+  [ "$status" -eq 0 ]
+  # 3 fixed (-p / --settings / JSON) + 3 user args = 6 lines
+  [ "$(wc -l < "$MOCK_CLAUDE_LOG")" -eq 6 ]
+  [ "$(sed -n '4p' "$MOCK_CLAUDE_LOG")" = 'arg with spaces' ]
+  [ "$(sed -n '5p' "$MOCK_CLAUDE_LOG")" = '/another/arg' ]
+  [ "$(sed -n '6p' "$MOCK_CLAUDE_LOG")" = 'third' ]
 }
