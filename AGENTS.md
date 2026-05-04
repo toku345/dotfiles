@@ -113,6 +113,7 @@ chezmoi apply
 - `fish -c` subprocesses source `config.fish` by default. If the parent prepended a dir to `PATH`, `fish_add_path` inside `config.fish` may reorder via `fish_user_paths` and push the new dir behind system binaries. Use `fish --no-config -c` whenever a test stub or PATH-override must win in the child.
 - `set -l out (cmd)` splits multi-line stdout into a fish list, one element per line. Passing a bare `$out` as an argument then expands to that many positional args. Capture with `| string collect` (trims trailing newlines, preserves internal ones) or explicitly join before passing.
 - In `set -l x (cmd | string collect)`, `$status` reflects `string collect`'s exit (1 if no input, 0 otherwise), not `cmd`'s. Use `$pipestatus[1]` immediately on the next line before any other command resets it.
+- `fish_add_path` (フラグなし) は **prepend** で BSD `date`/`sed`/`cp` 等を GNU 版で shadow する罠あり。gap-fill だけ欲しい場合は `-a` (append) を使う。例: macOS で GNU `timeout` が必要な場合 `fish_add_path -a /opt/homebrew/opt/coreutils/libexec/gnubin` (`brew install coreutils` 後でも unprefixed binary は PATH 未登録、`brew link coreutils` も g-prefix 版のみ生成)。`fish_user_paths` universal var の更新は新規 fish session のみ反映、現在実行中の Claude Code subprocess には Claude 再起動まで届かない
 
 ### OS Detection in Config Files
 
@@ -132,6 +133,7 @@ end
 - **`shopt -s execfail` + `set -Eeuo pipefail` で `||` fallback が dead code**: `set -e` が exec 失敗時に `||` 分岐より先に shell を終了させる。fallback を実働させるには `set +e` / `set -e` で exec を括る (bash 5.3 実機検証済)
 - **ShellCheck SC2093 false positive on execfail sites**: execfail 併用時の exec 後続コードは意図通り。該当行に `# shellcheck disable=SC2093` + 理由コメントを添える (file 全体 disable は避ける)
 - **外部 wrapper 経由の self-exec で `execve($0)` は git 上 0644 の `executable_*` で rc=126**: `exec "${wrapper[@]}" "${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"` と書いて bash interpreter 経由で再入する。mode に依存しない (caffeinate/systemd-inhibit/setsid 等すべて該当)
+- **Deploy skew defense**: chezmoi で deploy される asset (output-styles / themes / 辞書 等) に依存する script は、asset 内に sentinel コメント (例: `<!-- COMPONENT_VX -->`) を埋め込み、script 側 preflight で grep verify する。file 存在のみの check は corrupt / truncated / 古い asset を通してしまう。err 文には `chezmoi apply -v` 復旧手順を併記する
 
 ## Go Template Usage Policy
 
@@ -160,6 +162,9 @@ end
 - **async プロセステスト**: 固定 `sleep` より polling ループ (`for ((i=0; i<30; i++)); do cond && break; sleep 0.1; done`) が CI (Ubuntu runner) で flakiness を回避
 - **PATH-override スタブ内の `command date` は PATH を再参照**: スタブ自身を再帰呼び出して fork 爆発する。`/bin/date` 等の絶対パスを使う
 - **macOS ローカル pass の落とし穴**: `~/.local/bin/*` にある chezmoi apply 済みスクリプトが PATH shadow でテスト stub を隠蔽しバグを温存する。Docker Ubuntu で cross-check する
+- **OS-specific path の skip パターン**: `[[ "$(uname)" == "Linux" ]] || skip "<production-code-path reason>"`。reason は production gating を引用する (例: "gated by `case Linux)` in `select_sleep_inhibitor_cmd`")。「環境に X が無いから」ではなく「production もそこを通らないから」と書くことで coverage claim の正直さを保つ
+- **BW01 警告 + exit 127** in `run` 出力 = `command not found`。診断: PATH-override stub が subshell に伝わっていない、または被テスト関数が呼ぶ transitive dep (例: `timeout`) が host に不在で stub 対象外
+- **silent-pass トラップ**: `[ "$status" -ne 0 ]` は real failure (timeout 124, signal 128+N) と command-not-found (127) を**両方とも満たす**。timeout-bounded / signal-bounded 検証では `-eq 124` 等の具体的 exit code を使う (`-ne 0` ではなく) — host に dep が無い時に偽陽 pass しないようにする
 
 ### Docker での Ubuntu CI parity 検証
 
@@ -257,4 +262,5 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - `/config` toggle 後の運用: `chezmoi diff` で新規キー確認 → 公式 doc 照会 → default / undocumented キーは `chezmoi apply` で live をクリーンアップ (source 主導削除)、必要なキーのみ `chezmoi re-add` で source に取り込み
 - `agentPushNotifEnabled` (公式 doc 未記載) — UI ラベル "Push when Claude decides"、default `true`。実モバイル push は Remote Control 有効時のみ発火 (changelog 2026-04-15)
 - `teammateMode` (documented, default `"auto"`) — agent team teammates 表示モード (`auto` / `in-process` / `tmux`)。明示値が default と同一なら settings 記載は redundant
+- `claude -p --settings '{"outputStyle":"X"}'` は X が live に未配備/壊れていても rc=0/stderr 空で default style にフォールバックする (claude 2.1.126 で実機確認)。output-style 依存 automation は file 存在 check ではなく**埋め込み sentinel 文字列の grep 検証**を preflight に置く (例: `dot_local/bin/executable_triple-review` の `require_output_style_triple_review`)
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-04-28)
+Accepted (2026-04-28). Follow-on changes L186-194 のうち **headless 適用除外** 部分 (L192-194) のみ [ADR 0017](0017-triple-review-headless-output-style.md) で superseded。auto-mode 関連 (L188-191) は維持。
 
 ## Context
 

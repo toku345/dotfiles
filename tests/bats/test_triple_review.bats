@@ -626,6 +626,8 @@ STUB
 }
 
 @test "T2-35 systemd_inhibitor_reachable: delegates to systemd-inhibit acquisition probe" {
+  # systemd_inhibitor_reachable is invoked only under select_sleep_inhibitor_cmd's case Linux); macOS uses caffeinate (case Darwin)) and never reaches this function in production. Linux CI / Docker parity provides full coverage; macOS skip avoids false failures from missing GNU timeout.
+  [[ "$(uname)" == "Linux" ]] || skip "Linux-only: systemd_inhibitor_reachable is gated by select_sleep_inhibitor_cmd's case Linux); macOS production uses caffeinate"
   # PATH stub controls systemd-inhibit's behavior so we exercise the real
   # probe implementation end-to-end rather than just mocking the helper.
   local stub_dir="$SCRATCH_DIR/inhibit_stub"
@@ -657,6 +659,7 @@ STUB
 }
 
 @test "T2-37 systemd_inhibitor_reachable: polkit denial detected (regression vs --list-only probe)" {
+  [[ "$(uname)" == "Linux" ]] || skip "Linux-only: systemd_inhibitor_reachable is gated by select_sleep_inhibitor_cmd's case Linux); macOS production uses caffeinate"
   # Simulate restrictive polkit policy: --list passes (dbus reachable) but
   # --what=idle:sleep --mode=block fails (acquisition denied by polkit).
   # The old probe used --list and would mistakenly succeed; the new
@@ -683,6 +686,7 @@ STUB
 }
 
 @test "T2-38 systemd_inhibitor_reachable: invokes acquisition probe with expected argv" {
+  [[ "$(uname)" == "Linux" ]] || skip "Linux-only: systemd_inhibitor_reachable is gated by select_sleep_inhibitor_cmd's case Linux); macOS production uses caffeinate"
   # Witness records argv so we can verify the probe asks for the same lock
   # the production wrap takes (--what=idle:sleep --mode=block /bin/true).
   # Three quoting layers cooperate to keep $witness from being expanded at
@@ -833,6 +837,60 @@ STUB
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"Codex companion script not found"* ]]
   [[ "$stderr" == *"ADR 0012"* ]]
+}
+
+# Tier 3-A2: require_output_style_triple_review fail-loud matrix.
+#
+# These tests guard against the silent fallback in `claude -p --settings '{"outputStyle":"triple-review"}'` when the style file is missing/stale (verified empirically with claude 2.1.126 — silent default-style fallback). chezmoi deploy skew between the script and the output-style is the practical failure mode (ADR 0017 §Negative risk b).
+
+@test "T3-8 require_output_style_triple_review: missing style file -> abort with chezmoi apply hint" {
+  local fake_home="$SCRATCH_DIR/fake_home_no_style"
+  mkdir -p "$fake_home/.claude/output-styles"
+  # Intentionally NOT creating triple-review.md.
+  run --separate-stderr bash -c "
+    export HOME='$fake_home'
+    source '$SRC_SCRIPT'
+    require_cmd() { return 0; }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Output-style 'triple-review'"* ]]
+  [[ "$stderr" == *"chezmoi apply"* ]]
+  [[ "$stderr" == *"TRIPLE_REVIEW_OUTPUT_STYLE_V1"* ]]
+}
+
+@test "T3-9 require_output_style_triple_review: style file present but sentinel missing -> abort" {
+  local fake_home="$SCRATCH_DIR/fake_home_no_sentinel"
+  mkdir -p "$fake_home/.claude/output-styles"
+  printf '%s\n' '# Some Other Style' 'no sentinel here' \
+    > "$fake_home/.claude/output-styles/triple-review.md"
+  run --separate-stderr bash -c "
+    export HOME='$fake_home'
+    source '$SRC_SCRIPT'
+    require_cmd() { return 0; }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"TRIPLE_REVIEW_OUTPUT_STYLE_V1"* ]]
+  [[ "$stderr" == *"chezmoi apply"* ]]
+}
+
+@test "T3-10 require_output_style_triple_review: style file with sentinel -> proceeds (rc=0)" {
+  local fake_home="$SCRATCH_DIR/fake_home_ok"
+  mkdir -p "$fake_home/.claude/output-styles"
+  printf '%s\n' '# Triple-Review Headless Style' '<!-- TRIPLE_REVIEW_OUTPUT_STYLE_V1 -->' 'stub style body' \
+    > "$fake_home/.claude/output-styles/triple-review.md"
+  # All other gates stubbed to pass; setup() already cd'd into a git work tree.
+  run --separate-stderr bash -c "
+    export HOME='$fake_home'
+    source '$SRC_SCRIPT'
+    require_cmd() { return 0; }
+    resolve_codex_companion() { printf 'fake'; }
+    check_prerequisites
+  "
+  [ "$status" -eq 0 ]
 }
 
 # =============================================================================
@@ -1187,4 +1245,31 @@ MOCK
   "
   [ "$status" -eq 0 ]
   [ -f "$marker" ]
+}
+
+# -----------------------------------------------------------------------------
+# WRAPPER-*: enforce claude_p_neutral wrapper usage at all claude -p spawn
+# sites. Without this enforcement, persona contamination from user-global
+# outputStyle settings can leak into reviewer outputs / aggregator envelope
+# (ADR 0017).
+# -----------------------------------------------------------------------------
+
+@test "WRAPPER-1: claude_p_neutral is invoked at 3 spawn sites" {
+  # `[[:space:]]` after the function name excludes the definition line
+  # `claude_p_neutral() {`. If /codex:adversarial-review reverts to
+  # `claude -p` (currently uses direct codex-companion invocation per
+  # ADR 0012), update count to 4.
+  count=$(grep -cE '^[[:space:]]*(if !? *)?claude_p_neutral[[:space:]]' "$SRC_SCRIPT")
+  [ "$count" -eq 3 ]
+}
+
+@test "WRAPPER-2: wrapper definition forces outputStyle=triple-review" {
+  run grep -nE 'claude -p --settings.*"outputStyle":"triple-review"' "$SRC_SCRIPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "WRAPPER-3: no bare claude -p invocations exist outside the wrapper" {
+  bare=$(grep -nE '^[[:space:]]*(if !? *)?claude -p\b' "$SRC_SCRIPT" \
+         | grep -v -- '--settings' || true)
+  [ -z "$bare" ] || { printf 'Bare claude -p (use claude_p_neutral):\n%s\n' "$bare" >&2; return 1; }
 }
