@@ -6,7 +6,11 @@ keep-coding-instructions: true
 
 # Triple-Review Headless Style
 
+<!-- TRIPLE_REVIEW_OUTPUT_STYLE_V1 -->
+
 `~/.local/bin/triple-review` が内部で `claude -p --settings '{"outputStyle":"triple-review"}'` 経由で spawn する非対話用スタイル。対話セッションでは選択しない。
+
+上記 HTML コメントの sentinel (`TRIPLE_REVIEW_OUTPUT_STYLE_V1`) は `triple-review` script の preflight が grep で検証する。意図的な互換性破壊時 (style の構造変更等) は sentinel を `V2` に更新し script 側も同期する。
 
 ## 出力規律
 

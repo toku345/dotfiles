@@ -267,8 +267,22 @@ check_prerequisites() {
   require_cmd claude
   require_cmd node
   CODEX_COMPANION=$(resolve_codex_companion)
+  require_output_style_triple_review
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     err "Not inside a git work tree. Run triple-review from within a repository."
+  fi
+}
+
+# Verify the triple-review output-style file is deployed and current. Fails closed when the file is missing, empty, or missing the sentinel string.
+#
+# Without this check, `claude -p --settings '{"outputStyle":"triple-review"}'` silently falls back to the user's default style on a missing/stale style file (verified empirically with claude 2.1.126), allowing user-global persona settings (JUIZ/Lum) to contaminate reviewer outputs and the aggregator envelope.
+#
+# ADR 0017 §Negative documents this as accepted risk (b); this preflight inverts that acceptance into a fail-loud guard so chezmoi deploy skew between the script and the style file surfaces immediately.
+require_output_style_triple_review() {
+  local style_file="$HOME/.claude/output-styles/triple-review.md"
+  if [ ! -r "$style_file" ] || [ ! -s "$style_file" ] \
+     || ! grep -q 'TRIPLE_REVIEW_OUTPUT_STYLE_V1' "$style_file" 2>/dev/null; then
+    err "Output-style 'triple-review' is missing, empty, or stale at $style_file (sentinel TRIPLE_REVIEW_OUTPUT_STYLE_V1 not found). This indicates chezmoi deploy skew between the triple-review script and its output-style. Run 'chezmoi apply -v' to deploy the latest style, then retry. Aborting to prevent silent persona contamination of reviewer outputs (ADR 0017)."
   fi
 }
 
@@ -373,10 +387,12 @@ is_error_token_only() {
   return 1
 }
 
-# Validate aggregator summary.md against the strict envelope contract
-# (build_aggregation_prompt §"指示"): the first non-blank line MUST equal
-# `### 対応必須`. Persona contamination is prevented at source by
-# claude_p_neutral (output-style triple-review); see ADR 0017.
+# Validate aggregator summary.md against the strict envelope contract (build_aggregation_prompt §"指示"): the first non-blank line MUST equal `### 対応必須`.
+#
+# Persona suppression is enforced at source by output-style triple-review (via claude_p_neutral); see ADR 0017. The output-style itself is guarded at startup by require_output_style_triple_review (sentinel preflight).
+#
+# When BOTH upstream layers fail (e.g. `claude --settings` semantics change combined with a sentinel-bypassing edit to the style file), this first-line check is the LAST defense layer and only catches LEADING contamination — mid-body or trailing leaks pass through silently.
+#
 # Sets REJECT_REASON in the caller's scope on failure.
 assert_envelope_valid() {
   local path="$1"
