@@ -373,23 +373,11 @@ is_error_token_only() {
   return 1
 }
 
-# Persona markers that must NOT appear in aggregator prose (defense-in-depth
-# for ADR 0016 Decision 7's headless override). Currently Lum-only since Lum
-# is the only persona whose voice produces these tokens. Add new persona
-# markers (alternation, not separate calls) when additional persona
-# output-styles ship; consider extracting to a fixture file once N >= 3.
-PERSONA_MARKERS_REGEX='だっちゃ|ダーリン|っちゃ！|うちに任せる|うちが教えて|えへへ'
-
 # Validate aggregator summary.md against the strict envelope contract
 # (build_aggregation_prompt §"指示"): the first non-blank line MUST equal
-# `### 対応必須`, and persona markers MUST NOT leak into prose. Persona
-# markers inside fenced code blocks are allowed because reviewers may
-# legitimately quote source-under-review (e.g. PRs that modify Lum.md
-# itself). Sets REJECT_REASON in the caller's scope on failure.
-#
-# Fail-loud rationale: ADR 0016 Decision 7 mandates manual triple-review
-# verification per persona shift; this function automates that gate so
-# future model updates or prompt tweaks cannot silently regress.
+# `### 対応必須`. Persona contamination is prevented at source by
+# claude_p_neutral (output-style triple-review); see ADR 0017.
+# Sets REJECT_REASON in the caller's scope on failure.
 assert_envelope_valid() {
   local path="$1"
   REJECT_REASON=""
@@ -401,16 +389,6 @@ assert_envelope_valid() {
   first_nonblank=$(awk 'NF { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }' "$path")
   if [ "$first_nonblank" != "### 対応必須" ]; then
     REJECT_REASON="envelope: first non-blank line must be exactly '### 対応必須' (got: '${first_nonblank:-<empty>}')"
-    return 1
-  fi
-  local found
-  # Strip fenced code blocks via awk, then grep for persona markers in the
-  # remaining prose. `|| true` keeps the pipeline rc at 0 under set -o
-  # pipefail when grep finds no match (empty $found is the success signal).
-  found=$(awk '/^```/ { in_code = !in_code; next } !in_code { print }' "$path" \
-    | grep -E "$PERSONA_MARKERS_REGEX" || true)
-  if [ -n "$found" ]; then
-    REJECT_REASON="persona marker(s) detected outside code blocks:"$'\n'"$found"
     return 1
   fi
   return 0
@@ -573,6 +551,14 @@ kill_children() {
   cleanup_codex_broker
 }
 
+# Wrapper for `claude -p` that forces outputStyle=triple-review, so
+# user-global persona styles (JUIZ, Lum) cannot contaminate reviewer
+# outputs or the aggregator envelope. All three claude -p spawn sites
+# in this script MUST use this wrapper; bats WRAPPER-* tests enforce it.
+claude_p_neutral() {
+  claude -p --settings '{"outputStyle":"triple-review"}' "$@"
+}
+
 # Build the aggregation prompt via unquoted heredoc so reviewer contents are
 # interpolated. Bash does not re-evaluate variable values after expansion, so
 # command substitutions ($(...)), backticks, and other shell metacharacters
@@ -725,11 +711,11 @@ main() {
   printf 'Work dir:    %s\n' "$workdir"
   printf '(Tip: tail -f %s/*.md %s/*.err for live per-reviewer output)\n' "$workdir" "$workdir"
 
-  claude -p "/pr-review-toolkit:review-pr" > "$workdir/pr.md" 2>&1 &
+  claude_p_neutral "/pr-review-toolkit:review-pr" > "$workdir/pr.md" 2>&1 &
   local pid_pr=$!
   CHILDREN+=("$pid_pr")
 
-  claude -p "/security-review" > "$workdir/sec.md" 2>&1 &
+  claude_p_neutral "/security-review" > "$workdir/sec.md" 2>&1 &
   local pid_sec=$!
   CHILDREN+=("$pid_sec")
 
@@ -812,7 +798,7 @@ main() {
   # is the user-facing product). is_error_token_only below only scans the
   # first 3 lines of summary.md, so stderr mixed into the tail would slip
   # past detection and land in the final cat.
-  if ! claude -p < "$workdir/prompt.txt" > "$workdir/summary.md" 2> "$workdir/summary.err"; then
+  if ! claude_p_neutral < "$workdir/prompt.txt" > "$workdir/summary.md" 2> "$workdir/summary.err"; then
     printf '\033[31mAggregation step failed. Raw reviewer outputs preserved at: %s\033[0m\n' "$workdir" >&2
     printf -- '--- tail of summary.err ---\n' >&2
     tail -n 40 "$workdir/summary.err" >&2
@@ -836,10 +822,9 @@ main() {
   fi
 
   # Envelope contract enforcement: aggregator output MUST start with
-  # `### 対応必須` (per build_aggregation_prompt §"指示") and MUST NOT leak
-  # persona voice into prose. Without this gate, persona residue from the
-  # headless override (ADR 0016 Decision 7) silently slips past manual
-  # verification on persona/prompt updates. See assert_envelope_valid.
+  # `### 対応必須` (per build_aggregation_prompt §"指示"). Persona
+  # contamination is prevented at source by claude_p_neutral (ADR 0017),
+  # so this gate only enforces envelope structure. See assert_envelope_valid.
   if ! assert_envelope_valid "$workdir/summary.md"; then
     printf '\033[31mAggregation envelope validation failed: %s\033[0m\n' "$REJECT_REASON" >&2
     printf 'Raw reviewer outputs preserved at: %s\n' "$workdir" >&2

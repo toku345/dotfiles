@@ -1188,3 +1188,30 @@ MOCK
   [ "$status" -eq 0 ]
   [ -f "$marker" ]
 }
+
+# -----------------------------------------------------------------------------
+# WRAPPER-*: enforce claude_p_neutral wrapper usage at all claude -p spawn
+# sites. Without this enforcement, persona contamination from user-global
+# outputStyle settings can leak into reviewer outputs / aggregator envelope
+# (ADR 0017).
+# -----------------------------------------------------------------------------
+
+@test "WRAPPER-1: claude_p_neutral is invoked at 3 spawn sites" {
+  # `[[:space:]]` after the function name excludes the definition line
+  # `claude_p_neutral() {`. If /codex:adversarial-review reverts to
+  # `claude -p` (currently uses direct codex-companion invocation per
+  # ADR 0012), update count to 4.
+  count=$(grep -cE '^[[:space:]]*(if !? *)?claude_p_neutral[[:space:]]' "$SRC_SCRIPT")
+  [ "$count" -eq 3 ]
+}
+
+@test "WRAPPER-2: wrapper definition forces outputStyle=triple-review" {
+  run grep -nE 'claude -p --settings.*"outputStyle":"triple-review"' "$SRC_SCRIPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "WRAPPER-3: no bare claude -p invocations exist outside the wrapper" {
+  bare=$(grep -nE '^[[:space:]]*(if !? *)?claude -p\b' "$SRC_SCRIPT" \
+         | grep -v -- '--settings' || true)
+  [ -z "$bare" ] || { printf 'Bare claude -p (use claude_p_neutral):\n%s\n' "$bare" >&2; return 1; }
+}
