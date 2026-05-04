@@ -146,7 +146,17 @@ triple-review adversarial レビューで「Override の suspend 対象が『per
 - override section の末尾文を「該当しない通常応答に限り、以降の persona 規則を全て適用する」に変更し、output-style 本体の persona 規則 section 全てを Override 非発動時のみ適用される条件付き規則として位置付け (persona 拡張時の section 個別更新を不要化)
 - `~/.claude/CLAUDE.md` (chezmoi source: `private_dot_claude/CLAUDE.md`) の headless 適用除外にも strict envelope 例外を追加し、persona 切替に依存しない二重ガードとした (Lum.md の override + CLAUDE.md の例外)
 
-検証要件は本 Decision 7 末尾の triple-review 1 PR 実走に加え、`triple-review` aggregator の runtime envelope validator により自動化済 (実装: `dot_local/bin/executable_triple-review` の `assert_envelope_valid` + `tests/bats/test_triple_review_envelope_validator.bats`)。validator は (a) 最初の非空行が `### 対応必須` に厳密一致すること、(b) fenced code block 外に persona marker (`PERSONA_MARKERS_REGEX`) が出現しないこと、を assert する。コードブロック内引用は許容することで、Lum.md 自身を改修する PR の review 時の false positive を回避する。
+検証要件は本 Decision 7 末尾の triple-review 1 PR 実走に加え、`triple-review` aggregator の runtime envelope validator により自動化済 (実装: `dot_local/bin/executable_triple-review` の `assert_envelope_valid` + `tests/bats/test_triple_review_envelope_validator.bats`)。validator は最初の非空行が `### 対応必須` に厳密一致することを assert する (2026-05-04 [ADR 0017](0017-triple-review-headless-output-style.md) で `PERSONA_MARKERS_REGEX` チェック層は削除、output-style `triple-review` による source 抑制に一元化。Lum マーカ網羅のみで JUIZ 末尾混入が素通りしていた未完全性が動機)。
+
+#### 2026-05-04 補強: output-style への一元化
+
+[ADR 0017](0017-triple-review-headless-output-style.md) で triple-review は `claude -p --settings '{"outputStyle":"triple-review"}'` 経由の neutral output-style に移行し、本 Decision 7 で構築した二重ガード (Lum.md Override + `~/.claude/CLAUDE.md` strict envelope 例外節) のうち CLAUDE.md side と validator side を解体した:
+
+- **削除**: `~/.claude/CLAUDE.md` の strict envelope 例外節 (Decision 7 で追加した CLAUDE.md side ガード)
+- **削除**: `assert_envelope_valid` の `PERSONA_MARKERS_REGEX` 検査ブロック + bats PM-1〜PM-6
+- **維持**: Lum.md の Override 規則 (二重ガードとして残置、Lum を default persona に設定したまま `claude -p` を bare で叩く ad-hoc 運用への保険)
+
+これにより persona 抑制の primary メカニズムは output-style に移り、新規 persona 追加時の `PERSONA_MARKERS_REGEX` 更新義務も消失した。
 
 ## Consequences
 

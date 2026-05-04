@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-04-28). Follow-on changes L186-194 のうち **headless 適用除外** 部分 (L192-194) のみ [ADR 0017](0017-triple-review-headless-output-style.md) で superseded。auto-mode 関連 (L188-191) は維持。
+Accepted (2026-04-28). Follow-on changes 内の「初回指示の受領フォーマット への headless (`claude -p`) 適用除外」bullet のみ [ADR 0017](0017-triple-review-headless-output-style.md) で superseded (output-style `triple-review` による source 抑制へ一元化)。auto-mode 関連の「`着手前ゲート` セクション置換」bullet は維持。
 
 ## Context
 
