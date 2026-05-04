@@ -1257,28 +1257,48 @@ MOCK
 @test "WRAPPER-1A: PR reviewer spawn site uses claude_p_neutral" {
   # Spawn-site-specific assertion (replaces aggregate count==3) so a missing
   # wrapper at one site is diagnosable without staring at a bare count.
-  run grep -nE 'claude_p_neutral[[:space:]]+"/pr-review-toolkit:review-pr"' "$SRC_SCRIPT"
-  [ "$status" -eq 0 ]
+  # awk skips line-start `#` comments to prevent documentation that mentions
+  # the spawn-site literal from satisfying the test.
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /claude_p_neutral[[:space:]]+"\/pr-review-toolkit:review-pr"/ { print }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
 }
 
 @test "WRAPPER-1B: security reviewer spawn site uses claude_p_neutral" {
-  run grep -nE 'claude_p_neutral[[:space:]]+"/security-review"' "$SRC_SCRIPT"
-  [ "$status" -eq 0 ]
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /claude_p_neutral[[:space:]]+"\/security-review"/ { print }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
 }
 
 @test "WRAPPER-1C: aggregator spawn site uses claude_p_neutral with stdin pipe" {
   # Aggregator uniquely uses stdin redirection (`< prompt.txt`); other sites
-  # take the slash command as a positional arg.
-  run grep -nE 'claude_p_neutral[[:space:]]*<' "$SRC_SCRIPT"
-  [ "$status" -eq 0 ]
+  # take the slash command as a positional arg. Pattern is comment-skipped
+  # but NOT line-start-anchored: the actual code is
+  # `if ! claude_p_neutral < "$workdir/prompt.txt" > ...` so a `^[[:space:]]*`
+  # anchor would false-fail on the `if !` prefix.
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /claude_p_neutral[[:space:]]*</ { print }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
 }
 
 @test "WRAPPER-2: wrapper definition forces outputStyle=triple-review" {
   # Relaxed from a full literal: tolerates JSON whitespace variations
   # (`{"outputStyle":"triple-review"}`, `{ "outputStyle" : "triple-review" }`)
   # so future style refactors don't have to update this regex.
-  run grep -nE 'outputStyle.*triple-review' "$SRC_SCRIPT"
-  [ "$status" -eq 0 ]
+  # awk skips line-start `#` comments — the script's docstring at line 278
+  # quotes the same JSON payload and would otherwise satisfy the test even
+  # if the actual wrapper definition were removed.
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /outputStyle.*triple-review/ { print }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
 }
 
 @test "WRAPPER-3: no bare claude -p invocations exist outside claude_p_neutral()" {
