@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-05-01)
+Accepted (2026-05-01). Decision 7 の二重ガードのうち CLAUDE.md side (strict envelope 例外節) と `PERSONA_MARKERS_REGEX` validator を [ADR 0017](0017-triple-review-headless-output-style.md) で supersede。Lum.md Override 規則は維持。
 
 ## Context
 
