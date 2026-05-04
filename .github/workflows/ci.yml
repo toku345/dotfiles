@@ -194,6 +194,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      # T4-1〜T4-7 invoke triple-review-broker-cleanup, an ESM Node helper
+      # that requires Node 20+. Without this pin the job silently relies on
+      # the ubuntu-latest runner image's preinstalled Node, which fails in
+      # fresh Docker (apt nodejs ships v18 on Ubuntu 24.04).
+      - name: Setup Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+
       - name: Install bats-core
         run: |
           sudo apt-get update
