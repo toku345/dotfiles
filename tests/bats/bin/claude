@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# Minimal claude stub for bats tests. Captures the invocation so tests can
+# assert on argv preservation (JSON quoting, "$@" passthrough) and aggregator
+# stdin content. Honors:
+#   MOCK_CLAUDE_LOG        argv → one positional arg per line (truncate-on-write)
+#   MOCK_CLAUDE_STDIN_LOG  stdin → captured verbatim (truncate-on-write)
+#   MOCK_CLAUDE_OUTPUT     value written to stdout (default: empty)
+#   MOCK_CLAUDE_RC         exit status (default: 0)
+set -euo pipefail
+
+if [[ -n "${MOCK_CLAUDE_LOG:-}" ]]; then
+  : > "$MOCK_CLAUDE_LOG"
+  for arg in "$@"; do
+    printf '%s\n' "$arg" >> "$MOCK_CLAUDE_LOG"
+  done
+fi
+
+if [[ -n "${MOCK_CLAUDE_STDIN_LOG:-}" ]]; then
+  cat > "$MOCK_CLAUDE_STDIN_LOG"
+else
+  cat > /dev/null
+fi
+
+if [[ -n "${MOCK_CLAUDE_OUTPUT+x}" ]]; then
+  printf '%s' "$MOCK_CLAUDE_OUTPUT"
+fi
+
+exit "${MOCK_CLAUDE_RC:-0}"
