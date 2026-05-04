@@ -731,6 +731,7 @@ STUB
 }
 
 @test "T2-39 systemd_inhibitor_reachable: hanging systemd-inhibit -> bounded by timeout(1)" {
+  [[ "$(uname)" == "Linux" ]] || skip "Linux-only: systemd_inhibitor_reachable is gated by select_sleep_inhibitor_cmd's case Linux); macOS production uses caffeinate"
   # Codex adversarial review surfaced this gap: a degraded logind/polkit
   # path that waits indefinitely instead of returning immediately would
   # hang the probe without an explicit timeout, blocking startup before
@@ -751,9 +752,11 @@ STUB
   PATH="$stub_dir:$PATH" TRIPLE_REVIEW_PROBE_TIMEOUT=1 \
     run bash -c "source '$SRC_SCRIPT'; systemd_inhibitor_reachable"
   local elapsed=$((SECONDS - before))
-  # GNU timeout returns 124 on timeout; either way the probe must signal
-  # failure so select_sleep_inhibitor_cmd falls through to wrap-skip.
-  [ "$status" -ne 0 ]
+  # Assert specifically on GNU timeout's documented timeout exit (124)
+  # instead of `-ne 0`. The looser check would also be satisfied by 127
+  # (command-not-found, e.g. host missing GNU timeout), masking a regression
+  # where the production wrap stops invoking timeout(1) at all.
+  [ "$status" -eq 124 ]
   # Wide ceiling tolerates CI scheduler jitter while still failing loud
   # if the timeout wrap is removed (sleep 30 would otherwise stall here).
   [ "$elapsed" -lt 5 ]
