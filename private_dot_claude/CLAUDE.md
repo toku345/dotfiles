@@ -143,7 +143,9 @@ Playwright / Puppeteer の E2E、または Chrome 拡張で視覚検証ループ
 
 - コミットメッセージ・PR body は HEREDOC で渡す (システムプロンプトに準拠)
 - **PR のタイトル・説明は英語で記述する**
-- PR 作成前のレビューはユーザーがターミナルで `triple-review` を実行する (Claude Code 内から自走させない; 3 reviewers 並列 + 優先度別 aggregation)
+- `triple-review` は Claude Code 内から自走させない (PR 作成前のレビュー gate として ユーザー がターミナルで実行する; 3 reviewers 並列 + 優先度別 aggregation)
+- `triple-review` 実行時は draft PR を先に作成する。script は PR base を `gh pr view` で auto-resolve するが、PR 不在時は `origin/HEAD` fallback と警告を出力し、Codex leg と他 2 leg (review-pr / security-review) で scope が不整合になりうる
+- reviewer leg のいずれかが失敗すると script は warn のみで partial aggregation を継続し exit 0 する (失敗 leg の出力には `<FAILED>` marker 混入)。partial を成功とみなさず、失敗 leg を direct rerun する
 
 ## Codex の使い分け
 
