@@ -67,6 +67,7 @@ setup() {
 }
 
 @test "T1-7 collect_descendants: 2-level tree -> direct child only" {
+  skip_if_pgrep_unavailable
   # Spawn 1 child (sleep) under a parent bash; spawned bash writes the
   # sleep PID to child.pid before calling wait, so the file's presence
   # is a positive readiness signal independent of scheduler timing.
@@ -94,6 +95,7 @@ setup() {
 }
 
 @test "T1-8 collect_descendants: 3-level tree -> child + grandchild" {
+  skip_if_pgrep_unavailable
   # Spawn bash -> bash -> sleep
   bash -c 'bash -c "sleep 30 & wait" & wait' &
   local top=$!
@@ -132,6 +134,7 @@ setup() {
 }
 
 @test "T1-10 kill_children: 3 parallel 3-level trees -> all 9 PIDs killed" {
+  skip_if_pgrep_unavailable
   # Spawn via a dedicated helper so PIDs land in a known file
   local pid_file="$SCRATCH_DIR/parents.txt"
   : > "$pid_file"

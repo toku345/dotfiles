@@ -190,6 +190,7 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 
 - `codex exec` / `codex login` may require `dangerouslyDisableSandbox: true` on macOS when authentication checks run inside sandbox (`system-configuration` access restriction; Rust `dynamic_store.rs` NULL object panic). AI automatically judges sandbox bypass; manual disable is rarely necessary
 - `gh` commands require `dangerouslyDisableSandbox: true` — `excludedCommands` does not bypass macOS Seatbelt Mach service restrictions (`trustd` for TLS). See `docs/adr/0002-claude-code-sandbox-gh-investigation.md`
+- `pgrep` / `ps` は sandbox 内で `sysmond` Mach service が deny され空 (rc≠0) を返す。失敗が silent に「子プロセスなし」へ縮退する罠。`tests/bats/test_triple_review.bats` の T1-7/T1-8/T1-10 は `pgrep -P $$` 可用性チェックで sandbox 内 skip 済。`triple-review` 本体の `collect_descendants` を Claude Code 経由で動かす場合は `dangerouslyDisableSandbox: true` が必要 (通常は terminal 直接実行が想定)。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
 - `chezmoi apply` / `chezmoi diff` require `dangerouslyDisableSandbox` (needs `~/.config/chezmoi/chezmoistate.boltdb`)
 - `GODEBUG=x509usefallbackroots=1` is ineffective for `gh` — do not use
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
