@@ -188,7 +188,12 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 
 ## Claude Code Hooks
 
-検証ループ用 hook スクリプトが `.claude/hooks/` に配置されている (本体はコミット対象、配線は `.claude/settings.local.json` で local 限定)。提供 hook 一覧・配線 JSON 例・配置原則・トラブルシューティングは [docs/claude-code-hooks.md](docs/claude-code-hooks.md)。
+検証ループ用 hook スクリプトが `.claude/hooks/` に配置されている (本体はコミット対象、配線は `.claude/settings.local.json` で local 限定)。
+
+提供 hook (配線 JSON 例・配置原則・詳細は [docs/claude-code-hooks.md](docs/claude-code-hooks.md)):
+
+- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`*.fish` 変更時のみ bats / shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`.claude/.stop-hook-block-count`) で自動許可
+- **`fish-syntax-check.sh`** — PostToolUse `Edit|Write`。`*.fish` 編集時に `fish -n` で構文チェック、エラー時 `decision: block` JSON
 
 一行 gotcha:
 
