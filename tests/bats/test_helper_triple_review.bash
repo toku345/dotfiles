@@ -51,10 +51,24 @@ EOF
 # Skip when pgrep cannot enumerate processes. macOS Seatbelt (used by Claude
 # Code's Bash tool) denies access to the sysmond Mach service, so pgrep
 # exits rc=3 with empty stdout — silently indistinguishable from "no
-# descendants". Probe with PID 1, which always has children on macOS/Linux,
-# so rc!=0 means pgrep itself is broken (not a real no-match). See
-# docs/adr/0001-claude-code-sandbox-git-least-privilege.md Known Limitations.
+# descendants". Probe by spawning a known short-lived parent and asking
+# pgrep -P <that PID> for its child; this avoids conflating "PID 1 has no
+# children right now" (possible in minimal containers) with "pgrep is
+# unusable." See docs/adr/0001-claude-code-sandbox-git-least-privilege.md
+# Known Limitations.
 skip_if_pgrep_unavailable() {
-  pgrep -P 1 >/dev/null 2>&1 \
+  bash -c 'sleep 2 & wait' &
+  local probe_parent=$!
+  local i ok=0
+  for ((i=0; i<20; i++)); do
+    if pgrep -P "$probe_parent" >/dev/null 2>&1; then
+      ok=1
+      break
+    fi
+    sleep 0.05
+  done
+  kill "$probe_parent" 2>/dev/null || true
+  wait "$probe_parent" 2>/dev/null || true
+  [ "$ok" -eq 1 ] \
     || skip "pgrep unavailable (likely Claude Code sandbox: sysmond Mach service deny — see docs/adr/0001)"
 }

@@ -170,8 +170,11 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   Same root cause as `trustd` above; listed separately because the failure mode
   silently skews PID-tree logic (an empty result looks like "no descendants",
   not an error). Affected paths in this repository:
-  - `tests/bats/test_triple_review.bats` T1-7 / T1-8 / T1-10 — guarded with a
-    `pgrep -P $$` availability check that `skip`s under sandbox.
+  - `tests/bats/test_triple_review.bats` T1-7 / T1-8 / T1-10 — guarded with
+    the `skip_if_pgrep_unavailable` helper in
+    `tests/bats/test_helper_triple_review.bash`, which probes pgrep against
+    a short-lived child process so the guard does not misfire when PID 1
+    transiently has no children (e.g. in minimal containers).
   - `dot_local/bin/executable_triple-review` `collect_descendants` /
     `kill_children` — works correctly when `triple-review` is invoked directly
     from a terminal (the supported entry point); running it through Claude
