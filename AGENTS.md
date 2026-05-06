@@ -23,18 +23,7 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 ### Encrypted Files
 
-`.age` files use a two-layer model: `key.txt.age` (in repo, password-protected via 1Password) → `~/key.txt` (local age private key) → `encrypted_*.age` files (SSH config, Google IME dict, etc.). See [docs/security.md](docs/security.md) for details.
-
-One-time setup:
-
-```bash
-brew install age
-age -d -o ~/key.txt "$(chezmoi source-path)/key.txt.age"  # password from 1Password
-chmod 600 ~/key.txt
-chezmoi apply
-```
-
-**Critical**: never commit `~/key.txt`. Only `key.txt.age` belongs in the repo.
+`.age` ファイルは二層モデル (`key.txt.age` → `~/key.txt` → `encrypted_*.age`)。**`~/key.txt` は絶対にコミットしない**。setup 手順・運用詳細は [docs/security.md](docs/security.md)。
 
 ## Repository Structure
 
@@ -200,56 +189,17 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 
 ## Claude Code Hooks
 
-このリポジトリには検証ループ用の hook スクリプトが `.claude/hooks/` に配置されている。スクリプト本体はコミット対象、配線は `.claude/settings.local.json`（gitignored / machine-local）で行う。
+検証ループ用 hook スクリプトが `.claude/hooks/` に配置されている (本体はコミット対象、配線は `.claude/settings.local.json` で local 限定)。
 
-### 提供されている hooks
+提供 hook (配線 JSON 例・配置原則・詳細は [docs/claude-code-hooks.md](docs/claude-code-hooks.md)):
 
-- **`.claude/hooks/verify-on-stop.sh`** — Stop event hook。`git diff HEAD` と untracked を走査し、`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`*.fish` のいずれかが変更されている時のみ対応する gate（bats / shellcheck / `fish -n`）を実行する。失敗時は exit 2 + stderr で Claude に feedback を返す。連続ブロック上限は 3 回（`.claude/.stop-hook-block-count`）で、超えたら自動許可しユーザーが復旧できるようにする
-- **`.claude/hooks/fish-syntax-check.sh`** — PostToolUse `Edit|Write` hook。編集対象が `*.fish` の時だけ `fish -n` を実行し、構文エラー時は `decision: block` JSON を返す
+- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`*.fish` 変更時のみ bats / shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`.claude/.stop-hook-block-count`) で自動許可
+- **`fish-syntax-check.sh`** — PostToolUse `Edit|Write`。`*.fish` 編集時に `fish -n` で構文チェック、エラー時 `decision: block` JSON
 
-各スクリプトは対象ツール（bats / shellcheck / fish）が未インストールの環境では no-op で抜けるため、複数マシンで安全に共有できる。
+一行 gotcha:
 
-### 配線方法
-
-`.claude/settings.local.json` に以下を追加（既存キーは保持）:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/verify-on-stop.sh",
-            "timeout": 300
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/fish-syntax-check.sh",
-            "timeout": 15
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`.claude/settings.json`（プロジェクト共有）には書かない — hook 実行は machine-specific 依存（bats / shellcheck / fish）を持つため、CLAUDE.md の配置原則に従い local 限定とする。
-
-### トラブルシューティング
-
-- Stop hook で意図せず無限ループに陥った場合: `rm .claude/.stop-hook-block-count` で counter をリセット
-- hook が動かない: Claude Code 起動後 `/hooks` で読み込み状態を確認
-- bats が macOS で pass / Ubuntu CI で fail する場合は `bats-docker-parity-runner` subagent を呼び出して Docker Ubuntu 24.04 で再走させる
+- macOS で pass / Ubuntu CI で fail する場合は `bats-docker-parity-runner` subagent で Docker Ubuntu 24.04 再走
+- Stop hook 無限ループ時は `rm .claude/.stop-hook-block-count`
 
 ## Claude Code Configuration Quirks
 
