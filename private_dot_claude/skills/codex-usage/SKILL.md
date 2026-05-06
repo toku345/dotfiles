@@ -1,12 +1,6 @@
 ---
 name: codex-usage
-description: >
-  Codex (codex exec / codex-plugin-cc / `/codex:adversarial-review` /
-  `/codex:rescue`) の使い分け、コマンド呼び出し方法、自動レビュー条件を
-  提供する。以下の場面で参照する: 実装プラン完成時に自動レビューを
-  実施するか判断するとき / PR 前レビュー手順を実行するとき / 長時間調査・
-  別案試行・バックグラウンド実行を検討するとき / `codex exec`、
-  `codex exec resume --last` の構文を確認するとき。
+description: Codex (codex exec / `/codex:adversarial-review` / `/codex:rescue`) の使い分け・自動レビュー条件・`codex exec` / `codex exec resume --last` の構文を提供する。実装プラン完成時に Codex 自動レビューを実施するか判断するとき、長時間調査・別案試行・バックグラウンド実行を検討するときに参照する。
 ---
 
 # codex-usage
