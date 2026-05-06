@@ -67,6 +67,7 @@ setup() {
 }
 
 @test "T1-7 collect_descendants: 2-level tree -> direct child only" {
+  skip_if_pgrep_unavailable
   # Spawn 1 child (sleep) under a parent bash; spawned bash writes the
   # sleep PID to child.pid before calling wait, so the file's presence
   # is a positive readiness signal independent of scheduler timing.
@@ -94,6 +95,7 @@ setup() {
 }
 
 @test "T1-8 collect_descendants: 3-level tree -> child + grandchild" {
+  skip_if_pgrep_unavailable
   # Spawn bash -> bash -> sleep
   bash -c 'bash -c "sleep 30 & wait" & wait' &
   local top=$!
@@ -132,6 +134,7 @@ setup() {
 }
 
 @test "T1-10 kill_children: 3 parallel 3-level trees -> all 9 PIDs killed" {
+  skip_if_pgrep_unavailable
   # Spawn via a dedicated helper so PIDs land in a known file
   local pid_file="$SCRATCH_DIR/parents.txt"
   : > "$pid_file"
@@ -1022,7 +1025,7 @@ MOCK_PROC
 # Resolve the helper script path. Tests run from the chezmoi worktree,
 # so the helper lives next to triple-review under its `executable_` name.
 broker_helper_path() {
-  printf '%s/executable_triple-review-broker-cleanup\n' "$SRC_BIN_DIR"
+  printf '%s/executable_triple-review-broker-cleanup.mjs\n' "$SRC_BIN_DIR"
 }
 
 @test "T4-1 helper snapshot: no broker.json -> existed=false" {
@@ -1156,10 +1159,10 @@ MOCK
 # Tier 4-B: bash-side integration of the cleanup helper.
 # =============================================================================
 
-@test "T4-8 resolve_broker_cleanup_helper: finds executable_-prefixed helper in source tree" {
+@test "T4-8 resolve_broker_cleanup_helper: finds executable_-prefixed .mjs helper in source tree" {
   run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_broker_cleanup_helper"
   [ "$status" -eq 0 ]
-  [ "$output" = "$SRC_BIN_DIR/executable_triple-review-broker-cleanup" ]
+  [ "$output" = "$SRC_BIN_DIR/executable_triple-review-broker-cleanup.mjs" ]
 }
 
 @test "T4-9 cleanup_codex_broker: idempotent (BROKER_CLEANUP_DONE guard)" {

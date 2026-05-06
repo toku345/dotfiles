@@ -161,6 +161,24 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   `trustd`). Corroborated by community reports:
   [#28954](https://github.com/anthropics/claude-code/issues/28954),
   [#17821](https://github.com/anthropics/claude-code/issues/17821).
+- **`pgrep` / `ps` cannot enumerate processes inside the sandbox**
+  (empirically observed on Darwin 25.4.0 with Claude Code; not documented by
+  Anthropic — behavior may change): macOS process enumeration goes through the
+  `sysmond` Mach service, which the sandbox denies. `pgrep` then prints
+  `sysmon request failed with error: sysmond service not found` followed by
+  `pgrep: Cannot get process list` and exits non-zero with empty stdout.
+  Same root cause as `trustd` above; listed separately because the failure mode
+  silently skews PID-tree logic (an empty result looks like "no descendants",
+  not an error). Affected paths in this repository:
+  - `tests/bats/test_triple_review.bats` T1-7 / T1-8 / T1-10 — guarded with
+    the `skip_if_pgrep_unavailable` helper in
+    `tests/bats/test_helper_triple_review.bash`, which probes pgrep against
+    a short-lived child process so the guard does not misfire when PID 1
+    transiently has no children (e.g. in minimal containers).
+  - `dot_local/bin/executable_triple-review` `collect_descendants` /
+    `kill_children` — works correctly when `triple-review` is invoked directly
+    from a terminal (the supported entry point); running it through Claude
+    Code's Bash tool requires `dangerouslyDisableSandbox: true`.
 - **User settings relative paths resolve against `~/.claude/`** (documented in
   [Sandbox path prefixes](https://code.claude.com/docs/en/settings#sandbox-path-prefixes)):
   Paths without a prefix (e.g., `foo`) in `~/.claude/settings.json` resolve to
