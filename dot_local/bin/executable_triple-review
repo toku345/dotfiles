@@ -228,8 +228,8 @@ resolve_broker_cleanup_helper() {
   local self_dir candidate
   self_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   for candidate in \
-    "$self_dir/triple-review-broker-cleanup" \
-    "$self_dir/executable_triple-review-broker-cleanup"; do
+    "$self_dir/triple-review-broker-cleanup.mjs" \
+    "$self_dir/executable_triple-review-broker-cleanup.mjs"; do
     if [ -f "$candidate" ]; then
       printf '%s\n' "$candidate"
       return 0
@@ -716,7 +716,7 @@ main() {
       BROKER_PRE_SNAPSHOT='{"existed":true}'
     fi
   else
-    warn "triple-review-broker-cleanup helper not found; skipping post-run codex broker teardown. Orphan broker may remain (issue #162)."
+    warn "triple-review-broker-cleanup.mjs helper not found; skipping post-run codex broker teardown. Orphan broker may remain (issue #162)."
     BROKER_PRE_SNAPSHOT='{"existed":true}'
   fi
 

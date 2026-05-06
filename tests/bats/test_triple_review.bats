@@ -1025,7 +1025,7 @@ MOCK_PROC
 # Resolve the helper script path. Tests run from the chezmoi worktree,
 # so the helper lives next to triple-review under its `executable_` name.
 broker_helper_path() {
-  printf '%s/executable_triple-review-broker-cleanup\n' "$SRC_BIN_DIR"
+  printf '%s/executable_triple-review-broker-cleanup.mjs\n' "$SRC_BIN_DIR"
 }
 
 @test "T4-1 helper snapshot: no broker.json -> existed=false" {
@@ -1159,10 +1159,10 @@ MOCK
 # Tier 4-B: bash-side integration of the cleanup helper.
 # =============================================================================
 
-@test "T4-8 resolve_broker_cleanup_helper: finds executable_-prefixed helper in source tree" {
+@test "T4-8 resolve_broker_cleanup_helper: finds executable_-prefixed .mjs helper in source tree" {
   run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_broker_cleanup_helper"
   [ "$status" -eq 0 ]
-  [ "$output" = "$SRC_BIN_DIR/executable_triple-review-broker-cleanup" ]
+  [ "$output" = "$SRC_BIN_DIR/executable_triple-review-broker-cleanup.mjs" ]
 }
 
 @test "T4-9 cleanup_codex_broker: idempotent (BROKER_CLEANUP_DONE guard)" {
