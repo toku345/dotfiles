@@ -47,3 +47,14 @@ EOF
   # stubs default to pass-through and wrap-gate defaults to "not yet wrapped".
   unset FAKE_GH_BASE FAKE_GH_STDERR FAKE_GH_RC TEST_FAKE_UNAME TRIPLE_REVIEW_SLEEP_INHIBITED
 }
+
+# Skip when pgrep cannot enumerate processes. macOS Seatbelt (used by Claude
+# Code's Bash tool) denies access to the sysmond Mach service, so pgrep
+# exits rc=3 with empty stdout — silently indistinguishable from "no
+# descendants". Probe with PID 1, which always has children on macOS/Linux,
+# so rc!=0 means pgrep itself is broken (not a real no-match). See
+# docs/adr/0001-claude-code-sandbox-git-least-privilege.md Known Limitations.
+skip_if_pgrep_unavailable() {
+  pgrep -P 1 >/dev/null 2>&1 \
+    || skip "pgrep unavailable (likely Claude Code sandbox: sysmond Mach service deny — see docs/adr/0001)"
+}
