@@ -136,7 +136,7 @@ Playwright / Puppeteer の E2E、または Chrome 拡張で視覚検証ループ
 
 - コミットメッセージ・PR body は HEREDOC で渡す (システムプロンプトに準拠)
 - **PR のタイトル・説明は英語で記述する**
-- PR 作成前のレビューは `triple-review` コマンド (3 reviewers 並列 + 優先度別 aggregation) を実行する (ADR 0012)
+- PR 作成前のレビューはユーザーがターミナルで `triple-review` を実行する (Claude Code 内から自走させない; 3 reviewers 並列 + 優先度別 aggregation)
 
 ## Codex の使い分け
 
