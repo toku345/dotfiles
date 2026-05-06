@@ -143,3 +143,5 @@ Playwright / Puppeteer の E2E、または Chrome 拡張で視覚検証ループ
 Codex (コードレビュー / 調査委譲 / 別案試行) の運用詳細は skill `codex-usage` を参照する。
 
 「厚く理解する対象」に該当する変更で `codex` 利用可能なときのみ、プラン完成後に自動レビューを実施する。
+
+Codex 自動レビューはプラン段階の in-session 補助、PR 作成直前の `triple-review` は最終 gate。両者は別フェーズで動き、重複しない。
