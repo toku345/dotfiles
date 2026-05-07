@@ -25,6 +25,15 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 `.age` ファイルは二層モデル (`key.txt.age` → `~/key.txt` → `encrypted_*.age`)。**`~/key.txt` は絶対にコミットしない**。setup 手順・運用詳細は [docs/security.md](docs/security.md)。
 
+### Triple-Review CLI
+
+`triple-review` は default で「PR 必須 + 1-2 leg 失敗で fail-closed」。draft PR を先に作成しておけば 3 reviewer が同じ baseRefName に収束する (Issue #186)。opt-in flags:
+
+- `--allow-no-pr`: PR 不在時に `origin/HEAD` fallback (scope 不整合 residual risk あり)
+- `--allow-partial`: 1-2 leg 失敗を許容して aggregation 続行 (`PARTIAL COVERAGE` banner 強制挿入)
+
+両 flag は combinable。詳細は [`docs/adr/0012`](docs/adr/0012-triple-review-bash-script.md) の "Known limitation — scope alignment" / "Known limitation — partial-failure visibility"。
+
 ## Repository Structure
 
 主要なツリー（自明なサブディレクトリは省略）:
