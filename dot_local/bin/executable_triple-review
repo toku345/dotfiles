@@ -766,14 +766,22 @@ EOF
 }
 
 main() {
-  # Issue #186: --allow-no-pr / --allow-partial opt-in flags. Both default
-  # off (PR-required + fail-closed on partial failure). Globals are exported
-  # so values survive the maybe_wrap_with_inhibitor re-exec — though main()
-  # re-parses argv on re-entry, the env round-trip is a belt-and-braces guard
-  # against future refactors that might call resolve_base / gate_partial_failures
-  # before the parse loop finishes.
-  ALLOW_NO_PR=0
-  ALLOW_PARTIAL=0
+  # Issue #186 + Codex adversarial review fix: --allow-no-pr / --allow-partial
+  # opt-in flags. Two re-entry guarantees:
+  #   (1) Stash the original argv BEFORE the destructive parse loop. The flag
+  #       cases use `shift` to consume their tokens, so by the time we call
+  #       maybe_wrap_with_inhibitor "$@", $@ would be empty and the re-execed
+  #       child would never re-parse the flags. Pass orig_args[@] to the
+  #       wrapper so the re-entered child sees the same argv as the parent.
+  #   (2) Use `:=` defaulting so env-inherited ALLOW_* values survive the
+  #       re-exec — a fresh `ALLOW_NO_PR=0` assignment would clobber the
+  #       parent's export. With `:=`, env wins when set, default applies
+  #       only when truly unset (first invocation, fresh shell).
+  # Both guards together: argv-side and env-side flag survival across the
+  # inhibitor re-exec. Either alone is insufficient.
+  local -a orig_args=("$@")
+  : "${ALLOW_NO_PR:=0}"
+  : "${ALLOW_PARTIAL:=0}"
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -h|--help)
@@ -799,7 +807,9 @@ main() {
   # other work so progress-monitor heartbeats and claude -p children are
   # not suspended if the user walks away. Runs after arg validation so
   # --help and unknown-arg paths do not pay the wrap cost.
-  maybe_wrap_with_inhibitor "$@"
+  # Pass orig_args (NOT $@, which is now empty after the shift loop above)
+  # so the re-execed child re-parses the flags via argv too.
+  maybe_wrap_with_inhibitor "${orig_args[@]}"
 
   check_prerequisites
 
@@ -1004,12 +1014,23 @@ main() {
   # UI writing its TUI into a logfile.
   if [ -t 1 ]; then
     printf '\n---\n[triple-review] Launching interactive Claude Code session with findings...\n'
+    # Issue #186 + Codex adversarial review fix: when --allow-partial allowed
+    # degraded coverage, the stdout banner is not enough — the auto-handoff
+    # prompt is what the downstream Claude session actually reads, and the
+    # non-TTY fallback only points at summary.md. Prepend the partial-
+    # coverage warning to the handoff payload so downstream consumers see it.
+    # summary.md itself stays envelope-clean (envelope validator runs against
+    # summary.md only, so we cannot prepend to the file without breaking it).
+    local handoff_prefix=""
+    if [ -n "$missing" ]; then
+      handoff_prefix=$(printf '**PARTIAL COVERAGE — DEGRADED REVIEW**\n\n%d of 3 reviewer(s) failed (%s). The summary below was built from the remaining reviewer(s) only. Findings that would have required cross-reviewer corroboration may be missing. Treat the input as incomplete when proposing actions.\n\n---\n\n' "$fail_count" "$missing")
+    fi
     shopt -s execfail
     set +e
     # SC2093: `shopt -s execfail` above lets bash return control here on exec
     # failure; code after the exec is the execfail fallback path, not dead.
     # shellcheck disable=SC2093
-    exec claude -- "$(cat "$workdir/summary.md")
+    exec claude -- "${handoff_prefix}$(cat "$workdir/summary.md")
 
 上記の 対応必須 / 要検討 項目への対応方針を提案してください。"
     local exec_rc=$?
@@ -1017,7 +1038,12 @@ main() {
     warn "exec claude failed (rc=$exec_rc; binary missing or argv too large). The full summary above is the canonical output; reference $workdir/summary.md to continue manually."
     exit 0
   fi
-  printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n' "$workdir"
+  if [ -n "$missing" ]; then
+    printf '\n---\nNon-TTY stdout detected. --allow-partial mode: %d/3 reviewer(s) failed (%s); the summary at %s/summary.md is built from the remaining reviewer(s) only. Treat the input as incomplete when acting on findings.\n' \
+      "$fail_count" "$missing" "$workdir"
+  else
+    printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n' "$workdir"
+  fi
 }
 
 # Source guard: skip main() when sourced (e.g. from bats test suite),

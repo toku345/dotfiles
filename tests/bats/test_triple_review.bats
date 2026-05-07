@@ -489,6 +489,36 @@ setup() {
   [ $((banner_line - summary_line)) -lt 25 ]
 }
 
+@test "T2-47 auto-handoff prompt prepends partial-coverage warning when missing is set (Codex review fix)" {
+  # Codex review caught that the stdout banner alone does not reach the
+  # downstream Claude session, since `exec claude --` reads summary.md
+  # (envelope-clean) and not stdout. Pin the handoff prefix so a future
+  # refactor that reverts to bare `cat summary.md` would fail this test.
+  local prefix_line exec_line
+  prefix_line=$(grep -nF '**PARTIAL COVERAGE — DEGRADED REVIEW**' "$SRC_SCRIPT" | tail -1 | cut -d: -f1)
+  exec_line=$(grep -nF 'exec claude -- ' "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  [ -n "$prefix_line" ]
+  [ -n "$exec_line" ]
+  # The prefix must be assembled BEFORE the exec call (within ~30 lines).
+  [ "$prefix_line" -lt "$exec_line" ]
+  [ $((exec_line - prefix_line)) -lt 30 ]
+  # The exec line must reference handoff_prefix so the assembled banner
+  # actually reaches the prompt (regression guard against accidental drop).
+  awk -v line="$exec_line" 'NR==line' "$SRC_SCRIPT" | grep -F '${handoff_prefix}'
+}
+
+@test "T2-48 non-TTY fallback notes degraded coverage when missing is set (Codex review fix)" {
+  # Source-level pin: the non-TTY branch must emit a partial-coverage
+  # note when $missing is non-empty, not just the bare "reference
+  # summary.md" line. T2-47 covers the TTY auto-handoff path; this
+  # covers the piped/redirected fallback.
+  awk '
+    /Non-TTY stdout detected/ { found++ }
+    found && /allow-partial mode:/ { partial=1 }
+    END { exit !(found && partial) }
+  ' "$SRC_SCRIPT"
+}
+
 @test "T2-45 banner emission gated on \$missing (source-level invariant, Issue #186)" {
   # The cat-assembly banner block must remain wrapped in `if [ -n "$missing" ]`
   # so a healthy --allow-partial + 0-fail run never emits the banner.
@@ -795,6 +825,48 @@ STUB
   [ "$status" -eq 0 ]
   grep -q '^ALLOW_NO_PR=1$' "$capture"
   grep -q '^ALLOW_PARTIAL=1$' "$capture"
+}
+
+@test "T2-31b main(): orig_args preserved across inhibitor re-exec (Codex review fix)" {
+  # Codex review caught a HIGH-severity bug: the original implementation
+  # parsed --allow-no-pr / --allow-partial with `shift`, so by the time
+  # main() called maybe_wrap_with_inhibitor "$@", $@ was empty and the
+  # re-execed child saw no flags — silently degrading both flags to the
+  # default on any host where the wrapper actually runs. Fix: stash
+  # orig_args=("$@") before the parse loop and pass orig_args[@] to the
+  # wrapper. This test pins the argv-survival half (the braces).
+  local fake="$SCRATCH_DIR/fake_wrap_argv"
+  local capture="$SCRATCH_DIR/wrap_capture_argv"
+  cat > "$fake" <<STUB
+#!/usr/bin/env bash
+{
+  printf 'ARGC=%d\n' "\$#"
+  for a in "\$@"; do printf 'ARG=%s\n' "\$a"; done
+} > '$capture'
+exit 0
+STUB
+  chmod +x "$fake"
+
+  run bash -c "
+    source '$SRC_SCRIPT'
+    select_sleep_inhibitor_cmd() { printf '%s\n' '$fake'; }
+    main --allow-no-pr --allow-partial
+  "
+  [ "$status" -eq 0 ]
+  # argv after exec: [bash, BASH_SOURCE, --allow-no-pr, --allow-partial] = 4 tokens
+  grep -q '^ARGC=4$' "$capture"
+  grep -q '^ARG=--allow-no-pr$' "$capture"
+  grep -q '^ARG=--allow-partial$' "$capture"
+}
+
+@test "T2-31c main() uses := default for ALLOW_NO_PR / ALLOW_PARTIAL (Codex review fix)" {
+  # Source-level pin: a future refactor that switches back to a plain
+  # `ALLOW_NO_PR=0` assignment would clobber an env-inherited value from
+  # the inhibitor re-exec parent (the second half of the Codex finding,
+  # complementary to T2-31b's argv-survival check). Force the := default
+  # pattern so the env-survival half of the fix cannot silently regress.
+  grep -F -- ': "${ALLOW_NO_PR:=0}"' "$SRC_SCRIPT"
+  grep -F -- ': "${ALLOW_PARTIAL:=0}"' "$SRC_SCRIPT"
 }
 
 @test "T2-36 argv shape: bash-prefixed re-entry survives 0644 file, \$0-direct fails" {
