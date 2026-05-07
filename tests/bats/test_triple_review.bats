@@ -404,6 +404,65 @@ setup() {
 }
 
 # =============================================================================
+# Tier 2-D2: gate_partial_failures (Issue #186 fail-closed gate)
+# =============================================================================
+
+@test "T2-40 gate_partial_failures: 1 leg fail + ALLOW_PARTIAL unset -> exit 1, --allow-partial hint" {
+  local wd="$SCRATCH_DIR/wd_g40"
+  mkdir -p "$wd"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; gate_partial_failures 1 PR '$wd'"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Aborting before aggregation"* ]]
+  [[ "$stderr" == *"--allow-partial"* ]]
+  [[ "$stderr" == *"$wd"* ]]
+}
+
+@test "T2-41 gate_partial_failures: 1 leg fail + ALLOW_PARTIAL=1 -> return 0 (Issue #186)" {
+  local wd="$SCRATCH_DIR/wd_g41"
+  mkdir -p "$wd"
+  run --separate-stderr bash -c "export ALLOW_PARTIAL=1; source '$SRC_SCRIPT'; gate_partial_failures 1 PR '$wd'"
+  [ "$status" -eq 0 ]
+  # Legacy warn still fires (preserved from prior --allow-partial behavior)
+  [[ "$stderr" == *"of 3 reviewer(s) failed"* ]]
+  [[ "$stderr" != *"Aborting before aggregation"* ]]
+}
+
+@test "T2-42 gate_partial_failures: 2 leg fail + ALLOW_PARTIAL unset -> exit 1 (boundary)" {
+  local wd="$SCRATCH_DIR/wd_g42"
+  mkdir -p "$wd"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; gate_partial_failures 2 'PR, SEC' '$wd'"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"2 of 3 reviewer(s) failed"* ]]
+  [[ "$stderr" == *"Aborting before aggregation"* ]]
+}
+
+@test "T2-43 gate_partial_failures: 3 leg fail bypasses --allow-partial (regression)" {
+  # 3-leg failure must abort regardless of the flag — no salvageable
+  # input means the aggregator would have nothing to summarize.
+  local wd="$SCRATCH_DIR/wd_g43"
+  mkdir -p "$wd"
+  # flag-off
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; gate_partial_failures 3 'PR, SEC, ADV' '$wd'"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"All three reviewers failed"* ]]
+  # flag-on must not relax the 3-fail abort
+  run --separate-stderr bash -c "export ALLOW_PARTIAL=1; source '$SRC_SCRIPT'; gate_partial_failures 3 'PR, SEC, ADV' '$wd'"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"All three reviewers failed"* ]]
+}
+
+@test "T2-43b gate_partial_failures: 0 fail + ALLOW_PARTIAL=1 -> return 0, no warn (boundary)" {
+  # Healthy run with --allow-partial must not emit the partial warning.
+  # Regression guard against `[ "$fail_count" -ge 0 ]` slip-up.
+  local wd="$SCRATCH_DIR/wd_g43b"
+  mkdir -p "$wd"
+  run --separate-stderr bash -c "export ALLOW_PARTIAL=1; source '$SRC_SCRIPT'; gate_partial_failures 0 '' '$wd'"
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"reviewer(s) failed"* ]]
+  [[ "$stderr" != *"Aborting"* ]]
+}
+
+# =============================================================================
 # Tier 2-D: remove_pid
 # =============================================================================
 

@@ -502,14 +502,23 @@ count_reviewer_failures() {
   printf '%d %s\n' "$fail_count" "$missing"
 }
 
-# Decide whether to abort before aggregation. Step 3 keeps behavior identical
-# to the prior inline block (3-leg fatal, 1-2 leg legacy warn). Step 4 adds
-# the fail-closed branch for 1-2 leg failures unless --allow-partial is set.
+# Decide whether to abort before aggregation. Issue #186 makes 1-2 leg
+# failures fail-closed by default — degraded coverage was previously
+# masked by `<FAILED>` markers + exit 0 so a reader skimming the summary
+# would miss it. --allow-partial restores the prior behavior + a banner.
+# 3-leg failure aborts regardless of the flag (no salvageable output).
 gate_partial_failures() {
   local fail_count="$1" missing="$2" workdir="$3"
   if [ "$fail_count" -eq 3 ]; then
     printf '\033[31mAll three reviewers failed. Outputs:\033[0m\n  PR:  %s\n  Sec: %s\n  Adv: %s\n' \
       "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md" >&2
+    exit 1
+  fi
+  if [ "$fail_count" -gt 0 ] && [ "${ALLOW_PARTIAL:-0}" != "1" ]; then
+    printf '\033[31m%d of 3 reviewer(s) failed (%s). Aborting before aggregation.\033[0m\n' \
+      "$fail_count" "$missing" >&2
+    printf 'Raw outputs preserved at: %s\n' "$workdir" >&2
+    printf 'Re-run with --allow-partial to aggregate from the remaining reviewer(s) (degraded coverage).\n' >&2
     exit 1
   fi
   if [ "$fail_count" -gt 0 ]; then
