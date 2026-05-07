@@ -19,12 +19,15 @@ setup() {
   [ "$output" = "develop" ]
 }
 
-@test "T1-2 resolve_base: no-PR + origin/HEAD set -> origin/HEAD with warning" {
+@test "T1-2 resolve_base: no-PR + origin/HEAD set + --allow-no-pr -> origin/HEAD with warning" {
+  # Issue #186: the no-PR fallback now requires --allow-no-pr (or env equivalent).
+  # Inject ALLOW_NO_PR=1 inside the bash -c subshell so the existing scope-
+  # alignment warning still fires; the PR-required gate is asserted by T1-12.
   export FAKE_GH_RC=1
   export FAKE_GH_STDERR="no pull requests found for branch"
   # Configure origin/HEAD via symbolic-ref (doesn't require an actual remote)
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
-  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  run --separate-stderr bash -c "export ALLOW_NO_PR=1; source '$SRC_SCRIPT'; resolve_base"
   [ "$status" -eq 0 ]
   [ "$output" = "main" ]
   [[ "$stderr" == *"No PR found for current branch"* ]]
@@ -47,13 +50,44 @@ setup() {
   [[ "$stderr" == *"refusing to fall back"* ]]
 }
 
-@test "T1-5 resolve_base: no-PR + no origin/HEAD -> abort with diagnostic" {
+@test "T1-5 resolve_base: no-PR + no origin/HEAD + --allow-no-pr -> abort with diagnostic" {
+  # Issue #186: with the PR-required gate, this test must opt into the
+  # origin/HEAD fallback path before it can hit the origin/HEAD-missing
+  # diagnostic. T1-12 covers the gate-only path (no opt-in).
   export FAKE_GH_RC=1
   export FAKE_GH_STDERR="no pull requests found"
   # Do NOT set refs/remotes/origin/HEAD
-  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  run --separate-stderr bash -c "export ALLOW_NO_PR=1; source '$SRC_SCRIPT'; resolve_base"
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"Base branch resolution failed"* ]]
+}
+
+@test "T1-11 resolve_base: no-PR + --allow-no-pr=1 -> falls back with warning (Issue #186)" {
+  # Symmetrical to T1-2 but pinned as the explicit opt-in entry point so a
+  # future refactor that drops the fallback semantics fails this test.
+  export FAKE_GH_RC=1
+  export FAKE_GH_STDERR="no pull requests found"
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+  run --separate-stderr bash -c "export ALLOW_NO_PR=1; source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 0 ]
+  [ "$output" = "develop" ]
+  [[ "$stderr" == *"No PR found for current branch"* ]]
+}
+
+@test "T1-12 resolve_base: no-PR + ALLOW_NO_PR unset -> fail-closed at PR-required gate (Issue #186)" {
+  # The PR-required gate must abort BEFORE attempting the origin/HEAD
+  # fallback. The diagnostic must mention --allow-no-pr and gh pr create
+  # so the user can recover.
+  export FAKE_GH_RC=1
+  export FAKE_GH_STDERR="no pull requests found"
+  # origin/HEAD intentionally set: gate must abort even when the fallback
+  # would otherwise succeed, otherwise the gate is bypassable.
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"requires an open PR by default"* ]]
+  [[ "$stderr" == *"--allow-no-pr"* ]]
+  [[ "$stderr" == *"gh pr create --draft"* ]]
 }
 
 # =============================================================================

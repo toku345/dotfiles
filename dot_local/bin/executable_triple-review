@@ -340,6 +340,21 @@ resolve_base() {
   else
     rm -f "$stderr_file"
   fi
+  # Issue #186: PR が存在しない場合は default で abort。/pr-review-toolkit:review-pr
+  # と /security-review は slash command レベルで base 引数を expose せず、
+  # 内部で独立に scope を auto-detect する。3 leg を同じ scope に揃える
+  # 唯一確実な方法は PR の存在を保証して `gh pr view` の baseRefName に
+  # 収束させることなので、PR 不在を fail-closed にする。--allow-no-pr で
+  # 従来の origin/HEAD fallback (residual divergence risk あり) に opt-in。
+  if [ "${ALLOW_NO_PR:-0}" != "1" ]; then
+    err "No PR found for current branch.
+triple-review requires an open PR by default so all three reviewers
+(PR, Security, Codex) resolve the same scope.
+Options:
+  (a) Open a draft PR and retry: gh pr create --draft
+  (b) Run with --allow-no-pr to fall back to origin/HEAD with a
+      scope-alignment warning."
+  fi
   local ref
   if ref=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null); then
     # Scope alignment caveat: without a PR, the other two reviewers auto-detect
