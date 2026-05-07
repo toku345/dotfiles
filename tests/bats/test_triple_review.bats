@@ -213,6 +213,25 @@ setup() {
 }
 
 # =============================================================================
+# Tier 1-D: --allow-no-pr / --allow-partial CLI parse smoke (Issue #186)
+# =============================================================================
+
+@test "T1-13 --allow-no-pr accepted by parser (smoke)" {
+  # Flag is accepted: stderr does not say "Unknown argument". Downstream
+  # check_prerequisites still aborts because no PR / no codex setup is
+  # present in the scratch repo, but that is a different exit path.
+  run --separate-stderr triple-review --allow-no-pr
+  [[ "$stderr" != *"Unknown argument"* ]]
+  [[ "$output" != *"Unknown argument"* ]]
+}
+
+@test "T1-14 --allow-partial accepted by parser (smoke)" {
+  run --separate-stderr triple-review --allow-partial
+  [[ "$stderr" != *"Unknown argument"* ]]
+  [[ "$output" != *"Unknown argument"* ]]
+}
+
+# =============================================================================
 # Tier 2-A: is_error_token_only
 # =============================================================================
 
@@ -564,6 +583,35 @@ STUB
   grep -q '^ARG=baz$' "$capture"
   # Gate must be exported to 1 BEFORE exec so the re-entered child is a no-op.
   grep -q '^SLEEP_GATE=1$' "$capture"
+}
+
+@test "T2-31a maybe_wrap: ALLOW_NO_PR/ALLOW_PARTIAL exported survive re-exec (Issue #186)" {
+  # Issue #186: --allow-no-pr / --allow-partial are parsed in main() before
+  # the inhibitor wrap, then `export`ed so the re-execed child inherits the
+  # values via env even though main() also re-parses argv on re-entry. This
+  # test exercises the env-survival half (the belt) by exporting the globals
+  # directly and asserting the wrapper sees them.
+  local fake="$SCRATCH_DIR/fake_wrap_flags"
+  local capture="$SCRATCH_DIR/wrap_capture_flags"
+  cat > "$fake" <<STUB
+#!/usr/bin/env bash
+{
+  printf 'ALLOW_NO_PR=%s\n' "\${ALLOW_NO_PR:-<unset>}"
+  printf 'ALLOW_PARTIAL=%s\n' "\${ALLOW_PARTIAL:-<unset>}"
+} > '$capture'
+exit 0
+STUB
+  chmod +x "$fake"
+
+  run bash -c "
+    source '$SRC_SCRIPT'
+    select_sleep_inhibitor_cmd() { printf '%s\n' '$fake'; }
+    export ALLOW_NO_PR=1 ALLOW_PARTIAL=1
+    maybe_wrap_with_inhibitor
+  "
+  [ "$status" -eq 0 ]
+  grep -q '^ALLOW_NO_PR=1$' "$capture"
+  grep -q '^ALLOW_PARTIAL=1$' "$capture"
 }
 
 @test "T2-36 argv shape: bash-prefixed re-entry survives 0644 file, \$0-direct fails" {
@@ -940,6 +988,17 @@ STUB
   grep -F -- '--scope branch' "$SRC_SCRIPT"
   grep -F -- '--model gpt-5.4' "$SRC_SCRIPT"
   grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' "$SRC_SCRIPT"
+}
+
+@test "T3-11 unknown flag still rejected after Issue #186 parser refactor" {
+  # Regression guard: T2-20 already covers `triple-review foo` (positional
+  # arg). This pins the `--bogus` (long-flag-shaped) variant since the
+  # parser was switched from a single-`case` to a while-loop in Issue #186
+  # and a future refactor that special-cases `--*` patterns might silently
+  # accept arbitrary unknown flags.
+  run --separate-stderr triple-review --bogus
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Unknown argument: --bogus"* ]]
 }
 
 # =============================================================================
