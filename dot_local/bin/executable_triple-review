@@ -948,13 +948,26 @@ main() {
   printf '\n## Adversarial Review\n'
   cat "$workdir/adv.md"
   printf '\n## Summary\n'
-  # Partial-coverage header: when some reviewers failed, prepend a visible
-  # warning so the user cannot miss that the summary was built from fewer
-  # than 3 reviewers. Raw sections above already contain <FAILED> markers,
-  # but those are easy to scroll past.
+  # Issue #186: --allow-partial path emits a multi-line bordered banner so a
+  # downstream `head` / `tail` of the summary section still surfaces the
+  # degraded-coverage warning. The single-line blockquote that lived here
+  # before was easy to scroll past — the whole point of the gate is that
+  # readers should not miss this. Banner sits AFTER assert_envelope_valid
+  # (which runs against summary.md only) so envelope validation is unaffected.
   if [ -n "$missing" ]; then
-    printf '> **Partial coverage**: %d/3 reviewer(s) failed (%s). Raw sections above contain `<FAILED>` markers; the summary below is built from the remaining reviewers only.\n\n' \
-      "$fail_count" "$missing"
+    printf '> **PARTIAL COVERAGE — DEGRADED REVIEW**\n'
+    printf '>\n'
+    printf '> %d of 3 reviewer(s) failed (%s). The summary below was built\n' "$fail_count" "$missing"
+    printf '> from the remaining reviewer(s) only. The other reviewers'\'' raw\n'
+    # Backticks below are markdown formatting in the user-facing output, not
+    # shell command substitution.
+    # shellcheck disable=SC2016
+    printf '> sections (above) contain `<FAILED>` markers. Findings that\n'
+    printf '> would have required cross-reviewer corroboration may be missing.\n'
+    printf '>\n'
+    # shellcheck disable=SC2016
+    printf '> Re-run without `--allow-partial` (default) once the underlying\n'
+    printf '> failure is fixed to get full 3-of-3 coverage.\n\n'
   fi
   cat "$workdir/summary.md"
   printf '\nIntermediate outputs: %s\n' "$workdir"

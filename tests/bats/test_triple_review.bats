@@ -265,6 +265,19 @@ setup() {
   [[ "$output" != *"Unknown argument"* ]]
 }
 
+@test "T1-15 --allow-no-pr + --allow-partial combinable, order-independent (Issue #186)" {
+  # Both orders must be accepted. End-to-end execution is gated by
+  # check_prerequisites (codex companion absent in scratch), so this
+  # asserts the parser pair only — the gate-side semantics are covered
+  # by T1-12 (resolve_base) and T2-40/T2-41 (gate_partial_failures).
+  run --separate-stderr triple-review --allow-no-pr --allow-partial
+  [[ "$stderr" != *"Unknown argument"* ]]
+  [[ "$output" != *"Unknown argument"* ]]
+  run --separate-stderr triple-review --allow-partial --allow-no-pr
+  [[ "$stderr" != *"Unknown argument"* ]]
+  [[ "$output" != *"Unknown argument"* ]]
+}
+
 # =============================================================================
 # Tier 2-A: is_error_token_only
 # =============================================================================
@@ -460,6 +473,42 @@ setup() {
   [ "$status" -eq 0 ]
   [[ "$stderr" != *"reviewer(s) failed"* ]]
   [[ "$stderr" != *"Aborting"* ]]
+}
+
+@test "T2-44 banner: header appears within ~20 lines after '## Summary' heading (Issue #186)" {
+  # Pin the layout: the multi-line banner must sit immediately under the
+  # `## Summary` heading so a downstream `head` of the summary section
+  # cannot hide it. Source-level snapshot (E2E run is blocked by
+  # check_prerequisites needing the codex companion).
+  local summary_line banner_line
+  summary_line=$(grep -nF "printf '\\n## Summary" "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  banner_line=$(grep -nF "PARTIAL COVERAGE — DEGRADED REVIEW" "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  [ -n "$summary_line" ]
+  [ -n "$banner_line" ]
+  [ "$banner_line" -gt "$summary_line" ]
+  [ $((banner_line - summary_line)) -lt 25 ]
+}
+
+@test "T2-45 banner emission gated on \$missing (source-level invariant, Issue #186)" {
+  # The cat-assembly banner block must remain wrapped in `if [ -n "$missing" ]`
+  # so a healthy --allow-partial + 0-fail run never emits the banner.
+  # T2-43b covers the gate_partial_failures side; this guards the
+  # cat-assembly side.
+  awk '
+    /printf .\\n## Summary/ { in_block=1; next }
+    in_block && /if \[ -n "\$missing" \]/ { found=1; exit }
+    in_block && /cat .\$workdir\/summary\.md./ { exit }   # banner must precede cat
+  ' "$SRC_SCRIPT" | grep -q . || true
+  # Above awk is a smoke; below is the load-bearing assertion: the literal
+  # guard string must be present in the source between '## Summary' and the
+  # banner header, in line-order.
+  local summary_line guard_line banner_line
+  summary_line=$(grep -nF "printf '\\n## Summary" "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  guard_line=$(awk -v start="$summary_line" 'NR > start && /if \[ -n "\$missing" \]/ {print NR; exit}' "$SRC_SCRIPT")
+  banner_line=$(grep -nF "PARTIAL COVERAGE — DEGRADED REVIEW" "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  [ -n "$guard_line" ]
+  [ "$guard_line" -gt "$summary_line" ]
+  [ "$guard_line" -lt "$banner_line" ]
 }
 
 # =============================================================================
