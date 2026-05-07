@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-05-04)
+Accepted (2026-05-04)。Migration step 6 (`private_dot_claude/CLAUDE.md` から `headless 起動 (claude -p)` バレット削除) は `35945db` (同日 review fix) で部分撤回され、triple-review 非依存の汎用 strict-envelope ガイダンスとして再導入された。当該事後判断の正当化は [ADR 0019](0019-headless-strict-envelope-general-rule.md) に集約。本 ADR の persona 汚染防御 (output-style + sentinel + validator) 部分は維持。
 
 ## Context
 

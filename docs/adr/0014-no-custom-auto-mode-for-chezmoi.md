@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted (2026-04-28). Follow-on changes 内の「初回指示の受領フォーマット への headless (`claude -p`) 適用除外」bullet のみ [ADR 0017](0017-triple-review-headless-output-style.md) で superseded (output-style `triple-review` による source 抑制へ一元化)。auto-mode 関連の「`着手前ゲート` セクション置換」bullet は維持。
+Accepted (2026-04-28). 部分的に refined / superseded:
+
+- Follow-on changes 内の「初回指示の受領フォーマット への headless (`claude -p`) 適用除外」bullet は [ADR 0017](0017-triple-review-headless-output-style.md) で superseded (output-style `triple-review` による source 抑制へ一元化)。なお同 bullet は `35945db` (2026-05-04) で triple-review 非依存の一般 envelope/aggregator ガイダンスとして CLAUDE.md に再導入されており、その正当化は [ADR 0019](0019-headless-strict-envelope-general-rule.md) で別途行う
+- Follow-on changes 内の「初回指示の受領フォーマット への auto-mode active 時 適用除外」bullet は [ADR 0018](0018-restrict-auto-mode-override-to-non-interactive.md) で refined (対話 auto-mode への carve-out を撤回し、非対話コンテキストのみに限定)
+- Follow-on changes 内の「`着手前ゲート` セクション置換」bullet は維持
 
 ## Context
 
@@ -192,6 +196,8 @@ Anthropic 既定 (`$defaults`) のみで運用する。**
 - 「初回指示の受領フォーマット」に auto-mode active / headless (`claude -p`) 適用除外を追記
   (PR #159)。harness の "Make reasonable assumptions" 注入および対話チャネル不在環境で
   「質問で埋める」原則が silent failure / aggregation 汚染を起こすため
+  > **NOTE**: 当該 bullet は ADR 0017 / 0018 / 0019 で refine 済 (Status header 参照)。
+  > 対話 auto-mode への carve-out は撤回され、headless `claude -p` 部分は汎用化された。
 
 ### Risks
 
