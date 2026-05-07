@@ -462,6 +462,61 @@ check_reviewer_result() {
   return 0
 }
 
+# Aggregate per-leg results into <fail_count> <missing>. Issue #186 splits
+# the previously-inline classification block out of main() so bats can drive
+# both this counter and gate_partial_failures (below) directly via `source`.
+# The function MUST be defined at top level — nested under main() it would
+# not be visible after `source "$SRC_SCRIPT"` until main runs, which would
+# defeat the unit-test plumbing.
+#
+# Args: rc_pr rc_sec rc_adv workdir
+# Output (stdout): "<fail_count> <missing>" — read with `read -r count missing`
+#                  so `missing` absorbs the rest of the line (it can contain
+#                  ", " separators). When count is 0, missing is empty.
+# Output (stderr): tail of adv.err on ADV failure (preserved from prior
+#                  inline behavior — keeps the broker/4xx/contract-drift
+#                  diagnostic visible to the user).
+count_reviewer_failures() {
+  local rc_pr="$1" rc_sec="$2" rc_adv="$3" workdir="$4"
+  local fail_count=0 missing=""
+  if ! check_reviewer_result PR  "$rc_pr"  "$workdir/pr.md"; then
+    fail_count=$((fail_count + 1))
+    missing="${missing:+$missing, }PR"
+  fi
+  if ! check_reviewer_result SEC "$rc_sec" "$workdir/sec.md"; then
+    fail_count=$((fail_count + 1))
+    missing="${missing:+$missing, }SEC"
+  fi
+  if ! check_reviewer_result ADV "$rc_adv" "$workdir/adv.md"; then
+    fail_count=$((fail_count + 1))
+    missing="${missing:+$missing, }ADV"
+    # ADV stderr is captured separately to keep adv.md as pure markdown for the
+    # aggregator, but on failure that means the real diagnostic (companion
+    # crash, 4xx body, model rejection, contract drift) is hidden in adv.err
+    # unless we surface it here. Symmetric with the aggregation-failure tail.
+    if [ -s "$workdir/adv.err" ]; then
+      printf -- '--- tail of adv.err ---\n' >&2
+      tail -n 40 "$workdir/adv.err" >&2
+    fi
+  fi
+  printf '%d %s\n' "$fail_count" "$missing"
+}
+
+# Decide whether to abort before aggregation. Step 3 keeps behavior identical
+# to the prior inline block (3-leg fatal, 1-2 leg legacy warn). Step 4 adds
+# the fail-closed branch for 1-2 leg failures unless --allow-partial is set.
+gate_partial_failures() {
+  local fail_count="$1" missing="$2" workdir="$3"
+  if [ "$fail_count" -eq 3 ]; then
+    printf '\033[31mAll three reviewers failed. Outputs:\033[0m\n  PR:  %s\n  Sec: %s\n  Adv: %s\n' \
+      "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md" >&2
+    exit 1
+  fi
+  if [ "$fail_count" -gt 0 ]; then
+    warn "$fail_count of 3 reviewer(s) failed. Continuing with partial results; failed sections contain <FAILED> markers."
+  fi
+}
+
 # Progress monitor: polls the three reviewer PIDs every 10s and emits a status
 # line whenever state changes OR a 2-minute heartbeat elapses. Without this,
 # the script is silent between the initial banner and the summary step, which
@@ -812,39 +867,13 @@ main() {
 
   stop_progress_monitor
 
-  local fail_count=0
-  local missing=""
-  if ! check_reviewer_result PR  "$rc_pr"  "$workdir/pr.md"; then
-    fail_count=$((fail_count + 1))
-    missing="${missing:+$missing, }PR"
-  fi
-  if ! check_reviewer_result SEC "$rc_sec" "$workdir/sec.md"; then
-    fail_count=$((fail_count + 1))
-    missing="${missing:+$missing, }SEC"
-  fi
-  if ! check_reviewer_result ADV "$rc_adv" "$workdir/adv.md"; then
-    fail_count=$((fail_count + 1))
-    missing="${missing:+$missing, }ADV"
-    # ADV stderr is captured separately to keep adv.md as pure markdown for the
-    # aggregator, but on failure that means the real diagnostic (companion
-    # crash, 4xx body, model rejection, contract drift) is hidden in adv.err
-    # unless we surface it here. Symmetric with the aggregation-failure tail
-    # below.
-    if [ -s "$workdir/adv.err" ]; then
-      printf -- '--- tail of adv.err ---\n' >&2
-      tail -n 40 "$workdir/adv.err" >&2
-    fi
-  fi
-
-  if [ "$fail_count" -eq 3 ]; then
-    printf '\033[31mAll three reviewers failed. Outputs:\033[0m\n  PR:  %s\n  Sec: %s\n  Adv: %s\n' \
-      "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md" >&2
-    exit 1
-  fi
-
-  if [ "$fail_count" -gt 0 ]; then
-    warn "$fail_count of 3 reviewer(s) failed. Continuing with partial results; failed sections contain <FAILED> markers."
-  fi
+  # Issue #186: inline classification + gate split into two top-level
+  # functions so bats can drive each half via `source`. Behavior is
+  # unchanged in this commit (Step 3 = refactor only); Step 4 adds the
+  # fail-closed branch inside gate_partial_failures.
+  local fail_count missing
+  read -r fail_count missing < <(count_reviewer_failures "$rc_pr" "$rc_sec" "$rc_adv" "$workdir")
+  gate_partial_failures "$fail_count" "$missing" "$workdir"
 
   printf 'All reviewers done. Generating summary...\n'
 

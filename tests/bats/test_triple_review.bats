@@ -362,6 +362,47 @@ setup() {
   ! grep -q '<FAILED' "$f"
 }
 
+@test "T2-46 count_reviewer_failures: 0/0/0 + valid files -> '0 ' on stdout (Issue #186)" {
+  local wd="$SCRATCH_DIR/wd_count0"
+  mkdir -p "$wd"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/pr.md"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/sec.md"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/adv.md"
+  run bash -c "source '$SRC_SCRIPT'; count_reviewer_failures 0 0 0 '$wd'"
+  [ "$status" -eq 0 ]
+  # Trailing newline + empty missing -> "0 \n"; assert leading "0" with no leg label
+  [[ "$output" == "0 " || "$output" == "0" ]]
+  [[ "$output" != *"PR"* ]]
+  [[ "$output" != *"SEC"* ]]
+  [[ "$output" != *"ADV"* ]]
+}
+
+@test "T2-46b count_reviewer_failures: 1 leg fail (PR) -> '1 PR' on stdout (Issue #186)" {
+  local wd="$SCRATCH_DIR/wd_count1"
+  mkdir -p "$wd"
+  printf '' > "$wd/pr.md"  # empty -> check_reviewer_result reports empty-output fail
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/sec.md"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/adv.md"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; count_reviewer_failures 0 0 0 '$wd'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 PR" ]
+}
+
+@test "T2-46c count_reviewer_failures: 2 leg fail (SEC,ADV) -> '2 SEC, ADV' (Issue #186)" {
+  local wd="$SCRATCH_DIR/wd_count2"
+  mkdir -p "$wd"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/pr.md"
+  printf '' > "$wd/sec.md"
+  printf '' > "$wd/adv.md"
+  printf 'codex broker crashed\n' > "$wd/adv.err"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; count_reviewer_failures 0 0 0 '$wd'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2 SEC, ADV" ]
+  # ADV failure tail must surface in stderr (preserve prior diagnostic)
+  [[ "$stderr" == *"tail of adv.err"* ]]
+  [[ "$stderr" == *"codex broker crashed"* ]]
+}
+
 # =============================================================================
 # Tier 2-D: remove_pid
 # =============================================================================
