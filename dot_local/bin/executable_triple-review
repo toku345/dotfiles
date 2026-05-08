@@ -852,8 +852,20 @@ main() {
   INITIAL_PWD="$PWD"
   BROKER_CLEANUP_HELPER=$(resolve_broker_cleanup_helper)
   if [ -n "$BROKER_CLEANUP_HELPER" ]; then
-    if ! BROKER_PRE_SNAPSHOT=$(node "$BROKER_CLEANUP_HELPER" snapshot "$INITIAL_PWD" 2>/dev/null); then
+    # PR #188 fix-up: capture node helper's stderr instead of discarding it.
+    # The previous `2>/dev/null` hid real errors (helper missing dependency,
+    # plugin API drift) behind the generic warn — a silent failure that left
+    # operators chasing orphan brokers without diagnostic. Mirror the adv.err
+    # tail pattern (count_reviewer_failures :498) so the surfaced message is
+    # bounded.
+    local snap_err
+    snap_err=$(mktemp "$workdir/broker-snap.err.XXXXXX" 2>/dev/null) || snap_err=/dev/null
+    if ! BROKER_PRE_SNAPSHOT=$(node "$BROKER_CLEANUP_HELPER" snapshot "$INITIAL_PWD" 2>"$snap_err"); then
       warn "Broker pre-snapshot failed; skipping post-run codex broker teardown. Orphan broker may remain (issue #162)."
+      if [ "$snap_err" != /dev/null ] && [ -s "$snap_err" ]; then
+        printf -- '--- tail of broker-snapshot.err ---\n' >&2
+        tail -n 20 "$snap_err" >&2
+      fi
       BROKER_PRE_SNAPSHOT='{"existed":true}'
     fi
   else
