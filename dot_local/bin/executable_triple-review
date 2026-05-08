@@ -287,9 +287,12 @@ check_prerequisites() {
   require_clean_worktree
 }
 
-# Verify the worktree has no uncommitted changes. triple-review's 3 reviewers all operate against committed branch/PR diffs (Codex ADV uses --scope branch; the slash-command reviewers detect scope via `gh pr view`), so uncommitted changes — both tracked-modified and untracked-non-ignored — are silently excluded from review. Fail-closed matches the Issue #186 fail-closed-default philosophy. ADR 0020 §"Status" Revision note + §"Decision" 2 record the rationale for blocking untracked-non-ignored (post-merge dogfooding revealed this is a Vector 2 violation in dotfiles repos).
-#
-# `--untracked-files=normal` scope: block tracked-modified + untracked-non-ignored, while letting `.gitignore`-honored files (build artifacts, editor swap files, OS-specific files like `.DS_Store`) pass through. `--allow-dirty` opt-out flag is deferred (YAGNI).
+# Verify the worktree has no uncommitted changes. The 3 reviewers operate
+# against committed branch/PR diffs only, so uncommitted changes
+# (tracked-modified or untracked-non-ignored) would be silently excluded
+# from review without this guard. `.gitignore`-honored files pass through
+# by design. ADR 0020 records the design + the post-merge revision that
+# expanded the scope to `--untracked-files=normal`.
 require_clean_worktree() {
   local dirty
   dirty=$(git status --porcelain --untracked-files=normal 2>/dev/null) \

@@ -1899,11 +1899,10 @@ with "quotes" and $dollar signs and `backticks`'
   # can Read on demand instead of seeing only the aggregator-compressed
   # summary.md.
   #
-  # Static-source assertion (per plan §"Decision criterion (dynamic vs
-  # static)"): driving the actual `exec claude --` would require stubbing
-  # the full main() flow (3-reviewer parallel block, aggregation,
-  # envelope validator, broker cleanup, TTY gate). Same trade-off as
-  # T3-7 / WRAPPER-1 / WRAPPER-3 contract assertions.
+  # Static-source assertion: driving the actual `exec claude --` would
+  # require stubbing the full main() flow (3-reviewer parallel block,
+  # aggregation, envelope validator, broker cleanup, TTY gate). Same
+  # trade-off as T3-7 / WRAPPER-1A/1B/1C / WRAPPER-3 contract assertions.
   grep -F -- 'Raw reviewer outputs' "$SRC_SCRIPT"
   grep -F -- '- $workdir/pr.md' "$SRC_SCRIPT"
   grep -F -- '- $workdir/sec.md' "$SRC_SCRIPT"
