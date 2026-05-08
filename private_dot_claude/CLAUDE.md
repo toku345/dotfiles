@@ -149,8 +149,8 @@ Playwright / Puppeteer の E2E、または Chrome 拡張で視覚検証ループ
 - コミットメッセージ・PR body は HEREDOC で渡す (システムプロンプトに準拠)
 - **PR のタイトル・説明は英語で記述する**
 - `triple-review` は Claude Code 内から自走させない (PR 作成前のレビュー gate として ユーザー がターミナルで実行する; 3 reviewers 並列 + 優先度別 aggregation)
-- `triple-review` 実行時は draft PR を先に作成する。script は PR base を `gh pr view` で auto-resolve するが、PR 不在時は `origin/HEAD` fallback と警告を出力し、Codex leg と他 2 leg (review-pr / security-review) で scope が不整合になりうる
-- reviewer leg のいずれかが失敗すると script は warn のみで partial aggregation を継続し exit 0 する (失敗 leg の出力には `<FAILED>` marker 混入)。partial を成功とみなさず、失敗 leg を direct rerun する
+- `triple-review` は PR を必須とする (Issue #186 以降の default)。draft PR を先に作成しておけば 3 reviewer が同じ baseRefName に収束する。PR 無しで実行したい場合は `--allow-no-pr` で従来の `origin/HEAD` fallback (scope 不整合の residual risk あり) に opt-in
+- 1-2 reviewer leg 失敗時は default で fail-closed (exit 1, aggregation skip)。raw 3 leg outputs と `--allow-partial` 案内を吐いて停止する。`--allow-partial` で従来挙動 (warn + aggregate + exit 0) に opt-in できるが、その場合 `## Summary` 直下に `PARTIAL COVERAGE — DEGRADED REVIEW` banner が出る
 
 ## Codex の使い分け
 

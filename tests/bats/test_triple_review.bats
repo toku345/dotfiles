@@ -19,12 +19,15 @@ setup() {
   [ "$output" = "develop" ]
 }
 
-@test "T1-2 resolve_base: no-PR + origin/HEAD set -> origin/HEAD with warning" {
+@test "T1-2 resolve_base: no-PR + origin/HEAD set + --allow-no-pr -> origin/HEAD with warning" {
+  # Issue #186: the no-PR fallback now requires --allow-no-pr (or env equivalent).
+  # Inject ALLOW_NO_PR=1 inside the bash -c subshell so the existing scope-
+  # alignment warning still fires; the PR-required gate is asserted by T1-12.
   export FAKE_GH_RC=1
   export FAKE_GH_STDERR="no pull requests found for branch"
   # Configure origin/HEAD via symbolic-ref (doesn't require an actual remote)
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
-  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  run --separate-stderr bash -c "export ALLOW_NO_PR=1; source '$SRC_SCRIPT'; resolve_base"
   [ "$status" -eq 0 ]
   [ "$output" = "main" ]
   [[ "$stderr" == *"No PR found for current branch"* ]]
@@ -47,13 +50,44 @@ setup() {
   [[ "$stderr" == *"refusing to fall back"* ]]
 }
 
-@test "T1-5 resolve_base: no-PR + no origin/HEAD -> abort with diagnostic" {
+@test "T1-5 resolve_base: no-PR + no origin/HEAD + --allow-no-pr -> abort with diagnostic" {
+  # Issue #186: with the PR-required gate, this test must opt into the
+  # origin/HEAD fallback path before it can hit the origin/HEAD-missing
+  # diagnostic. T1-12 covers the gate-only path (no opt-in).
   export FAKE_GH_RC=1
   export FAKE_GH_STDERR="no pull requests found"
   # Do NOT set refs/remotes/origin/HEAD
-  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  run --separate-stderr bash -c "export ALLOW_NO_PR=1; source '$SRC_SCRIPT'; resolve_base"
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"Base branch resolution failed"* ]]
+}
+
+@test "T1-11 resolve_base: no-PR + --allow-no-pr=1 -> falls back with warning (Issue #186)" {
+  # Symmetrical to T1-2 but pinned as the explicit opt-in entry point so a
+  # future refactor that drops the fallback semantics fails this test.
+  export FAKE_GH_RC=1
+  export FAKE_GH_STDERR="no pull requests found"
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+  run --separate-stderr bash -c "export ALLOW_NO_PR=1; source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 0 ]
+  [ "$output" = "develop" ]
+  [[ "$stderr" == *"No PR found for current branch"* ]]
+}
+
+@test "T1-12 resolve_base: no-PR + ALLOW_NO_PR unset -> fail-closed at PR-required gate (Issue #186)" {
+  # The PR-required gate must abort BEFORE attempting the origin/HEAD
+  # fallback. The diagnostic must mention --allow-no-pr and gh pr create
+  # so the user can recover.
+  export FAKE_GH_RC=1
+  export FAKE_GH_STDERR="no pull requests found"
+  # origin/HEAD intentionally set: gate must abort even when the fallback
+  # would otherwise succeed, otherwise the gate is bypassable.
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; resolve_base"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"requires an open PR by default"* ]]
+  [[ "$stderr" == *"--allow-no-pr"* ]]
+  [[ "$stderr" == *"gh pr create --draft"* ]]
 }
 
 # =============================================================================
@@ -213,6 +247,38 @@ setup() {
 }
 
 # =============================================================================
+# Tier 1-D: --allow-no-pr / --allow-partial CLI parse smoke (Issue #186)
+# =============================================================================
+
+@test "T1-13 --allow-no-pr accepted by parser (smoke)" {
+  # Flag is accepted: stderr does not say "Unknown argument". Downstream
+  # check_prerequisites still aborts because no PR / no codex setup is
+  # present in the scratch repo, but that is a different exit path.
+  run --separate-stderr triple-review --allow-no-pr
+  [[ "$stderr" != *"Unknown argument"* ]]
+  [[ "$output" != *"Unknown argument"* ]]
+}
+
+@test "T1-14 --allow-partial accepted by parser (smoke)" {
+  run --separate-stderr triple-review --allow-partial
+  [[ "$stderr" != *"Unknown argument"* ]]
+  [[ "$output" != *"Unknown argument"* ]]
+}
+
+@test "T1-15 --allow-no-pr + --allow-partial combinable, order-independent (Issue #186)" {
+  # Both orders must be accepted. End-to-end execution is gated by
+  # check_prerequisites (codex companion absent in scratch), so this
+  # asserts the parser pair only — the gate-side semantics are covered
+  # by T1-12 (resolve_base) and T2-40/T2-41 (gate_partial_failures).
+  run --separate-stderr triple-review --allow-no-pr --allow-partial
+  [[ "$stderr" != *"Unknown argument"* ]]
+  [[ "$output" != *"Unknown argument"* ]]
+  run --separate-stderr triple-review --allow-partial --allow-no-pr
+  [[ "$stderr" != *"Unknown argument"* ]]
+  [[ "$output" != *"Unknown argument"* ]]
+}
+
+# =============================================================================
 # Tier 2-A: is_error_token_only
 # =============================================================================
 
@@ -307,6 +373,172 @@ setup() {
   run bash -c "source '$SRC_SCRIPT'; check_reviewer_result PR 0 '$f'"
   [ "$status" -eq 0 ]
   ! grep -q '<FAILED' "$f"
+}
+
+@test "T2-46 count_reviewer_failures: 0/0/0 + valid files -> '0 ' on stdout (Issue #186)" {
+  local wd="$SCRATCH_DIR/wd_count0"
+  mkdir -p "$wd"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/pr.md"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/sec.md"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/adv.md"
+  run bash -c "source '$SRC_SCRIPT'; count_reviewer_failures 0 0 0 '$wd'"
+  [ "$status" -eq 0 ]
+  # Trailing newline + empty missing -> "0 \n"; assert leading "0" with no leg label
+  [[ "$output" == "0 " || "$output" == "0" ]]
+  [[ "$output" != *"PR"* ]]
+  [[ "$output" != *"SEC"* ]]
+  [[ "$output" != *"ADV"* ]]
+}
+
+@test "T2-46b count_reviewer_failures: 1 leg fail (PR) -> '1 PR' on stdout (Issue #186)" {
+  local wd="$SCRATCH_DIR/wd_count1"
+  mkdir -p "$wd"
+  printf '' > "$wd/pr.md"  # empty -> check_reviewer_result reports empty-output fail
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/sec.md"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/adv.md"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; count_reviewer_failures 0 0 0 '$wd'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 PR" ]
+}
+
+@test "T2-46c count_reviewer_failures: 2 leg fail (SEC,ADV) -> '2 SEC, ADV' (Issue #186)" {
+  local wd="$SCRATCH_DIR/wd_count2"
+  mkdir -p "$wd"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/pr.md"
+  printf '' > "$wd/sec.md"
+  printf '' > "$wd/adv.md"
+  printf 'codex broker crashed\n' > "$wd/adv.err"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; count_reviewer_failures 0 0 0 '$wd'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2 SEC, ADV" ]
+  # ADV failure tail must surface in stderr (preserve prior diagnostic)
+  [[ "$stderr" == *"tail of adv.err"* ]]
+  [[ "$stderr" == *"codex broker crashed"* ]]
+}
+
+# =============================================================================
+# Tier 2-D2: gate_partial_failures (Issue #186 fail-closed gate)
+# =============================================================================
+
+@test "T2-40 gate_partial_failures: 1 leg fail + ALLOW_PARTIAL unset -> exit 1, --allow-partial hint" {
+  local wd="$SCRATCH_DIR/wd_g40"
+  mkdir -p "$wd"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; gate_partial_failures 1 PR '$wd'"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Aborting before aggregation"* ]]
+  [[ "$stderr" == *"--allow-partial"* ]]
+  [[ "$stderr" == *"$wd"* ]]
+}
+
+@test "T2-41 gate_partial_failures: 1 leg fail + ALLOW_PARTIAL=1 -> return 0 (Issue #186)" {
+  local wd="$SCRATCH_DIR/wd_g41"
+  mkdir -p "$wd"
+  run --separate-stderr bash -c "export ALLOW_PARTIAL=1; source '$SRC_SCRIPT'; gate_partial_failures 1 PR '$wd'"
+  [ "$status" -eq 0 ]
+  # Legacy warn still fires (preserved from prior --allow-partial behavior)
+  [[ "$stderr" == *"of 3 reviewer(s) failed"* ]]
+  [[ "$stderr" != *"Aborting before aggregation"* ]]
+}
+
+@test "T2-42 gate_partial_failures: 2 leg fail + ALLOW_PARTIAL unset -> exit 1 (boundary)" {
+  local wd="$SCRATCH_DIR/wd_g42"
+  mkdir -p "$wd"
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; gate_partial_failures 2 'PR, SEC' '$wd'"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"2 of 3 reviewer(s) failed"* ]]
+  [[ "$stderr" == *"Aborting before aggregation"* ]]
+}
+
+@test "T2-43 gate_partial_failures: 3 leg fail bypasses --allow-partial (regression)" {
+  # 3-leg failure must abort regardless of the flag — no salvageable
+  # input means the aggregator would have nothing to summarize.
+  local wd="$SCRATCH_DIR/wd_g43"
+  mkdir -p "$wd"
+  # flag-off
+  run --separate-stderr bash -c "source '$SRC_SCRIPT'; gate_partial_failures 3 'PR, SEC, ADV' '$wd'"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"All three reviewers failed"* ]]
+  # flag-on must not relax the 3-fail abort
+  run --separate-stderr bash -c "export ALLOW_PARTIAL=1; source '$SRC_SCRIPT'; gate_partial_failures 3 'PR, SEC, ADV' '$wd'"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"All three reviewers failed"* ]]
+}
+
+@test "T2-43b gate_partial_failures: 0 fail + ALLOW_PARTIAL=1 -> return 0, no warn (boundary)" {
+  # Healthy run with --allow-partial must not emit the partial warning.
+  # Regression guard against `[ "$fail_count" -ge 0 ]` slip-up.
+  local wd="$SCRATCH_DIR/wd_g43b"
+  mkdir -p "$wd"
+  run --separate-stderr bash -c "export ALLOW_PARTIAL=1; source '$SRC_SCRIPT'; gate_partial_failures 0 '' '$wd'"
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"reviewer(s) failed"* ]]
+  [[ "$stderr" != *"Aborting"* ]]
+}
+
+@test "T2-44 banner: header appears within ~20 lines after '## Summary' heading (Issue #186)" {
+  # Pin the layout: the multi-line banner must sit immediately under the
+  # `## Summary` heading so a downstream `head` of the summary section
+  # cannot hide it. Source-level snapshot (E2E run is blocked by
+  # check_prerequisites needing the codex companion).
+  local summary_line banner_line
+  summary_line=$(grep -nF "printf '\\n## Summary" "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  banner_line=$(grep -nF "PARTIAL COVERAGE — DEGRADED REVIEW" "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  [ -n "$summary_line" ]
+  [ -n "$banner_line" ]
+  [ "$banner_line" -gt "$summary_line" ]
+  [ $((banner_line - summary_line)) -lt 25 ]
+}
+
+@test "T2-47 auto-handoff prompt prepends partial-coverage warning when missing is set (Codex review fix)" {
+  # Codex review caught that the stdout banner alone does not reach the
+  # downstream Claude session, since `exec claude --` reads summary.md
+  # (envelope-clean) and not stdout. Pin the handoff prefix so a future
+  # refactor that reverts to bare `cat summary.md` would fail this test.
+  local prefix_line exec_line
+  prefix_line=$(grep -nF '**PARTIAL COVERAGE — DEGRADED REVIEW**' "$SRC_SCRIPT" | tail -1 | cut -d: -f1)
+  exec_line=$(grep -nF 'exec claude -- ' "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  [ -n "$prefix_line" ]
+  [ -n "$exec_line" ]
+  # The prefix must be assembled BEFORE the exec call (within ~30 lines).
+  [ "$prefix_line" -lt "$exec_line" ]
+  [ $((exec_line - prefix_line)) -lt 30 ]
+  # The exec line must reference handoff_prefix so the assembled banner
+  # actually reaches the prompt (regression guard against accidental drop).
+  awk -v line="$exec_line" 'NR==line' "$SRC_SCRIPT" | grep -F '${handoff_prefix}'
+}
+
+@test "T2-48 non-TTY fallback notes degraded coverage when missing is set (Codex review fix)" {
+  # Source-level pin: the non-TTY branch must emit a partial-coverage
+  # note when $missing is non-empty, not just the bare "reference
+  # summary.md" line. T2-47 covers the TTY auto-handoff path; this
+  # covers the piped/redirected fallback.
+  awk '
+    /Non-TTY stdout detected/ { found++ }
+    found && /allow-partial mode:/ { partial=1 }
+    END { exit !(found && partial) }
+  ' "$SRC_SCRIPT"
+}
+
+@test "T2-45 banner emission gated on \$missing (source-level invariant, Issue #186)" {
+  # The cat-assembly banner block must remain wrapped in `if [ -n "$missing" ]`
+  # so a healthy --allow-partial + 0-fail run never emits the banner.
+  # T2-43b covers the gate_partial_failures side; this guards the
+  # cat-assembly side.
+  awk '
+    /printf .\\n## Summary/ { in_block=1; next }
+    in_block && /if \[ -n "\$missing" \]/ { found=1; exit }
+    in_block && /cat .\$workdir\/summary\.md./ { exit }   # banner must precede cat
+  ' "$SRC_SCRIPT" | grep -q . || true
+  # Above awk is a smoke; below is the load-bearing assertion: the literal
+  # guard string must be present in the source between '## Summary' and the
+  # banner header, in line-order.
+  local summary_line guard_line banner_line
+  summary_line=$(grep -nF "printf '\\n## Summary" "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  guard_line=$(awk -v start="$summary_line" 'NR > start && /if \[ -n "\$missing" \]/ {print NR; exit}' "$SRC_SCRIPT")
+  banner_line=$(grep -nF "PARTIAL COVERAGE — DEGRADED REVIEW" "$SRC_SCRIPT" | head -1 | cut -d: -f1)
+  [ -n "$guard_line" ]
+  [ "$guard_line" -gt "$summary_line" ]
+  [ "$guard_line" -lt "$banner_line" ]
 }
 
 # =============================================================================
@@ -564,6 +796,77 @@ STUB
   grep -q '^ARG=baz$' "$capture"
   # Gate must be exported to 1 BEFORE exec so the re-entered child is a no-op.
   grep -q '^SLEEP_GATE=1$' "$capture"
+}
+
+@test "T2-31a maybe_wrap: ALLOW_NO_PR/ALLOW_PARTIAL exported survive re-exec (Issue #186)" {
+  # Issue #186: --allow-no-pr / --allow-partial are parsed in main() before
+  # the inhibitor wrap, then `export`ed so the re-execed child inherits the
+  # values via env even though main() also re-parses argv on re-entry. This
+  # test exercises the env-survival half (the belt) by exporting the globals
+  # directly and asserting the wrapper sees them.
+  local fake="$SCRATCH_DIR/fake_wrap_flags"
+  local capture="$SCRATCH_DIR/wrap_capture_flags"
+  cat > "$fake" <<STUB
+#!/usr/bin/env bash
+{
+  printf 'ALLOW_NO_PR=%s\n' "\${ALLOW_NO_PR:-<unset>}"
+  printf 'ALLOW_PARTIAL=%s\n' "\${ALLOW_PARTIAL:-<unset>}"
+} > '$capture'
+exit 0
+STUB
+  chmod +x "$fake"
+
+  run bash -c "
+    source '$SRC_SCRIPT'
+    select_sleep_inhibitor_cmd() { printf '%s\n' '$fake'; }
+    export ALLOW_NO_PR=1 ALLOW_PARTIAL=1
+    maybe_wrap_with_inhibitor
+  "
+  [ "$status" -eq 0 ]
+  grep -q '^ALLOW_NO_PR=1$' "$capture"
+  grep -q '^ALLOW_PARTIAL=1$' "$capture"
+}
+
+@test "T2-31b main(): orig_args preserved across inhibitor re-exec (Codex review fix)" {
+  # Codex review caught a HIGH-severity bug: the original implementation
+  # parsed --allow-no-pr / --allow-partial with `shift`, so by the time
+  # main() called maybe_wrap_with_inhibitor "$@", $@ was empty and the
+  # re-execed child saw no flags — silently degrading both flags to the
+  # default on any host where the wrapper actually runs. Fix: stash
+  # orig_args=("$@") before the parse loop and pass orig_args[@] to the
+  # wrapper. This test pins the argv-survival half (the braces).
+  local fake="$SCRATCH_DIR/fake_wrap_argv"
+  local capture="$SCRATCH_DIR/wrap_capture_argv"
+  cat > "$fake" <<STUB
+#!/usr/bin/env bash
+{
+  printf 'ARGC=%d\n' "\$#"
+  for a in "\$@"; do printf 'ARG=%s\n' "\$a"; done
+} > '$capture'
+exit 0
+STUB
+  chmod +x "$fake"
+
+  run bash -c "
+    source '$SRC_SCRIPT'
+    select_sleep_inhibitor_cmd() { printf '%s\n' '$fake'; }
+    main --allow-no-pr --allow-partial
+  "
+  [ "$status" -eq 0 ]
+  # argv after exec: [bash, BASH_SOURCE, --allow-no-pr, --allow-partial] = 4 tokens
+  grep -q '^ARGC=4$' "$capture"
+  grep -q '^ARG=--allow-no-pr$' "$capture"
+  grep -q '^ARG=--allow-partial$' "$capture"
+}
+
+@test "T2-31c main() uses := default for ALLOW_NO_PR / ALLOW_PARTIAL (Codex review fix)" {
+  # Source-level pin: a future refactor that switches back to a plain
+  # `ALLOW_NO_PR=0` assignment would clobber an env-inherited value from
+  # the inhibitor re-exec parent (the second half of the Codex finding,
+  # complementary to T2-31b's argv-survival check). Force the := default
+  # pattern so the env-survival half of the fix cannot silently regress.
+  grep -F -- ': "${ALLOW_NO_PR:=0}"' "$SRC_SCRIPT"
+  grep -F -- ': "${ALLOW_PARTIAL:=0}"' "$SRC_SCRIPT"
 }
 
 @test "T2-36 argv shape: bash-prefixed re-entry survives 0644 file, \$0-direct fails" {
@@ -940,6 +1243,17 @@ STUB
   grep -F -- '--scope branch' "$SRC_SCRIPT"
   grep -F -- '--model gpt-5.4' "$SRC_SCRIPT"
   grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' "$SRC_SCRIPT"
+}
+
+@test "T3-11 unknown flag still rejected after Issue #186 parser refactor" {
+  # Regression guard: T2-20 already covers `triple-review foo` (positional
+  # arg). This pins the `--bogus` (long-flag-shaped) variant since the
+  # parser was switched from a single-`case` to a while-loop in Issue #186
+  # and a future refactor that special-cases `--*` patterns might silently
+  # accept arbitrary unknown flags.
+  run --separate-stderr triple-review --bogus
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Unknown argument: --bogus"* ]]
 }
 
 # =============================================================================

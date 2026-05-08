@@ -168,9 +168,22 @@ Reviewers run in parallel:
     `claude -p` because the slash-command dispatch hangs in headless mode —
     see ADR 0012)
 
-Zero arguments. The script auto-detects the PR base branch via `gh pr view`
-and falls back to origin/HEAD if no PR is associated with the current branch.
+The script auto-detects the PR base branch via `gh pr view` and aborts when
+no PR is associated with the current branch (use --allow-no-pr to opt into
+the origin/HEAD fallback with a scope-alignment warning).
 Intermediate outputs are preserved in $TMPDIR/triple-review-* (macOS auto-cleans).
+
+Flags:
+  --allow-no-pr     Permit running without an open PR. Falls back to
+                    origin/HEAD with a scope-alignment warning. Without
+                    this flag, triple-review aborts when no PR is
+                    associated with the current branch.
+
+  --allow-partial   When 1 or 2 reviewers fail, continue with partial
+                    aggregation (exit 0) instead of aborting. The summary
+                    section gets a "PARTIAL COVERAGE" banner. Without this
+                    flag, triple-review skips aggregation and exits 1 on
+                    partial failure. 3-leg failure aborts regardless.
 
 Requirements: gh, git, claude, node on $PATH; codex plugin installed at the
 pinned version (see ADR 0012); inside a git work tree.
@@ -327,6 +340,21 @@ resolve_base() {
   else
     rm -f "$stderr_file"
   fi
+  # Issue #186: PR が存在しない場合は default で abort。/pr-review-toolkit:review-pr
+  # と /security-review は slash command レベルで base 引数を expose せず、
+  # 内部で独立に scope を auto-detect する。3 leg を同じ scope に揃える
+  # 唯一確実な方法は PR の存在を保証して `gh pr view` の baseRefName に
+  # 収束させることなので、PR 不在を fail-closed にする。--allow-no-pr で
+  # 従来の origin/HEAD fallback (residual divergence risk あり) に opt-in。
+  if [ "${ALLOW_NO_PR:-0}" != "1" ]; then
+    err "No PR found for current branch.
+triple-review requires an open PR by default so all three reviewers
+(PR, Security, Codex) resolve the same scope.
+Options:
+  (a) Open a draft PR and retry: gh pr create --draft
+  (b) Run with --allow-no-pr to fall back to origin/HEAD with a
+      scope-alignment warning."
+  fi
   local ref
   if ref=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null); then
     # Scope alignment caveat: without a PR, the other two reviewers auto-detect
@@ -432,6 +460,70 @@ check_reviewer_result() {
     return 1
   fi
   return 0
+}
+
+# Aggregate per-leg results into <fail_count> <missing>. Issue #186 splits
+# the previously-inline classification block out of main() so bats can drive
+# both this counter and gate_partial_failures (below) directly via `source`.
+# The function MUST be defined at top level — nested under main() it would
+# not be visible after `source "$SRC_SCRIPT"` until main runs, which would
+# defeat the unit-test plumbing.
+#
+# Args: rc_pr rc_sec rc_adv workdir
+# Output (stdout): "<fail_count> <missing>" — read with `read -r count missing`
+#                  so `missing` absorbs the rest of the line (it can contain
+#                  ", " separators). When count is 0, missing is empty.
+# Output (stderr): tail of adv.err on ADV failure (preserved from prior
+#                  inline behavior — keeps the broker/4xx/contract-drift
+#                  diagnostic visible to the user).
+count_reviewer_failures() {
+  local rc_pr="$1" rc_sec="$2" rc_adv="$3" workdir="$4"
+  local fail_count=0 missing=""
+  if ! check_reviewer_result PR  "$rc_pr"  "$workdir/pr.md"; then
+    fail_count=$((fail_count + 1))
+    missing="${missing:+$missing, }PR"
+  fi
+  if ! check_reviewer_result SEC "$rc_sec" "$workdir/sec.md"; then
+    fail_count=$((fail_count + 1))
+    missing="${missing:+$missing, }SEC"
+  fi
+  if ! check_reviewer_result ADV "$rc_adv" "$workdir/adv.md"; then
+    fail_count=$((fail_count + 1))
+    missing="${missing:+$missing, }ADV"
+    # ADV stderr is captured separately to keep adv.md as pure markdown for the
+    # aggregator, but on failure that means the real diagnostic (companion
+    # crash, 4xx body, model rejection, contract drift) is hidden in adv.err
+    # unless we surface it here. Symmetric with the aggregation-failure tail.
+    if [ -s "$workdir/adv.err" ]; then
+      printf -- '--- tail of adv.err ---\n' >&2
+      tail -n 40 "$workdir/adv.err" >&2
+    fi
+  fi
+  printf '%d %s\n' "$fail_count" "$missing"
+}
+
+# Decide whether to abort before aggregation. Issue #186 makes 1-2 leg
+# failures fail-closed by default — degraded coverage was previously
+# masked by `<FAILED>` markers + exit 0 so a reader skimming the summary
+# would miss it. --allow-partial restores the prior behavior + a banner.
+# 3-leg failure aborts regardless of the flag (no salvageable output).
+gate_partial_failures() {
+  local fail_count="$1" missing="$2" workdir="$3"
+  if [ "$fail_count" -eq 3 ]; then
+    printf '\033[31mAll three reviewers failed. Outputs:\033[0m\n  PR:  %s\n  Sec: %s\n  Adv: %s\n' \
+      "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md" >&2
+    exit 1
+  fi
+  if [ "$fail_count" -gt 0 ] && [ "${ALLOW_PARTIAL:-0}" != "1" ]; then
+    printf '\033[31m%d of 3 reviewer(s) failed (%s). Aborting before aggregation.\033[0m\n' \
+      "$fail_count" "$missing" >&2
+    printf 'Raw outputs preserved at: %s\n' "$workdir" >&2
+    printf 'Re-run with --allow-partial to aggregate from the remaining reviewer(s) (degraded coverage).\n' >&2
+    exit 1
+  fi
+  if [ "$fail_count" -gt 0 ]; then
+    warn "$fail_count of 3 reviewer(s) failed. Continuing with partial results; failed sections contain <FAILED> markers."
+  fi
 }
 
 # Progress monitor: polls the three reviewer PIDs every 10s and emits a status
@@ -674,23 +766,50 @@ EOF
 }
 
 main() {
-  if [ "$#" -gt 0 ]; then
+  # Issue #186 + Codex adversarial review fix: --allow-no-pr / --allow-partial
+  # opt-in flags. Two re-entry guarantees:
+  #   (1) Stash the original argv BEFORE the destructive parse loop. The flag
+  #       cases use `shift` to consume their tokens, so by the time we call
+  #       maybe_wrap_with_inhibitor "$@", $@ would be empty and the re-execed
+  #       child would never re-parse the flags. Pass orig_args[@] to the
+  #       wrapper so the re-entered child sees the same argv as the parent.
+  #   (2) Use `:=` defaulting so env-inherited ALLOW_* values survive the
+  #       re-exec — a fresh `ALLOW_NO_PR=0` assignment would clobber the
+  #       parent's export. With `:=`, env wins when set, default applies
+  #       only when truly unset (first invocation, fresh shell).
+  # Both guards together: argv-side and env-side flag survival across the
+  # inhibitor re-exec. Either alone is insufficient.
+  local -a orig_args=("$@")
+  : "${ALLOW_NO_PR:=0}"
+  : "${ALLOW_PARTIAL:=0}"
+  while [ "$#" -gt 0 ]; do
     case "$1" in
       -h|--help)
         print_usage
         exit 0
         ;;
+      --allow-no-pr)
+        ALLOW_NO_PR=1
+        shift
+        ;;
+      --allow-partial)
+        ALLOW_PARTIAL=1
+        shift
+        ;;
       *)
         err "Unknown argument: $1 (try --help)"
         ;;
     esac
-  fi
+  done
+  export ALLOW_NO_PR ALLOW_PARTIAL
 
   # Wrap the long-running review under the OS sleep inhibitor before any
   # other work so progress-monitor heartbeats and claude -p children are
   # not suspended if the user walks away. Runs after arg validation so
   # --help and unknown-arg paths do not pay the wrap cost.
-  maybe_wrap_with_inhibitor "$@"
+  # Pass orig_args (NOT $@, which is now empty after the shift loop above)
+  # so the re-execed child re-parses the flags via argv too.
+  maybe_wrap_with_inhibitor "${orig_args[@]}"
 
   check_prerequisites
 
@@ -767,39 +886,13 @@ main() {
 
   stop_progress_monitor
 
-  local fail_count=0
-  local missing=""
-  if ! check_reviewer_result PR  "$rc_pr"  "$workdir/pr.md"; then
-    fail_count=$((fail_count + 1))
-    missing="${missing:+$missing, }PR"
-  fi
-  if ! check_reviewer_result SEC "$rc_sec" "$workdir/sec.md"; then
-    fail_count=$((fail_count + 1))
-    missing="${missing:+$missing, }SEC"
-  fi
-  if ! check_reviewer_result ADV "$rc_adv" "$workdir/adv.md"; then
-    fail_count=$((fail_count + 1))
-    missing="${missing:+$missing, }ADV"
-    # ADV stderr is captured separately to keep adv.md as pure markdown for the
-    # aggregator, but on failure that means the real diagnostic (companion
-    # crash, 4xx body, model rejection, contract drift) is hidden in adv.err
-    # unless we surface it here. Symmetric with the aggregation-failure tail
-    # below.
-    if [ -s "$workdir/adv.err" ]; then
-      printf -- '--- tail of adv.err ---\n' >&2
-      tail -n 40 "$workdir/adv.err" >&2
-    fi
-  fi
-
-  if [ "$fail_count" -eq 3 ]; then
-    printf '\033[31mAll three reviewers failed. Outputs:\033[0m\n  PR:  %s\n  Sec: %s\n  Adv: %s\n' \
-      "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md" >&2
-    exit 1
-  fi
-
-  if [ "$fail_count" -gt 0 ]; then
-    warn "$fail_count of 3 reviewer(s) failed. Continuing with partial results; failed sections contain <FAILED> markers."
-  fi
+  # Issue #186: inline classification + gate split into two top-level
+  # functions so bats can drive each half via `source`. Behavior is
+  # unchanged in this commit (Step 3 = refactor only); Step 4 adds the
+  # fail-closed branch inside gate_partial_failures.
+  local fail_count missing
+  read -r fail_count missing < <(count_reviewer_failures "$rc_pr" "$rc_sec" "$rc_adv" "$workdir")
+  gate_partial_failures "$fail_count" "$missing" "$workdir"
 
   printf 'All reviewers done. Generating summary...\n'
 
@@ -865,13 +958,26 @@ main() {
   printf '\n## Adversarial Review\n'
   cat "$workdir/adv.md"
   printf '\n## Summary\n'
-  # Partial-coverage header: when some reviewers failed, prepend a visible
-  # warning so the user cannot miss that the summary was built from fewer
-  # than 3 reviewers. Raw sections above already contain <FAILED> markers,
-  # but those are easy to scroll past.
+  # Issue #186: --allow-partial path emits a multi-line bordered banner so a
+  # downstream `head` / `tail` of the summary section still surfaces the
+  # degraded-coverage warning. The single-line blockquote that lived here
+  # before was easy to scroll past — the whole point of the gate is that
+  # readers should not miss this. Banner sits AFTER assert_envelope_valid
+  # (which runs against summary.md only) so envelope validation is unaffected.
   if [ -n "$missing" ]; then
-    printf '> **Partial coverage**: %d/3 reviewer(s) failed (%s). Raw sections above contain `<FAILED>` markers; the summary below is built from the remaining reviewers only.\n\n' \
-      "$fail_count" "$missing"
+    printf '> **PARTIAL COVERAGE — DEGRADED REVIEW**\n'
+    printf '>\n'
+    printf '> %d of 3 reviewer(s) failed (%s). The summary below was built\n' "$fail_count" "$missing"
+    printf '> from the remaining reviewer(s) only. The other reviewers'\'' raw\n'
+    # Backticks below are markdown formatting in the user-facing output, not
+    # shell command substitution.
+    # shellcheck disable=SC2016
+    printf '> sections (above) contain `<FAILED>` markers. Findings that\n'
+    printf '> would have required cross-reviewer corroboration may be missing.\n'
+    printf '>\n'
+    # shellcheck disable=SC2016
+    printf '> Re-run without `--allow-partial` (default) once the underlying\n'
+    printf '> failure is fixed to get full 3-of-3 coverage.\n\n'
   fi
   cat "$workdir/summary.md"
   printf '\nIntermediate outputs: %s\n' "$workdir"
@@ -908,12 +1014,23 @@ main() {
   # UI writing its TUI into a logfile.
   if [ -t 1 ]; then
     printf '\n---\n[triple-review] Launching interactive Claude Code session with findings...\n'
+    # Issue #186 + Codex adversarial review fix: when --allow-partial allowed
+    # degraded coverage, the stdout banner is not enough — the auto-handoff
+    # prompt is what the downstream Claude session actually reads, and the
+    # non-TTY fallback only points at summary.md. Prepend the partial-
+    # coverage warning to the handoff payload so downstream consumers see it.
+    # summary.md itself stays envelope-clean (envelope validator runs against
+    # summary.md only, so we cannot prepend to the file without breaking it).
+    local handoff_prefix=""
+    if [ -n "$missing" ]; then
+      handoff_prefix=$(printf '**PARTIAL COVERAGE — DEGRADED REVIEW**\n\n%d of 3 reviewer(s) failed (%s). The summary below was built from the remaining reviewer(s) only. Findings that would have required cross-reviewer corroboration may be missing. Treat the input as incomplete when proposing actions.\n\n---\n\n' "$fail_count" "$missing")
+    fi
     shopt -s execfail
     set +e
     # SC2093: `shopt -s execfail` above lets bash return control here on exec
     # failure; code after the exec is the execfail fallback path, not dead.
     # shellcheck disable=SC2093
-    exec claude -- "$(cat "$workdir/summary.md")
+    exec claude -- "${handoff_prefix}$(cat "$workdir/summary.md")
 
 上記の 対応必須 / 要検討 項目への対応方針を提案してください。"
     local exec_rc=$?
@@ -921,7 +1038,12 @@ main() {
     warn "exec claude failed (rc=$exec_rc; binary missing or argv too large). The full summary above is the canonical output; reference $workdir/summary.md to continue manually."
     exit 0
   fi
-  printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n' "$workdir"
+  if [ -n "$missing" ]; then
+    printf '\n---\nNon-TTY stdout detected. --allow-partial mode: %d/3 reviewer(s) failed (%s); the summary at %s/summary.md is built from the remaining reviewer(s) only. Treat the input as incomplete when acting on findings.\n' \
+      "$fail_count" "$missing" "$workdir"
+  else
+    printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n' "$workdir"
+  fi
 }
 
 # Source guard: skip main() when sourced (e.g. from bats test suite),
