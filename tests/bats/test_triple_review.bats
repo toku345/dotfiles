@@ -278,6 +278,37 @@ setup() {
   [[ "$output" != *"Unknown argument"* ]]
 }
 
+@test "T1-16 main(): ambient ALLOW_* env are dropped at entry, env value cannot bypass fail-closed default (PR #188 behavior pin)" {
+  # Behavior counterpart to T2-31a (wrapper-side env pin) and T2-31c (source
+  # text pin). Drives main() with ambient ALLOW_NO_PR=1 ALLOW_PARTIAL=1 and
+  # NO CLI flag, then asserts that the post-parse shell-local ALLOW_* values
+  # are 0 (default), not 1 (env value). The wrapper is mocked to capture the
+  # var state and short-circuit main() before check_prerequisites aborts.
+  #
+  # Why this is independent of T2-31a: T2-31a observes the wrapper-subprocess
+  # env (proves no `export` leak across exec). T1-16 observes shell-local var
+  # state inside main() (proves the parser's default beats env-inherited
+  # values via the entry-time unset). A regression that drops the unset but
+  # keeps the export removal would slip past T2-31a (the wrapper still sees
+  # <unset>) yet break T1-16 (ALLOW_NO_PR would be 1 inside main).
+  local capture="$SCRATCH_DIR/main_capture_t1_16"
+  run bash -c "
+    source '$SRC_SCRIPT'
+    maybe_wrap_with_inhibitor() {
+      {
+        printf 'ALLOW_NO_PR=%s\n' \"\${ALLOW_NO_PR}\"
+        printf 'ALLOW_PARTIAL=%s\n' \"\${ALLOW_PARTIAL}\"
+      } > '$capture'
+      exit 0
+    }
+    export ALLOW_NO_PR=1 ALLOW_PARTIAL=1
+    main
+  "
+  [ "$status" -eq 0 ]
+  grep -q '^ALLOW_NO_PR=0$' "$capture"
+  grep -q '^ALLOW_PARTIAL=0$' "$capture"
+}
+
 # =============================================================================
 # Tier 2-A: is_error_token_only
 # =============================================================================
@@ -798,12 +829,15 @@ STUB
   grep -q '^SLEEP_GATE=1$' "$capture"
 }
 
-@test "T2-31a maybe_wrap: ALLOW_NO_PR/ALLOW_PARTIAL exported survive re-exec (Issue #186)" {
-  # Issue #186: --allow-no-pr / --allow-partial are parsed in main() before
-  # the inhibitor wrap, then `export`ed so the re-execed child inherits the
-  # values via env even though main() also re-parses argv on re-entry. This
-  # test exercises the env-survival half (the belt) by exporting the globals
-  # directly and asserting the wrapper sees them.
+@test "T2-31a main(): ambient ALLOW_NO_PR/ALLOW_PARTIAL do not leak through to wrapper (PR #188 ambient-bypass guard)" {
+  # Original Issue #186 design exported ALLOW_NO_PR/ALLOW_PARTIAL after the
+  # parser so the inhibitor re-exec child could inherit them via env. PR #188
+  # review caught that this same export also let ambient env from the parent
+  # shell silently bypass the fail-closed default — flag survival via env was
+  # the bypass path. New invariant: main() unsets ambient env at entry, the
+  # parser writes shell-local vars, and `export` is dropped, so the wrapper
+  # subprocess never sees ALLOW_* via env. Re-exec into the child still works
+  # because main() forwards orig_args[@] via argv.
   local fake="$SCRATCH_DIR/fake_wrap_flags"
   local capture="$SCRATCH_DIR/wrap_capture_flags"
   cat > "$fake" <<STUB
@@ -820,11 +854,13 @@ STUB
     source '$SRC_SCRIPT'
     select_sleep_inhibitor_cmd() { printf '%s\n' '$fake'; }
     export ALLOW_NO_PR=1 ALLOW_PARTIAL=1
-    maybe_wrap_with_inhibitor
+    main
   "
   [ "$status" -eq 0 ]
-  grep -q '^ALLOW_NO_PR=1$' "$capture"
-  grep -q '^ALLOW_PARTIAL=1$' "$capture"
+  # Ambient env=1 must NOT reach the wrapper: the var is unset before parsing
+  # and no `export` happens, so the wrapper subprocess sees the default state.
+  grep -q '^ALLOW_NO_PR=<unset>$' "$capture"
+  grep -q '^ALLOW_PARTIAL=<unset>$' "$capture"
 }
 
 @test "T2-31b main(): orig_args preserved across inhibitor re-exec (Codex review fix)" {
@@ -859,14 +895,22 @@ STUB
   grep -q '^ARG=--allow-partial$' "$capture"
 }
 
-@test "T2-31c main() uses := default for ALLOW_NO_PR / ALLOW_PARTIAL (Codex review fix)" {
-  # Source-level pin: a future refactor that switches back to a plain
-  # `ALLOW_NO_PR=0` assignment would clobber an env-inherited value from
-  # the inhibitor re-exec parent (the second half of the Codex finding,
-  # complementary to T2-31b's argv-survival check). Force the := default
-  # pattern so the env-survival half of the fix cannot silently regress.
-  grep -F -- ': "${ALLOW_NO_PR:=0}"' "$SRC_SCRIPT"
-  grep -F -- ': "${ALLOW_PARTIAL:=0}"' "$SRC_SCRIPT"
+@test "T2-31c main(): ambient unset + plain default + no export (PR #188 ambient-bypass source pin)" {
+  # Source-level pin for the ambient-bypass guard. The fix has three load-
+  # bearing edges; pin all of them so a partial revert cannot reintroduce
+  # the bypass:
+  #   (1) `unset ALLOW_NO_PR ALLOW_PARTIAL` runs at main() entry to drop
+  #       parent-shell / wrapper-leaked env BEFORE parsing.
+  #   (2) Defaults are plain assignments (NOT `:= "${ALLOW_NO_PR:=0}"` which
+  #       would honor inherited env values that survived an incomplete unset).
+  #   (3) `export` of either var must NOT appear — env propagation is the
+  #       silently-bypassable channel that PR #188 closed; re-exec uses
+  #       orig_args[@] argv-side propagation instead (pinned by T2-31b).
+  grep -F -- 'unset ALLOW_NO_PR ALLOW_PARTIAL' "$SRC_SCRIPT"
+  grep -E '^[[:space:]]*ALLOW_NO_PR=0[[:space:]]*$'  "$SRC_SCRIPT"
+  grep -E '^[[:space:]]*ALLOW_PARTIAL=0[[:space:]]*$' "$SRC_SCRIPT"
+  ! grep -nF 'export ALLOW_NO_PR' "$SRC_SCRIPT"
+  ! grep -nF 'export ALLOW_PARTIAL' "$SRC_SCRIPT"
 }
 
 @test "T2-36 argv shape: bash-prefixed re-entry survives 0644 file, \$0-direct fails" {

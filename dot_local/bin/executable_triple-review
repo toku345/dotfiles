@@ -766,22 +766,21 @@ EOF
 }
 
 main() {
-  # Issue #186 + Codex adversarial review fix: --allow-no-pr / --allow-partial
-  # opt-in flags. Two re-entry guarantees:
-  #   (1) Stash the original argv BEFORE the destructive parse loop. The flag
-  #       cases use `shift` to consume their tokens, so by the time we call
-  #       maybe_wrap_with_inhibitor "$@", $@ would be empty and the re-execed
-  #       child would never re-parse the flags. Pass orig_args[@] to the
-  #       wrapper so the re-entered child sees the same argv as the parent.
-  #   (2) Use `:=` defaulting so env-inherited ALLOW_* values survive the
-  #       re-exec — a fresh `ALLOW_NO_PR=0` assignment would clobber the
-  #       parent's export. With `:=`, env wins when set, default applies
-  #       only when truly unset (first invocation, fresh shell).
-  # Both guards together: argv-side and env-side flag survival across the
-  # inhibitor re-exec. Either alone is insufficient.
+  # Issue #186 fix-up: the only trusted source for --allow-no-pr / --allow-partial
+  # is the CLI argv. Ambient `ALLOW_NO_PR=1` / `ALLOW_PARTIAL=1` exported in the
+  # parent shell (or leaked by a wrapper / handoff parent) used to silently
+  # bypass the fail-closed default — code review caught this as a real injection
+  # path. Drop ambient env up-front, then derive the flags solely from argv.
+  #
+  # Re-exec via maybe_wrap_with_inhibitor still works because we forward
+  # orig_args[@] (the pre-parse argv snapshot), so the re-entered child re-parses
+  # the flags via CLI. Env-side propagation is intentionally NOT used — and the
+  # main entry's unset above runs again in the child, so any env that survived
+  # the exec call is dropped before parsing.
+  unset ALLOW_NO_PR ALLOW_PARTIAL
   local -a orig_args=("$@")
-  : "${ALLOW_NO_PR:=0}"
-  : "${ALLOW_PARTIAL:=0}"
+  ALLOW_NO_PR=0
+  ALLOW_PARTIAL=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -h|--help)
@@ -801,7 +800,6 @@ main() {
         ;;
     esac
   done
-  export ALLOW_NO_PR ALLOW_PARTIAL
 
   # Wrap the long-running review under the OS sleep inhibitor before any
   # other work so progress-monitor heartbeats and claude -p children are
