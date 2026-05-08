@@ -98,7 +98,7 @@ Commit or stash first, then retry."
 | DIRTY-1 | tracked-modified file で `check_prerequisites` 段の guard が err 中断 (exit 1) |
 | DIRTY-1B | untracked-non-ignored file で guard が err 中断 (Status revision で追加) |
 | DIRTY-2 | `.gitignore`-honored untracked file は guard を通過 (= `--untracked-files=normal` でも ignored は素通りすることの検証) |
-| DIRTY-3 | `git status` 自体が失敗する病的ケースで err 中断 (`|| err` の動作確認) |
+| DIRTY-3 | `git status` 自体が失敗する病的ケースで err 中断 (`\|\| err` の動作確認) |
 | HANDOFF-1 | `exec claude --` の handoff payload に 3 ファイルパスの参照が含まれる (静的 source assertion) |
 
 実装後に `bats-docker-parity-runner` subagent で Ubuntu 24.04 parity を確認する。新規テストは pure bash + `git status` + `claude` stub のみで完結し、Node.js 依存を持たないため、過去の Node 18 互換性問題 (PR `8dc20f0` / `73ed518` で解決済) とは独立に動作する。
