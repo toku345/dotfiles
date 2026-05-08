@@ -1,0 +1,22 @@
+# Managed bootstrap defaults for Codex on this machine.
+#
+# Codex reads ~/.codex/config.toml. This file is kept separate so chezmoi can
+# initialize stable defaults without overwriting local state that Codex updates.
+#
+# See docs/codex.md "local-only とする section" for the canonical list of
+# settings that must stay in ~/.codex/config.toml only.
+
+personality = "pragmatic"
+approvals_reviewer = "auto_review"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false
+
+[features]
+js_repl = true
+guardian_approval = true
+
+[plugins."github@openai-curated"]
+enabled = true
