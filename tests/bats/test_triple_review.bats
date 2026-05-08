@@ -1868,3 +1868,20 @@ with "quotes" and $dollar signs and `backticks`'
   [ "$(sed -n '5p' "$MOCK_CLAUDE_LOG")" = '/another/arg' ]
   [ "$(sed -n '6p' "$MOCK_CLAUDE_LOG")" = 'third' ]
 }
+
+@test "HANDOFF-1 auto-handoff payload includes raw reviewer paths (ADR 0020)" {
+  # ADR 0020 §Decision 1: the auto-handoff `exec claude --` payload must
+  # surface paths to pr.md / sec.md / adv.md so the handoff Claude session
+  # can Read on demand instead of seeing only the aggregator-compressed
+  # summary.md.
+  #
+  # Static-source assertion (per plan §"Decision criterion (dynamic vs
+  # static)"): driving the actual `exec claude --` would require stubbing
+  # the full main() flow (3-reviewer parallel block, aggregation,
+  # envelope validator, broker cleanup, TTY gate). Same trade-off as
+  # T3-7 / WRAPPER-1 / WRAPPER-3 contract assertions.
+  grep -F -- 'Raw reviewer outputs' "$SRC_SCRIPT"
+  grep -F -- '- $workdir/pr.md' "$SRC_SCRIPT"
+  grep -F -- '- $workdir/sec.md' "$SRC_SCRIPT"
+  grep -F -- '- $workdir/adv.md' "$SRC_SCRIPT"
+}

@@ -1096,7 +1096,12 @@ main() {
     # shellcheck disable=SC2093
     exec claude -- "${handoff_prefix}$(cat "$workdir/summary.md")
 
-上記の 対応必須 / 要検討 項目への対応方針を提案してください。"
+上記の 対応必須 / 要検討 項目への対応方針を提案してください。
+
+Raw reviewer outputs (具体的なコード snippet や、要約で圧縮された指摘の原典を確認したいときだけ Read で取得):
+- $workdir/pr.md
+- $workdir/sec.md
+- $workdir/adv.md"
     local exec_rc=$?
     set -e
     warn "exec claude failed (rc=$exec_rc; binary missing or argv too large). The full summary above is the canonical output; reference $workdir/summary.md to continue manually."
