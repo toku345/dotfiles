@@ -1456,6 +1456,14 @@ STUB
   [ "$status" -eq 0 ]
 }
 
+@test "DIRTY-INT require_clean_worktree wired into check_prerequisites (refactor regression guard)" {
+  # DIRTY-1/1B/2/3 exercise the function directly, so an accidental
+  # removal of the call site from `check_prerequisites` would not be
+  # caught by them alone. Pin the wiring with a static source check.
+  run bash -c "awk '/^check_prerequisites\\(\\) {/,/^}/' '$SRC_SCRIPT' | grep -Fq 'require_clean_worktree'"
+  [ "$status" -eq 0 ]
+}
+
 @test "DIRTY-3 require_clean_worktree: git status itself fails -> abort" {
   # Function-override `git` in-subshell to force the porcelain call to fail
   # without disturbing real git used by the standard_env_triple_review setup.
