@@ -45,7 +45,10 @@ EOF
 
   # Unset any fake-gh / fake-uname / sleep-inhibitor env from prior tests so
   # stubs default to pass-through and wrap-gate defaults to "not yet wrapped".
+  # Issue #186: also reset --allow-no-pr / --allow-partial flag globals so
+  # one test leaving them set does not leak into the next.
   unset FAKE_GH_BASE FAKE_GH_STDERR FAKE_GH_RC TEST_FAKE_UNAME TRIPLE_REVIEW_SLEEP_INHIBITED
+  unset ALLOW_NO_PR ALLOW_PARTIAL
 }
 
 # Skip when pgrep cannot enumerate processes. macOS Seatbelt (used by Claude
