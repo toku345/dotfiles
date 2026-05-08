@@ -27,12 +27,17 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 ### Triple-Review CLI
 
-`triple-review` は default で「PR 必須 + 1-2 leg 失敗で fail-closed」。draft PR を先に作成しておけば 3 reviewer が同じ baseRefName に収束する (Issue #186)。opt-in flags:
+`triple-review` は default で「PR 必須 + 1-2 leg 失敗で fail-closed + per-leg deadline 480s (8min)」。draft PR を先に作成しておけば 3 reviewer が同じ baseRefName に収束する (Issue #186)。opt-in flags:
 
 - `--allow-no-pr`: PR 不在時に `origin/HEAD` fallback (scope 不整合 residual risk あり)
 - `--allow-partial`: 1-2 leg 失敗を許容して aggregation 続行 (`PARTIAL COVERAGE` banner 強制挿入)
 
-両 flag は combinable。詳細は [`docs/adr/0012`](docs/adr/0012-triple-review-bash-script.md) の "Known limitation — scope alignment" / "Known limitation — partial-failure visibility"。
+env overrides:
+
+- `TRIPLE_REVIEW_LEG_TIMEOUT_SEC` (default 480): 各 reviewer leg の deadline。`claude -p` headless slash-dispatch hang (SEC が 12+ 分 stuck) 対策で Issue #189 で導入。expiry 時 `<FAILED reviewer=X exit_code=124>` で fail-closed gate に乗る。large diff で正規実行に長時間かかる場合は `TRIPLE_REVIEW_LEG_TIMEOUT_SEC=1800 triple-review` 等で延長。aggregation は un-timed (Ctrl+C 操作)
+- `TRIPLE_REVIEW_LEG_TIMEOUT_GRACE_SEC` (default 10): SIGTERM → SIGKILL escalation 猶予
+
+両 flag は combinable。詳細は [`docs/adr/0012`](docs/adr/0012-triple-review-bash-script.md) の "Known limitation — scope alignment" / "Known limitation — partial-failure visibility" / "Known limitation — leg-level hang" (Issue #189)。
 
 ## Repository Structure
 
@@ -171,7 +176,7 @@ push 前に CI (ubuntu-latest + `apt-get install bats`) と同等環境で実走
 ```bash
 docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
   apt-get update -qq >/dev/null
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats git procps >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats git procps nodejs >/dev/null
   bats tests/bats/
 '
 ```

@@ -37,6 +37,17 @@ CODEX_COMPANION_CACHE_ROOT="${CODEX_COMPANION_CACHE_ROOT:-$HOME/.claude/plugins/
 # brokers we actually created — concurrent same-repo Claude Code sessions
 # are left alone. Issue #162; ADR 0012 §"Known side effect — orphan broker
 # after auto-handoff session quit".
+# Per-leg deadline (Issue #189). `claude -p` headless slash-command
+# dispatch can hang indefinitely (observed for /security-review, prior
+# precedent /codex:adversarial-review — see ADR 0012 §"Per-leg timeout");
+# without a deadline the script silently stalls and the user has no
+# recourse besides Ctrl+C. Default 480s (8min) covers the empirical
+# 2-10min reviewer runtime documented in ADR 0012; bump via env for
+# large diffs that legitimately need longer. SIGTERM grace is the
+# window between SIGTERM and SIGKILL escalation by timeout(1).
+LEG_TIMEOUT_SEC="${TRIPLE_REVIEW_LEG_TIMEOUT_SEC:-480}"
+LEG_TIMEOUT_GRACE_SEC="${TRIPLE_REVIEW_LEG_TIMEOUT_GRACE_SEC:-10}"
+
 INITIAL_PWD=""
 BROKER_CLEANUP_HELPER=""
 BROKER_PRE_SNAPSHOT=""
@@ -663,8 +674,24 @@ kill_children() {
 # user-global persona styles (JUIZ, Lum) cannot contaminate reviewer
 # outputs or the aggregator envelope. All three claude -p spawn sites
 # in this script MUST use this wrapper; bats WRAPPER-* tests enforce it.
+#
+# Per-leg deadline: when TRIPLE_REVIEW_LEG_DEADLINE is set (seconds), the
+# call is wrapped under timeout(1) — exit 124 (GNU timeout convention)
+# propagates as a leg failure into the Issue #186 fail-closed gate, so a
+# hung `claude -p` headless slash-dispatch (the SEC/ADV family hang
+# documented in ADR 0012 §"Per-leg timeout") cannot stall the script
+# indefinitely. The aggregator call site does NOT set this env var, so
+# aggregation runs un-timed (large diffs may take 5+ minutes; user
+# Ctrl+C is the escape hatch). TRIPLE_REVIEW_LEG_GRACE controls the
+# SIGTERM→SIGKILL grace window (default 10s).
 claude_p_neutral() {
-  claude -p --settings '{"outputStyle":"triple-review"}' "$@"
+  local cmd=(claude -p --settings '{"outputStyle":"triple-review"}')
+  if [ -n "${TRIPLE_REVIEW_LEG_DEADLINE:-}" ]; then
+    timeout --kill-after="${TRIPLE_REVIEW_LEG_GRACE:-10}s" \
+      "$TRIPLE_REVIEW_LEG_DEADLINE" "${cmd[@]}" "$@"
+  else
+    "${cmd[@]}" "$@"
+  fi
 }
 
 # Build the aggregation prompt via unquoted heredoc so reviewer contents are
@@ -846,11 +873,22 @@ main() {
   printf 'Work dir:    %s\n' "$workdir"
   printf '(Tip: tail -f %s/*.md %s/*.err for live per-reviewer output)\n' "$workdir" "$workdir"
 
-  claude_p_neutral "/pr-review-toolkit:review-pr" > "$workdir/pr.md" 2>&1 &
+  # Per-leg deadline: PR/SEC route through claude_p_neutral, which
+  # honors TRIPLE_REVIEW_LEG_DEADLINE by wrapping the claude call under
+  # timeout(1). ADV bypasses claude_p_neutral (direct codex-companion)
+  # so timeout(1) is applied at the spawn site directly. Both default
+  # to LEG_TIMEOUT_SEC; exit 124 from timeout(1) feeds into the Issue
+  # #186 fail-closed gate via check_reviewer_result. See ADR 0012
+  # §"Per-leg timeout".
+  TRIPLE_REVIEW_LEG_DEADLINE="$LEG_TIMEOUT_SEC" \
+  TRIPLE_REVIEW_LEG_GRACE="$LEG_TIMEOUT_GRACE_SEC" \
+    claude_p_neutral "/pr-review-toolkit:review-pr" > "$workdir/pr.md" 2>&1 &
   local pid_pr=$!
   CHILDREN+=("$pid_pr")
 
-  claude_p_neutral "/security-review" > "$workdir/sec.md" 2>&1 &
+  TRIPLE_REVIEW_LEG_DEADLINE="$LEG_TIMEOUT_SEC" \
+  TRIPLE_REVIEW_LEG_GRACE="$LEG_TIMEOUT_GRACE_SEC" \
+    claude_p_neutral "/security-review" > "$workdir/sec.md" 2>&1 &
   local pid_sec=$!
   CHILDREN+=("$pid_sec")
 
@@ -861,7 +899,8 @@ main() {
   # aggregator. Full rationale and revert plan in ADR 0012 §"Workaround —
   # direct codex-companion invocation" and §"Known limitation — codex
   # plugin model default broken on …".
-  node "$CODEX_COMPANION" adversarial-review --base "$base" --scope branch --model gpt-5.4 \
+  timeout --kill-after="${LEG_TIMEOUT_GRACE_SEC}s" "$LEG_TIMEOUT_SEC" \
+    node "$CODEX_COMPANION" adversarial-review --base "$base" --scope branch --model gpt-5.4 \
     > "$workdir/adv.md" 2> "$workdir/adv.err" &
   local pid_adv=$!
   CHILDREN+=("$pid_adv")

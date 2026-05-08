@@ -49,6 +49,11 @@ EOF
   # one test leaving them set does not leak into the next.
   unset FAKE_GH_BASE FAKE_GH_STDERR FAKE_GH_RC TEST_FAKE_UNAME TRIPLE_REVIEW_SLEEP_INHIBITED
   unset ALLOW_NO_PR ALLOW_PARTIAL
+  # Issue #189: per-leg timeout env vars must be reset between tests so a
+  # test that exercises the timeout path does not leak a deadline into
+  # WRAPPER-B*/T2-* tests, which assume un-timed claude_p_neutral.
+  unset TRIPLE_REVIEW_LEG_DEADLINE TRIPLE_REVIEW_LEG_GRACE
+  unset TRIPLE_REVIEW_LEG_TIMEOUT_SEC TRIPLE_REVIEW_LEG_TIMEOUT_GRACE_SEC
 }
 
 # Skip when pgrep cannot enumerate processes. macOS Seatbelt (used by Claude
