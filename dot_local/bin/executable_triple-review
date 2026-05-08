@@ -284,6 +284,22 @@ check_prerequisites() {
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     err "Not inside a git work tree. Run triple-review from within a repository."
   fi
+  require_clean_worktree
+}
+
+# Verify the worktree has no uncommitted tracked changes. triple-review's 3 reviewers all operate against committed branch/PR diffs (Codex ADV uses --scope branch; the slash-command reviewers detect scope via `gh pr view`), so uncommitted changes are silently excluded from review. Fail-closed matches the Issue #186 fail-closed-default philosophy.
+#
+# `--untracked-files=no` scope: ignore .gitignore-honored files, build artifacts, editor swap files, etc. Only commit-omission of tracked files blocks. Untracked new files (not yet `git add`'d) intentionally pass — the user is expected to `git add` + commit before reviewing. ADR 0020 §Negative documents this trade-off; `--allow-dirty` opt-out flag is deferred (YAGNI).
+require_clean_worktree() {
+  local dirty
+  dirty=$(git status --porcelain --untracked-files=no 2>/dev/null) \
+    || err "git status failed; cannot verify worktree cleanliness."
+  if [ -n "$dirty" ]; then
+    err "Worktree has uncommitted tracked changes:
+$dirty
+triple-review reviews PR/branch diffs only — uncommitted changes will NOT be reviewed.
+Commit or stash first, then retry."
+  fi
 }
 
 # Verify the triple-review output-style file is deployed and current. Fails closed when the file is missing, empty, or missing the sentinel string.
