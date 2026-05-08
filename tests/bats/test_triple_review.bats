@@ -1394,6 +1394,89 @@ STUB
 }
 
 # =============================================================================
+# Tier 3-B: clean-worktree pre-flight (ADR 0020).
+# triple-review's 3 reviewers all operate against committed branch/PR diffs,
+# so uncommitted changes are silently excluded from review. The
+# `require_clean_worktree` guard in `check_prerequisites` fail-closes when
+# the worktree has tracked-modified OR untracked-non-ignored files.
+# `--untracked-files=normal` scope means .gitignore-honored files (build
+# artifacts, editor swap files, OS-specific files) pass through; everything
+# else triggers the guard. ADR 0020 Status revision documents the move from
+# the original tracked-only scope to the current scope after post-merge
+# dogfooding revealed untracked silent skip as a Vector 2 violation.
+# =============================================================================
+
+@test "DIRTY-1 require_clean_worktree: tracked-modified file -> abort with diagnostic" {
+  # Baseline commit, then modify the tracked file without committing.
+  printf 'baseline\n' > tracked.txt
+  git -c user.email=t@e -c user.name=t add tracked.txt
+  git -c user.email=t@e -c user.name=t commit -q -m baseline
+  printf 'changed\n' > tracked.txt
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_clean_worktree
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"uncommitted changes"* ]]
+  [[ "$stderr" == *"tracked.txt"* ]]
+}
+
+@test "DIRTY-1B require_clean_worktree: untracked-non-ignored file -> abort" {
+  # ADR 0020 Status revision: untracked-non-ignored files must trigger the
+  # guard. Common case in this dotfiles repo where new dotfiles / scripts
+  # are routinely added before review (Codex adversarial review of PR #191
+  # flagged the original untracked-pass as a [high] silent-skip vector).
+  printf 'seed\n' > seed.txt
+  git -c user.email=t@e -c user.name=t add seed.txt
+  git -c user.email=t@e -c user.name=t commit -q -m seed
+  printf 'new\n' > new-dotfile.txt   # untracked, NOT gitignored
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_clean_worktree
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"uncommitted changes"* ]]
+  [[ "$stderr" == *"new-dotfile.txt"* ]]
+}
+
+@test "DIRTY-2 require_clean_worktree: gitignored untracked file -> pass" {
+  # `.gitignore`-honored untracked files (build artifacts, editor swap files,
+  # OS-specific noise) must NOT trigger the guard — `--untracked-files=normal`
+  # honors .gitignore by design. This is the ONLY untracked-passthrough path
+  # after the ADR 0020 Status revision.
+  printf 'seed\n' > seed.txt
+  printf '*.swp\n' > .gitignore
+  git -c user.email=t@e -c user.name=t add seed.txt .gitignore
+  git -c user.email=t@e -c user.name=t commit -q -m seed
+  printf 'transient\n' > buffer.swp   # untracked but matches .gitignore
+  run bash -c "
+    source '$SRC_SCRIPT'
+    require_clean_worktree
+  "
+  [ "$status" -eq 0 ]
+}
+
+@test "DIRTY-INT require_clean_worktree wired into check_prerequisites (refactor regression guard)" {
+  # DIRTY-1/1B/2/3 exercise the function directly, so an accidental
+  # removal of the call site from `check_prerequisites` would not be
+  # caught by them alone. Pin the wiring with a static source check.
+  run bash -c "awk '/^check_prerequisites\\(\\) {/,/^}/' '$SRC_SCRIPT' | grep -Fq 'require_clean_worktree'"
+  [ "$status" -eq 0 ]
+}
+
+@test "DIRTY-3 require_clean_worktree: git status itself fails -> abort" {
+  # Function-override `git` in-subshell to force the porcelain call to fail
+  # without disturbing real git used by the standard_env_triple_review setup.
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    git() { return 128; }
+    require_clean_worktree
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"git status failed"* ]]
+}
+
+# =============================================================================
 # Tier 4: codex broker cleanup (issue #162).
 # triple-review's bare-CLI ADV reviewer creates an `app-server-broker.mjs`
 # that lives past the review and re-parents to PID 1 once triple-review
@@ -1816,4 +1899,20 @@ with "quotes" and $dollar signs and `backticks`'
   [ "$(sed -n '4p' "$MOCK_CLAUDE_LOG")" = 'arg with spaces' ]
   [ "$(sed -n '5p' "$MOCK_CLAUDE_LOG")" = '/another/arg' ]
   [ "$(sed -n '6p' "$MOCK_CLAUDE_LOG")" = 'third' ]
+}
+
+@test "HANDOFF-1 auto-handoff payload includes raw reviewer paths (ADR 0020)" {
+  # ADR 0020 §Decision 1: the auto-handoff `exec claude --` payload must
+  # surface paths to pr.md / sec.md / adv.md so the handoff Claude session
+  # can Read on demand instead of seeing only the aggregator-compressed
+  # summary.md.
+  #
+  # Static-source assertion: driving the actual `exec claude --` would
+  # require stubbing the full main() flow (3-reviewer parallel block,
+  # aggregation, envelope validator, broker cleanup, TTY gate). Same
+  # trade-off as T3-7 / WRAPPER-1A/1B/1C / WRAPPER-3 contract assertions.
+  grep -F -- 'Raw reviewer outputs' "$SRC_SCRIPT"
+  grep -F -- '- $workdir/pr.md' "$SRC_SCRIPT"
+  grep -F -- '- $workdir/sec.md' "$SRC_SCRIPT"
+  grep -F -- '- $workdir/adv.md' "$SRC_SCRIPT"
 }

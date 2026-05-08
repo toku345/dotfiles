@@ -284,6 +284,32 @@ check_prerequisites() {
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     err "Not inside a git work tree. Run triple-review from within a repository."
   fi
+  require_clean_worktree
+}
+
+# Verify the worktree has no uncommitted changes. The 3 reviewers operate
+# against committed branch/PR diffs only, so uncommitted changes
+# (tracked-modified or untracked-non-ignored) would be silently excluded
+# from review without this guard. `.gitignore`-honored files pass through
+# by design. ADR 0020 records the design + the post-merge revision that
+# expanded the scope to `--untracked-files=normal`.
+require_clean_worktree() {
+  local dirty="" stderr_file gs_rc=0
+  stderr_file=$(mktemp) || err "Failed to create temp file for git status stderr capture."
+  dirty=$(git status --porcelain --untracked-files=normal 2>"$stderr_file") || gs_rc=$?
+  if [ "$gs_rc" -ne 0 ]; then
+    local gs_err=""
+    [ -s "$stderr_file" ] && gs_err=$(cat "$stderr_file")
+    rm -f "$stderr_file"
+    err "git status failed (exit $gs_rc): ${gs_err:-<empty stderr>}; cannot verify worktree cleanliness."
+  fi
+  rm -f "$stderr_file"
+  if [ -n "$dirty" ]; then
+    err "Worktree has uncommitted changes:
+$dirty
+triple-review reviews PR/branch diffs only — uncommitted changes (tracked-modified or untracked-non-ignored) will NOT be reviewed.
+Commit or stash first, then retry."
+  fi
 }
 
 # Verify the triple-review output-style file is deployed and current. Fails closed when the file is missing, empty, or missing the sentinel string.
@@ -1080,17 +1106,22 @@ main() {
     # shellcheck disable=SC2093
     exec claude -- "${handoff_prefix}$(cat "$workdir/summary.md")
 
-上記の 対応必須 / 要検討 項目への対応方針を提案してください。"
+上記の 対応必須 / 要検討 項目への対応方針を提案してください。
+
+Raw reviewer outputs (具体的なコード snippet や、要約で圧縮された指摘の原典を確認したいときだけ Read で取得):
+- $workdir/pr.md
+- $workdir/sec.md
+- $workdir/adv.md"
     local exec_rc=$?
     set -e
-    warn "exec claude failed (rc=$exec_rc; binary missing or argv too large). The full summary above is the canonical output; reference $workdir/summary.md to continue manually."
+    warn "exec claude failed (rc=$exec_rc; binary missing or argv too large). The full summary above is the canonical output. Reference $workdir/summary.md plus $workdir/{pr,sec,adv}.md (raw per-leg outputs) to continue manually."
     exit 0
   fi
   if [ -n "$missing" ]; then
-    printf '\n---\nNon-TTY stdout detected. --allow-partial mode: %d/3 reviewer(s) failed (%s); the summary at %s/summary.md is built from the remaining reviewer(s) only. Treat the input as incomplete when acting on findings.\n' \
-      "$fail_count" "$missing" "$workdir"
+    printf '\n---\nNon-TTY stdout detected. --allow-partial mode: %d/3 reviewer(s) failed (%s); the summary at %s/summary.md is built from the remaining reviewer(s) only. Raw per-leg outputs: %s/pr.md, %s/sec.md, %s/adv.md (failed legs contain <FAILED> markers). Treat the input as incomplete when acting on findings.\n' \
+      "$fail_count" "$missing" "$workdir" "$workdir" "$workdir" "$workdir"
   else
-    printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n' "$workdir"
+    printf '\n---\nNon-TTY stdout detected. To address findings, open an interactive Claude Code session and reference:\n  %s/summary.md\n  %s/pr.md\n  %s/sec.md\n  %s/adv.md\n' "$workdir" "$workdir" "$workdir" "$workdir"
   fi
 }
 
