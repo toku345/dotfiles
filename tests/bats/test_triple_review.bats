@@ -1680,3 +1680,88 @@ with "quotes" and $dollar signs and `backticks`'
   [ "$(sed -n '5p' "$MOCK_CLAUDE_LOG")" = '/another/arg' ]
   [ "$(sed -n '6p' "$MOCK_CLAUDE_LOG")" = 'third' ]
 }
+
+@test "WRAPPER-B4: TRIPLE_REVIEW_LEG_DEADLINE set -> claude_p_neutral routes through timeout(1) and preserves argv" {
+  # Stub claude logs argv even when invoked via timeout(1); deadline of 5s
+  # is generous enough to never trip on a no-op stub run, so this asserts
+  # the argv layout (= timeout pre-args do not bleed into claude argv).
+  export MOCK_CLAUDE_LOG="$SCRATCH_DIR/claude.argv.log"
+  TRIPLE_REVIEW_LEG_DEADLINE=5 run bash -c "source '$SRC_SCRIPT'; claude_p_neutral '/security-review'"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$MOCK_CLAUDE_LOG")" -eq 4 ]
+  [ "$(sed -n '1p' "$MOCK_CLAUDE_LOG")" = '-p' ]
+  [ "$(sed -n '2p' "$MOCK_CLAUDE_LOG")" = '--settings' ]
+  [ "$(sed -n '3p' "$MOCK_CLAUDE_LOG")" = '{"outputStyle":"triple-review"}' ]
+  [ "$(sed -n '4p' "$MOCK_CLAUDE_LOG")" = '/security-review' ]
+}
+
+@test "WRAPPER-B5: TRIPLE_REVIEW_LEG_DEADLINE expires -> exit 124 (GNU timeout convention, Issue #189)" {
+  # Stub sleeps longer than the deadline; timeout(1) escalates SIGTERM at 1s
+  # (deadline) and we use a 1s grace window so the test settles in ~2s.
+  # exit 124 is the documented GNU timeout convention for "command timed
+  # out". This is the exit code that count_reviewer_failures classifies
+  # as a leg failure, feeding the Issue #186 fail-closed gate.
+  export MOCK_CLAUDE_SLEEP_SEC=10
+  TRIPLE_REVIEW_LEG_DEADLINE=1 \
+  TRIPLE_REVIEW_LEG_GRACE=1 \
+    run bash -c "source '$SRC_SCRIPT'; claude_p_neutral '/security-review'"
+  [ "$status" -eq 124 ]
+}
+
+# -----------------------------------------------------------------------------
+# TIMEOUT-* (Issue #189): per-leg deadline at PR/SEC/ADV spawn sites.
+# Static assertions ensure the deadline plumbing is wired at each spawn
+# site; behavior is covered by WRAPPER-B4/B5 (claude_p_neutral path) and
+# by exit-code propagation through check_reviewer_result (T2-8 family).
+# -----------------------------------------------------------------------------
+
+@test "TIMEOUT-1: PR spawn site sets TRIPLE_REVIEW_LEG_DEADLINE before claude_p_neutral" {
+  # awk window: from the spawn-site marker (`claude_p_neutral "/pr-...`)
+  # walk backwards within ~5 lines and confirm an env-var prefix line
+  # exists. Backslash continuation makes the env prefix and the call
+  # span multiple physical lines; we tolerate up to 5 because the wired
+  # form is 3 lines (DEADLINE \, GRACE \, claude_p_neutral).
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /TRIPLE_REVIEW_LEG_DEADLINE=.*\\$/ { window = 5; saw_deadline = 1; next }
+    window > 0 { window-- }
+    saw_deadline && /claude_p_neutral[[:space:]]+"\/pr-review-toolkit:review-pr"/ { print; saw_deadline = 0 }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
+}
+
+@test "TIMEOUT-2: SEC spawn site sets TRIPLE_REVIEW_LEG_DEADLINE before claude_p_neutral" {
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /TRIPLE_REVIEW_LEG_DEADLINE=.*\\$/ { window = 5; saw_deadline = 1; next }
+    window > 0 { window-- }
+    saw_deadline && /claude_p_neutral[[:space:]]+"\/security-review"/ { print; saw_deadline = 0 }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
+}
+
+@test "TIMEOUT-3: ADV spawn site wraps node codex-companion under timeout(1)" {
+  # ADV bypasses claude_p_neutral (direct codex-companion invocation —
+  # ADR 0012 §"Workaround"), so the deadline must be applied at the
+  # spawn site directly. awk skips comments and asserts the wired form.
+  hits=$(awk '
+    /^[[:space:]]*#/ { next }
+    /timeout[[:space:]]+--kill-after=.*\$LEG_TIMEOUT_SEC/ { window = 3; saw_timeout = 1; next }
+    window > 0 { window-- }
+    saw_timeout && /node[[:space:]]+"\$CODEX_COMPANION"/ { print; saw_timeout = 0 }
+  ' "$SRC_SCRIPT")
+  [ -n "$hits" ]
+}
+
+@test "TIMEOUT-4: LEG_TIMEOUT_SEC honors TRIPLE_REVIEW_LEG_TIMEOUT_SEC env override" {
+  # Source the script with the env var set and read back the resolved
+  # constant. Default is 480; override should take effect at source time.
+  resolved=$(TRIPLE_REVIEW_LEG_TIMEOUT_SEC=999 \
+    bash -c "source '$SRC_SCRIPT'; printf '%s' \"\$LEG_TIMEOUT_SEC\"")
+  [ "$resolved" = '999' ]
+}
+
+@test "TIMEOUT-5: LEG_TIMEOUT_SEC default is 480 when env unset" {
+  resolved=$(bash -c "source '$SRC_SCRIPT'; printf '%s' \"\$LEG_TIMEOUT_SEC\"")
+  [ "$resolved" = '480' ]
+}

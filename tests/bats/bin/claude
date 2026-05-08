@@ -7,6 +7,10 @@
 #   MOCK_CLAUDE_STDIN_LOG  stdin → captured verbatim (truncate-on-write)
 #   MOCK_CLAUDE_OUTPUT     value written to stdout (default: empty)
 #   MOCK_CLAUDE_RC         exit status (default: 0)
+#   MOCK_CLAUDE_SLEEP_SEC  sleep before exit (Issue #189 leg-timeout tests).
+#                          Captured AFTER argv/stdin logging so tests can both
+#                          verify the wrapper invoked the stub correctly AND
+#                          observe timeout(1) interrupting the sleep.
 set -euo pipefail
 
 if [[ -n "${MOCK_CLAUDE_LOG:-}" ]]; then
@@ -24,6 +28,10 @@ fi
 
 if [[ -n "${MOCK_CLAUDE_OUTPUT+x}" ]]; then
   printf '%s' "$MOCK_CLAUDE_OUTPUT"
+fi
+
+if [[ -n "${MOCK_CLAUDE_SLEEP_SEC:-}" ]]; then
+  sleep "$MOCK_CLAUDE_SLEEP_SEC"
 fi
 
 exit "${MOCK_CLAUDE_RC:-0}"
