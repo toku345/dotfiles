@@ -251,31 +251,97 @@ setup() {
 # =============================================================================
 
 @test "T1-13 --allow-no-pr accepted by parser (smoke)" {
-  # Flag is accepted: stderr does not say "Unknown argument". Downstream
-  # check_prerequisites still aborts because no PR / no codex setup is
-  # present in the scratch repo, but that is a different exit path.
+  # Flag is accepted: stderr does not say "Unknown argument". The exact
+  # post-parse abort point depends on host environment:
+  #   - Ubuntu CI (no claude/node/codex companion in PATH): require_cmd
+  #     aborts with "Required command not found in PATH: node" (or claude).
+  #   - Local dev host (bats stubs gh/claude, real node + companion present):
+  #     check_prerequisites passes, resolve_base aborts with "Base branch
+  #     resolution failed" because the scratch repo has no PR / origin/HEAD.
+  #   - Hosts where companion is missing but other deps present:
+  #     resolve_codex_companion aborts with "Codex companion script not found".
+  # Any of these proves the parser ran and reached the post-parse path.
+  # PR #188: pin a positive parser-passed marker so a regression that
+  # silent-fails before parsing (rc=127 cmd-not-found, set -u guard drop,
+  # set -E early abort) does not slip through this smoke as a false pass.
   run --separate-stderr triple-review --allow-no-pr
   [[ "$stderr" != *"Unknown argument"* ]]
   [[ "$output" != *"Unknown argument"* ]]
+  [ "$status" -ne 127 ]
+  [[ "$stderr" == *"Required command not found in PATH"* \
+     || "$stderr" == *"Codex companion script not found"* \
+     || "$stderr" == *"Base branch resolution failed"* ]]
 }
 
 @test "T1-14 --allow-partial accepted by parser (smoke)" {
+  # With --allow-partial alone, the no-PR-required gate is still active.
+  # Post-parse abort point (host-dependent):
+  #   - Ubuntu CI: require_cmd PATH miss
+  #   - Local: resolve_base aborts with "requires an open PR by default"
+  #   - Companion missing only: "Codex companion script not found"
   run --separate-stderr triple-review --allow-partial
   [[ "$stderr" != *"Unknown argument"* ]]
   [[ "$output" != *"Unknown argument"* ]]
+  [ "$status" -ne 127 ]
+  [[ "$stderr" == *"Required command not found in PATH"* \
+     || "$stderr" == *"Codex companion script not found"* \
+     || "$stderr" == *"requires an open PR by default"* ]]
 }
 
 @test "T1-15 --allow-no-pr + --allow-partial combinable, order-independent (Issue #186)" {
-  # Both orders must be accepted. End-to-end execution is gated by
-  # check_prerequisites (codex companion absent in scratch), so this
-  # asserts the parser pair only — the gate-side semantics are covered
-  # by T1-12 (resolve_base) and T2-40/T2-41 (gate_partial_failures).
+  # Both orders must be accepted. Post-parse abort points (host-dependent):
+  # Ubuntu CI -> "Required command not found"; local -> "Base branch
+  # resolution failed"; companion-only miss -> "Codex companion script not found".
   run --separate-stderr triple-review --allow-no-pr --allow-partial
   [[ "$stderr" != *"Unknown argument"* ]]
   [[ "$output" != *"Unknown argument"* ]]
+  [ "$status" -ne 127 ]
+  [[ "$stderr" == *"Required command not found in PATH"* \
+     || "$stderr" == *"Codex companion script not found"* \
+     || "$stderr" == *"Base branch resolution failed"* ]]
   run --separate-stderr triple-review --allow-partial --allow-no-pr
   [[ "$stderr" != *"Unknown argument"* ]]
   [[ "$output" != *"Unknown argument"* ]]
+  [ "$status" -ne 127 ]
+  [[ "$stderr" == *"Required command not found in PATH"* \
+     || "$stderr" == *"Codex companion script not found"* \
+     || "$stderr" == *"Base branch resolution failed"* ]]
+}
+
+@test "T1-15a no-PR + ALLOW_NO_PR=1 + ALLOW_PARTIAL=1: combined flags interaction (PR #188)" {
+  # Combined-flags integration: when both opt-ins are set, resolve_base
+  # falls back to origin/HEAD with a scope-alignment warning AND a 1-leg
+  # failure passes through gate_partial_failures with the legacy warn (rc 0,
+  # not the fail-closed exit 1). Pins the cross-flag interaction beyond the
+  # parser-only smoke (T1-15) and beyond the per-flag tests (T1-11/T2-41).
+  # Uses source-and-call pattern, which intentionally bypasses main() entry
+  # so env-supplied ALLOW_* values reach the helpers — the production
+  # ambient-bypass guard (T2-31a/c) only applies to invocations that go
+  # through main().
+  export FAKE_GH_RC=1
+  export FAKE_GH_STDERR="no pull requests found"
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+
+  local wd="$SCRATCH_DIR/wd_t1_15a"
+  mkdir -p "$wd"
+
+  run --separate-stderr bash -c "
+    export ALLOW_NO_PR=1
+    source '$SRC_SCRIPT'
+    resolve_base
+  "
+  [ "$status" -eq 0 ]
+  [ "$output" = "main" ]
+  [[ "$stderr" == *"No PR found for current branch"* ]]
+
+  run --separate-stderr bash -c "
+    export ALLOW_PARTIAL=1
+    source '$SRC_SCRIPT'
+    gate_partial_failures 1 PR '$wd'
+  "
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"of 3 reviewer(s) failed"* ]]
+  [[ "$stderr" != *"Aborting before aggregation"* ]]
 }
 
 @test "T1-16 main(): ambient ALLOW_* env are dropped at entry, env value cannot bypass fail-closed default (PR #188 behavior pin)" {
@@ -414,8 +480,11 @@ setup() {
   printf '# OK\nline1\nline2\nline3\n' > "$wd/adv.md"
   run bash -c "source '$SRC_SCRIPT'; count_reviewer_failures 0 0 0 '$wd'"
   [ "$status" -eq 0 ]
-  # Trailing newline + empty missing -> "0 \n"; assert leading "0" with no leg label
-  [[ "$output" == "0 " || "$output" == "0" ]]
+  # `printf '%d %s\n' 0 ""` -> "0 \n". bats `run` strips one trailing newline
+  # but preserves the trailing space, so $output is exactly "0 ".
+  # PR #188: pin the literal (the prior `"0 " || "0"` hedge made future
+  # maintainers guess about bats' trim semantics).
+  [ "$output" = "0 " ]
   [[ "$output" != *"PR"* ]]
   [[ "$output" != *"SEC"* ]]
   [[ "$output" != *"ADV"* ]]
@@ -447,6 +516,24 @@ setup() {
   [[ "$stderr" == *"codex broker crashed"* ]]
 }
 
+@test "T2-46d count_reviewer_failures: rc!=0 input flagged even with valid file (PR #188)" {
+  # PR #188: pin that rc_pr / rc_sec / rc_adv inputs are honored independent
+  # of file content. A refactor that only inspects $workdir/*.md and ignores
+  # the rc args would slip through if every test in this block uses rc=0; a
+  # rc=124 (timeout) leg with otherwise-valid markdown content would silently
+  # drop out of the count.
+  local wd="$SCRATCH_DIR/wd_count_rc"
+  mkdir -p "$wd"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/pr.md"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/sec.md"
+  printf '# OK\nline1\nline2\nline3\n' > "$wd/adv.md"
+  # rc_pr=124 (GNU `timeout` default) — content is valid, but the leg should
+  # still be counted as failed via rc.
+  run bash -c "source '$SRC_SCRIPT'; count_reviewer_failures 124 0 0 '$wd'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1 PR" ]
+}
+
 # =============================================================================
 # Tier 2-D2: gate_partial_failures (Issue #186 fail-closed gate)
 # =============================================================================
@@ -459,6 +546,10 @@ setup() {
   [[ "$stderr" == *"Aborting before aggregation"* ]]
   [[ "$stderr" == *"--allow-partial"* ]]
   [[ "$stderr" == *"$wd"* ]]
+  # PR #188: gate aborting before aggregation MUST mean summary.md was never
+  # written. Pin this so a future refactor that reorders aggregation in front
+  # of the gate would fail loudly.
+  [ ! -f "$wd/summary.md" ]
 }
 
 @test "T2-41 gate_partial_failures: 1 leg fail + ALLOW_PARTIAL=1 -> return 0 (Issue #186)" {
@@ -478,6 +569,8 @@ setup() {
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"2 of 3 reviewer(s) failed"* ]]
   [[ "$stderr" == *"Aborting before aggregation"* ]]
+  # PR #188: gate aborting MUST mean aggregation did not run.
+  [ ! -f "$wd/summary.md" ]
 }
 
 @test "T2-43 gate_partial_failures: 3 leg fail bypasses --allow-partial (regression)" {
