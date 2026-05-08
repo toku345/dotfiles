@@ -287,17 +287,17 @@ check_prerequisites() {
   require_clean_worktree
 }
 
-# Verify the worktree has no uncommitted tracked changes. triple-review's 3 reviewers all operate against committed branch/PR diffs (Codex ADV uses --scope branch; the slash-command reviewers detect scope via `gh pr view`), so uncommitted changes are silently excluded from review. Fail-closed matches the Issue #186 fail-closed-default philosophy.
+# Verify the worktree has no uncommitted changes. triple-review's 3 reviewers all operate against committed branch/PR diffs (Codex ADV uses --scope branch; the slash-command reviewers detect scope via `gh pr view`), so uncommitted changes — both tracked-modified and untracked-non-ignored — are silently excluded from review. Fail-closed matches the Issue #186 fail-closed-default philosophy. ADR 0020 §"Status" Revision note + §"Decision" 2 record the rationale for blocking untracked-non-ignored (post-merge dogfooding revealed this is a Vector 2 violation in dotfiles repos).
 #
-# `--untracked-files=no` scope: ignore .gitignore-honored files, build artifacts, editor swap files, etc. Only commit-omission of tracked files blocks. Untracked new files (not yet `git add`'d) intentionally pass — the user is expected to `git add` + commit before reviewing. ADR 0020 §Negative documents this trade-off; `--allow-dirty` opt-out flag is deferred (YAGNI).
+# `--untracked-files=normal` scope: block tracked-modified + untracked-non-ignored, while letting `.gitignore`-honored files (build artifacts, editor swap files, OS-specific files like `.DS_Store`) pass through. `--allow-dirty` opt-out flag is deferred (YAGNI).
 require_clean_worktree() {
   local dirty
-  dirty=$(git status --porcelain --untracked-files=no 2>/dev/null) \
+  dirty=$(git status --porcelain --untracked-files=normal 2>/dev/null) \
     || err "git status failed; cannot verify worktree cleanliness."
   if [ -n "$dirty" ]; then
-    err "Worktree has uncommitted tracked changes:
+    err "Worktree has uncommitted changes:
 $dirty
-triple-review reviews PR/branch diffs only — uncommitted changes will NOT be reviewed.
+triple-review reviews PR/branch diffs only — uncommitted changes (tracked-modified or untracked-non-ignored) will NOT be reviewed.
 Commit or stash first, then retry."
   fi
 }

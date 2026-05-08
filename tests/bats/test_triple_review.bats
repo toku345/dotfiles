@@ -1396,11 +1396,14 @@ STUB
 # =============================================================================
 # Tier 3-B: clean-worktree pre-flight (ADR 0020).
 # triple-review's 3 reviewers all operate against committed branch/PR diffs,
-# so uncommitted tracked changes are silently excluded from review. The
+# so uncommitted changes are silently excluded from review. The
 # `require_clean_worktree` guard in `check_prerequisites` fail-closes when
-# the worktree has tracked-file modifications. `--untracked-files=no` scope
-# means .gitignore-honored files / build artifacts / new files not yet
-# `git add`'d intentionally pass.
+# the worktree has tracked-modified OR untracked-non-ignored files.
+# `--untracked-files=normal` scope means .gitignore-honored files (build
+# artifacts, editor swap files, OS-specific files) pass through; everything
+# else triggers the guard. ADR 0020 Status revision documents the move from
+# the original tracked-only scope to the current scope after post-merge
+# dogfooding revealed untracked silent skip as a Vector 2 violation.
 # =============================================================================
 
 @test "DIRTY-1 require_clean_worktree: tracked-modified file -> abort with diagnostic" {
@@ -1414,17 +1417,38 @@ STUB
     require_clean_worktree
   "
   [ "$status" -eq 1 ]
-  [[ "$stderr" == *"uncommitted tracked changes"* ]]
+  [[ "$stderr" == *"uncommitted changes"* ]]
   [[ "$stderr" == *"tracked.txt"* ]]
 }
 
-@test "DIRTY-2 require_clean_worktree: untracked-only worktree -> pass" {
-  # Establish a clean baseline commit, then drop in an untracked file.
-  # `--untracked-files=no` must ignore it.
+@test "DIRTY-1B require_clean_worktree: untracked-non-ignored file -> abort" {
+  # ADR 0020 Status revision: untracked-non-ignored files must trigger the
+  # guard. Common case in this dotfiles repo where new dotfiles / scripts
+  # are routinely added before review (Codex adversarial review of PR #191
+  # flagged the original untracked-pass as a [high] silent-skip vector).
   printf 'seed\n' > seed.txt
   git -c user.email=t@e -c user.name=t add seed.txt
   git -c user.email=t@e -c user.name=t commit -q -m seed
-  printf 'fresh\n' > untracked.txt
+  printf 'new\n' > new-dotfile.txt   # untracked, NOT gitignored
+  run --separate-stderr bash -c "
+    source '$SRC_SCRIPT'
+    require_clean_worktree
+  "
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"uncommitted changes"* ]]
+  [[ "$stderr" == *"new-dotfile.txt"* ]]
+}
+
+@test "DIRTY-2 require_clean_worktree: gitignored untracked file -> pass" {
+  # `.gitignore`-honored untracked files (build artifacts, editor swap files,
+  # OS-specific noise) must NOT trigger the guard — `--untracked-files=normal`
+  # honors .gitignore by design. This is the ONLY untracked-passthrough path
+  # after the ADR 0020 Status revision.
+  printf 'seed\n' > seed.txt
+  printf '*.swp\n' > .gitignore
+  git -c user.email=t@e -c user.name=t add seed.txt .gitignore
+  git -c user.email=t@e -c user.name=t commit -q -m seed
+  printf 'transient\n' > buffer.swp   # untracked but matches .gitignore
   run bash -c "
     source '$SRC_SCRIPT'
     require_clean_worktree
