@@ -916,7 +916,15 @@ main() {
   # channel (not just $TMPDIR), then exit 1. Aggregation only runs when the
   # gate returns 0.
   local fail_count missing
-  read -r fail_count missing < <(count_reviewer_failures "$rc_pr" "$rc_sec" "$rc_adv" "$workdir")
+  # PR #188 fix-up: guard the read itself + the parsed value. count_reviewer_failures
+  # may abort under set -e (e.g. printf failure in a sub-call), in which case
+  # `read` returns rc=1 with empty fail_count — `[ "" -eq 3 ]` further down
+  # would print `integer expected` and fall through as success. Both forms are
+  # silent-failure traps, so fail-loud at both edges.
+  if ! read -r fail_count missing < <(count_reviewer_failures "$rc_pr" "$rc_sec" "$rc_adv" "$workdir"); then
+    err "count_reviewer_failures emitted no output (set -e abort? — see preceding stderr for diagnostic)"
+  fi
+  [[ "$fail_count" =~ ^[0-9]+$ ]] || err "count_reviewer_failures returned non-numeric fail_count: '$fail_count'"
   if ! gate_partial_failures "$fail_count" "$missing" "$workdir"; then
     emit_raw_review_sections "$workdir"
     exit 1
