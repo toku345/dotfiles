@@ -112,5 +112,5 @@ Commit or stash first, then retry."
 ## 影響ファイル
 
 - `dot_local/bin/executable_triple-review` (`require_clean_worktree` 追加 + `exec claude --` payload に raw paths section 追記)
-- `tests/bats/test_triple_review.bats` (DIRTY-1/2/3 + HANDOFF-1 追加)
+- `tests/bats/test_triple_review.bats` (DIRTY-1 / DIRTY-1B / DIRTY-2 / DIRTY-3 / DIRTY-INT + HANDOFF-1 追加)
 - `docs/adr/0020-triple-review-handoff-and-clean-worktree.md` (本 ADR)
