@@ -507,23 +507,47 @@ count_reviewer_failures() {
 # masked by `<FAILED>` markers + exit 0 so a reader skimming the summary
 # would miss it. --allow-partial restores the prior behavior + a banner.
 # 3-leg failure aborts regardless of the flag (no salvageable output).
+#
+# Return-based (PR #188 ADV review fix): the gate previously called `exit 1`
+# inline, which meant the abort path skipped main()'s stdout raw-section
+# emission entirely — surviving reviewer outputs only existed in $TMPDIR
+# (ephemeral on macOS, auto-cleaned by tmpfiles on Linux). The caller now
+# drives both the abort flush (emit_raw_review_sections) and the exit, so
+# this function only signals continue (rc=0) vs abort (rc=1).
 gate_partial_failures() {
   local fail_count="$1" missing="$2" workdir="$3"
   if [ "$fail_count" -eq 3 ]; then
     printf '\033[31mAll three reviewers failed. Outputs:\033[0m\n  PR:  %s\n  Sec: %s\n  Adv: %s\n' \
       "$workdir/pr.md" "$workdir/sec.md" "$workdir/adv.md" >&2
-    exit 1
+    return 1
   fi
   if [ "$fail_count" -gt 0 ] && [ "${ALLOW_PARTIAL:-0}" != "1" ]; then
     printf '\033[31m%d of 3 reviewer(s) failed (%s). Aborting before aggregation.\033[0m\n' \
       "$fail_count" "$missing" >&2
     printf 'Raw outputs preserved at: %s\n' "$workdir" >&2
     printf 'Re-run with --allow-partial to aggregate from the remaining reviewer(s) (degraded coverage).\n' >&2
-    exit 1
+    return 1
   fi
   if [ "$fail_count" -gt 0 ]; then
     warn "$fail_count of 3 reviewer(s) failed. Continuing with partial results; failed sections contain <FAILED> markers."
   fi
+  return 0
+}
+
+# Stream the three raw per-leg review files to stdout, with the same
+# heading layout the success path uses just before the aggregated summary.
+# Used by the fail-closed exit path (gate_partial_failures returned 1) so
+# surviving reviewer outputs and `<FAILED>` markers reach the regular
+# stdout channel — $TMPDIR alone is ephemeral on macOS, and a wrapper
+# capturing stdout would otherwise see only stderr diagnostics.
+emit_raw_review_sections() {
+  local workdir="$1"
+  printf '## PR Review\n'
+  cat "$workdir/pr.md"
+  printf '\n## Security Review\n'
+  cat "$workdir/sec.md"
+  printf '\n## Adversarial Review\n'
+  cat "$workdir/adv.md"
 }
 
 # Progress monitor: polls the three reviewer PIDs every 10s and emits a status
@@ -884,13 +908,19 @@ main() {
 
   stop_progress_monitor
 
-  # Issue #186: inline classification + gate split into two top-level
-  # functions so bats can drive each half via `source`. Behavior is
-  # unchanged in this commit (Step 3 = refactor only); Step 4 adds the
-  # fail-closed branch inside gate_partial_failures.
+  # Issue #186 / PR #188: count_reviewer_failures + gate_partial_failures are
+  # split out so bats can source-test each half. The gate is return-based
+  # (PR #188 ADV review fix); on abort (3-leg fail OR 1-2 leg fail without
+  # --allow-partial) we flush the raw per-leg sections to stdout via
+  # emit_raw_review_sections so surviving outputs reach the regular stdout
+  # channel (not just $TMPDIR), then exit 1. Aggregation only runs when the
+  # gate returns 0.
   local fail_count missing
   read -r fail_count missing < <(count_reviewer_failures "$rc_pr" "$rc_sec" "$rc_adv" "$workdir")
-  gate_partial_failures "$fail_count" "$missing" "$workdir"
+  if ! gate_partial_failures "$fail_count" "$missing" "$workdir"; then
+    emit_raw_review_sections "$workdir"
+    exit 1
+  fi
 
   printf 'All reviewers done. Generating summary...\n'
 
