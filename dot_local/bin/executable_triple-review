@@ -857,7 +857,10 @@ main() {
   # --help and unknown-arg paths do not pay the wrap cost.
   # Pass orig_args (NOT $@, which is now empty after the shift loop above)
   # so the re-execed child re-parses the flags via argv too.
-  maybe_wrap_with_inhibitor "${orig_args[@]}"
+  # `${arr[@]+"${arr[@]}"}` form expands to nothing when orig_args is empty;
+  # plain `"${orig_args[@]}"` would trip `set -u` on macOS bash 3.2 when
+  # triple-review is invoked with zero args (pinned by T2-31d).
+  maybe_wrap_with_inhibitor ${orig_args[@]+"${orig_args[@]}"}
 
   check_prerequisites
 

@@ -1006,6 +1006,45 @@ STUB
   ! grep -nF 'export ALLOW_PARTIAL' "$SRC_SCRIPT"
 }
 
+@test "T2-31d main(): orig_args expansion uses bash-3.2-safe form (source pin)" {
+  # Companion to T2-31b. T2-31b only exercises the --allow-no-pr/--allow-partial
+  # paths, which never let orig_args be empty. With `set -u` and macOS bash 3.2
+  # (/bin/bash, 3.2.57; nounset+empty-array fixed in bash 4.4), the bare form
+  # `"${orig_args[@]}"` aborts with `unbound variable` whenever triple-review
+  # is invoked with zero args. Pin the `${arr[@]+...}` substitution form so a
+  # naive simplification cannot reintroduce the crash on the macOS production
+  # interpreter.
+  grep -F -- 'maybe_wrap_with_inhibitor ${orig_args[@]+"${orig_args[@]}"}' "$SRC_SCRIPT"
+  ! grep -F -- 'maybe_wrap_with_inhibitor "${orig_args[@]}"' "$SRC_SCRIPT"
+}
+
+@test "T2-31e main(): zero-arg invocation does not trip set -u on macOS bash 3.2" {
+  # Runtime companion to T2-31d. Re-invoke the script via /bin/bash so the
+  # nounset+empty-array regression manifests on the actual macOS interpreter
+  # users run from. Skipped where /bin/bash is >= 4.4 (Linux CI) — the bug
+  # cannot manifest there, but the source-pin test (T2-31d) still gates it.
+  if ! /bin/bash --version 2>/dev/null | grep -q 'version 3\.'; then
+    skip "/bin/bash is bash 4.4+ — empty-array nounset bug only manifests on bash <4.4 (macOS 3.2.57)"
+  fi
+
+  local capture="$SCRATCH_DIR/zero_arg_capture"
+  # Stub maybe_wrap_with_inhibitor to record argc and exit 42 BEFORE the
+  # script reaches check_prerequisites (which would need gh/git etc.).
+  # Sentinel rc=42 distinguishes the success path from a real set -u abort
+  # (rc=1 with `unbound variable` on stderr) and from any other failure.
+  run --separate-stderr /bin/bash -c "
+    source '$SRC_SCRIPT'
+    maybe_wrap_with_inhibitor() {
+      printf 'ARGC=%d\n' \"\$#\" > '$capture'
+      exit 42
+    }
+    main
+  "
+  [ "$status" -eq 42 ]
+  [[ "$stderr" != *"unbound variable"* ]]
+  grep -q '^ARGC=0$' "$capture"
+}
+
 @test "T2-36 argv shape: bash-prefixed re-entry survives 0644 file, \$0-direct fails" {
   # Regression guard for the Phase 4 fix. The source file is 0644 in git
   # (chezmoi sets 0755 only on apply), so a real inhibitor doing
