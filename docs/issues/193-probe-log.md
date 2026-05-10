@@ -51,37 +51,50 @@ Codex flagged 2 [high] issues during this probe; both are adopted into the ADR 0
 1. **probe command lacked timeout wrapper documentation** → `perl alarm 600` wrapper now explicit in the command block above.
 2. **workaround path success used as revert decision basis (false confidence)** → ADR 0021 separates Step 0a (workaround path) from Stage 1 (revert path) conceptually; both are required.
 
-## Stage 1 — model unpin probe (TBD)
+## Stage 1 — model unpin probe
 
-Per ADR 0021 §"Decision". Result is appended below using the template.
+### Stage 1 probe (2026-05-10 19:18:17 — 19:20:12 JST)
 
-```markdown
-### Stage 1 probe (YYYY-MM-DD HH:MM:SS)
+- Command: `perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' 600 node "$CODEX_COMPANION" adversarial-review --base main --scope branch > "$LOGDIR/adv.md" 2> "$LOGDIR/adv.err"` (no `--model`; relies on `~/.codex/config.toml` default)
+- CLI versions: codex-cli `0.130.0`, plugin `1.0.4`, Claude Code `2.1.137`
+- `~/.codex/config.toml` model: `gpt-5.5` (unchanged from ADR 0012 / Step 0a)
+- Outcome: rc=0, elapsed=115s, adv.md=1,319 bytes, adv.err=3,366 bytes
+- Classification: **SUCCESS** (unexpected — ADR 0021 / Plan A.1 期待値は < 5%)
+- adv.err tail: `[codex] Turn completed.`
+- adv.md excerpt: `Verdict: needs-attention` + 1 [high] finding — Codex flagged the Step Z `cleanup` subcommand bug in HEAD `dc91550` (the fix lands in this same commit; Codex sees committed state only).
+- Step Z post-cleanup: rc=0 (broker teardown OK; pre-existing ghost job state from past runs persists, outside helper scope)
+- #270 re-check (per Plan A.1 recommendation when SUCCESS observed): still `open` as of 2026-05-10 (last activity 2026-04-26, no new comments) → local CLI 0.130.0 + plugin 1.0.4 simply does not reproduce the upstream `gpt-5.5` default regression. The workaround was correct for its environment, but the environment changed.
 
-- Command: `<exact bash with perl alarm wrapper>`
-- CLI versions: codex-cli X.Y.Z, plugin X.Y.Z, Claude Code X.Y.Z
-- `~/.codex/config.toml` model: <value>
-- Outcome: rc=N, elapsed=Ns, adv.md=N bytes
-- Classification: {SUCCESS | HANG | 400 | SANDBOX | SILENT | OTHER}
-- adv.err tail (last 20 lines): <excerpt>
-- adv.md excerpt (first 30 lines or full if short): <excerpt>
-```
+## Stage 2 — slash-dispatch probe
 
-(blank — to be filled by plan-mode execution)
+### Stage 2 probe (2026-05-10 20:32:03 — 20:34:23 JST)
 
-## Stage 2 — slash-dispatch probe (TBD; only if Stage 1 SUCCESS)
+- Command: `perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' 600 claude -p --settings '{"outputStyle":"triple-review"}' "/codex:adversarial-review --wait --base main --scope branch" > "$LOGDIR/adv.md" 2> "$LOGDIR/adv.err"`
+- CLI versions: codex-cli `0.130.0`, plugin `1.0.4`, Claude Code `2.1.137`
+- `~/.codex/config.toml` model: `gpt-5.5`
+- Outcome: rc=0, elapsed=140s, adv.md=1,272 bytes, adv.err=157 bytes
+- Classification: **SUCCESS** (unexpected — Plan A.3 期待値は #183 hang likely)
+- adv.err tail: `Warning: no stdin data received in 3s, proceeding without it.` (claude -p stdin warning のみ; `[codex]` progress lines は claude session transcript 側に行くので stderr には出ない)
+- adv.md excerpt: `Verdict: needs-attention` + 1 [high] finding — Stage 1 と同じ probe-log Step Z bug を flag (HEAD `dc91550` 視点で正しい指摘)
+- Step Z post-cleanup: rc=0 (broker teardown OK)
+- #183 (captureTurn await forever) status: still open as of 2026-05-09 + PR #184 unmerged → local Claude Code 2.1.137 + plugin 1.0.4 が `--wait` を hang させない理由は不明だが、両 workaround の動機 (#270 + #183) はいずれも本日のローカル環境で再現していない事実が決定的。
+- Quote scheme observation: `--base main` 直書きで成立 → production code (option (a1)) は `--base "$base"` quoted form で問題なし (bash variable expansion は claude が受け取った 1 引数を内部 parse する前に展開される)。
 
-Per ADR 0021 §"Decision". Result is appended below using the same template as Stage 1.
+## Decision
 
-(blank — to be filled by plan-mode execution)
+Stage 1 SUCCESS + Stage 2 SUCCESS → **option (a1) 採用** (full revert: slash dispatch 復活 + `--model gpt-5.4` pin 撤去)。`autoUpdate: false` は ADR 0012 §"Workaround" の `broker cleanup helper の plugin internal API 依存性` を別途解消するまで維持 (option (a2) の eligibility gate)。詳細と decision rationale は ADR 0021 §"Status" Revision (2026-05-10) を参照。
 
 ## Step Z — probe cleanup
 
 Run after each Stage probe to clear orphan broker / ghost job state introduced by bare-CLI invocation (cf. ADR 0012 §"Known side effect").
 
 ```bash
-# Broker cleanup helper (same one triple-review uses)
-node "$HOME/.local/bin/triple-review-broker-cleanup" cleanup "$PWD" 2>&1 || true
+# Broker cleanup helper (same one triple-review uses).
+# `teardown` is the only public subcommand alongside `snapshot`; the helper
+# has no standalone `cleanup` form. Forcing existed:false skips the
+# conservative no-op branch so probe brokers (which were not pre-snapshotted)
+# are torn down unconditionally.
+node "$HOME/.local/bin/triple-review-broker-cleanup" teardown "$PWD" '{"existed":false}' 2>&1 || true
 
 # Ghost job state inspection (manual)
 ls ~/.claude/plugins/data/codex-openai-codex/state/*/jobs/ 2>/dev/null | head

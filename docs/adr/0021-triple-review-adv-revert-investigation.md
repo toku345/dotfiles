@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-05-09).
+Accepted (2026-05-09, revised 2026-05-10).
+
+**Revision (2026-05-10, post Stage 1/2 probes)**: Stage 1 (model unpin) と Stage 2 (slash dispatch) の両 probe が SUCCESS で完了 — 両 workaround の動機 (upstream `openai/codex-plugin-cc#270` + `#183`) はいずれも本日のローカル環境 (codex-cli `0.130.0` + plugin `1.0.4` + Claude Code `2.1.137`) で再現せず。**option (a1) 採用**: `dot_local/bin/executable_triple-review:917-927` を `claude_p_neutral "/codex:adversarial-review --wait --base \"$base\" --scope branch"` に置換し、`--model gpt-5.4` pin と direct codex-companion bypass を同時撤去。`private_dot_claude/settings.json:188` の `autoUpdate: false` は ADR 0012 §"Workaround" の broker cleanup helper plugin-internal-API 依存性 (Issue #163) を別途解消するまで維持 — option (a2) は本 Issue では eligibility gate を満たさず deferred。Stage 1 SUCCESS は upstream `#270` still open 状態と矛盾するが `gh api` 再確認で state 不変を確認済 (last activity 2026-04-26)。Stage 2 SUCCESS も `#183` open + PR `#184` unmerged 状況と矛盾するが、本ローカル環境では hang 再現せず — workaround は導入時環境で正しかったが環境が変わった。両 probe transcripts は `docs/issues/193-probe-log.md` Stage 1/2 sections 参照。
 
 This ADR records the investigation framework, the Step 0a smoke-test result, and the decision tree used to choose between revert options. The final option (a1 / a2 / b / c) is chosen after Stage 1/2 probes complete; that choice will be appended via a `**Revision (...)**` paragraph in the Status section, following the ADR 0020 pattern.
 
