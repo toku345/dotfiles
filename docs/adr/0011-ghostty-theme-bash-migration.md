@@ -4,7 +4,7 @@
 
 Accepted (2026-04-22)
 
-**Amendment 2026-05-10**: bash 互換下限を 4+ → **5+** に tighten。元の 4+ は historical な保守的下限であり、実環境（Homebrew bash 5.3+, Ubuntu 24.04 / Debian 12 / RHEL 9 はいずれも bash 5.x）と乖離していた。triple-review 側 bash 3.2 互換コード撤去（ADR 0012 「Interpreter requirement」追記）と整合。
+**Amendment 2026-05-10**: bash 互換下限を 4+ → **5+** に tighten。元の 4+ は historical な保守的下限であり、実環境（Homebrew bash 5.3+, Ubuntu 24.04 / Debian 12 / RHEL 9 はいずれも bash 5.x）と乖離していた。triple-review 側 bash 3.2 互換コード撤去（ADR 0012 「Interpreter requirement」追記）と整合。本文中 (Decision §1 / Negative §2) の "bash 5+" 記述も同日付で書き換え済。historical な "bash 4+" 表記は git history 参照。
 
 ## Context
 

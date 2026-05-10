@@ -12,7 +12,8 @@ set -Eeuo pipefail
 # Runtime gate: `#!/usr/bin/env bash` resolves via PATH and could still land
 # on macOS /bin/bash 3.2 under unusual PATH ordering (e.g. PATH=/bin:/usr/bin
 # with no Homebrew bash). Bail fast with an actionable message rather than
-# silent-failing later on bash 4+/5+ constructs. Inline printf (not `err`)
+# silent-failing later on bash 5+ constructs (e.g. `wait -n`, robust
+# empty-array `set -u` expansion, `mapfile`). Inline printf (not `err`)
 # because `err` is defined further down.
 if (( BASH_VERSINFO[0] < 5 )); then
   printf '\033[31mtriple-review requires bash 5+ (detected: %s). Install Homebrew bash (brew install bash) and ensure /opt/homebrew/bin precedes /bin in PATH.\033[0m\n' \
