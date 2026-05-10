@@ -149,17 +149,25 @@ Stage 1/2 probe diff = 本 branch の committed diff のみ (probe log + 本 ADR
 
 ### Done 判定基準
 
-- [x] Step 0a 結果記録 (smoke test SUCCESS rc=0 86s)
-- [ ] Step 1 (Stage 1 probe) 実走 + 結果分類 ({SUCCESS|HANG|400|SANDBOX|SILENT|OTHER})
-- [ ] Step Z (probe cleanup) 実走 (broker / ghost job state 除去)
-- [ ] Step 2 (Stage 2 probe) 実走 (Stage 1 SUCCESS 時のみ) + 結果分類
-- [ ] option (a1/a2/b/c) のいずれかを採用 + 採用理由を Status revision に記録
-- [ ] (option (b) 採用時) 変更先 model の smoke test SUCCESS 確認 (gpt-5.4 なら Step 0a で代用可)
-- [ ] bats T3-7 更新 (採用 option に応じて)
-- [ ] bats-docker-parity-runner verified green
-- [ ] ADR 0012 §"Workaround" / §"Known limitation" に最終 Status revision 追記
+- [x] Step 0a 結果記録 (smoke test SUCCESS rc=0 86s) — 2026-05-09
+- [x] Step 1 (Stage 1 probe) 実走 + 結果分類 (**SUCCESS** rc=0 115s; commit `56ac207`)
+- [x] Step Z (probe cleanup) 実走 (`teardown ... '{"existed":false}'` 形, rc=0; commit `56ac207`)
+- [x] Step 2 (Stage 2 probe) 実走 + 結果分類 (**SUCCESS** rc=0 140s; commit `56ac207`)
+- [x] option **(a1)** 採用 + 採用理由を Status revision に記録 (commit `56ac207`)
+- [-] (option (b) 採用時) — N/A: option (a1) 採用のため不要
+- [x] bats T3-7 更新 (slash-dispatch 形 + negative pin for bare-CLI / `gpt-5.4`; commit `9a8aa9b`)
+- [x] bats-docker-parity-runner verified green (Ubuntu 24.04 152/152, T3-7 green; subagent run 2026-05-11)
+- [x] ADR 0012 §"Workaround" / §"Known limitation" に最終 Status revision 追記 (commit `9a8aa9b`)
 
 ※ 必須ゲート (動作検証・既存機能・差分確認・シークレット) は常に適用。
+
+### Lessons learned (Phase A-C 完了後に追記)
+
+Stage 1/2 が予想 (期待値 < 5%) を裏切って **両方 SUCCESS** だった点は本 investigation の最大の発見。以下が次回類似 investigation での教訓:
+
+1. **Workaround は環境固有**: ADR 0012 workaround は codex-cli `0.125.0` + plugin `1.0.4` + Claude Code `2.1.116` 環境で必要だったが、CLI / Claude Code が version up した後 (それぞれ `0.130.0` / `2.1.137`) では再現せず。Upstream issue (#270 / #183) が依然 open であっても、ローカル環境固有の要因 (CLI 内部の path 変更等) で解消することがある。**Upstream resolution を待つだけでなく、定期的に local probe で revert 可能性を verify する** valuegram。
+2. **Codex finding 採用 (probe log 内 cleanup → teardown bug)**: Step 0a / Stage 1 / Stage 2 すべての adv.md で Codex が同一の bug ([high]) を flag した。adversarial review が high-priority issue を robust に検出する能力を実例で確認。本 investigation の probe log 修正は Codex 自身の指摘から逆算で出てきた経緯。
+3. **bats negative pin の重要性**: T3-7 の `! grep -F -- '--model gpt-5.4'` は当初コメント内 literal も誤検出した (bats fail)。コメントから literal `--model gpt-5.4` を削除して resolve。grep ベースの negative pin はコメントも match するので、source code 内に literal を残す場合は context 区別を考慮する必要あり。
 
 ## Consequences
 
