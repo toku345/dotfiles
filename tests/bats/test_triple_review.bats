@@ -1372,14 +1372,20 @@ STUB
 # this test instead of regressing in production.
 # =============================================================================
 
-@test "T3-7 ADV invocation contract: source contains required argv + redirection" {
+@test "T3-7 ADV invocation contract: source contains slash dispatch + --wait + redirection" {
   # grep -F -- terminates option parsing so tokens starting with `--` are
-  # treated as the search pattern, not as flags.
-  grep -F -- 'node "$CODEX_COMPANION" adversarial-review' "$SRC_SCRIPT"
-  grep -F -- '--base "$base"' "$SRC_SCRIPT"
+  # treated as the search pattern, not as flags. Per Issue #193 / ADR 0021
+  # option (a1) the ADV leg uses claude_p_neutral slash dispatch instead of
+  # bare codex-companion; pin the new contract here. Negative pins guard
+  # against silent drift back to the bypassed bare-CLI form or the removed
+  # gpt-5.4 model lock.
+  grep -F -- 'claude_p_neutral "/codex:adversarial-review' "$SRC_SCRIPT"
+  grep -F -- '--wait' "$SRC_SCRIPT"
+  grep -F -- '--base \"$base\"' "$SRC_SCRIPT"
   grep -F -- '--scope branch' "$SRC_SCRIPT"
-  grep -F -- '--model gpt-5.4' "$SRC_SCRIPT"
   grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' "$SRC_SCRIPT"
+  ! grep -F -- 'node "$CODEX_COMPANION" adversarial-review' "$SRC_SCRIPT"
+  ! grep -F -- '--model gpt-5.4' "$SRC_SCRIPT"
 }
 
 @test "T3-11 unknown flag still rejected after Issue #186 parser refactor" {
