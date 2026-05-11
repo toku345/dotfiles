@@ -16,7 +16,7 @@ set -Eeuo pipefail
 # empty-array `set -u` expansion, `mapfile`). Inline printf (not `err`)
 # because `err` is defined further down.
 if (( BASH_VERSINFO[0] < 5 )); then
-  printf '\033[31mtriple-review requires bash 5+ (detected: %s). Install Homebrew bash (brew install bash) and ensure /opt/homebrew/bin precedes /bin in PATH.\033[0m\n' \
+  printf '\033[31mtriple-review requires bash 5+ (detected: %s). Install bash 5+ (macOS: brew install bash; Linux: apt/dnf install bash) and ensure it resolves first in PATH (check: command -v bash; bash --version).\033[0m\n' \
     "${BASH_VERSION:-unknown}" >&2
   exit 1
 fi
