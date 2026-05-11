@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # shellcheck shell=bash
 
 # Triple-review: aggregate pre-PR review findings from three reviewers into a
@@ -8,6 +8,18 @@
 # `|| true` or `|| rc=$?`. `-E` propagates ERR trap into functions/subshells
 # (future-proof even though no ERR trap is currently installed).
 set -Eeuo pipefail
+
+# Runtime gate: `#!/usr/bin/env bash` resolves via PATH and could still land
+# on macOS /bin/bash 3.2 under unusual PATH ordering (e.g. PATH=/bin:/usr/bin
+# with no Homebrew bash). Bail fast with an actionable message rather than
+# silent-failing later on bash 5+ constructs (e.g. `wait -n`, robust
+# empty-array `set -u` expansion, `mapfile`). Inline printf (not `err`)
+# because `err` is defined further down.
+if (( BASH_VERSINFO[0] < 5 )); then
+  printf '\033[31mtriple-review requires bash 5+ (detected: %s). Install bash 5+ (macOS: brew install bash; Linux: apt/dnf install bash) and ensure it resolves first in PATH (check: command -v bash; bash --version).\033[0m\n' \
+    "${BASH_VERSION:-unknown}" >&2
+  exit 1
+fi
 
 # Globals: trap handlers fire in the parent shell context, so these must not
 # be declared `local` inside functions — doing so would leave the handler
@@ -80,7 +92,7 @@ systemd_inhibitor_reachable() {
 
 # Emit the sleep-inhibitor wrapper command tokens (one per line) on stdout.
 # Empty output = do not wrap. Silent fall-through on unknown OS / missing
-# inhibitor / missing logind. bash 3.2 compatible — no mapfile.
+# inhibitor / missing logind.
 #
 # On macOS: `-i` inhibits idle sleep on both AC and battery (primary goal for
 # "user walks away" scenarios); `-s` adds system-sleep inhibition that applies
@@ -601,21 +613,12 @@ stop_progress_monitor() {
 # targeting of reused PIDs.
 remove_pid() {
   local target="$1"
-  # Empty-array guards avoid `${arr[@]}: unbound variable` under set -u on
-  # older bash versions, and clarify intent on modern bash.
-  if ((${#CHILDREN[@]} == 0)); then
-    return 0
-  fi
   local new=() p
   for p in "${CHILDREN[@]}"; do
     [ "$p" = "$target" ] && continue
     new+=("$p")
   done
-  if ((${#new[@]} > 0)); then
-    CHILDREN=("${new[@]}")
-  else
-    CHILDREN=()
-  fi
+  CHILDREN=("${new[@]}")
 }
 
 # Recursively list all descendant PIDs of the given parent. Uses `pgrep -P`
