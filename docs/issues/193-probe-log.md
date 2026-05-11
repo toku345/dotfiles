@@ -129,7 +129,7 @@ perl -e 'alarm 1200; exec @ARGV' \
 
 ### adv.md excerpt (Stage 3b)
 
-```
+```markdown
 # Codex Adversarial Review
 
 Target: branch diff against main
