@@ -393,6 +393,27 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+# Issue #193 Stage 3b dogfooding (2026-05-11) surfaced a silent-degradation gap:
+# if /codex:adversarial-review (or any slash) is missing (cache stale / plugin
+# uninstalled / marketplace rename), claude -p returns rc=0 + stdout
+# "Unknown slash command: …" — the prior pattern matrix did not flag this as a
+# terminal-error banner, so aggregator built a 2-of-3 summary while reporting
+# 3-of-3 success. T2-1b / T2-1c pin the new patterns to the contract.
+
+@test "T2-1b is_error_token_only: 'Unknown slash command' (1 line) -> true" {
+  local f="$SCRATCH_DIR/banner.md"
+  printf 'Unknown slash command: /codex:adversarial-review\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; is_error_token_only '$f'"
+  [ "$status" -eq 0 ]
+}
+
+@test "T2-1c is_error_token_only: 'No such command' (1 line) -> true" {
+  local f="$SCRATCH_DIR/banner.md"
+  printf 'No such command: /codex:adversarial-review\n' > "$f"
+  run bash -c "source '$SRC_SCRIPT'; is_error_token_only '$f'"
+  [ "$status" -eq 0 ]
+}
+
 @test "T2-3 is_error_token_only: long review (>3 lines) -> false" {
   local f="$SCRATCH_DIR/long.md"
   printf '# Findings\nline1\nline2\nline3\nline4\n' > "$f"
