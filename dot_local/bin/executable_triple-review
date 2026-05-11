@@ -902,10 +902,21 @@ main() {
   # `--wait` no longer hangs at `phase: starting` on local codex-cli 0.130.0
   # + plugin 1.0.4 + Claude Code 2.1.137). Stage 1 SUCCESS likewise removed
   # the explicit `gpt-5.4` model pin (default model `gpt-5.5` works locally).
-  # Separate stderr (NOT 2>&1 like PR/SEC at lines 909/913) keeps adv.md as
-  # pure markdown for the aggregator while preserving codex turn diagnostics
+  # Separate stderr (NOT 2>&1 like PR/SEC above) keeps adv.md as pure
+  # markdown for the aggregator while preserving codex turn diagnostics
   # in adv.err. Full revert narrative in ADR 0012 §"Workaround" /
   # §"Known limitation" Status revisions (2026-05-11).
+  #
+  # Reject base refs containing `"`: git permits double quotes in refnames
+  # (only `~^:?*[\`, control chars, etc. are disallowed by check-ref-format),
+  # and $base is interpolated into a quoted slash-command argument below.
+  # A ref like `feature"x` would close the outer "…" early and corrupt the
+  # /codex:adversarial-review argv. CodeRabbit review on PR #194.
+  case "$base" in
+    *\"*)
+      err "Base branch contains a double quote and cannot be passed safely to /codex:adversarial-review: $base"
+      ;;
+  esac
   claude_p_neutral "/codex:adversarial-review --wait --base \"$base\" --scope branch" \
     > "$workdir/adv.md" 2> "$workdir/adv.err" &
   local pid_adv=$!

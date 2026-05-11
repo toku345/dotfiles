@@ -1352,6 +1352,13 @@ STUB
   grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' <<<"$stripped"
   ! grep -F -- 'node "$CODEX_COMPANION" adversarial-review' <<<"$stripped"
   ! grep -F -- '--model gpt-5.4' <<<"$stripped"
+  # CodeRabbit review on PR #194: guard against $base refs containing `"`
+  # that would corrupt /codex:adversarial-review argv via the quoted
+  # interpolation `--base \"$base\"`. Pin both the structural case-arm and
+  # the human-readable error message so a refactor cannot silently drop the
+  # validation while leaving a similar-looking conditional.
+  grep -F -- '*\"*)' <<<"$stripped"
+  grep -F -- 'Base branch contains a double quote' <<<"$stripped"
 }
 
 @test "T3-11 unknown flag still rejected after Issue #186 parser refactor" {
