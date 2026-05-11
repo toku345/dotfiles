@@ -253,58 +253,64 @@ setup() {
 @test "T1-13 --allow-no-pr accepted by parser (smoke)" {
   # Flag is accepted: stderr does not say "Unknown argument". The exact
   # post-parse abort point depends on host environment:
-  #   - Ubuntu CI (no claude/node/codex companion in PATH): require_cmd
-  #     aborts with "Required command not found in PATH: node" (or claude).
-  #   - Local dev host (bats stubs gh/claude, real node + companion present):
-  #     check_prerequisites passes, resolve_base aborts with "Base branch
-  #     resolution failed" because the scratch repo has no PR / origin/HEAD.
-  #   - Hosts where companion is missing but other deps present:
-  #     resolve_codex_companion aborts with "Codex companion script not found".
+  #   - Ubuntu CI (bats helper stubs claude+gh; setup-node provides node;
+  #     ~/.claude/output-styles/ is empty): require_output_style_triple_review
+  #     aborts with "Output-style 'triple-review' ... TRIPLE_REVIEW_OUTPUT_STYLE_V1".
+  #   - Local dev host (output-style deployed via chezmoi apply, all deps OK):
+  #     resolve_base aborts with "Base branch resolution failed" because the
+  #     scratch repo has no PR / origin/HEAD.
+  #   - Bare host with no claude/node stub at all (rare; fresh clone before
+  #     bats setup): require_cmd aborts with "Required command not found in PATH".
   # Any of these proves the parser ran and reached the post-parse path.
   # PR #188: pin a positive parser-passed marker so a regression that
   # silent-fails before parsing (rc=127 cmd-not-found, set -u guard drop,
   # set -E early abort) does not slip through this smoke as a false pass.
+  # Issue #193 cleanup: removed the "Codex companion script not found" arm
+  # because the resolve_codex_companion path itself was deleted.
   run --separate-stderr triple-review --allow-no-pr
   [[ "$stderr" != *"Unknown argument"* ]]
   [[ "$output" != *"Unknown argument"* ]]
   [ "$status" -ne 127 ]
   [[ "$stderr" == *"Required command not found in PATH"* \
-     || "$stderr" == *"Codex companion script not found"* \
+     || "$stderr" == *"Output-style 'triple-review'"* \
      || "$stderr" == *"Base branch resolution failed"* ]]
 }
 
 @test "T1-14 --allow-partial accepted by parser (smoke)" {
   # With --allow-partial alone, the no-PR-required gate is still active.
   # Post-parse abort point (host-dependent):
-  #   - Ubuntu CI: require_cmd PATH miss
+  #   - Ubuntu CI: require_output_style_triple_review aborts (no chezmoi apply)
   #   - Local: resolve_base aborts with "requires an open PR by default"
-  #   - Companion missing only: "Codex companion script not found"
+  #   - Bare host: require_cmd PATH miss
+  # Issue #193 cleanup: removed the "Codex companion script not found" arm.
   run --separate-stderr triple-review --allow-partial
   [[ "$stderr" != *"Unknown argument"* ]]
   [[ "$output" != *"Unknown argument"* ]]
   [ "$status" -ne 127 ]
   [[ "$stderr" == *"Required command not found in PATH"* \
-     || "$stderr" == *"Codex companion script not found"* \
+     || "$stderr" == *"Output-style 'triple-review'"* \
      || "$stderr" == *"requires an open PR by default"* ]]
 }
 
 @test "T1-15 --allow-no-pr + --allow-partial combinable, order-independent (Issue #186)" {
   # Both orders must be accepted. Post-parse abort points (host-dependent):
-  # Ubuntu CI -> "Required command not found"; local -> "Base branch
-  # resolution failed"; companion-only miss -> "Codex companion script not found".
+  # Ubuntu CI -> "Output-style 'triple-review'" (require_output_style_triple_review)
+  # local -> "Base branch resolution failed"
+  # bare host -> "Required command not found in PATH".
+  # Issue #193 cleanup: removed the "Codex companion script not found" arm.
   run --separate-stderr triple-review --allow-no-pr --allow-partial
   [[ "$stderr" != *"Unknown argument"* ]]
   [[ "$output" != *"Unknown argument"* ]]
   [ "$status" -ne 127 ]
   [[ "$stderr" == *"Required command not found in PATH"* \
-     || "$stderr" == *"Codex companion script not found"* \
+     || "$stderr" == *"Output-style 'triple-review'"* \
      || "$stderr" == *"Base branch resolution failed"* ]]
   run --separate-stderr triple-review --allow-partial --allow-no-pr
   [[ "$stderr" != *"Unknown argument"* ]]
   [[ "$output" != *"Unknown argument"* ]]
   [ "$status" -ne 127 ]
   [[ "$stderr" == *"Required command not found in PATH"* \
-     || "$stderr" == *"Codex companion script not found"* \
+     || "$stderr" == *"Output-style 'triple-review'"* \
      || "$stderr" == *"Base branch resolution failed"* ]]
 }
 
@@ -1332,13 +1338,20 @@ STUB
   # bare codex-companion; pin the new contract here. Negative pins guard
   # against silent drift back to the bypassed bare-CLI form or the removed
   # gpt-5.4 model lock.
-  grep -F -- 'claude_p_neutral "/codex:adversarial-review' "$SRC_SCRIPT"
-  grep -F -- '--wait' "$SRC_SCRIPT"
-  grep -F -- '--base \"$base\"' "$SRC_SCRIPT"
-  grep -F -- '--scope branch' "$SRC_SCRIPT"
-  grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' "$SRC_SCRIPT"
-  ! grep -F -- 'node "$CODEX_COMPANION" adversarial-review' "$SRC_SCRIPT"
-  ! grep -F -- '--model gpt-5.4' "$SRC_SCRIPT"
+  #
+  # Strip shell-comment lines (^[[:space:]]*#) before grepping. Otherwise
+  # historical comments mentioning the removed literals (e.g. ADR 0012
+  # cross-reference notes referencing the old `--model gpt-5.4` pin)
+  # produce false positives in negative pins. CodeRabbit nitpick on PR #194.
+  local stripped
+  stripped=$(awk '/^[[:space:]]*#/ { next } { print }' "$SRC_SCRIPT")
+  grep -F -- 'claude_p_neutral "/codex:adversarial-review' <<<"$stripped"
+  grep -F -- '--wait' <<<"$stripped"
+  grep -F -- '--base \"$base\"' <<<"$stripped"
+  grep -F -- '--scope branch' <<<"$stripped"
+  grep -F -- '> "$workdir/adv.md" 2> "$workdir/adv.err"' <<<"$stripped"
+  ! grep -F -- 'node "$CODEX_COMPANION" adversarial-review' <<<"$stripped"
+  ! grep -F -- '--model gpt-5.4' <<<"$stripped"
 }
 
 @test "T3-11 unknown flag still rejected after Issue #186 parser refactor" {

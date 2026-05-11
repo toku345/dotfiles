@@ -161,9 +161,10 @@ priority-based summary (対応必須 / 要検討 / 対応不要 / 矛盾).
 Reviewers run in parallel:
   - /pr-review-toolkit:review-pr (via headless `claude -p`)
   - /security-review (via headless `claude -p`)
-  - codex-companion adversarial-review (direct node invocation; bypasses
-    `claude -p` because the slash-command dispatch hangs in headless mode —
-    see ADR 0012)
+  - /codex:adversarial-review --wait (via headless `claude -p`; restored
+    2026-05-11 per Issue #193 / ADR 0021 option (a1) after Stage 2 SUCCESS
+    confirmed slash-command dispatch no longer hangs locally; separate
+    stderr preserved so adv.md stays pure markdown for the aggregator)
 
 The script auto-detects the PR base branch via `gh pr view` and aborts when
 no PR is associated with the current branch (use --allow-no-pr to opt into

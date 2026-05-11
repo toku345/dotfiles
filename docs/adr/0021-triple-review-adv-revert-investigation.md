@@ -156,7 +156,7 @@ Stage 1/2 probe diff = 本 branch の committed diff のみ (probe log + 本 ADR
 - [x] option **(a1)** 採用 + 採用理由を Status revision に記録 (commit `56ac207`)
 - [-] (option (b) 採用時) — N/A: option (a1) 採用のため不要
 - [x] bats T3-7 更新 (slash-dispatch 形 + negative pin for bare-CLI / `gpt-5.4`; commit `9a8aa9b`)
-- [x] bats-docker-parity-runner verified green (Ubuntu 24.04 152/152, T3-7 green; subagent run 2026-05-11)
+- [x] bats-docker-parity-runner verified green (Ubuntu 24.04 152/152, T3-7 green; subagent run 2026-05-11 JST after Phase A/B push, before this Status revision was committed)
 - [x] ADR 0012 §"Workaround" / §"Known limitation" に最終 Status revision 追記 (commit `9a8aa9b`)
 
 ※ 必須ゲート (動作検証・既存機能・差分確認・シークレット) は常に適用。
