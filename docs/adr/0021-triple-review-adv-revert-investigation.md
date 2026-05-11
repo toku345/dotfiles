@@ -268,5 +268,6 @@ Codex 自身が Step 0a smoke test の review で 2 件の [high] finding を指
 - `openai/codex-plugin-cc#270` / `#183` / `#305` (upstream snapshot 2026-05-09; Stage 3 で `#183` symptom が wrapper-conditional に再現することを 2026-05-11 に確認)
 - `docs/issues/193-probe-log.md` (probe 実走ログの作業帳; Stage 3 dogfood + Stage 3b disambiguating probe records 含む)
 - PR #194 (option (a1) 実装 + Stage 3 dogfooding + Stage 3b disambiguating probe で REJECTED → superseded by this ADR's 2026-05-11 revision)
-- Issue #189 (per-leg timeout reconcile — Stage 3 hang を fail-loud 化するための前提条件; separate concern)
-- (TBD follow-up issue) "Investigate output-style triple-review × `/codex:adversarial-review --wait` hang" — Stage 3b で特定した wrapper × `--wait` × codex broker interaction の root cause 調査
+- Issue #189 (per-leg timeout reconcile origin) — superseded for tracking purposes by Issue #202 (本 ADR の Stage 3 hang を fail-loud 化するための直接的な follow-up)
+- Issue #201 — "Investigate output-style triple-review × `/codex:adversarial-review --wait` hang root cause": Stage 3b で特定した 3-factor AND interaction の root cause 調査。option (a1) 再投資のための前提条件 #2
+- Issue #202 — "Reconcile #189 per-leg timeout — wire 480s deadline to ADV `--wait` hang fail-loud": Codex `[high]` 勧告の bounded timeout 部分を実装、Stage 3 hang を fail-loud 化。option (a1) 再投資のための前提条件 #4 (path 独立な defense-in-depth)
