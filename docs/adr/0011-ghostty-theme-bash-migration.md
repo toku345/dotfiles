@@ -4,6 +4,8 @@
 
 Accepted (2026-04-22)
 
+**Amendment 2026-05-10**: bash 互換下限を 4+ → **5+** に tighten。元の 4+ は historical な保守的下限であり、実環境（Homebrew bash 5.3+, Ubuntu 24.04 / Debian 12 / RHEL 9 はいずれも bash 5.x）と乖離していた。triple-review 側 bash 3.2 互換コード撤去（ADR 0012 「Interpreter requirement」追記）と整合。本文中 (Decision §1 / Negative §2) の "bash 5+" 記述も同日付で書き換え済。historical な "bash 4+" 表記は git history 参照。
+
 ## Context
 
 `ghostty-theme`（`private_dot_config/private_fish/functions/ghostty-theme.fish`）は現在 fish 関数として実装されている。ADR 0009 で OSC 経由の per-tab theme apply として設計され、ADR 0010 で fish-native テスト基盤（PR #140 で main に統合済み）が整備された。
@@ -42,7 +44,7 @@ Accepted (2026-04-22)
 1. **`ghostty-theme` を bash で再実装し、fish 実装を置き換える**
    - 配置: `dot_local/bin/executable_ghostty-theme`（chezmoi で `~/.local/bin/ghostty-theme` に executable 配布、既に PATH 通過済み）
    - Shebang: `#!/usr/bin/env bash`
-   - bash 4+ 想定（macOS の古い bash 3.2 は対象外）。`#!/usr/bin/env bash` で Homebrew bash 5 を優先、`set -euo pipefail` を有効化
+   - bash 5+ 想定（macOS の古い bash 3.2 は対象外）。`#!/usr/bin/env bash` で Homebrew bash 5 を優先、`set -euo pipefail` を有効化
 
 2. **テーマ発見を `ghostty +list-themes --plain --path` に委譲**
    - ハードコードパスと `GHOSTTY_THEMES_DIR` の自前 env var を廃止
@@ -104,7 +106,7 @@ Accepted (2026-04-22)
 ### Negative
 
 - **fish-native テスト基盤を退役**: ADR 0010 で構築したフレームワーク（fzf stub・snapshots・assert.fish）は bats 移行で再構築が必要。ただし設計原則（fzf 経路を最小 stub で covering / snapshot による OSC 出力の目視レビュー）は踏襲できる
-- **bash 依存の導入**: POSIX sh 縛りよりも可読性を優先した結果、bash 4+ が前提になる（macOS 標準 bash 3.2 不可。ただし Homebrew bash があれば解消）
+- **bash 依存の導入**: POSIX sh 縛りよりも可読性を優先した結果、bash 5+ が前提になる（macOS 標準 bash 3.2 不可。ただし Homebrew bash があれば解消）
 - **`ghostty` CLI の PATH 解決が前提**: テーマ発見を `ghostty +list-themes` に委譲した副作用として、`ghostty` コマンドが PATH で解決できる必要がある。旧実装は `/Applications/Ghostty.app/...` 直読みだったため Ghostty.app だけでも動いた。macOS では Ghostty shell integration 有効時に自動解決（[ghostty-org/ghostty#2483](https://github.com/ghostty-org/ghostty/issues/2483) で shell integration 経由に解決済み）。非 integrated シェルで使う場合は `/Applications/Ghostty.app/Contents/MacOS` を PATH に追加する必要がある。CLI 未解決時はスクリプトが exit 127 と具体的な誘導メッセージで fail-loud 停止する
 - **プレビューのリッチさ頭打ち**: `ghostty +list-themes` TUI 級の体験は得られない（明示的トレードオフ）
 
