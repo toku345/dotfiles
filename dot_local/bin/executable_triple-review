@@ -16,15 +16,12 @@ CHILDREN=()
 MONITOR_PID=""
 MONITOR_START_TS=""
 
-# Codex companion path — resolved dynamically at startup. The plugin cache
-# layout is `<root>/<version>/scripts/codex-companion.mjs` with no `latest`
-# symlink, so any hard-coded version eventually breaks when the cache is
-# pruned or a new version is installed. Pinning to the cache path itself is
-# also unsafe: cache is not a stable interface. We resolve the highest
-# installed version at runtime and rely on `autoUpdate: false` in
-# settings.json (Codex marketplace) to prevent silent contract drift between
-# resolution and the workaround revert. See ADR 0012.
-CODEX_COMPANION=""
+# Codex plugin cache root. Consumed by the broker cleanup helper
+# (executable_triple-review-broker-cleanup.mjs:57) which mirrors the same
+# `<root>/<version>/scripts/...` layout when locating the plugin's
+# broker-lifecycle.mjs / process.mjs modules. The bare `CODEX_COMPANION`
+# resolution that previously consumed this var was removed in Issue #193
+# option (a1) (ADR 0021) when the ADV leg switched to claude_p_neutral.
 CODEX_COMPANION_CACHE_ROOT="${CODEX_COMPANION_CACHE_ROOT:-$HOME/.claude/plugins/cache/openai-codex/codex}"
 
 # Codex broker cleanup state. The bare-CLI ADV reviewer leaves an
@@ -213,23 +210,6 @@ require_cmd() {
   fi
 }
 
-# Resolve the highest installed codex-companion script and store in
-# CODEX_COMPANION. Glob over the versioned cache dir; if multiple versions are
-# installed (e.g. an old version was not pruned), `sort -V` picks the newest
-# so we never silently bind to a stale contract. Fail-loud on 0 hits.
-# Requires modern `sort -V`: GNU sort (Linux) or Apple sort 2.3+ (macOS
-# Sequoia / later). Older macOS BSD sort silently fell back to lexicographic.
-resolve_codex_companion() {
-  local script_rel="scripts/codex-companion.mjs"
-  shopt -s nullglob
-  local matches=("$CODEX_COMPANION_CACHE_ROOT"/*/"$script_rel")
-  shopt -u nullglob
-  if ((${#matches[@]} == 0)); then
-    err "Codex companion script not found under $CODEX_COMPANION_CACHE_ROOT/*/$script_rel. Install via /plugin install codex@openai-codex (see ADR 0012)."
-  fi
-  printf '%s\n' "${matches[@]}" | sort -V | tail -n1
-}
-
 # Resolve the broker cleanup helper sibling. Two candidates because chezmoi
 # stores executable scripts with an `executable_` prefix in the source tree
 # (mode 0644) and strips it on `chezmoi apply` (mode 0755). The unprefixed
@@ -279,7 +259,6 @@ check_prerequisites() {
   require_cmd git
   require_cmd claude
   require_cmd node
-  CODEX_COMPANION=$(resolve_codex_companion)
   require_output_style_triple_review
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     err "Not inside a git work tree. Run triple-review from within a repository."

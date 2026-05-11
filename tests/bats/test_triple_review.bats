@@ -1220,7 +1220,6 @@ STUB
       [ \"\$1\" = 'gh' ] && err 'Required command not found in PATH: gh'
       return 0
     }
-    resolve_codex_companion() { printf 'fake'; }
     check_prerequisites
   "
   [ "$status" -eq 1 ]
@@ -1234,7 +1233,6 @@ STUB
       [ \"\$1\" = 'git' ] && err 'Required command not found in PATH: git'
       return 0
     }
-    resolve_codex_companion() { printf 'fake'; }
     check_prerequisites
   "
   [ "$status" -eq 1 ]
@@ -1248,7 +1246,6 @@ STUB
       [ \"\$1\" = 'claude' ] && err 'Required command not found in PATH: claude'
       return 0
     }
-    resolve_codex_companion() { printf 'fake'; }
     check_prerequisites
   "
   [ "$status" -eq 1 ]
@@ -1262,27 +1259,10 @@ STUB
       [ \"\$1\" = 'node' ] && err 'Required command not found in PATH: node'
       return 0
     }
-    resolve_codex_companion() { printf 'fake'; }
     check_prerequisites
   "
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"Required command not found in PATH: node"* ]]
-}
-
-@test "T3-5 check_prerequisites: companion not found -> abort with ADR pointer" {
-  # Empty cache root simulates a fresh install where the codex plugin has
-  # not been added yet. The resolver must err with a recognizable hint.
-  local empty_cache="$SCRATCH_DIR/empty_cache"
-  mkdir -p "$empty_cache"
-  run --separate-stderr bash -c "
-    export CODEX_COMPANION_CACHE_ROOT='$empty_cache'
-    source '$SRC_SCRIPT'
-    require_cmd() { return 0; }
-    check_prerequisites
-  "
-  [ "$status" -eq 1 ]
-  [[ "$stderr" == *"Codex companion script not found"* ]]
-  [[ "$stderr" == *"ADR 0012"* ]]
 }
 
 # Tier 3-A2: require_output_style_triple_review fail-loud matrix.
@@ -1297,7 +1277,6 @@ STUB
     export HOME='$fake_home'
     source '$SRC_SCRIPT'
     require_cmd() { return 0; }
-    resolve_codex_companion() { printf 'fake'; }
     check_prerequisites
   "
   [ "$status" -eq 1 ]
@@ -1315,7 +1294,6 @@ STUB
     export HOME='$fake_home'
     source '$SRC_SCRIPT'
     require_cmd() { return 0; }
-    resolve_codex_companion() { printf 'fake'; }
     check_prerequisites
   "
   [ "$status" -eq 1 ]
@@ -1333,34 +1311,9 @@ STUB
     export HOME='$fake_home'
     source '$SRC_SCRIPT'
     require_cmd() { return 0; }
-    resolve_codex_companion() { printf 'fake'; }
     check_prerequisites
   "
   [ "$status" -eq 0 ]
-}
-
-# =============================================================================
-# Tier 3-B: resolve_codex_companion version selection.
-# The dynamic resolver must pick the highest installed version so a leftover
-# older copy alongside a newer one does not silently bind us to the older
-# CLI contract. Empty-cache case is covered by T3-5 above.
-# =============================================================================
-
-@test "T3-6 resolve_codex_companion: multiple versions -> highest selected" {
-  local cache="$SCRATCH_DIR/multi_version_cache"
-  # Out-of-order on disk to confirm the test exercises sort -V, not directory
-  # listing order. 1.0.10 must beat 1.0.4 numerically, not lexicographically.
-  for v in 1.0.4 1.0.10 1.0.2; do
-    mkdir -p "$cache/$v/scripts"
-    : > "$cache/$v/scripts/codex-companion.mjs"
-  done
-  run --separate-stderr bash -c "
-    export CODEX_COMPANION_CACHE_ROOT='$cache'
-    source '$SRC_SCRIPT'
-    resolve_codex_companion
-  "
-  [ "$status" -eq 0 ]
-  [ "$output" = "$cache/1.0.10/scripts/codex-companion.mjs" ]
 }
 
 # =============================================================================
