@@ -432,6 +432,14 @@ inject_failed_marker() {
 # `^.*rate limit` and a 50-byte size floor) to avoid false-positiving on long
 # review content that legitimately discusses rate limiting, quotas, or error
 # handling in its findings.
+#
+# Slash-command-missing prefixes ("Unknown slash command"* / "No such command"*)
+# are included so that ADV silently degrading to rc=0 + "Unknown slash command:
+# /codex:adversarial-review" (cache stale / plugin uninstalled / marketplace
+# rename) is treated as a failed reviewer rather than aggregated as a 3-of-3
+# success. The same risk applies to PR and SEC legs (`/pr-review-toolkit:review-pr`
+# / `/security-review`), which is why the patterns are added here at the shared
+# detector rather than inline at the ADV invocation site.
 is_error_token_only() {
   local path="$1"
   local line_count
@@ -446,7 +454,7 @@ is_error_token_only() {
   # match below, which is the desired no-op behavior.
   first_line=$(head -1 "$path" 2>/dev/null || printf '')
   case "$first_line" in
-    "Execution error"*|"API Error"*)
+    "Execution error"*|"API Error"*|"Unknown slash command"*|"No such command"*)
       return 0
       ;;
   esac
