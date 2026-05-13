@@ -188,6 +188,8 @@
       "autoUpdate": false
     }
   },
+  "outputStyle": "JUIZ",
+  "viewMode": "verbose",
   "language": "Japanese",
   "sandbox": {
     "enabled": true,
@@ -219,9 +221,9 @@
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "xhigh",
+  "tui": "fullscreen",
+  "inputNeededNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
-  "outputStyle": "JUIZ",
-  "viewMode": "verbose",
-  "tui": "fullscreen"
+  "agentPushNotifEnabled": true
 }
