@@ -36,7 +36,8 @@ description: ソクラテス式対話で要件と設計を詰めてから実装�
   - Added explicit scope pre-assessment step
   - Replaced design spec output with ADR(s) (project convention, default: docs/adr/)
   - Converted Process Flow from graphviz to ASCII art (terminal-readable)
-  - Relaxed one-question-at-a-time rule — allow batching 2-3 related questions
+  - Reverted to one-question-at-a-time default; tightly coupled details collapsed into one combined question (no 3+ batches)
+  - Added bounded investigate-before-asking rule for repo-factual questions
   - Prefer hypothesis-driven questioning over interrogation style
   - Added branch safety check before committing
   - Simplified transition to plan mode
@@ -62,7 +63,7 @@ Every project goes through this process. A todo list, a single-function utility,
 You MUST create a task for each of these items and complete them in order:
 
 1. **Explore project context and assess scope** — check files, docs, recent commits. Evaluate whether the request contains multiple independent subsystems that should be decomposed first.
-2. **Ask clarifying questions** — batch 2-3 related questions per message; prefer hypothesis-driven ("here's my understanding, correct me") over open-ended interrogation
+2. **Ask clarifying questions** — one user-answerable question per message (default); investigate the codebase first (bounded) when the answer is derivable. See Key Principles for question/investigation budgets.
 3. **Propose 2-3 approaches** — with trade-offs and your recommendation
 4. **Present design** — in sections scaled to their complexity, get user approval after each section. Use ASCII art diagrams where they aid understanding.
 5. **Write ADR(s)** — record key design decisions to the project's ADR directory (default: `docs/adr/NNNN-<slug>.md`; adapt to the project's conventions). Auto-detect next number.
@@ -139,7 +140,8 @@ You MUST create a task for each of these items and complete them in order:
 - If the project is too large for a single design, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own design → ADR(s) → plan → implementation cycle.
 - For appropriately-scoped projects, ask focused questions to refine the idea
 - Prefer hypothesis-driven questions ("Based on X, I'm assuming Y — is that right?") over open-ended interrogation ("What do you want for Y?"). This builds on what you've already learned and feels collaborative rather than like a questionnaire.
-- Batch 2-3 closely related questions in a single message when they share context (e.g., "For the auth layer: do you need OAuth, and if so, which providers? Also, should sessions be stateless (JWT) or server-side?"). Unrelated topics should still be separate messages.
+- Ask one user-answerable question per message as the default. If linked details form one decision and the dimensions are tightly coupled (e.g., "draft PR with auto-assigned reviewers" vs "ready PR with manual reviewer selection" — lifecycle and reviewer flow are inseparable), collapse them into one combined multiple-choice question rather than asking two. Do not collapse orthogonal axes (e.g., auth provider × session architecture) into a single preset — present them as a matrix or as one question with the other deferred, so valid combinations stay reachable. If one answer determines whether the next question matters, ask only the first now — don't batch. (Question-count cap lives in Key Principles.)
+- For repo-factual questions, do a bounded lookup before asking: list/grep relevant files and read directly relevant files within the file budget defined in Key Principles. If those files clearly cover the invariant, state the finding as context and continue. If the invariant spans more files (e.g., interface + impl + tests + config), either expand the lookup explicitly or present the finding as tentative ("based on the files I checked — needs broader verify") rather than treating it as settled. If it remains ambiguous or requires product intent, ask one hypothesis-driven question and note what you checked.
 - Prefer multiple-choice questions when possible, but open-ended is fine too
 - Focus on understanding: purpose, constraints, success criteria
 
@@ -223,7 +225,9 @@ Do NOT write code, scaffold projects, or take any implementation action. The bra
 
 ## Key Principles
 
-- **Focused, hypothesis-driven questions** — Batch 2-3 related questions; lead with your understanding for the user to confirm or correct
+- **Focused, hypothesis-driven questions** — One user-answerable question per message (default); lead with your understanding for the user to confirm or correct. Collapse tightly-coupled details into one combined question (do not bundle orthogonal axes); never include 3+ user questions in a message.
+- **Investigate before asking (bounded)** — For repo-factual questions, do a quick lookup (list/grep plus up to 3 directly relevant files as an initial budget). Treat 3 as the budget for settled context — beyond that, expand the lookup or mark the finding tentative. Only ask if intent is needed or the answer remains ambiguous.
+- **Lower cognitive load over fewer turns** — Extra round-trips are acceptable when they produce sharper, easier-to-answer questions.
 - **Multiple choice preferred** — Easier to answer than open-ended when possible
 - **YAGNI ruthlessly** — Remove unnecessary features from all designs
 - **Explore alternatives** — Always propose 2-3 approaches before settling
