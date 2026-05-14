@@ -1,0 +1,43 @@
+Derived from obra/superpowers — Brainstorming Skill
+Upstream: https://github.com/obra/superpowers/blob/eafe962b18f6c5dc70fb7c8cc7e83e61f4cdde06/skills/brainstorming/SKILL.md
+
+MIT License
+
+Copyright (c) 2025 Jesse Vincent
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Customizations from original (applied across SKILL.md and references/*.md):
+
+- Removed Visual Companion (browser-based tool) — using ASCII art diagrams instead.
+- Removed writing-plans skill invocation — using Claude Code plan mode instead.
+- Did not adopt git worktree automation from the broader superpowers ecosystem.
+- Removed references to other superpowers skills (writing-plans, frontend-design, mcp-builder, elements-of-style).
+- Added explicit scope pre-assessment step (decompose multiple independent subsystems before refining details).
+- Replaced design spec output with ADR(s) (project convention, default: docs/adr/).
+- Converted Process Flow from graphviz to ASCII art (terminal-readable).
+- Reverted to one-question-at-a-time default; tightly coupled details collapsed into one combined question (no 3+ batches; no orthogonal axes bundled into one preset).
+- Added bounded investigate-before-asking rule for repo-factual questions.
+- Prefer hypothesis-driven questioning over interrogation style.
+- Added branch safety check before committing.
+- Simplified transition to plan mode.
+- Description in Japanese for trigger phrase matching.
+- Restructured to progressive-disclosure layout (slim SKILL.md + on-demand references/*) per ADR 0022.
