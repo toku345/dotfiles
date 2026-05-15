@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck shell=bash
 # Tests for private_dot_claude/skills/brainstorming/{SKILL.md, references/*,
-# LICENSE.superpowers} and tests/skills/brainstorming/prompts/T00..T10.
+# LICENSE.superpowers} and tests/skills/brainstorming/prompts/T00..T11.
 # These tests enforce the progressive-disclosure layout decided in ADR 0022
 # and catch structural regressions before merge. CI installs `bats` only,
 # so we use `grep` (not `rg`).
@@ -37,8 +37,8 @@ extract_h2_body() {
 # SKILL.md structural guards
 #
 # ADR 0022's whole point is that SKILL.md stays small, because every line is a
-# recurring token cost in the rendered context. 80 lines is the ceiling chosen
-# in the implementation plan; the target is ~50.
+# recurring token cost in the rendered context. ~80 lines is the regression
+# ceiling enforced here; ADR 0022's target is a ~50-line core.
 # -----------------------------------------------------------------------------
 
 @test "SKILL.md exists and is within 20-80 line bounds" {
@@ -63,7 +63,7 @@ extract_h2_body() {
 # Salience guard: HARD-GATE must appear within the first 15 body lines after
 # the `# Brainstorming Ideas Into Designs` heading. If it drifts past line 15,
 # it loses priority in the context-resident rendering and the final-checkpoint
-# failure mode from PR #207 can recur.
+# failure modes documented in ADR 0022 can recur.
 @test "SKILL.md top 15 body lines contain a HARD-GATE tag line" {
   local body
   body="$(awk '
@@ -138,10 +138,9 @@ extract_h2_body() {
   grep -q 'Pre-send self-check' "$SKILL_MD"
 }
 
-# T02 leak-guard regression: the assistant must paraphrase HARD-GATE on refusal,
-# never paste the literal `<HARD-GATE>...</HARD-GATE>` tag block. Surfaced as a
-# T02 fixture leak-guard drift during dogfooding of PR #211 — the refusal was
-# correct but the assistant copy-pasted SKILL.md L11 verbatim. Pinning the
+# T02 leak-guard regression: the assistant must paraphrase HARD-GATE on
+# refusal, never paste the literal `<HARD-GATE>...</HARD-GATE>` tag block.
+# Pasting the literal tag leaks skill internals to the user. Pin the
 # instruction here so silent removal of the paraphrase rule fails CI.
 @test "SKILL.md T02 invariant — HARD-GATE refusal must paraphrase, not paste tag block" {
   grep -q 'paraphrase the rule' "$SKILL_MD"
@@ -182,14 +181,20 @@ extract_h2_body() {
   grep -q 'do not write code, scaffold projects, or invoke implementation skills' "$REF_DIR/after-design.md"
 }
 
-# Safety rules (ADV high #1): non-negotiable commit-path guards must live in
-# the always-loaded SKILL.md body, not solely in references/after-design.md.
+# Safety rules: non-negotiable commit-path guards must live in the
+# always-loaded SKILL.md body, not solely in references/after-design.md.
+# The reference side is gated by the "mirrors SKILL.md ..." tests below so
+# the two control planes cannot drift.
 @test "SKILL.md safety rules — detached HEAD refusal" {
   grep -qi 'detached HEAD' "$SKILL_MD"
 }
 
-@test "SKILL.md safety rules — origin/HEAD default-branch detection" {
+@test "SKILL.md safety rules — default branch detection chain" {
+  # Two-layer chain: origin/HEAD primary detect + main/master/trunk/develop
+  # fallback list in canonical order. The reference (after-design.md) must
+  # mirror both layers — see the matching mirror tests below.
   grep -q 'origin/HEAD' "$SKILL_MD"
+  grep -qE '\bmain\b.*\bmaster\b.*\btrunk\b.*\bdevelop\b' "$SKILL_MD"
 }
 
 @test "SKILL.md safety rules — ban on git add -A wildcards" {
@@ -246,6 +251,8 @@ extract_h2_body() {
 #
 # T09 (ADR shape) and T10 (branch safety) cannot regress silently while the
 # fixture-shape gate alone passes; pin the strings the runtime relies on.
+# SKILL.md is the SSOT for the safety rules; the mirror tests here enforce
+# that the on-demand reference cannot drift from the always-loaded core.
 # -----------------------------------------------------------------------------
 
 @test "references/after-design.md T09 invariant — ADR template four sections with bodies" {
@@ -264,20 +271,17 @@ extract_h2_body() {
   grep -q 'Auto-detect ADR directory' "$REF_DIR/after-design.md"
 }
 
-@test "references/after-design.md T10 invariant — detached HEAD reject" {
-  grep -q 'Detached HEAD' "$REF_DIR/after-design.md"
+@test "references/after-design.md mirrors SKILL.md detached HEAD safety rule" {
+  grep -qi 'detached HEAD' "$REF_DIR/after-design.md"
 }
 
-@test "references/after-design.md T10 invariant — default branch detection chain" {
+@test "references/after-design.md mirrors SKILL.md default branch fallback chain" {
   local f="$REF_DIR/after-design.md"
-  # The chain has two layers — keep both pinned independently so a collapse
-  # into a single regex cannot silently hide regressions where the primary
-  # detect is removed but the fallback list survives, or vice versa.
-  # Layer 1: primary detect via origin/HEAD.
+  # Both layers pinned independently so a collapse into a single regex
+  # cannot silently hide regressions where the primary detect is removed
+  # but the fallback list survives, or vice versa. The single-regex match
+  # on layer 2 also pins ordering, so a wrong-order fallback fails CI.
   grep -q 'origin/HEAD' "$f"
-  # Layer 2: fallback list with all four branch names on a single line, in
-  # the canonical order. The single-regex match also pins ordering, so a
-  # wrong-order fallback (e.g. `develop / main / master / trunk`) fails CI.
   grep -qE '\bmain\b.*\bmaster\b.*\btrunk\b.*\bdevelop\b' "$f"
 }
 
@@ -296,9 +300,9 @@ extract_h2_body() {
 #
 # EXPECTED_FIXTURE_IDS is the single source of truth for the on-disk fixture
 # set. Tests enforce two properties against actual T??_*.md files: (1) exact
-# match (no missing / extra / silently renamed); (2) no duplicates (no stray
-# `T03_*.md` + `T03_old_*.md`). It is file-scoped because bats runs setup()
-# per-test and we want one shared constant, not 12 per-test copies.
+# match (no missing / extra / silently renamed); (2) no duplicates (no two
+# files share the same T?? prefix). It is file-scoped because bats runs
+# setup() per-test and we want one shared constant, not 12 per-test copies.
 #
 # Heading-presence catches a missing fixture or a renamed section.
 # Content-presence catches a fixture that has all five headings but empty

@@ -41,4 +41,4 @@ If the request spans multiple independent subsystems (e.g., "build a platform wi
 2. Suggest a build order (what must exist before the next subsystem can ship).
 3. Pick the first sub-project and run the normal Checklist on it.
 
-Each sub-project gets its own design → ADR → plan cycle. Trying to design the whole platform in one round dilutes everything.
+Trying to design the whole platform in one round dilutes everything.

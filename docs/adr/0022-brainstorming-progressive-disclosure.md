@@ -33,14 +33,14 @@ Implementation specifics (file paths, line budgets, section skeletons, fixture e
 
 ### Positive
 
-- **Runtime adherence**: SKILL.md attention dilution drops from a 236-line recurring cost to a ~50-line core (line count measured by `awk NR`). Pre-send self-check addresses the failure modes (3+ questions, orthogonal-axes bundling) first observed at the final-checkpoint phase.
+- **Runtime adherence**: SKILL.md attention dilution drops from a 236-line recurring cost to a ~50-line core, with a ~80-line regression ceiling enforced by the bats gate (line count measured by `awk NR`). Pre-send self-check addresses the salience failures observed at the final-checkpoint phase.
 - **Progressive disclosure**: phase-specific guidance loads only when needed, aligned with the official anatomy and `gpt-5-4-prompting` prior art.
 - **Maintainability**: changes to skill identity (SKILL.md) versus changes to phase tactics (`references/*.md`) become separable concerns.
-- **Regression protection**: a structural bats gate (line ceiling, fixture shape, reference-link presence, integrity sentinels) catches drift before merge.
+- **Regression protection**: a structural bats gate catches drift before merge.
 
 ### Negative / risks
 
-- **Judgment-driven reference loading**: even with imperative checklist wording, reference loading remains model-behavior-dependent rather than mechanically enforced. Mitigated by embedding "Read references/X before Y" imperatives in the Checklist and ultimately by Level 3 automation (Issue #210).
+- **Judgment-driven reference loading**: even with imperative checklist wording, reference loading remains model-behavior-dependent rather than mechanically enforced. Mitigated by Checklist imperatives that direct reference loading, and ultimately by Level 3 automation (Issue #210).
 - **Manual verification dependency** persists until Level 3 automation lands.
 - **Attribution maintenance**: `LICENSE.superpowers` introduces a new non-runtime file in the skill directory. Cost is one-time; risk of unattributed derivative was deemed higher.
 - **Trigger-surface drift**: shortening the frontmatter could reduce Japanese trigger coverage. Mitigated by retaining the Japanese trigger phrases in `description` and by fresh-session verification that Japanese phrases still load the skill.
