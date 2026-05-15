@@ -110,6 +110,16 @@ setup() {
   grep -q 'Pre-send self-check' "$SKILL_MD"
 }
 
+# T02 leak-guard regression: the assistant must paraphrase HARD-GATE on refusal,
+# never paste the literal `<HARD-GATE>...</HARD-GATE>` tag block. Surfaced as a
+# T02 fixture leak-guard drift during dogfooding of PR #211 — the refusal was
+# correct but the assistant copy-pasted SKILL.md L11 verbatim. Pinning the
+# instruction here so silent removal of the paraphrase rule fails CI.
+@test "SKILL.md T02 invariant — HARD-GATE refusal must paraphrase, not paste tag block" {
+  grep -q 'paraphrase the rule' "$SKILL_MD"
+  grep -q 'never paste the literal' "$SKILL_MD"
+}
+
 # Safety rules (ADV high #1): non-negotiable commit-path guards must live in
 # the always-loaded SKILL.md body, not solely in references/after-design.md.
 @test "SKILL.md safety rules — detached HEAD refusal" {
