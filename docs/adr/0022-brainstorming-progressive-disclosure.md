@@ -33,7 +33,7 @@ Implementation specifics (file paths, line budgets, section skeletons, fixture e
 
 ### Positive
 
-- **Runtime adherence**: SKILL.md attention dilution drops from a 236-line recurring cost to a ~50-line core. Pre-send lint targets the observed final-checkpoint failure mode.
+- **Runtime adherence**: SKILL.md attention dilution drops from a 236-line recurring cost to a ~50-line core. Pre-send self-check addresses the failure modes (3+ questions, orthogonal-axes bundling) first observed at the final-checkpoint phase.
 - **Progressive disclosure**: phase-specific guidance loads only when needed, aligned with the official anatomy and `gpt-5-4-prompting` prior art.
 - **Maintainability**: changes to skill identity (SKILL.md) versus changes to phase tactics (`references/*.md`) become separable concerns.
 - **Regression protection**: a structural bats gate (line ceiling, fixture shape, reference-link presence, integrity sentinels) catches drift before merge.
