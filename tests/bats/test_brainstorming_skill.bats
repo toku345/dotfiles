@@ -32,7 +32,10 @@ setup() {
 @test "SKILL.md exists and is within 20-80 line bounds" {
   [ -f "$SKILL_MD" ]
   local n
-  n="$(wc -l <"$SKILL_MD")"
+  # awk NR counts records; unlike `wc -l`, it does not lose the trailing line
+  # when the file ends without a newline. ADR 0022's "~50 line core" target is
+  # documented as measured by awk NR.
+  n="$(awk 'END{print NR}' "$SKILL_MD")"
   # Floor guards against silent truncation / accidental wipe; ceiling enforces
   # the ADR 0022 progressive-disclosure target (~50 line core).
   [ "$n" -ge 20 ]
@@ -50,13 +53,29 @@ setup() {
 # the `# Brainstorming Ideas Into Designs` heading. If it drifts past line 15,
 # it loses priority in the context-resident rendering and the final-checkpoint
 # failure mode from PR #207 can recur.
-@test "SKILL.md top 15 body lines contain HARD-GATE" {
+@test "SKILL.md top 15 body lines contain a HARD-GATE tag line" {
   local body
   body="$(awk '
     /^# Brainstorming Ideas Into Designs/ { found=1; next }
     found && c < 15 { print; c++ }
   ' "$SKILL_MD")"
-  echo "$body" | grep -q 'HARD-GATE'
+  # Anchor on a real `<HARD-GATE>...</HARD-GATE>` tag line, not a substring
+  # token. SKILL.md L13 mentions the literal token inside the Pre-send
+  # self-check rule, so a substring match would silently pass even if the
+  # real HARD-GATE block on L11 were deleted.
+  echo "$body" | grep -qE '^<HARD-GATE>.*</HARD-GATE>$'
+}
+
+# Token-singular guard (ADR 0022 salience design — Codex review of plan v3):
+# ADR 0022 keeps HARD-GATE singular so the token's salience stays high. If a
+# second `<HARD-GATE>...</HARD-GATE>` block is added (e.g., to "strengthen"
+# a different boundary), the token's weight is diluted and the salience
+# property silently degrades. Enforce exact-one tag line so this regression
+# fails CI loudly.
+@test "SKILL.md contains exactly one <HARD-GATE>...</HARD-GATE> tag line" {
+  local count
+  count="$(grep -cE '^<HARD-GATE>.*</HARD-GATE>$' "$SKILL_MD")"
+  [ "$count" -eq 1 ]
 }
 
 # Progressive-disclosure wiring (per-file). A single counting grep
@@ -118,6 +137,42 @@ setup() {
 @test "SKILL.md T02 invariant — HARD-GATE refusal must paraphrase, not paste tag block" {
   grep -q 'paraphrase the rule' "$SKILL_MD"
   grep -q 'never paste the literal' "$SKILL_MD"
+  grep -q '<HARD-GATE>' "$SKILL_MD"
+}
+
+# Section-scoped pin (Codex review of plan v3): the three tokens above must
+# all live inside the Pre-send self-check paragraph, not as orphaned strings
+# elsewhere in the file. If the paragraph is removed but the tokens leak into
+# unrelated sections, the three independent greps above would still pass —
+# this gate fails that silent drift.
+@test "SKILL.md Pre-send self-check section contains the paraphrase rule tokens" {
+  local section
+  # Extract the Pre-send self-check paragraph: from the line starting with
+  # `**Pre-send self-check**` until the next blank line (or `##` heading).
+  section="$(awk '
+    /^\*\*Pre-send self-check\*\*/ { in_sec=1 }
+    in_sec && /^## / { in_sec=0 }
+    in_sec && /^$/ { in_sec=0 }
+    in_sec { print }
+  ' "$SKILL_MD")"
+  echo "$section" | grep -q 'paraphrase the rule'
+  echo "$section" | grep -q 'never paste the literal'
+  echo "$section" | grep -q '<HARD-GATE>'
+}
+
+# Post-design no-code boundary (Codex review of plan v3, P0 #2 / P1 #5):
+# the rule must live in the always-loaded SKILL.md body so a model that never
+# loads references/after-design.md still refuses code after design approval.
+@test "SKILL.md contains post-design no-code boundary" {
+  grep -q 'do not write code, scaffold projects, or invoke implementation skills' "$SKILL_MD"
+}
+
+# SSOT sync (Codex review of plan v3, P1 #5): references/after-design.md
+# must carry the exact same handoff sentence as SKILL.md so the two control
+# planes cannot drift. SKILL.md is the SSOT; the reference quotes it. If one
+# is edited without the other, this gate fails loudly.
+@test "references/after-design.md mirrors the SKILL.md post-design handoff" {
+  grep -q 'do not write code, scaffold projects, or invoke implementation skills' "$REF_DIR/after-design.md"
 }
 
 # Safety rules (ADV high #1): non-negotiable commit-path guards must live in
@@ -186,12 +241,21 @@ setup() {
 # fixture-shape gate alone passes; pin the strings the runtime relies on.
 # -----------------------------------------------------------------------------
 
-@test "references/after-design.md T09 invariant — ADR template four sections" {
+@test "references/after-design.md T09 invariant — ADR template four sections with bodies" {
   local f="$REF_DIR/after-design.md"
-  grep -q '^## Status' "$f"
-  grep -q '^## Context' "$f"
-  grep -q '^## Decision' "$f"
-  grep -q '^## Consequences' "$f"
+  # Heading-only checks (AGENTS.md "fixture content-presence" gotcha): a file
+  # with all four headings but empty bodies would pass. Extract each section
+  # body and require at least one non-blank content line under each heading.
+  local section body
+  for section in 'Status' 'Context' 'Decision' 'Consequences'; do
+    body="$(awk -v sec="$section" '
+      $0 == "## " sec { in_sec=1; next }
+      in_sec && /^## / { in_sec=0 }
+      in_sec { print }
+    ' "$f")"
+    echo "$body" | grep -qE '[^[:space:]]' \
+      || { echo "ADR template section '$section' has empty body" >&2; return 1; }
+  done
 }
 
 @test "references/after-design.md T09 invariant — auto-detect ADR directory" {
@@ -204,11 +268,16 @@ setup() {
 
 @test "references/after-design.md T10 invariant — default branch detection chain" {
   local f="$REF_DIR/after-design.md"
+  # The chain has two layers — keep both pinned independently so that
+  # collapsing them into one regex (Codex review of plan v3, P0 #1) cannot
+  # silently hide regressions where the primary detect is removed but the
+  # fallback list survives, or vice versa.
+  # Layer 1: primary detect via origin/HEAD.
   grep -q 'origin/HEAD' "$f"
-  grep -q 'main' "$f"
-  grep -q 'master' "$f"
-  grep -q 'trunk' "$f"
-  grep -q 'develop' "$f"
+  # Layer 2: fallback list with all four branch names on a single line, in
+  # the canonical order. A single-regex match also pins ordering, so a fall
+  # back of `develop / main / master / trunk` (i.e., wrong order) fails CI.
+  grep -qE '\bmain\b.*\bmaster\b.*\btrunk\b.*\bdevelop\b' "$f"
 }
 
 # -----------------------------------------------------------------------------
@@ -222,7 +291,18 @@ setup() {
 }
 
 # -----------------------------------------------------------------------------
-# Prompt fixtures T00..T10
+# Prompt fixtures T00..T11
+#
+# The expected fixture-ID set is centralized at EXPECTED_FIXTURE_IDS so adding
+# a new fixture only requires updating one place. Tests then enforce three
+# properties against the on-disk T??_*.md files (Codex review of plan v3,
+# P1 #4):
+#
+#   1. exact match — every expected ID has exactly one fixture, no expected
+#      ID is missing, and no unexpected fixture exists (catches T12_*.md
+#      added without updating tests, or T0X_*.md silently deleted).
+#   2. no duplicates — exactly one fixture matches each T${i}_*.md glob
+#      (catches a stray rename like `T03_*.md` + `T03_old_*.md`).
 #
 # Heading-presence catches a missing fixture or a renamed section.
 # Content-presence catches a fixture that has all five headings but empty
@@ -230,11 +310,69 @@ setup() {
 # cannot drive fresh-session evaluation.
 # -----------------------------------------------------------------------------
 
-@test "prompt fixtures T00..T10 exist with all 5 required sections" {
+EXPECTED_FIXTURE_IDS=(00 01 02 03 04 05 06 07 08 09 10 11)
+
+@test "prompt fixtures: on-disk set matches EXPECTED_FIXTURE_IDS exactly" {
+  local found_ids=()
+  local f base id
+  # nullglob is scoped to a subshell elsewhere; here we list the directory
+  # explicitly and parse the T??_ prefix so we do not depend on glob
+  # expansion semantics.
+  while IFS= read -r f; do
+    base="$(basename "$f")"
+    # Strip the "T" prefix and everything from the first underscore onward.
+    id="${base#T}"
+    id="${id%%_*}"
+    found_ids+=("$id")
+  done < <(find "$PROMPTS_DIR" -maxdepth 1 -type f -name 'T*_*.md' | sort)
+
+  # Build sorted expected/found strings for diff-style comparison.
+  local expected_sorted found_sorted
+  expected_sorted="$(printf '%s\n' "${EXPECTED_FIXTURE_IDS[@]}" | sort -u)"
+  found_sorted="$(printf '%s\n' "${found_ids[@]}" | sort)"
+
+  # Duplicate detection: sorted count must equal unique count.
+  local found_unique
+  found_unique="$(printf '%s\n' "${found_ids[@]}" | sort -u)"
+  if [ "$found_sorted" != "$found_unique" ]; then
+    echo "duplicate fixture IDs detected:" >&2
+    printf '%s\n' "${found_ids[@]}" | sort | uniq -d >&2
+    return 1
+  fi
+
+  if [ "$expected_sorted" != "$found_unique" ]; then
+    echo "fixture ID mismatch" >&2
+    echo "--- expected" >&2
+    echo "$expected_sorted" >&2
+    echo "--- found" >&2
+    echo "$found_unique" >&2
+    return 1
+  fi
+}
+
+# Helper: resolve a fixture file for a given T${i} ID, asserting that
+# exactly one file matches. Scopes nullglob to a subshell so the option does
+# not leak into the surrounding test process (Codex review of plan v3, P1 #4).
+resolve_fixture() {
+  local i="$1"
+  ( shopt -s nullglob
+    local matches=("$PROMPTS_DIR"/T${i}_*.md)
+    if [ "${#matches[@]}" -eq 0 ]; then
+      echo "no fixture for T${i}" >&2
+      return 1
+    fi
+    if [ "${#matches[@]}" -gt 1 ]; then
+      echo "multiple fixtures for T${i}: ${matches[*]}" >&2
+      return 1
+    fi
+    printf '%s\n' "${matches[0]}"
+  )
+}
+
+@test "prompt fixtures T00..T11 exist with all 5 required sections" {
   local i f
-  for i in 00 01 02 03 04 05 06 07 08 09 10; do
-    f="$(ls "$PROMPTS_DIR"/T${i}_*.md 2>/dev/null | head -1)"
-    [ -n "$f" ] || { echo "missing fixture T$i" >&2; return 1; }
+  for i in "${EXPECTED_FIXTURE_IDS[@]}"; do
+    f="$(resolve_fixture "$i")" || return 1
     [ -f "$f" ]
     grep -q '^## Preconditions$' "$f" || { echo "$f missing ## Preconditions" >&2; return 1; }
     grep -q '^## User turns$' "$f" || { echo "$f missing ## User turns" >&2; return 1; }
@@ -244,11 +382,10 @@ setup() {
   done
 }
 
-@test "prompt fixtures T00..T10 have non-empty Expected/Anti/Leak guard sections" {
+@test "prompt fixtures T00..T11 have non-empty Expected/Anti/Leak guard sections" {
   local i f section body
-  for i in 00 01 02 03 04 05 06 07 08 09 10; do
-    f="$(ls "$PROMPTS_DIR"/T${i}_*.md 2>/dev/null | head -1)"
-    [ -n "$f" ] || { echo "missing fixture T$i" >&2; return 1; }
+  for i in "${EXPECTED_FIXTURE_IDS[@]}"; do
+    f="$(resolve_fixture "$i")" || return 1
     for section in 'Expected signals' 'Anti-signals' 'Leak guard'; do
       # Grab the lines after `## $section` until the next `## ` heading or
       # EOF, then require at least one bullet line (`- text`) in that block.
@@ -261,4 +398,19 @@ setup() {
         || { echo "$f section '$section' has no bullet" >&2; return 1; }
     done
   done
+}
+
+# T02 fixture content guard (plan v3 mandatory #1 follow-up):
+# the Leak guard section must explicitly mention the literal `<HARD-GATE>`
+# token so silent removal of the "do not paste the tag block" instruction
+# in the fixture fails CI.
+@test "T02 fixture Leak guard section pins the <HARD-GATE> token" {
+  local f body
+  f="$(resolve_fixture 02)" || return 1
+  body="$(awk '
+    $0 == "## Leak guard" { in_sec=1; next }
+    in_sec && /^## / { in_sec=0 }
+    in_sec { print }
+  ' "$f")"
+  echo "$body" | grep -q '<HARD-GATE>'
 }
