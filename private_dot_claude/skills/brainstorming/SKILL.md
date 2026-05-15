@@ -39,4 +39,4 @@ Create a task for each and complete in order:
 6. **Confirm ADR(s) with the user** — present and accept revisions before committing.
 7. **Commit ADR(s) or skip per user preference** — apply the Safety rules above; see `references/after-design.md` for the full procedure.
 
-Requirements are clear and ADR(s) handled. Switch to plan mode when you're ready to create an implementation plan.
+Requirements are clear and ADR(s) handled. Switch to plan mode for implementation. Until the user enters plan mode, do not write code, scaffold projects, or invoke implementation skills.

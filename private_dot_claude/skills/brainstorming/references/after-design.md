@@ -73,6 +73,8 @@ Stage the explicit ADR paths — never `git add -A`. Verify staged files with `g
 
 After the design is approved and ADR(s) are handled (committed or skipped per user preference), let the user know they can proceed:
 
-> "Requirements are clear and ADR(s) handled. Switch to plan mode when you're ready to create an implementation plan."
+> "Requirements are clear and ADR(s) handled. Switch to plan mode for implementation. Until the user enters plan mode, do not write code, scaffold projects, or invoke implementation skills."
 
-Do NOT write code, scaffold projects, or take any implementation action. The brainstorming skill's responsibility ends when the design is approved and the user is guided to plan mode.
+<!-- SSOT: SKILL.md handoff line. Keep this quote byte-for-byte in sync with SKILL.md; the bats gate enforces it. -->
+
+The brainstorming skill's responsibility ends when the design is approved and the user is guided to plan mode.
