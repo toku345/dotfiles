@@ -29,11 +29,21 @@ setup() {
 # in the implementation plan; the target is ~50.
 # -----------------------------------------------------------------------------
 
-@test "SKILL.md exists and is under 80 lines" {
+@test "SKILL.md exists and is within 20-80 line bounds" {
   [ -f "$SKILL_MD" ]
   local n
   n="$(wc -l <"$SKILL_MD")"
+  # Floor guards against silent truncation / accidental wipe; ceiling enforces
+  # the ADR 0022 progressive-disclosure target (~50 line core).
+  [ "$n" -ge 20 ]
   [ "$n" -lt 80 ]
+}
+
+# Heading existence is a precondition for the HARD-GATE position guard below.
+# Splitting it out keeps a missing/renamed heading from being misattributed
+# to "HARD-GATE missing" in test output.
+@test "SKILL.md has expected top-level heading" {
+  grep -q '^# Brainstorming Ideas Into Designs$' "$SKILL_MD"
 }
 
 # Salience guard: HARD-GATE must appear within the first 15 body lines after
@@ -67,10 +77,77 @@ setup() {
 
 # Trigger surface: the Japanese trigger phrases must remain in `description`
 # so the skill keeps loading on phrases like 「ブレスト」/「設計相談」.
-# Shortening the description is one of the ADR 0022 risks; this test pins it.
-@test "SKILL.md description preserves Japanese triggers" {
+# Shortening the description is one of the ADR 0022 risks; this test pins
+# the full list (not just two) so any silent drop is caught.
+@test "SKILL.md description preserves Japanese trigger phrases" {
   grep -q 'ブレスト' "$SKILL_MD"
+  grep -q '設計を考えたい' "$SKILL_MD"
+  grep -q 'どう実装すべきか' "$SKILL_MD"
+  grep -q 'アーキテクチャを相談したい' "$SKILL_MD"
   grep -q '設計相談' "$SKILL_MD"
+  grep -q '実装の前に整理したい' "$SKILL_MD"
+  grep -q '方針を決めたい' "$SKILL_MD"
+}
+
+@test "SKILL.md description preserves English trigger phrase" {
+  grep -q 'Socratic-dialogue design refinement' "$SKILL_MD"
+}
+
+# -----------------------------------------------------------------------------
+# SKILL.md content invariants
+#
+# Pins the runtime-behavior strings that ADR 0022's bats gate is supposed to
+# protect. Each grep target is a string ADR 0022 / Pre-send self-check / Core
+# rules / Safety rules / Checklist relies on; silent drift of any of them
+# would let T03..T10 fixtures pass while the skill body has regressed.
+# -----------------------------------------------------------------------------
+
+@test "SKILL.md contains BRAINSTORMING_SKILL_V1 sentinel" {
+  grep -q '<!-- BRAINSTORMING_SKILL_V1 -->' "$SKILL_MD"
+}
+
+@test "SKILL.md pins Pre-send self-check naming" {
+  grep -q 'Pre-send self-check' "$SKILL_MD"
+}
+
+# Safety rules (ADV high #1): non-negotiable commit-path guards must live in
+# the always-loaded SKILL.md body, not solely in references/after-design.md.
+@test "SKILL.md safety rules — detached HEAD refusal" {
+  grep -qi 'detached HEAD' "$SKILL_MD"
+}
+
+@test "SKILL.md safety rules — origin/HEAD default-branch detection" {
+  grep -q 'origin/HEAD' "$SKILL_MD"
+}
+
+@test "SKILL.md safety rules — ban on git add -A wildcards" {
+  grep -qE 'git add -A|git add \.' "$SKILL_MD"
+}
+
+# T03-T08 invariants — Pre-send self-check + Core rules content.
+@test "SKILL.md T03 invariant — count decisions, not question marks" {
+  grep -q 'count decisions, not question marks' "$SKILL_MD"
+}
+
+@test "SKILL.md T04 invariant — lead with a hypothesis" {
+  grep -q 'lead with a hypothesis' "$SKILL_MD"
+}
+
+@test "SKILL.md T05 invariant — orthogonal axes ban" {
+  grep -q 'orthogonal axes' "$SKILL_MD"
+}
+
+@test "SKILL.md T06 invariant — never 3+ questions" {
+  grep -q 'never 3+' "$SKILL_MD"
+}
+
+@test "SKILL.md T07 invariant — investigate before asking with 3-file bound" {
+  grep -q 'Investigate before asking' "$SKILL_MD"
+  grep -q 'up to 3' "$SKILL_MD"
+}
+
+@test "SKILL.md T08 invariant — decompose independent subsystems" {
+  grep -q 'Decompose multiple independent subsystems' "$SKILL_MD"
 }
 
 # -----------------------------------------------------------------------------
@@ -90,6 +167,38 @@ setup() {
 @test "references/after-design.md exists, non-empty, has heading" {
   [ -s "$REF_DIR/after-design.md" ]
   grep -q '^## ' "$REF_DIR/after-design.md"
+}
+
+# -----------------------------------------------------------------------------
+# references/after-design.md content invariants
+#
+# T09 (ADR shape) and T10 (branch safety) cannot regress silently while the
+# fixture-shape gate alone passes; pin the strings the runtime relies on.
+# -----------------------------------------------------------------------------
+
+@test "references/after-design.md T09 invariant — ADR template four sections" {
+  local f="$REF_DIR/after-design.md"
+  grep -q '^## Status' "$f"
+  grep -q '^## Context' "$f"
+  grep -q '^## Decision' "$f"
+  grep -q '^## Consequences' "$f"
+}
+
+@test "references/after-design.md T09 invariant — auto-detect ADR directory" {
+  grep -q 'Auto-detect ADR directory' "$REF_DIR/after-design.md"
+}
+
+@test "references/after-design.md T10 invariant — detached HEAD reject" {
+  grep -q 'Detached HEAD' "$REF_DIR/after-design.md"
+}
+
+@test "references/after-design.md T10 invariant — default branch detection chain" {
+  local f="$REF_DIR/after-design.md"
+  grep -q 'origin/HEAD' "$f"
+  grep -q 'main' "$f"
+  grep -q 'master' "$f"
+  grep -q 'trunk' "$f"
+  grep -q 'develop' "$f"
 }
 
 # -----------------------------------------------------------------------------
@@ -138,7 +247,7 @@ setup() {
         in_sec && /^## / { in_sec=0 }
         in_sec { print }
       ' "$f")"
-      echo "$body" | grep -qE '^[[:space:]]*-[[:space:]]+\S' \
+      echo "$body" | grep -qE '^[[:space:]]*-[[:space:]]+[^[:space:]]' \
         || { echo "$f section '$section' has no bullet" >&2; return 1; }
     done
   done
