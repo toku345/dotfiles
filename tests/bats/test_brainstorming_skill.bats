@@ -77,14 +77,32 @@ extract_h2_body() {
   echo "$body" | grep -qE '^<HARD-GATE>.*</HARD-GATE>$'
 }
 
-# Token-singular guard: ADR 0022 keeps HARD-GATE singular so the token's
-# salience stays high. If a second `<HARD-GATE>...</HARD-GATE>` block is
-# added, the token's weight is diluted and the salience property silently
-# degrades. Enforce exact-one tag line so this regression fails CI loudly.
-@test "SKILL.md contains exactly one <HARD-GATE>...</HARD-GATE> tag line" {
+# Pre/post-design HARD-GATE pair: the brainstorming flow is framed by exactly
+# two HARD-GATE blocks — pre-design (no code before approval) and post-design
+# (no code before plan mode). The T11 dogfooding on PR #211 showed that a
+# closing prose sentence (without HARD-GATE tagging) loses to a user-global
+# "軽く扱ってよい対象" off-ramp, while the HARD-GATE-tagged pre-design rule
+# holds. The symmetric HARD-GATE applies the same pattern to the post-design
+# boundary. Enforce exactly two so accidental third / removed second fails CI.
+@test "SKILL.md contains exactly two <HARD-GATE>...</HARD-GATE> tag lines (pre-design + post-design)" {
   local count
   count="$(grep -cE '^<HARD-GATE>.*</HARD-GATE>$' "$SKILL_MD")"
-  [ "$count" -eq 1 ]
+  [ "$count" -eq 2 ]
+}
+
+# Post-design HARD-GATE content guard (T11 invariant). The 2nd HARD-GATE line
+# must pin three properties so dropping any one fails CI:
+#   1. "plan mode" — the named handoff target
+#   2. "regardless of task triviality" — closes the trivial-task off-ramp
+#   3. "軽く扱ってよい対象" — explicit reference to the user-global classification
+#      that the T11 dogfooding showed the assistant invokes as an override
+@test "SKILL.md post-design HARD-GATE pins unconditional plan-mode handoff (T11 invariant)" {
+  local second_hg
+  second_hg="$(grep -E '^<HARD-GATE>.*</HARD-GATE>$' "$SKILL_MD" | sed -n '2p')"
+  [ -n "$second_hg" ] || { echo "post-design HARD-GATE missing" >&2; return 1; }
+  echo "$second_hg" | grep -q 'plan mode'
+  echo "$second_hg" | grep -q 'regardless of task triviality'
+  echo "$second_hg" | grep -q '軽く扱ってよい対象'
 }
 
 # Progressive-disclosure wiring (per-file). A single counting grep
@@ -169,16 +187,17 @@ extract_h2_body() {
 
 # Post-design no-code boundary: the rule must live in the always-loaded
 # SKILL.md body so a model that never loads references/after-design.md still
-# refuses code after design approval.
+# refuses code after design approval. Now HARD-GATE-tagged (PR #211 T11
+# dogfooding evidence) — see the "exactly two HARD-GATE" guard above.
 @test "SKILL.md contains post-design no-code boundary" {
-  grep -q 'do not write code, scaffold projects, or invoke implementation skills' "$SKILL_MD"
+  grep -q 'until the user enters plan mode' "$SKILL_MD"
 }
 
-# SSOT sync: references/after-design.md must carry the exact same handoff
-# sentence as SKILL.md so the two control planes (always-loaded vs.
-# on-demand) cannot drift. SKILL.md is the SSOT; the reference quotes it.
+# SSOT sync: references/after-design.md must carry the same handoff sentence
+# as SKILL.md so the two control planes (always-loaded vs. on-demand) cannot
+# drift. SKILL.md is the SSOT; the reference quotes it.
 @test "references/after-design.md mirrors the SKILL.md post-design handoff" {
-  grep -q 'do not write code, scaffold projects, or invoke implementation skills' "$REF_DIR/after-design.md"
+  grep -q 'until the user enters plan mode' "$REF_DIR/after-design.md"
 }
 
 # Safety rules: non-negotiable commit-path guards must live in the
