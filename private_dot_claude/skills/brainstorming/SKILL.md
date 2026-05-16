@@ -39,4 +39,4 @@ Create a task for each and complete in order:
 6. **Confirm ADR(s) with the user** — present and accept revisions before committing.
 7. **Commit ADR(s) or skip per user preference** — apply the Safety rules above; see `references/after-design.md` for the full procedure.
 
-Requirements are clear and ADR(s) handled. Switch to plan mode for implementation. Until the user enters plan mode, do not write code, scaffold projects, or invoke implementation skills.
+<HARD-GATE>After design and ADR handling, hand off to plan mode for implementation. No code, scaffolding, implementation skill, or implementation action until the user enters plan mode — regardless of task triviality. The user-global "軽く扱ってよい対象" classification (`~/.claude/CLAUDE.md`) does not authorize bypassing this handoff once brainstorming has loaded.</HARD-GATE>

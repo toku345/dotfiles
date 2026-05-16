@@ -73,8 +73,8 @@ Stage the explicit ADR paths — never `git add -A`. Verify staged files with `g
 
 After the design is approved and ADR(s) are handled (committed or skipped per user preference), let the user know they can proceed:
 
-> "Requirements are clear and ADR(s) handled. Switch to plan mode for implementation. Until the user enters plan mode, do not write code, scaffold projects, or invoke implementation skills."
+> "After design and ADR handling, hand off to plan mode for implementation. No code, scaffolding, implementation skill, or implementation action until the user enters plan mode — regardless of task triviality. The user-global \"軽く扱ってよい対象\" classification (`~/.claude/CLAUDE.md`) does not authorize bypassing this handoff once brainstorming has loaded."
 
-<!-- SSOT: SKILL.md handoff line. Keep this quote byte-for-byte in sync with SKILL.md; the bats gate enforces it. -->
+<!-- SSOT: SKILL.md post-design HARD-GATE. Keep this quote byte-for-byte in sync with SKILL.md (modulo the surrounding quote-mark escaping); the bats gate enforces it. -->
 
 The brainstorming skill's responsibility ends when the design is approved and the user is guided to plan mode.
