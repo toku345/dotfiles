@@ -1,236 +1,42 @@
 ---
 name: brainstorming
-description: ソクラテス式対話で要件と設計を詰めてから実装方針を固めるブレインストーミングスキル。「ブレスト」「設計を考えたい」「どう実装すべきか」「アーキテクチャを相談したい」「設計相談」「実装の前に整理したい」「方針を決めたい」などのリクエストで発動する。
+description: ソクラテス式対話で要件と設計を詰めてから実装方針を固めるブレインストーミングスキル。「ブレスト」「設計を考えたい」「どう実装すべきか」「アーキテクチャを相談したい」「設計相談」「実装の前に整理したい」「方針を決めたい」などのリクエストで発動する。Triggers Socratic-dialogue design refinement before implementation; surfaces 2-3 approaches and records key decisions as ADRs.
 ---
 
-<!--
-  Based on: obra/superpowers — Brainstorming Skill
-  Original: https://github.com/obra/superpowers/blob/eafe962b18f6c5dc70fb7c8cc7e83e61f4cdde06/skills/brainstorming/SKILL.md
-
-  MIT License
-  Copyright (c) 2025 Jesse Vincent
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-  SOFTWARE.
-
-  Customizations from original:
-  - Removed Visual Companion (browser-based tool) — using ASCII art diagrams instead
-  - Removed writing-plans skill invocation — using Claude Code plan mode instead
-  - Did not adopt git worktree automation from the broader superpowers ecosystem
-  - Removed references to other superpowers skills (writing-plans, frontend-design, mcp-builder, elements-of-style)
-  - Added explicit scope pre-assessment step
-  - Replaced design spec output with ADR(s) (project convention, default: docs/adr/)
-  - Converted Process Flow from graphviz to ASCII art (terminal-readable)
-  - Reverted to one-question-at-a-time default; tightly coupled details collapsed into one combined question (no 3+ batches)
-  - Added bounded investigate-before-asking rule for repo-factual questions
-  - Prefer hypothesis-driven questioning over interrogation style
-  - Added branch safety check before committing
-  - Simplified transition to plan mode
-  - Description in Japanese for trigger phrase matching
--->
+<!-- Derived from obra/superpowers — Brainstorming Skill. See LICENSE.superpowers for MIT terms and derivative notes. -->
+<!-- BRAINSTORMING_SKILL_V1 -->
 
 # Brainstorming Ideas Into Designs
 
-Help turn ideas into fully formed designs through natural collaborative dialogue.
+<HARD-GATE>No code, scaffolding, implementation skill, or implementation action before context check → brief design → user approval. Simple tasks get shorter designs, never skip.</HARD-GATE>
 
-Start by understanding the current project context, then ask focused questions to refine the idea. Once you understand what you're building, present the design, get user approval, and record key decisions as ADRs.
+**Pre-send self-check** (run before sending any message that asks the user something): ask exactly one decision per message; count decisions, not question marks; never 3+; never bundle orthogonal axes into one preset; always include your recommendation; when refusing under HARD-GATE, paraphrase the rule in your own words — never paste the literal `<HARD-GATE>...</HARD-GATE>` tag block from this file.
 
-<HARD-GATE>
-Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
-</HARD-GATE>
+## Core rules
 
-## Anti-Pattern: "This Is Too Simple To Need A Design"
+- One user-answerable question per message; lead with a hypothesis ("Based on X, I'm assuming Y — right?"), not interrogation.
+- Investigate before asking — for repo-factual questions, list/grep plus up to 3 directly relevant files; ask only if intent is needed or ambiguity remains.
+- Decompose multiple independent subsystems before refining details. Each sub-project gets its own design → ADR → plan cycle.
+- Follow existing patterns when working in existing codebases. Include targeted improvements only when they serve the current goal.
+- Design boundaries explicitly: each unit has one purpose, a well-defined interface, and is testable in isolation.
+- Side-effect actions (commit, push) require explicit user confirmation; opt-in, not default.
 
-Every project goes through this process. A todo list, a single-function utility, a config change — all of them. "Simple" projects are where unexamined assumptions cause the most wasted work. The design can be short (a few sentences for truly simple projects), but you MUST present it and get approval.
+## Safety rules (non-negotiable)
+
+- **Refuse commit on detached HEAD**: if `git branch --show-current` is empty, ask the user to create a branch first.
+- **Never commit to the default branch without explicit confirmation**: detect via `git rev-parse --abbrev-ref origin/HEAD` (strip the `origin/` prefix); on failure, fall back to `main` / `master` / `trunk` / `develop`.
+- **Stage explicit paths only**: never `git add -A` / `git add .`. Verify with `git diff --cached --name-only` before commit.
 
 ## Checklist
 
-You MUST create a task for each of these items and complete them in order:
+Create a task for each and complete in order:
 
-1. **Explore project context and assess scope** — check files, docs, recent commits. Evaluate whether the request contains multiple independent subsystems that should be decomposed first.
-2. **Ask clarifying questions** — one user-answerable question per message (default); investigate the codebase first (bounded) when the answer is derivable. See Key Principles for question/investigation budgets.
-3. **Propose 2-3 approaches** — with trade-offs and your recommendation
-4. **Present design** — in sections scaled to their complexity, get user approval after each section. Use ASCII art diagrams where they aid understanding.
-5. **Write ADR(s)** — record key design decisions to the project's ADR directory (default: `docs/adr/NNNN-<slug>.md`; adapt to the project's conventions). Auto-detect next number.
-6. **Commit ADR(s)** — after user confirms the ADR(s), verify branch safety and commit to git (opt-in: skip if the user prefers not to commit)
+1. **Explore project context and assess scope** — files, docs, recent commits. Decompose if multiple independent subsystems.
+2. **Ask clarifying questions** — one decision per message, hypothesis-driven. Read `references/approaches.md` before step 3.
+3. **Propose 2-3 approaches** — with trade-off table, your recommendation, and a visible strongest-objection check. Read `references/design-section.md` before step 4.
+4. **Present design in sections** — scale to complexity, ASCII art where it helps, approve after each section.
+5. **Write ADR(s)** — auto-detect ADR directory and next number; one ADR per distinct decision. Read `references/after-design.md` before writing.
+6. **Confirm ADR(s) with the user** — present and accept revisions before committing.
+7. **Commit ADR(s) or skip per user preference** — apply the Safety rules above; see `references/after-design.md` for the full procedure.
 
-## Process Flow
-
-```
-+---------------------------+
-| Explore project context   |
-+---------------------------+
-            |
-            v
-   +------------------+
-   | Multiple         |
-   | subsystems?      |
-   +------------------+
-    |yes          |no
-    v             |
-+--------------+  |
-| Decompose    |  |
-| sub-projects |  |
-+--------------+  |
-    |             |
-    v             v
-+---------------------------+
-| Ask clarifying questions  |
-+---------------------------+
-            |
-            v
-+---------------------------+
-| Propose 2-3 approaches   |
-+---------------------------+
-            |
-            v
-+---------------------------+
-| Present design sections   |<-----+
-+---------------------------+      |
-            |                      |
-            v                      |
-   +------------------+            |
-   | User approves?   |--- no ----+
-   +------------------+
-            |yes
-            v
-+---------------------------+
-| Write ADR(s)              |<-----+
-+---------------------------+      |
-            |                      |
-            v                      |
-   +------------------+            |
-   | User confirms    |            |
-   | ADR?             |            |
-   +------------------+            |
-    |yes          |no -------------+
-    v
-+---------------------------+
-| Commit (opt-in,           |
-| branch safety)            |
-+---------------------------+
-            |
-            v
-+---------------------------+
-| Guide user to plan mode   |
-+---------------------------+
-```
-
-## The Process
-
-**Understanding the idea:**
-
-- Check out the current project state first (files, docs, recent commits)
-- Before asking detailed questions, assess scope: if the request describes multiple independent subsystems (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately. Don't spend questions refining details of a project that needs to be decomposed first.
-- If the project is too large for a single design, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own design → ADR(s) → plan → implementation cycle.
-- For appropriately-scoped projects, ask focused questions to refine the idea
-- Prefer hypothesis-driven questions ("Based on X, I'm assuming Y — is that right?") over open-ended interrogation ("What do you want for Y?"). This builds on what you've already learned and feels collaborative rather than like a questionnaire.
-- Ask one user-answerable question per message as the default. If linked details form one decision and the dimensions are tightly coupled (e.g., "draft PR with auto-assigned reviewers" vs "ready PR with manual reviewer selection" — lifecycle and reviewer flow are inseparable), collapse them into one combined multiple-choice question rather than asking two. Do not collapse orthogonal axes (e.g., auth provider × session architecture) into a single preset — present them as a matrix or as one question with the other deferred, so valid combinations stay reachable. If one answer determines whether the next question matters, ask only the first now — don't batch. (Question-count cap lives in Key Principles.)
-- For repo-factual questions, do a bounded lookup before asking: list/grep relevant files and read directly relevant files within the file budget defined in Key Principles. If those files clearly cover the invariant, state the finding as context and continue. If the invariant spans more files (e.g., interface + impl + tests + config), either expand the lookup explicitly or present the finding as tentative ("based on the files I checked — needs broader verify") rather than treating it as settled. If it remains ambiguous or requires product intent, ask one hypothesis-driven question and note what you checked.
-- Prefer multiple-choice questions when possible, but open-ended is fine too
-- Focus on understanding: purpose, constraints, success criteria
-
-**Exploring approaches:**
-
-- Propose 2-3 different approaches with trade-offs
-- Present options conversationally with your recommendation and reasoning
-- Lead with your recommended option and explain why
-
-**Presenting the design:**
-
-- Once you believe you understand what you're building, present the design
-- Scale each section to its complexity: a few sentences if straightforward, up to 200-300 words if nuanced
-- Ask after each section whether it looks right so far
-- Cover: architecture, components, data flow, error handling, testing
-- Be ready to go back and clarify if something doesn't make sense
-- **Use ASCII art diagrams** to illustrate architecture, state transitions, sequence flows, or data flows wherever they aid understanding. Use plain ASCII characters (`+`, `-`, `|`, `>`, `v`) for box-and-arrow diagrams so they render correctly in terminals.
-
-**Design for isolation and clarity:**
-
-- Break the system into smaller units that each have one clear purpose, communicate through well-defined interfaces, and can be understood and tested independently
-- For each unit, you should be able to answer: what does it do, how do you use it, and what does it depend on?
-- Can someone understand what a unit does without reading its internals? Can you change the internals without breaking consumers? If not, the boundaries need work.
-- Smaller, well-bounded units are also easier for you to work with — you reason better about code you can hold in context at once, and your edits are more reliable when files are focused. When a file grows large, that's often a signal that it's doing too much.
-
-**Working in existing codebases:**
-
-- Explore the current structure before proposing changes. Follow existing patterns.
-- Where existing code has problems that affect the work (e.g., a file that's grown too large, unclear boundaries, tangled responsibilities), include targeted improvements as part of the design — the way a good developer improves code they're working in.
-- Don't propose unrelated refactoring. Stay focused on what serves the current goal.
-
-## After the Design
-
-**Writing ADR(s):**
-
-After the user approves the design, record key design decisions as ADR(s):
-
-- Auto-detect the project's ADR directory and next number: list files in the ADR directory (default: `docs/adr/`; adapt to the project's conventions), find the highest `NNNN` prefix, and increment by 1 (zero-padded to 4 digits). If no ADR directory exists, create `docs/adr/` starting at `0001`.
-- Use this ADR format:
-  ```
-  # ADR NNNN: <Title>
-
-  ## Status
-
-  Accepted
-
-  ## Context
-
-  <Why this decision was needed — the forces at play>
-
-  ## Decision
-
-  <What was decided and why>
-
-  ## Consequences
-
-  <What follows from this decision — positive, negative, and risks>
-  ```
-- One ADR per distinct design decision. If the brainstorming session produced a single cohesive decision, write one ADR. If it produced multiple independent decisions, write separate ADRs.
-- The ADR captures the *decision and its rationale*, not the full design. The design conversation itself is the primary record of requirements and exploration.
-
-After writing, present the ADR(s) to the user and ask for confirmation before proceeding.
-
-**Commit after approval (opt-in):**
-
-If the user prefers not to commit, skip this step. When committing:
-
-1. **Branch safety check**: Verify the current branch is suitable for commits.
-   - Reject detached HEAD state (`git branch --show-current` returns empty).
-   - Detect the repository's default branch (`git rev-parse --abbrev-ref origin/HEAD 2>/dev/null`; strip the `origin/` prefix before comparing). If detection fails, check against common defaults: `main`, `master`, `trunk`, `develop`.
-   - If on the default branch, warn the user and suggest creating a feature branch before committing. Do not commit to the default branch without explicit user confirmation.
-2. Commit the ADR file(s) to git.
-
-**Transition to plan mode:**
-
-After the design is approved, let the user know they can proceed:
-
-> "Requirements are clear and ADR(s) written. Switch to plan mode when you're ready to create an implementation plan."
-
-Do NOT write code, scaffold projects, or take any implementation action. The brainstorming skill's responsibility ends when the design is approved and the user is guided to plan mode.
-
-## Key Principles
-
-- **Focused, hypothesis-driven questions** — One user-answerable question per message (default); lead with your understanding for the user to confirm or correct. Collapse tightly-coupled details into one combined question (do not bundle orthogonal axes); never include 3+ user questions in a message.
-- **Investigate before asking (bounded)** — For repo-factual questions, do a quick lookup (list/grep plus up to 3 directly relevant files as an initial budget). Treat 3 as the budget for settled context — beyond that, expand the lookup or mark the finding tentative. Only ask if intent is needed or the answer remains ambiguous.
-- **Lower cognitive load over fewer turns** — Extra round-trips are acceptable when they produce sharper, easier-to-answer questions.
-- **Multiple choice preferred** — Easier to answer than open-ended when possible
-- **YAGNI ruthlessly** — Remove unnecessary features from all designs
-- **Explore alternatives** — Always propose 2-3 approaches before settling
-- **Incremental validation** — Present design, get approval before moving on
-- **Be flexible** — Go back and clarify when something doesn't make sense
-- **Visualize with ASCII art** — Use diagrams for architecture, state machines, sequences, and data flows
+<HARD-GATE>After design and ADR handling, hand off to plan mode for implementation. No code, scaffolding, implementation skill, or implementation action until the user enters plan mode — regardless of task triviality. The user-global "軽く扱ってよい対象" classification (`~/.claude/CLAUDE.md`) does not authorize bypassing this handoff once brainstorming has loaded.</HARD-GATE>

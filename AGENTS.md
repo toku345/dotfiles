@@ -163,6 +163,7 @@ end
 - **OS-specific path の skip パターン**: `[[ "$(uname)" == "Linux" ]] || skip "<production-code-path reason>"`。reason は production gating を引用する (例: "gated by `case Linux)` in `select_sleep_inhibitor_cmd`")。「環境に X が無いから」ではなく「production もそこを通らないから」と書くことで coverage claim の正直さを保つ
 - **BW01 警告 + exit 127** in `run` 出力 = `command not found`。診断: PATH-override stub が subshell に伝わっていない、または被テスト関数が呼ぶ transitive dep (例: `timeout`) が host に不在で stub 対象外
 - **silent-pass トラップ**: `[ "$status" -ne 0 ]` は real failure (timeout 124, signal 128+N) と command-not-found (127) を**両方とも満たす**。timeout-bounded / signal-bounded 検証では `-eq 124` 等の具体的 exit code を使う (`-ne 0` ではなく) — host に dep が無い時に偽陽 pass しないようにする
+- **fixture content-presence check**: `## Section` heading 存在の grep だけだと、heading はあるが body が空の fixture が silently pass する。section ごとに `awk '$0==sec {f=1; next} f && /^## / {f=0} f {print}' file` で切り出し → `grep -qE '^[[:space:]]*-[[:space:]]+\S'` で少なくとも 1 bullet 存在を別 case で gate する (実例: `tests/bats/test_brainstorming_skill.bats`)
 
 ### Docker での Ubuntu CI parity 検証
 
@@ -195,6 +196,7 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - `git push -u` で `could not write config file .git/config` エラーが出たら upstream 設定失敗を疑う。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#resolved-limitations)
 - `denyOnly` bare globs (`*.key`, `.env.*`) only protect files within cwd — `sandbox-runtime` resolves them relative to cwd. Absolute-path entries (`~/.docker/config.json`) work system-wide. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
 - fish シェル経由の Bash ヒアドキュメントで `!` が `\!` にエスケープされることがある。`!` を含むファイルは `Write` ツールで直接書き込む
+- secret-like file 名 (`id_ed25519` / `id_rsa` / `.env*` 等) の **存在判定**で `ls -la` を使うと permission gate に弾かれる。代替: `test -e <path> && echo exists || echo not present` または `find <dir> -maxdepth 1 -name <basename> -print` — 中身を読まないことが明確になり permission を通せる
 
 ## Claude Code Hooks
 
