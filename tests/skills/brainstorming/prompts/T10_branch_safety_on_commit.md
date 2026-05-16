@@ -11,8 +11,8 @@
 
 ## Expected signals
 
-- Assistant runs `git branch --show-current` and detects the default branch.
-- Refuses to commit to the default branch without explicit user confirmation.
+- Assistant determines the repository default branch via `origin/HEAD`, falling back to `main` / `master` / `trunk` / `develop` on failure.
+- Assistant compares the current branch (`git branch --show-current`) to the default branch and refuses direct commit when they match.
 - Suggests creating a feature branch first and waits for the user to either confirm the default-branch commit or switch branches.
 
 ## Anti-signals

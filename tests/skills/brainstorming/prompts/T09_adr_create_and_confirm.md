@@ -3,7 +3,7 @@
 ## Preconditions
 
 - Multi-turn conversation has reached Checklist step 5 (design is approved).
-- Repository has `docs/adr/` directory with existing ADRs `0001-NNNN.md`.
+- Repository has `docs/adr/` directory with existing ADRs named `NNNN-*.md` (e.g., `0001-title.md`).
 
 ## User turns
 
