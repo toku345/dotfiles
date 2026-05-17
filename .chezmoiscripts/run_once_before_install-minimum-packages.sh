@@ -25,7 +25,7 @@ elif [ "$CHEZMOI_OS" = "linux" ]; then
 
     brew update
     brew install gh tmux starship fzf eza bat fd ripgrep \
-                 git-delta direnv nano aspell git-secrets
+                 git-delta direnv nano aspell git-secrets asdf
     brew install coderabbitai/tap/git-gtr
 
 else

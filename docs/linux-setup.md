@@ -63,7 +63,9 @@ SSH 接続時には login shell として `~/.bash_profile` 経由で `~/.bashrc
 
 ### 言語マネージャーの導入
 
-本リポジトリの Linux 構成では **asdf を使いません**。各言語を個別のインストーラーで管理します。`dot_bashrc` が `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin` を自動で PATH に追加するため、以下を実行するだけで有効化されます。
+Linux でも macOS と同じく **asdf** が Linuxbrew 経由で導入されます (`brew install asdf`)。`dot_bashrc` がシム PATH (`${ASDF_DATA_DIR:-$HOME/.asdf}/shims`) を自動で前置するため、`asdf plugin add <name>` と `asdf install` のみで利用可能です (参照: [ADR 0023](adr/0023-asdf-on-linux-via-linuxbrew.md))。
+
+asdf と併せて、より速い専用ツール (uv/bun/rustup) も同居しています。`dot_bashrc` が `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin` を自動で PATH に追加するため、プロジェクトごとに使い分けられます。
 
 - **Rust (rustup)**:
   ```bash

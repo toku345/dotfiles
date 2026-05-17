@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted (§4 asdf exclusion and §6 language manager scope superseded by ADR 0023)
 
 ## Context
 
