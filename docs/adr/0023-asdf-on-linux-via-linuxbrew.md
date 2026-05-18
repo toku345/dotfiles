@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted (supersedes ADR 0013 §4 "asdf" exclusion and §6 "No brew/apt entries for language managers on Linux")
+Accepted (supersedes ADR 0013 §3 "asdf" exclusion and §6 "No brew/apt entries for language managers on Linux")
 
 ## Context
 
-- ADR 0013 §4 は Linux で asdf を除外し、§6 では uv/bun/rustup の native installer のみ使う方針だった。
+- ADR 0013 §3 は Linux で asdf を除外し、§6 では uv/bun/rustup の native installer のみ使う方針だった。
 - その後、Linux SSH host でも `.tool-versions` driven な project の version pinning を行いたいケースが出てきた (macOS との parity)。
 - asdf は既に macOS で Homebrew 経由で運用中。`private_dot_config/asdf/dot_asdfrc` (`legacy_version_file = yes`) も存在し、両 OS で共有可能。
 - asdf v0.16+ (current brew formula) は Go binary で `asdf.sh` を提供しない。公式 [Getting Started](https://asdf-vm.com/guide/getting-started.html) は `export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"` を prepend し、completion は `. <(asdf completion bash)` (process substitution) で取得する方式 (fish config `private_dot_config/private_fish/config.fish` lines 22-37 が同じ shim PATH pattern を既に実装済み)。`ASDF_CONFIG_FILE` は [configuration reference](https://asdf-vm.com/manage/configuration.html) で引き続きサポート、未設定時は `$HOME/.asdfrc`。
