@@ -8,10 +8,18 @@ fi
 
 # asdf (Linuxbrew-installed; v0.16+ Go binary — no asdf.sh)
 # https://asdf-vm.com/guide/getting-started.html
+# PATH order: asdf shim is prepended here, but later `~/.local/bin` / `~/.cargo/bin`
+# / `~/.bun/bin` prepends push it back. Final PATH = native installers > asdf shim.
+# This is intentional (native installers win for overlapping tools; asdf acts as
+# an overlay — see ADR 0023). To use the asdf-pinned version of an overlapping
+# tool, run `asdf exec <tool>` / `asdf shell <tool> <version>`.
 if command -v asdf &>/dev/null; then
     export ASDF_CONFIG_FILE="$HOME/.config/asdf/.asdfrc"
     export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
     . <(asdf completion bash)
+    # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)
+    [[ -f "$HOME/.asdf/plugins/java/set-java-home.bash" ]] \
+        && . "$HOME/.asdf/plugins/java/set-java-home.bash"
 fi
 
 # Local bin (uv installer puts uv here)
