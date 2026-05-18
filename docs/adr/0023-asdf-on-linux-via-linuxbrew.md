@@ -15,8 +15,9 @@ Accepted (supersedes ADR 0013 §3 "asdf" exclusion and §6 "No brew/apt entries 
 
 1. Linuxbrew で `asdf` を install (`.chezmoiscripts/run_once_before_install-minimum-packages.sh` の Linux 分岐に追加)。macOS と同じ formula で統一。
 2. uv/bun/rustup の native installer は撤去せず併用。`dot_bashrc` の `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin` PATH エントリも温存。Project ごとに使い分け。
-3. `dot_bashrc` で `asdf` を shim PATH prepend 方式で初期化 (`asdf.sh` は source しない)。bash completion は公式どおり `. <(asdf completion bash)` で binary から動的取得。Linuxbrew shellenv の直後・starship/direnv より前に配置 (fish 側と順序を揃える)。`command -v asdf` で gating し、未 install 時に completion 行が壊れないようにする。
-4. `~/.config/asdf/.asdfrc` を Linux でも deploy (`.chezmoiignore` の `.config/asdf` 除外を解除)。
+3. `dot_bashrc` で `asdf` を shim PATH prepend 方式で初期化 (`asdf.sh` は source しない)。bash completion は公式どおり `. <(asdf completion bash)` で binary から動的取得。Linuxbrew shellenv の直後で初期化するが、後段で `~/.cargo/bin` / `~/.bun/bin` / `~/.local/bin` が prepend されるため、最終 PATH では asdf shim はこれらの後ろに位置する (**専用ツール優先・asdf overlay** = 重複する rust/python/node では rustup/bun/uv が default で勝ち、asdf 経由は `asdf exec` / `asdf shell` で明示する。Java 等の重複しないツールは shim から透過的に取られる)。`command -v asdf` で gating し、未 install 時に completion 行が壊れないようにする。
+4. asdf-java を bash でも完全に使えるよう、`~/.asdf/plugins/java/set-java-home.bash` を存在確認付きで source し `JAVA_HOME` を export する (fish 側 `set-java-home.fish` と parity)。
+5. `~/.config/asdf/.asdfrc` を Linux でも deploy (`.chezmoiignore` の `.config/asdf` 除外を解除)。
 
 ## Consequences
 
@@ -28,8 +29,9 @@ Accepted (supersedes ADR 0013 §3 "asdf" exclusion and §6 "No brew/apt entries 
 
 ### Negative / Trade-offs
 
-- `dot_bashrc` に asdf init block (7 行) が追加される。
-- Rust/Python/JavaScript で asdf と uv/bun/rustup が overlap する。Project ごとに使い分ける運用を `docs/linux-setup.md` に明記。
+- `dot_bashrc` に asdf init block (8 行: shim PATH + completion + `JAVA_HOME` hook) が追加される。
+- Rust/Python/JavaScript で asdf と uv/bun/rustup が overlap するが、PATH 順序設計により native installer が default で勝つ。asdf 経由を意図的に使うには `asdf exec <tool>` / `asdf shell <tool> <version>` で明示するか、当該 native installer を入れない project に限定する。`docs/linux-setup.md` に運用を明記。
+- Java 等の重複しないツールは shim 経由で透過的に動く。asdf-java の `set-java-home.bash` hook により Gradle/Maven 等 `JAVA_HOME` 依存ツールも機能する。
 
 ### Risks
 
