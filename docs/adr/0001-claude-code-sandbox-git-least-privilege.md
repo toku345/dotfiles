@@ -86,8 +86,8 @@ system prompt). Contains absolute paths only:
 not directly visible in any settings file; observable indirectly via
 `crw-rw-rw- nobody nogroup 1, 3` ghost char-special entries that appear in
 `ls -la` output when cwd matches a chezmoi-source-style layout. As of the
-verification date, the baseline bare-name list consists of shell-config files
-only:
+verification date, the baseline bare-name list consists of shell and tool
+configuration files:
 
 - `.bashrc`, `.bash_profile`
 - `.gitconfig`, `.gitmodules`
