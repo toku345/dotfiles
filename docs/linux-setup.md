@@ -63,7 +63,14 @@ SSH 接続時には login shell として `~/.bash_profile` 経由で `~/.bashrc
 
 ### 言語マネージャーの導入
 
-本リポジトリの Linux 構成では **asdf を使いません**。各言語を個別のインストーラーで管理します。`dot_bashrc` が `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin` を自動で PATH に追加するため、以下を実行するだけで有効化されます。
+Linux でも macOS と同じく **asdf** が Linuxbrew 経由で導入されます (`brew install asdf`)。`asdf plugin add <name>` と `asdf install` で利用可能 (参照: [ADR 0023](adr/0023-asdf-on-linux-via-linuxbrew.md))。Java は asdf-java の `set-java-home.bash` hook が `dot_bashrc` で source されるため、`JAVA_HOME` が自動設定され Gradle/Maven 等もそのまま動きます。
+
+言語ごとの専用ツール (Python: `uv` の高速インストーラー / JS: `bun` ランタイム / Rust: `rustup` 公式ツールチェイン) も併用可能です。`dot_bashrc` は `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin` を asdf shim より**後ろ**で PATH に prepend するため、最終 PATH では専用ツールが asdf shim より優先されます。
+
+**PATH 優先順位 (重要)**:
+
+- 重複するツール (rust / python / node) — `rustup` / `uv` / `bun` が default で勝つ。asdf 経由で使うには `asdf exec <tool>` / `asdf shell <tool> <version>` を明示、または当該専用ツールを入れない project に限定。`.tool-versions` での version pin だけでは shim が後置のため効かない点に注意。
+- 重複しないツール (Java 等) — asdf shim から透過的に取られる。
 
 - **Rust (rustup)**:
   ```bash

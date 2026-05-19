@@ -52,6 +52,10 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 - **新規ファイル追加時は `chezmoi add ~/<target-path>` を使う** (mode から `private_` / `executable_` を auto-detect、prefix を手で付ける必要なし)。暗号化は `chezmoi add --encrypt`、template は `--template` フラグ
 - security/mode-critical な prefix: `private_` (0600) / `executable_` (0755) / `encrypted_` (age)。直接 Write/cp で source dir に置く際は手動付与必要
 
+### ADR ドキュメントスタイル
+
+`docs/adr/*.md` の段落は **hard wrap しない** — 段落ごとに 1 logical line (Markdown は viewer の viewport 幅で自動 reflow)。Tables / code blocks / list items / block quotes は通常の multi-line 構造を維持する。新規 ADR はこの style に従う。Legacy ADR (0001 以外) は incremental cleanup 待ちで wrap が残る可能性あり。
+
 ## Key Configuration Files
 
 ### Git Worktree Commands (`gw`, `gb`, `gbd`)
@@ -132,6 +136,7 @@ end
 - **ShellCheck SC2093 false positive on execfail sites**: execfail 併用時の exec 後続コードは意図通り。該当行に `# shellcheck disable=SC2093` + 理由コメントを添える (file 全体 disable は避ける)
 - **外部 wrapper 経由の self-exec で `execve($0)` は git 上 0644 の `executable_*` で rc=126**: `exec "${wrapper[@]}" "${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"` と書いて bash interpreter 経由で再入する。mode に依存しない (caffeinate/systemd-inhibit/setsid 等すべて該当)
 - **Deploy skew defense**: chezmoi で deploy される asset (output-styles / themes / 辞書 等) に依存する script は、asset 内に sentinel コメント (例: `<!-- COMPONENT_VX -->`) を埋め込み、script 側 preflight で grep verify する。file 存在のみの check は corrupt / truncated / 古い asset を通してしまう。err 文には `chezmoi apply -v` 復旧手順を併記する
+- **Bash tool の cwd は call 間で persist し、失敗した `cd` は `set -e` を確実には trip しない**: cd target が書き込み不可 (例: sandbox write-allowlist 外の `$HOME` 配下) で、その後に `for` 等の structured command が続く場合、subsequent file ops は **前の cwd** で実行される。`cd; touch` で test file を作る verification script は post-cd で `pwd` を verify するか、`touch` に絶対パスを使うかして、前 cwd (例: chezmoi source root) への file leak を防ぐ。PR #216 verification 2026-05-19 でこの罠により `.env` / `id_ed25519` / `foo.key` / `control.txt` が `~/.local/share/chezmoi/` に leak した。
 
 ## Go Template Usage Policy
 
@@ -195,6 +200,7 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
 - `git push -u` で `could not write config file .git/config` エラーが出たら upstream 設定失敗を疑う。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#resolved-limitations)
 - `denyOnly` bare globs (`*.key`, `.env.*`) only protect files within cwd — `sandbox-runtime` resolves them relative to cwd. Absolute-path entries (`~/.docker/config.json`) work system-wide. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations). → User-side bare-name additions to `permissions.deny` (e.g. `Read(.env)`, `Read(id_ed25519)`) trigger `chezmoi apply` failures and `git status` ghost char-special pollution (Issue #212 / PR #216 removed our last batch). Anthropic baseline covers shell and tool configuration bare-names only (`.bashrc` / `.bash_profile` / `.gitconfig` / `.gitmodules` / `.idea` / `.mcp.json`); secret patterns (`.env` / `id_*` / `*.key`) are **not** baseline-covered — see ADR 0001 "Empirical baseline coverage snapshot" before adding new bare-name denies.
+- Anthropic baseline の bare-name `permissions.deny` カバレッジを empirical に確認する手順: chezmoi source root で `cd ~/.local/share/chezmoi && ls -la | grep '^c'`。`crw-rw-rw- nobody nogroup 1, 3` の ghost char-special entry が baseline カバー対象の bare-name に対応。user-side で bare-name deny を追加するかの判断前に必ず実行する。baseline 非カバーパターン (`.env` / `id_*` / `*.key` 等) を追加しても cwd-relative best-effort 保護しか得られず、Issue #212 の fallout (`chezmoi apply` 失敗 + `git status` ghost 汚染) を引き起こす。Empirical snapshot は [ADR 0001 "Empirical baseline coverage snapshot"](docs/adr/0001-claude-code-sandbox-git-least-privilege.md) を参照。
 - fish シェル経由の Bash ヒアドキュメントで `!` が `\!` にエスケープされることがある。`!` を含むファイルは `Write` ツールで直接書き込む
 - secret-like file 名 (`id_ed25519` / `id_rsa` / `.env*` 等) の **存在判定**で `ls -la` を使うと permission gate に弾かれる。代替: `test -e <path> && echo exists || echo not present` または `find <dir> -maxdepth 1 -name <basename> -print` — 中身を読まないことが明確になり permission を通せる
 
