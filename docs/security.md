@@ -40,8 +40,7 @@ encrypted_*.age (SSH config, Google IME dictionary, etc.)
 
 ## Emergency Key Rotation
 
-**IMPORTANT:** This procedure is for emergencies only (key leak, device compromise, etc.).
-Do NOT perform routine key rotation unless necessary.
+**IMPORTANT:** This procedure is for emergencies only (key leak, device compromise, etc.). Do NOT perform routine key rotation unless necessary.
 
 ### When to Rotate
 
@@ -274,10 +273,7 @@ git log --pretty=format:"%h %ad %s" --date=short -- '*.age'
 
 ## Package Manager Supply Chain Defense
 
-Hardening defaults are committed for npm/bun, pip, and uv to mitigate the class of
-attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_hulud)
-(2026-04, npm postinstall + malicious bun runtime download) and the
-`lightning@2.6.2/2.6.3` PyPI compromise (2026-04).
+Hardening defaults are committed for npm/bun, pip, and uv to mitigate the class of attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_hulud) (2026-04, npm postinstall + malicious bun runtime download) and the `lightning@2.6.2/2.6.3` PyPI compromise (2026-04).
 
 ### Defenses in place
 
@@ -290,58 +286,25 @@ attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_
 | `~/.config/uv/uv.toml` | `exclude-newer = "7 days"` | Time-based isolation: refuses to resolve PyPI distributions uploaded within the last 7 days. Most malicious versions are detected and yanked inside this window. |
 | `~/.config/uv/uv.toml` | `no-build = true` | Refuses sdists; installs pre-built wheels only. Mirrors pip's `only-binary = :all:`. Prevents PEP 517 build-backend / `setup.py` code from executing at install time — `exclude-newer` alone does not close this path. |
 
-Both time-based settings (`minimumReleaseAge`, `exclude-newer`) are expressed
-as **durations**, not absolute dates, so the cooldown window slides
-automatically — no periodic maintenance is required. If a value blocks a
-legitimately-needed fresh package, dependency resolution simply pins to an
-older version (fail-safe).
+Both time-based settings (`minimumReleaseAge`, `exclude-newer`) are expressed as **durations**, not absolute dates, so the cooldown window slides automatically — no periodic maintenance is required. If a value blocks a legitimately-needed fresh package, dependency resolution simply pins to an older version (fail-safe).
 
 ### Defense scope (what is and isn't blocked)
 
 A few subtleties that are easy to read past in the table above:
 
-- **Time-based isolation does not stop build-time code execution.** uv's
-  `exclude-newer` only filters which distributions are *resolvable*; once
-  a sdist is selected, its `setup.py` / PEP 517 build backend still
-  executes arbitrary Python at install time. `no-build = true` is what
-  closes that path. pip's `only-binary = :all:` plays the same role.
-  Treat `exclude-newer` and `no-build` as complementary, not redundant.
-- **`ignore-scripts=true` silently skips lifecycle scripts.** Many npm
-  packages legitimately rely on `postinstall` to fetch platform binaries
-  or run native builds. Under this default, `npm install` / `bun install`
-  succeed but the runtime later fails with a missing module or binary.
-  When such a failure is suspected, follow the *isolated recovery* flow
-  in the next section rather than relaxing the defense in the daily
-  project tree.
-- **`~/.npmrc` and `~/.bunfig.toml` are independent.** Disabling scripts
-  in one file does not cover the other tool — see the table above.
+- **Time-based isolation does not stop build-time code execution.** uv's `exclude-newer` only filters which distributions are *resolvable*; once a sdist is selected, its `setup.py` / PEP 517 build backend still executes arbitrary Python at install time. `no-build = true` is what closes that path. pip's `only-binary = :all:` plays the same role. Treat `exclude-newer` and `no-build` as complementary, not redundant.
+- **`ignore-scripts=true` silently skips lifecycle scripts.** Many npm packages legitimately rely on `postinstall` to fetch platform binaries or run native builds. Under this default, `npm install` / `bun install` succeed but the runtime later fails with a missing module or binary. When such a failure is suspected, follow the *isolated recovery* flow in the next section rather than relaxing the defense in the daily project tree.
+- **`~/.npmrc` and `~/.bunfig.toml` are independent.** Disabling scripts in one file does not cover the other tool — see the table above.
 
 ### Recovery workflow (when a package legitimately needs lifecycle scripts)
 
-The per-tool flags interact with the user-global defenses in different —
-and easy-to-misread — ways:
+The per-tool flags interact with the user-global defenses in different —and easy-to-misread — ways:
 
-- `npm install --ignore-scripts=false <pkg>` re-enables lifecycle scripts
-  for the **entire invocation**, including every transitive dependency —
-  not just `<pkg>`. A single recovery command therefore widens the trust
-  surface across all packages being resolved at the same time.
-- bun's `--ignore-scripts` flag is a boolean toggle (`bun install/add
-  --ignore-scripts`); it has no `=false` form. Even disabling the
-  setting via a project-local `bunfig.toml [install] ignoreScripts =
-  false` only governs the *project's own* scripts unless dependency
-  scripts are also trusted (defaults plus `trustedDependencies`).
-- Under user-global `~/.bunfig.toml` `ignoreScripts = true`, `bun add
-  --trust` and `trustedDependencies` alone do **not** restore a
-  dependency's lifecycle scripts — verified empirically against bun
-  1.3.3. Two paths actually unblock them under that global default:
-  `bun pm trust <pkg>` (post-install retry; scoped to the named deps)
-  and a project-local `bunfig.toml` setting `ignoreScripts = false`
-  combined with `trustedDependencies`.
+- `npm install --ignore-scripts=false <pkg>` re-enables lifecycle scripts for the **entire invocation**, including every transitive dependency —not just `<pkg>`. A single recovery command therefore widens the trust surface across all packages being resolved at the same time.
+- bun's `--ignore-scripts` flag is a boolean toggle (`bun install/add --ignore-scripts`); it has no `=false` form. Even disabling the setting via a project-local `bunfig.toml [install] ignoreScripts = false` only governs the *project's own* scripts unless dependency scripts are also trusted (defaults plus `trustedDependencies`).
+- Under user-global `~/.bunfig.toml` `ignoreScripts = true`, `bun add --trust` and `trustedDependencies` alone do **not** restore a dependency's lifecycle scripts — verified empirically against bun 1.3.3. Two paths actually unblock them under that global default: `bun pm trust <pkg>` (post-install retry; scoped to the named deps) and a project-local `bunfig.toml` setting `ignoreScripts = false` combined with `trustedDependencies`.
 
-The recommended workflow is to do recovery in a **throwaway project**,
-verify the scripts work and the lockfile/trust list are clean, then
-carry only the audited metadata (and the per-project override, if
-needed) back to the main workspace:
+The recommended workflow is to do recovery in a **throwaway project**, verify the scripts work and the lockfile/trust list are clean, then carry only the audited metadata (and the per-project override, if needed) back to the main workspace:
 
 ```bash
 # 1. Spin up an isolated workspace outside the daily project tree.
@@ -402,8 +365,7 @@ UV_NO_BUILD=0 uv pip install <pkg>
 #   no-build-package = ["foo"]
 ```
 
-Use overrides only for the single command (or single project) that needs
-them — never edit the user-global config files to weaken defaults.
+Use overrides only for the single command (or single project) that needs them — never edit the user-global config files to weaken defaults.
 
 ### Verification
 

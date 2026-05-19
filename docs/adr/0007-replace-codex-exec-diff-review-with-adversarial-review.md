@@ -6,20 +6,11 @@ Accepted
 
 ## Context
 
-The CLAUDE.md Codex integration had two AI-automatic review modes using `codex exec`:
-implementation plan review and diff-based code review. Both used manually crafted
-prompts ("致命的な点のみ指摘してください") to filter Codex output.
+The CLAUDE.md Codex integration had two AI-automatic review modes using `codex exec`: implementation plan review and diff-based code review. Both used manually crafted prompts ("致命的な点のみ指摘してください") to filter Codex output.
 
-The codex-plugin-cc now provides `/codex:adversarial-review`, a purpose-built skill
-with a "default to skepticism" prompt, structured JSON output with confidence scores,
-and automatic filtering of style/naming noise. Author testing on real PRs confirmed it produces
-detailed, material findings that catch implementation gaps before PR review.
+The codex-plugin-cc now provides `/codex:adversarial-review`, a purpose-built skill with a "default to skepticism" prompt, structured JSON output with confidence scores, and automatic filtering of style/naming noise. Author testing on real PRs confirmed it produces detailed, material findings that catch implementation gaps before PR review.
 
-Meanwhile, the user's actual code review workflow runs three tools before PR submission:
-`/pr-review-toolkit:review-pr`, `/security-review`, and Codex CLI `/review` (in a
-separate terminal session). Replacing the Codex CLI session with
-`/codex:adversarial-review` inside Claude Code consolidates the workflow into a single
-session.
+Meanwhile, the user's actual code review workflow runs three tools before PR submission: `/pr-review-toolkit:review-pr`, `/security-review`, and Codex CLI `/review` (in a separate terminal session). Replacing the Codex CLI session with `/codex:adversarial-review` inside Claude Code consolidates the workflow into a single session.
 
 ## Decision
 
