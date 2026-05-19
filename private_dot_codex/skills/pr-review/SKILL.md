@@ -37,6 +37,13 @@ Run these checks in order. If any fails, abort with the indicated actionable err
    If none of (a)–(c) yields a base, abort with:
    > "No PR found for the current branch and no explicit base provided. By default the skill requires an open PR (Issue #186 fix) so all specialists share the same base ref. Either create a draft PR first, provide an explicit base in your prompt, or pass `--allow-no-pr` / set `ALLOW_NO_PR=1` to fall back to the default branch (residual scope-divergence risk acknowledged)."
 
+   Sandbox compatibility by base path:
+   - Explicit immutable commit/OID bases do not require network access or `.git` metadata writes after the initial clean-worktree check; this is the only supported offline/read-only invocation path.
+   - Explicit branch-name bases require network access and `git fetch` writing `FETCH_HEAD`.
+   - `--allow-no-pr` requires network access, `git fetch`, and `git remote set-head origin --auto`, so it is incompatible with strict read-only sandboxes.
+   - Auto-PR base resolution requires `gh pr view`, network access, and a verified fetch of the reported base branch, so it is incompatible with strict read-only or offline runs.
+   - If callers need offline/read-only review, they must supply an immutable base commit OID.
+
 3. **Base ref validation** — Pin the already resolved `$BASE_REF` to an immutable commit before collecting any diff:
    - If `gh pr view` returned `baseRefOid`, keep `$BASE_REF=FETCH_HEAD` after the verified fetch/OID comparison; do not resolve the OID against a possibly stale local object database without fetching the PR base branch first.
    - If an explicit branch base was fetched, keep `$BASE_REF=FETCH_HEAD`; do not replace it with a local branch or local remote-tracking ref.

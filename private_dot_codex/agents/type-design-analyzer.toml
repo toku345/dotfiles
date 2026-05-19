@@ -89,6 +89,9 @@ Provide your analysis in this structure:
 ```
 ## Type: [TypeName]
 
+### Location
+- [file path]:[line or line range]
+
 ### Invariants Identified
 - [List each invariant with a brief description]
 

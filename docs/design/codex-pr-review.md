@@ -71,7 +71,7 @@ The following corrections were applied during the brainstorming session that pro
 
 ### Layout
 
-```
+```text
 ~/.codex/skills/pr-review/SKILL.md         # orchestrator (~150–180 lines, user-authored, MIT)
                                             # Local Codex 0.130.0 install path verified in practice.
 ~/.codex/agents/
@@ -140,7 +140,7 @@ The orchestrator skill **computes specialist applicability itself** and explicit
 
 Applicability logic in the orchestrator (pseudocode):
 
-```
+```text
 HEAD_REF = git rev-parse HEAD
 BASE_COMMIT = git rev-parse --verify "$BASE_REF^{commit}"
 changed_files = git diff --name-only $BASE_COMMIT...$HEAD_REF

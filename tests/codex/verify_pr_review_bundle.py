@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Validate the vendored Codex pr-review skill and agent bundle."""
+"""Static verifier for the vendored Codex pr-review skill and agent bundle.
+
+This complements Bats: Bats covers shell/CLI behavior, while this script checks
+TOML parseability, prompt contracts, and vendored license/notice hashes.
+"""
 
 from __future__ import annotations
 
@@ -100,6 +104,13 @@ REQUIRED_SKILL_SNIPPETS = [
     "set `$BASE_REF=FETCH_HEAD`",
     "Do not pass `$BASE` as a raw refspec",
     "Do not proceed from existing local refs alone.",
+    "Sandbox compatibility by base path:",
+    "Explicit immutable commit/OID bases do not require network access or `.git` metadata writes",
+    "only supported offline/read-only invocation path",
+    "Explicit branch-name bases require network access and `git fetch` writing `FETCH_HEAD`",
+    "`--allow-no-pr` requires network access, `git fetch`, and `git remote set-head origin --auto`",
+    "Auto-PR base resolution requires `gh pr view`, network access, and a verified fetch of the reported base branch",
+    "they must supply an immutable base commit OID",
     "Run `git fetch --quiet origin`; if it fails, abort instead of reviewing a possibly stale default branch.",
     "Run `git remote set-head origin --auto`; if it fails, abort instead of trusting a stale local `origin/HEAD` symref.",
     "Run `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`; if it fails or returns an empty value, abort instead of guessing a base.",
@@ -296,6 +307,16 @@ def verify_agent_toml() -> None:
             require_not_contains(data["developer_instructions"], "Start by listing what you're reviewing.", str(path))
             require_not_contains(data["developer_instructions"], "**76-90**: Important issue requiring attention", str(path))
             require_not_contains(data["developer_instructions"], "**91-100**: Critical bug or explicit target repository guidance violation", str(path))
+        elif expected_name == "silent-failure-hunter":
+            require_contains(data["developer_instructions"], "Failures must reach the right audience", str(path))
+            require_contains(data["developer_instructions"], "appropriate caller, operator, or user", str(path))
+            require_contains(data["developer_instructions"], "structured errors or operator-visible telemetry", str(path))
+            require_contains(data["developer_instructions"], "**Audience Feedback:**", str(path))
+            require_not_contains(data["developer_instructions"], "Users deserve actionable feedback", str(path))
+            require_not_contains(data["developer_instructions"], "**User Feedback:**", str(path))
+        elif expected_name == "type-design-analyzer":
+            require_contains(data["developer_instructions"], "### Location", str(path))
+            require_contains(data["developer_instructions"], "[file path]:[line or line range]", str(path))
 
 
 def verify_skill_contract() -> None:
