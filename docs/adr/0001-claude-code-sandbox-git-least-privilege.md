@@ -6,35 +6,20 @@ Accepted
 
 ## Context
 
-Claude Code's sandbox (`~/.claude/settings.json`) was configured with
-`excludedCommands: ["git", "gh"]`, which runs these commands completely outside
-the sandbox. This ADR addresses removing `git` from `excludedCommands`.
-`gh` is covered separately in
-[ADR 0002](0002-claude-code-sandbox-gh-investigation.md).
+Claude Code's sandbox (`~/.claude/settings.json`) was configured with `excludedCommands: ["git", "gh"]`, which runs these commands completely outside the sandbox. This ADR addresses removing `git` from `excludedCommands`. `gh` is covered separately in [ADR 0002](0002-claude-code-sandbox-gh-investigation.md).
 
-**Scope**: This ADR covers the global user settings (`~/.claude/settings.json`),
-which apply to all repositories. Per-project `.claude/settings.json` overrides
-are not used.
+**Scope**: This ADR covers the global user settings (`~/.claude/settings.json`), which apply to all repositories. Per-project `.claude/settings.json` overrides are not used.
 
 `git` was excluded as a pragmatic workaround for two issues:
 
-1. **SSH access**: `git push` via SSH requires reading `~/.ssh/known_hosts` and
-   `~/.ssh/config`, plus access to the SSH agent Unix socket (`$SSH_AUTH_SOCK`),
-   all of which the default sandbox denies.
-2. **Git hooks**: Tools like Lefthook and Husky execute as git child processes.
-   Their stash operations write to `/tmp`, which the default sandbox write
-   allowlist (`allowOnly: ["."]`) blocks.
+1. **SSH access**: `git push` via SSH requires reading `~/.ssh/known_hosts` and `~/.ssh/config`, plus access to the SSH agent Unix socket (`$SSH_AUTH_SOCK`), all of which the default sandbox denies.
+2. **Git hooks**: Tools like Lefthook and Husky execute as git child processes. Their stash operations write to `/tmp`, which the default sandbox write allowlist (`allowOnly: ["."]`) blocks.
 
-However, `excludedCommands` runs commands outside the sandbox, removing most
-filesystem and network restrictions — though Mach service access remains
-enforced (see Known Limitations). This still violates the principle of least
-privilege.
+However, `excludedCommands` runs commands outside the sandbox, removing most filesystem and network restrictions — though Mach service access remains enforced (see Known Limitations). This still violates the principle of least privilege.
 
 The official Claude Code documentation recommends:
 
-> "This is the recommended approach when a tool needs write access to a specific
-> location, rather than excluding the tool from the sandbox entirely with
-> `excludedCommands`."
+> "This is the recommended approach when a tool needs write access to a specific location, rather than excluding the tool from the sandbox entirely with `excludedCommands`."
 >
 > — [Claude Code Sandboxing Documentation](https://code.claude.com/docs/en/sandboxing)
 
@@ -55,25 +40,15 @@ The sandbox consists of two independently managed layers:
 | Default deny rules (`read.denyOnly`, `write.denyWithinAllow`) | Anthropic (Claude Code built-in) | Not visible in any settings file; shown only in session startup sandbox display | Baseline protection — exact scope is opaque (not documented by Anthropic). See "Empirical baseline coverage snapshot" below for the verified breakdown. |
 | User allow/exclude rules (`allowRead`, `allowWrite`, `excludedCommands`, etc.) | Repository maintainer | `~/.claude/settings.json` (global user settings; managed via chezmoi in this repo) | User-level sandbox permissions applied to all repositories (this ADR's scope) |
 
-**Important**: The default deny rules use two types of path patterns with
-different enforcement behavior — see Known Limitations for details.
+**Important**: The default deny rules use two types of path patterns with different enforcement behavior — see Known Limitations for details.
 
-**Note**: Some files appear in both `sandbox.filesystem.allowRead` and
-`permissions.deny` (e.g., `~/.ssh/config`, `~/.ssh/known_hosts`). These layers
-are independent: `permissions.deny` blocks Claude's Read/Edit/Write tool access;
-`sandbox.filesystem.allowRead` permits child processes (git, ssh) to read at the
-OS/Seatbelt level. Both entries are required.
+**Note**: Some files appear in both `sandbox.filesystem.allowRead` and `permissions.deny` (e.g., `~/.ssh/config`, `~/.ssh/known_hosts`). These layers are independent: `permissions.deny` blocks Claude's Read/Edit/Write tool access; `sandbox.filesystem.allowRead` permits child processes (git, ssh) to read at the OS/Seatbelt level. Both entries are required.
 
 ### Empirical baseline coverage snapshot
 
-Anthropic's built-in default deny is not documented; exact scope is only
-inferable from runtime behavior. The baseline operates at two layers, each
-observable through a different mechanism. Verified 2026-05-19 on Linux Claude
-Code 2.1.x.
+Anthropic's built-in default deny is not documented; exact scope is only inferable from runtime behavior. The baseline operates at two layers, each observable through a different mechanism. Verified 2026-05-19 on Linux Claude Code 2.1.x.
 
-**Sandbox-layer baseline** (`read.denyOnly` / `write.denyWithinAllow`) —
-observable in the session startup sandbox display ("Filesystem:" entry in the
-system prompt). Contains absolute paths only:
+**Sandbox-layer baseline** (`read.denyOnly` / `write.denyWithinAllow`) — observable in the session startup sandbox display ("Filesystem:" entry in the system prompt). Contains absolute paths only:
 
 - `~/.aws/config`, `~/.aws/credentials`
 - `~/.ssh/id_rsa{,.pub}`, `~/.ssh/id_ed25519{,.pub}`
@@ -82,37 +57,24 @@ system prompt). Contains absolute paths only:
 - `~/.docker/config.json`, `~/.kube/config`
 - `~/.config/gh/hosts.yml`
 
-**Tool-permission-layer baseline** (baseline `permissions.deny` bare-names) —
-not directly visible in any settings file; observable indirectly via
-`crw-rw-rw- nobody nogroup 1, 3` ghost char-special entries that appear in
-`ls -la` output when cwd matches a chezmoi-source-style layout. As of the
-verification date, the baseline bare-name list consists of shell and tool
-configuration files:
+**Tool-permission-layer baseline** (baseline `permissions.deny` bare-names) — not directly visible in any settings file; observable indirectly via `crw-rw-rw- nobody nogroup 1, 3` ghost char-special entries that appear in `ls -la` output when cwd matches a chezmoi-source-style layout. As of the verification date, the baseline bare-name list consists of shell and tool configuration files:
 
 - `.bashrc`, `.bash_profile`
 - `.gitconfig`, `.gitmodules`
 - `.idea`, `.mcp.json`
 
-**NOT in either baseline layer** (verified absent — must be enforced via
-user-side absolute-path `permissions.deny` entries if needed):
+**NOT in either baseline layer** (verified absent — must be enforced via user-side absolute-path `permissions.deny` entries if needed):
 
 - `.env`, `.envrc`
-- bare-name `id_ed25519`, `id_rsa` (absolute-path `~/.ssh/id_*` variants ARE
-  covered by the sandbox layer)
+- bare-name `id_ed25519`, `id_rsa` (absolute-path `~/.ssh/id_*` variants ARE covered by the sandbox layer)
 - `*.key`, `*.pem`
-- bare-name `.netrc`, `.npmrc` (absolute-path `~/.netrc`, `~/.npmrc` ARE
-  covered by the sandbox layer)
+- bare-name `.netrc`, `.npmrc` (absolute-path `~/.netrc`, `~/.npmrc` ARE covered by the sandbox layer)
 
-See [Issue #212](https://github.com/toku345/dotfiles/issues/212) /
-[PR #216](https://github.com/toku345/dotfiles/pull/216) for the verification
-context and the rationale for removing user-side bare-name secret denies that
-were assumed to overlap this baseline.
+See [Issue #212](https://github.com/toku345/dotfiles/issues/212) / [PR #216](https://github.com/toku345/dotfiles/pull/216) for the verification context and the rationale for removing user-side bare-name secret denies that were assumed to overlap this baseline.
 
 ## Decision
 
-Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
-`gh` remains in `excludedCommands` (see
-[ADR 0002](0002-claude-code-sandbox-gh-investigation.md)).
+Remove `git` from `excludedCommands` and grant minimal sandbox permissions. `gh` remains in `excludedCommands` (see [ADR 0002](0002-claude-code-sandbox-gh-investigation.md)).
 
 ```json
 {
@@ -152,33 +114,14 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 
 ### Positive
 
-- **Reduced attack surface for git**: Git operations are now constrained by
-  filesystem and network restrictions, whereas `excludedCommands` removed most
-  filesystem and network restrictions.
-- **Aligned with official guidance**: Follows Claude Code's recommended
-  `allowWrite` pattern over `excludedCommands`.
+- **Reduced attack surface for git**: Git operations are now constrained by filesystem and network restrictions, whereas `excludedCommands` removed most filesystem and network restrictions.
+- **Aligned with official guidance**: Follows Claude Code's recommended `allowWrite` pattern over `excludedCommands`.
 
 ### Negative
 
-- **`allowAllUnixSockets: true` is broader than ideal**: Allows all sandboxed
-  commands (not just `git`) to connect to any Unix socket, including Docker /
-  OrbStack daemons. Compared to `excludedCommands: ["git"]` (which removed all
-  filesystem, network, and socket restrictions), total exposure is smaller — but
-  Unix socket access is a new attack surface not present in the default sandbox.
-  A future `allowUnixSockets` glob/pattern support would allow narrowing to
-  `$SSH_AUTH_SOCK` only.
-  **Accepted because**: (1) all attack vectors require prompt injection as a
-  prerequisite; (2) `docker` is already in `excludedCommands` with unrestricted
-  access; (3) HTTPS migration was evaluated but rejected due to global settings
-  scope — SSH is used across multiple repos and environments; (4) upstream
-  feature request for `allowUnixSockets` glob/env-var support is the long-term
-  fix.
-- **`/tmp` write access is global**: All sandboxed commands can write to `/tmp`.
-  `/tmp` is an OS-standard world-writable directory; risk increase is limited.
-- **`.` (cwd) includes `.git/` — hook/config modification possible**: The default
-  `allowOnly: ["."]` permits writes to `.git/config` and `.git/hooks/` within the
-  working directory. This is inherent to the sandbox's cwd write permission; no
-  additional configuration is needed or possible to narrow it.
+- **`allowAllUnixSockets: true` is broader than ideal**: Allows all sandboxed commands (not just `git`) to connect to any Unix socket, including Docker / OrbStack daemons. Compared to `excludedCommands: ["git"]` (which removed all filesystem, network, and socket restrictions), total exposure is smaller — but Unix socket access is a new attack surface not present in the default sandbox. A future `allowUnixSockets` glob/pattern support would allow narrowing to `$SSH_AUTH_SOCK` only. **Accepted because**: (1) all attack vectors require prompt injection as a prerequisite; (2) `docker` is already in `excludedCommands` with unrestricted access; (3) HTTPS migration was evaluated but rejected due to global settings scope — SSH is used across multiple repos and environments; (4) upstream feature request for `allowUnixSockets` glob/env-var support is the long-term fix.
+- **`/tmp` write access is global**: All sandboxed commands can write to `/tmp`. `/tmp` is an OS-standard world-writable directory; risk increase is limited.
+- **`.` (cwd) includes `.git/` — hook/config modification possible**: The default `allowOnly: ["."]` permits writes to `.git/config` and `.git/hooks/` within the working directory. This is inherent to the sandbox's cwd write permission; no additional configuration is needed or possible to narrow it.
 
 ### Risks
 
@@ -191,81 +134,19 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
 
 ### Known Limitations
 
-- **`denyOnly` glob patterns only protect files within cwd** (empirically
-  observed; not documented by Anthropic — behavior may change): Bare glob
-  patterns in the sandbox `denyOnly` read config (e.g., `*.key`, `.env.*`) are
-  resolved relative to cwd by `sandbox-runtime`'s `normalizePathForSandbox()`.
-  As a result, `*.key` only blocks `<cwd>/*.key`, not `~/secret.key` or files
-  in subdirectories. Absolute-path entries (e.g., `~/.docker/config.json`) are
-  enforced regardless of cwd. Verified on macOS 15.7.4 and macOS 26.3.1 with
-  Claude Code 2.1.81.
-- **User-side bare-name `permissions.deny` entries cause cwd-relative
-  bind-mount fallout** (empirically observed; documented in
-  [Issue #212](https://github.com/toku345/dotfiles/issues/212) /
-  [PR #216](https://github.com/toku345/dotfiles/pull/216)): Adding bare-name
-  patterns to user `permissions.deny` (e.g., `Read(.env)`, `Read(id_ed25519)`)
-  causes `sandbox-runtime` to bind-mount `/dev/null` at `<cwd>/<bare-name>`
-  whenever a child process is spawned. This surfaces as (1) `chezmoi apply -v`
-  failing with `no such file or directory` errors at the source root, and
-  (2) `git status` listing the bare-name paths as untracked character-special
-  entries (`crw-rw-rw- nobody:nogroup 1, 3`). The Anthropic baseline produces
-  the same fallout for its own bare-name set (see "Empirical baseline coverage
-  snapshot" above for what is/isn't covered), but that is upstream scope
-  ([anthropic-experimental/sandbox-runtime#139](https://github.com/anthropic-experimental/sandbox-runtime/issues/139)).
-  User-side additions must be weighed against this fallout — prefer
-  absolute-path entries (`Read(~/.ssh/id_ed25519)`) over bare-name entries
-  (`Read(id_ed25519)`) whenever possible.
-- **`excludedCommands` does not bypass Mach service restrictions** (empirically
-  observed; not documented by Anthropic — behavior may change): Commands in
-  `excludedCommands` are still blocked from accessing Mach services (e.g.,
-  `trustd`). Corroborated by community reports:
-  [#28954](https://github.com/anthropics/claude-code/issues/28954),
-  [#17821](https://github.com/anthropics/claude-code/issues/17821).
-- **`pgrep` / `ps` cannot enumerate processes inside the sandbox**
-  (empirically observed on Darwin 25.4.0 with Claude Code; not documented by
-  Anthropic — behavior may change): macOS process enumeration goes through the
-  `sysmond` Mach service, which the sandbox denies. `pgrep` then prints
-  `sysmon request failed with error: sysmond service not found` followed by
-  `pgrep: Cannot get process list` and exits non-zero with empty stdout.
-  Same root cause as `trustd` above; listed separately because the failure mode
-  silently skews PID-tree logic (an empty result looks like "no descendants",
-  not an error). Affected paths in this repository:
-  - `tests/bats/test_triple_review.bats` T1-7 / T1-8 / T1-10 — guarded with
-    the `skip_if_pgrep_unavailable` helper in
-    `tests/bats/test_helper_triple_review.bash`, which probes pgrep against
-    a short-lived child process so the guard does not misfire when PID 1
-    transiently has no children (e.g. in minimal containers).
-  - `dot_local/bin/executable_triple-review` `collect_descendants` /
-    `kill_children` — works correctly when `triple-review` is invoked directly
-    from a terminal (the supported entry point); running it through Claude
-    Code's Bash tool requires `dangerouslyDisableSandbox: true`.
-- **User settings relative paths resolve against `~/.claude/`** (documented in
-  [Sandbox path prefixes](https://code.claude.com/docs/en/settings#sandbox-path-prefixes)):
-  Paths without a prefix (e.g., `foo`) in `~/.claude/settings.json` resolve to
-  `~/.claude/foo`, not `<cwd>/foo`. Use absolute paths or `~/` prefixes for
-  paths outside `~/.claude/`. Project settings (`.claude/settings.json`), if used,
-  resolve relative to the project root. This ADR does not use project-level settings.
+- **`denyOnly` glob patterns only protect files within cwd** (empirically observed; not documented by Anthropic — behavior may change): Bare glob patterns in the sandbox `denyOnly` read config (e.g., `*.key`, `.env.*`) are resolved relative to cwd by `sandbox-runtime`'s `normalizePathForSandbox()`. As a result, `*.key` only blocks `<cwd>/*.key`, not `~/secret.key` or files in subdirectories. Absolute-path entries (e.g., `~/.docker/config.json`) are enforced regardless of cwd. Verified on macOS 15.7.4 and macOS 26.3.1 with Claude Code 2.1.81.
+- **User-side bare-name `permissions.deny` entries cause cwd-relative bind-mount fallout** (empirically observed; documented in [Issue #212](https://github.com/toku345/dotfiles/issues/212) / [PR #216](https://github.com/toku345/dotfiles/pull/216)): Adding bare-name patterns to user `permissions.deny` (e.g., `Read(.env)`, `Read(id_ed25519)`) causes `sandbox-runtime` to bind-mount `/dev/null` at `<cwd>/<bare-name>` whenever a child process is spawned. This surfaces as (1) `chezmoi apply -v` failing with `no such file or directory` errors at the source root, and (2) `git status` listing the bare-name paths as untracked character-special entries (`crw-rw-rw- nobody:nogroup 1, 3`). The Anthropic baseline produces the same fallout for its own bare-name set (see "Empirical baseline coverage snapshot" above for what is/isn't covered), but that is upstream scope ([anthropic-experimental/sandbox-runtime#139](https://github.com/anthropic-experimental/sandbox-runtime/issues/139)). User-side additions must be weighed against this fallout — prefer absolute-path entries (`Read(~/.ssh/id_ed25519)`) over bare-name entries (`Read(id_ed25519)`) whenever possible.
+- **`excludedCommands` does not bypass Mach service restrictions** (empirically observed; not documented by Anthropic — behavior may change): Commands in `excludedCommands` are still blocked from accessing Mach services (e.g., `trustd`). Corroborated by community reports: [#28954](https://github.com/anthropics/claude-code/issues/28954), [#17821](https://github.com/anthropics/claude-code/issues/17821).
+- **`pgrep` / `ps` cannot enumerate processes inside the sandbox** (empirically observed on Darwin 25.4.0 with Claude Code; not documented by Anthropic — behavior may change): macOS process enumeration goes through the `sysmond` Mach service, which the sandbox denies. `pgrep` then prints `sysmon request failed with error: sysmond service not found` followed by `pgrep: Cannot get process list` and exits non-zero with empty stdout. Same root cause as `trustd` above; listed separately because the failure mode silently skews PID-tree logic (an empty result looks like "no descendants", not an error). Affected paths in this repository:
+  - `tests/bats/test_triple_review.bats` T1-7 / T1-8 / T1-10 — guarded with the `skip_if_pgrep_unavailable` helper in `tests/bats/test_helper_triple_review.bash`, which probes pgrep against a short-lived child process so the guard does not misfire when PID 1 transiently has no children (e.g. in minimal containers).
+  - `dot_local/bin/executable_triple-review` `collect_descendants` / `kill_children` — works correctly when `triple-review` is invoked directly from a terminal (the supported entry point); running it through Claude Code's Bash tool requires `dangerouslyDisableSandbox: true`.
+- **User settings relative paths resolve against `~/.claude/`** (documented in [Sandbox path prefixes](https://code.claude.com/docs/en/settings#sandbox-path-prefixes)): Paths without a prefix (e.g., `foo`) in `~/.claude/settings.json` resolve to `~/.claude/foo`, not `<cwd>/foo`. Use absolute paths or `~/` prefixes for paths outside `~/.claude/`. Project settings (`.claude/settings.json`), if used, resolve relative to the project root. This ADR does not use project-level settings.
 
 ### Resolved Limitations
 
-- **SSH config `Include` targets not in `allowRead`** (resolved by adding
-  `~/.ssh/config.local` and `~/.orbstack/ssh/config` to `allowRead`): OpenSSH
-  aborts config resolution if an `Include` target is unreadable, even under
-  `Match exec` conditions. `~/.ssh/config.local` is present in this
-  environment. `~/.orbstack/ssh/config` is included defensively for
-  OrbStack-enabled environments.
-- **`git push -u` writes to `.git/config`** (non-issue in the current
-  configuration — covered by default `allowOnly: ["."]`): Initially suspected
-  that `.git/config` writes were blocked despite `.` being in the write
-  allowlist. Empirical testing confirmed `.` recursively covers `.git/` within
-  cwd, so no explicit `allowWrite` entry is needed here.
-  If a future sandbox blocks `.git/config` writes, treat the remote push and
-  upstream setup as separate outcomes: the push may succeed, but upstream
-  tracking is not persisted. In that failure mode, later bare `git push` /
-  `git pull` commands still fail until `branch.*` config is written in a
-  writable context.
+- **SSH config `Include` targets not in `allowRead`** (resolved by adding `~/.ssh/config.local` and `~/.orbstack/ssh/config` to `allowRead`): OpenSSH aborts config resolution if an `Include` target is unreadable, even under `Match exec` conditions. `~/.ssh/config.local` is present in this environment. `~/.orbstack/ssh/config` is included defensively for OrbStack-enabled environments.
+- **`git push -u` writes to `.git/config`** (non-issue in the current configuration — covered by default `allowOnly: ["."]`): Initially suspected that `.git/config` writes were blocked despite `.` being in the write allowlist. Empirical testing confirmed `.` recursively covers `.git/` within cwd, so no explicit `allowWrite` entry is needed here. If a future sandbox blocks `.git/config` writes, treat the remote push and upstream setup as separate outcomes: the push may succeed, but upstream tracking is not persisted. In that failure mode, later bare `git push` / `git pull` commands still fail until `branch.*` config is written in a writable context.
 
 ### Rollback
 
-Add `"git"` back to `excludedCommands` and remove `filesystem` /
-`allowAllUnixSockets`.
+Add `"git"` back to `excludedCommands` and remove `filesystem` / `allowAllUnixSockets`.
