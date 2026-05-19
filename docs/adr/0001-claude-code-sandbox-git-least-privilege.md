@@ -52,7 +52,7 @@ The sandbox consists of two independently managed layers:
 
 | Layer | Set by | Configured in | Purpose |
 |---|---|---|---|
-| Default deny rules (`read.denyOnly`, `write.denyWithinAllow`) | Anthropic (Claude Code built-in) | Not visible in any settings file; shown only in session startup sandbox display | Baseline protection for secrets (`*.key`, `*.pem`, `.env`, `~/.ssh/id_*`, `~/.docker/config.json`, etc.) |
+| Default deny rules (`read.denyOnly`, `write.denyWithinAllow`) | Anthropic (Claude Code built-in) | Not visible in any settings file; shown only in session startup sandbox display | Baseline protection — exact scope is opaque (not documented by Anthropic). See "Empirical baseline coverage snapshot" below for the verified breakdown. |
 | User allow/exclude rules (`allowRead`, `allowWrite`, `excludedCommands`, etc.) | Repository maintainer | `~/.claude/settings.json` (global user settings; managed via chezmoi in this repo) | User-level sandbox permissions applied to all repositories (this ADR's scope) |
 
 **Important**: The default deny rules use two types of path patterns with
@@ -63,6 +63,50 @@ different enforcement behavior — see Known Limitations for details.
 are independent: `permissions.deny` blocks Claude's Read/Edit/Write tool access;
 `sandbox.filesystem.allowRead` permits child processes (git, ssh) to read at the
 OS/Seatbelt level. Both entries are required.
+
+### Empirical baseline coverage snapshot
+
+Anthropic's built-in default deny is not documented; exact scope is only
+inferable from runtime behavior. The baseline operates at two layers, each
+observable through a different mechanism. Verified 2026-05-19 on Linux Claude
+Code 2.1.x.
+
+**Sandbox-layer baseline** (`read.denyOnly` / `write.denyWithinAllow`) —
+observable in the session startup sandbox display ("Filesystem:" entry in the
+system prompt). Contains absolute paths only:
+
+- `~/.aws/config`, `~/.aws/credentials`
+- `~/.ssh/id_rsa{,.pub}`, `~/.ssh/id_ed25519{,.pub}`
+- `~/.ssh/config`, `~/.ssh/known_hosts`, `~/.ssh/authorized_keys`
+- `~/.netrc`, `~/.npmrc`
+- `~/.docker/config.json`, `~/.kube/config`
+- `~/.config/gh/hosts.yml`
+
+**Tool-permission-layer baseline** (baseline `permissions.deny` bare-names) —
+not directly visible in any settings file; observable indirectly via
+`crw-rw-rw- nobody nogroup 1, 3` ghost char-special entries that appear in
+`ls -la` output when cwd matches a chezmoi-source-style layout. As of the
+verification date, the baseline bare-name list consists of shell-config files
+only:
+
+- `.bashrc`, `.bash_profile`
+- `.gitconfig`, `.gitmodules`
+- `.idea`, `.mcp.json`
+
+**NOT in either baseline layer** (verified absent — must be enforced via
+user-side absolute-path `permissions.deny` entries if needed):
+
+- `.env`, `.envrc`
+- bare-name `id_ed25519`, `id_rsa` (absolute-path `~/.ssh/id_*` variants ARE
+  covered by the sandbox layer)
+- `*.key`, `*.pem`
+- bare-name `.netrc`, `.npmrc` (absolute-path `~/.netrc`, `~/.npmrc` ARE
+  covered by the sandbox layer)
+
+See [Issue #212](https://github.com/toku345/dotfiles/issues/212) /
+[PR #216](https://github.com/toku345/dotfiles/pull/216) for the verification
+context and the rationale for removing user-side bare-name secret denies that
+were assumed to overlap this baseline.
 
 ## Decision
 
@@ -155,6 +199,22 @@ Remove `git` from `excludedCommands` and grant minimal sandbox permissions.
   in subdirectories. Absolute-path entries (e.g., `~/.docker/config.json`) are
   enforced regardless of cwd. Verified on macOS 15.7.4 and macOS 26.3.1 with
   Claude Code 2.1.81.
+- **User-side bare-name `permissions.deny` entries cause cwd-relative
+  bind-mount fallout** (empirically observed; documented in
+  [Issue #212](https://github.com/toku345/dotfiles/issues/212) /
+  [PR #216](https://github.com/toku345/dotfiles/pull/216)): Adding bare-name
+  patterns to user `permissions.deny` (e.g., `Read(.env)`, `Read(id_ed25519)`)
+  causes `sandbox-runtime` to bind-mount `/dev/null` at `<cwd>/<bare-name>`
+  whenever a child process is spawned. This surfaces as (1) `chezmoi apply -v`
+  failing with `no such file or directory` errors at the source root, and
+  (2) `git status` listing the bare-name paths as untracked character-special
+  entries (`crw-rw-rw- nobody:nogroup 1, 3`). The Anthropic baseline produces
+  the same fallout for its own bare-name set (see "Empirical baseline coverage
+  snapshot" above for what is/isn't covered), but that is upstream scope
+  ([anthropic-experimental/sandbox-runtime#139](https://github.com/anthropic-experimental/sandbox-runtime/issues/139)).
+  User-side additions must be weighed against this fallout — prefer
+  absolute-path entries (`Read(~/.ssh/id_ed25519)`) over bare-name entries
+  (`Read(id_ed25519)`) whenever possible.
 - **`excludedCommands` does not bypass Mach service restrictions** (empirically
   observed; not documented by Anthropic — behavior may change): Commands in
   `excludedCommands` are still blocked from accessing Mach services (e.g.,
