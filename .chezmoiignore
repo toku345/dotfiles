@@ -20,8 +20,6 @@ tests
 .config/ghostty/**
 .config/google_ime
 .config/google_ime/**
-.config/asdf
-.config/asdf/**
 .local/bin/ghostty-theme
 .local/bin/ghostty-theme-preview
 {{ end }}
