@@ -34,7 +34,7 @@ byte 比較は「baseline と live が完全に同一か」を見ているが、
 
 drift 判定は **baseline file の sha256 hash 変化** のみで行う。live の内容は比較しない。これにより Codex が live に書き加える local-only section が gate に干渉しない。
 
-`shasum -a 256` を採用する。cross-platform 可用性のため (macOS BSD perl-base + Linux 両 default に存在)。`sha256sum` (GNU coreutils) は Linux 限定。
+`shasum -a 256` を採用する。macOS の BSD perl-base + Ubuntu 等の GNU/Linux distribution に default で存在するため、本リポジトリの運用環境 (macOS + Ubuntu) で動作する。Alpine/BusyBox 等の minimal Linux は `sha256sum` (GNU coreutils) のみで `shasum` (perl-based) は不在の可能性があり、その場合は follow-up issue で fallback (`command -v shasum || sha256sum`) を検討する。
 
 ### migration を fail-closed に
 
