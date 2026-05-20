@@ -1,10 +1,14 @@
-# Global gitignore — applies to all repos via git's default
-# core.excludesFile (~/.config/git/ignore).
+# Global gitignore — git's user-level excludesFile.
+# Default: $XDG_CONFIG_HOME/git/ignore, falls back to ~/.config/git/ignore
+# when XDG_CONFIG_HOME is unset or empty. This repo assumes the latter.
 #
 # Strategy: deny-by-default for bare-name secret patterns.
 # When a repo legitimately needs to commit a matching file:
 #   - One-off:   git add -f path/to/file
-#   - Recurring: add `!pattern` to that repo's .gitignore with a comment
+#   - Recurring: add a narrow negate pattern (e.g. `!tests/fixtures/*.key`)
+#     to that repo's .gitignore with a justifying comment.
+#     AVOID broad negates like `!*.key` — they re-open the deny gate
+#     repo-wide and become accident sources. See ADR 0024.
 #
 # Background: Issue #220, PR #216 (Claude Code session leakage),
 #             ADR 0024 (this change), ADR 0001 (baseline non-coverage).
