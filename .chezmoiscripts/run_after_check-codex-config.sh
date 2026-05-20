@@ -11,7 +11,30 @@ state="$codex_dir/.baseline-hash"
 
 mkdir -p "$codex_dir"
 
-managed_hash=$(shasum -a 256 "$managed" | awk '{print $1}')
+compute_sha256() {
+    file=$1
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        line=$(sha256sum "$file") || return 1
+    elif command -v shasum >/dev/null 2>&1; then
+        line=$(shasum -a 256 "$file") || return 1
+    else
+        printf '%s\n' "error: neither sha256sum nor shasum is available" >&2
+        return 1
+    fi
+
+    hash=${line%% *}
+    if [ -z "$hash" ]; then
+        printf '%s\n' "error: empty sha256 for $file" >&2
+        return 1
+    fi
+    printf '%s\n' "$hash"
+}
+
+managed_hash=$(compute_sha256 "$managed") || {
+    printf '%s\n' "error: failed to compute sha256 for $managed" >&2
+    exit 1
+}
 
 # Case 1: live 不在 → bootstrap
 if [ ! -f "$live" ]; then
@@ -50,7 +73,8 @@ Review:
 If (b), merge baseline updates into ~/.codex/config.toml first.
 
 Then ACK the current baseline:
-  shasum -a 256 ~/.codex/config.chezmoi.toml | awk '{print $1}' > ~/.codex/.baseline-hash
+  hash=$(sha256sum ~/.codex/config.chezmoi.toml 2>/dev/null || shasum -a 256 ~/.codex/config.chezmoi.toml) &&
+  printf '%s\n' "${hash%% *}" > ~/.codex/.baseline-hash &&
   chmod 600 ~/.codex/.baseline-hash
 
 Re-run: chezmoi apply
@@ -67,7 +91,7 @@ if [ "$(cat "$state")" = "$managed_hash" ]; then
 fi
 
 # Case 4: baseline updated since last ACK → blocking
-cat >&2 <<MSG
+cat >&2 <<'MSG'
 
 ========================================
  Codex baseline updated (chezmoi apply blocked)
@@ -80,7 +104,8 @@ Review:
 
 Merge baseline updates into ~/.codex/config.toml. Keep local-only sections
 documented in docs/codex.md. After merging, ACK the new baseline:
-  shasum -a 256 ~/.codex/config.chezmoi.toml | awk '{print \$1}' > ~/.codex/.baseline-hash
+  hash=$(sha256sum ~/.codex/config.chezmoi.toml 2>/dev/null || shasum -a 256 ~/.codex/config.chezmoi.toml) &&
+  printf '%s\n' "${hash%% *}" > ~/.codex/.baseline-hash &&
   chmod 600 ~/.codex/.baseline-hash
 
 Then re-run: chezmoi apply
