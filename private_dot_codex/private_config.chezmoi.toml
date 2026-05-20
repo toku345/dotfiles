@@ -20,7 +20,6 @@ network_access = false
 [features]
 multi_agent = true
 apps = true
-js_repl = true
 guardian_approval = true
 
 [plugins."github@openai-curated"]
