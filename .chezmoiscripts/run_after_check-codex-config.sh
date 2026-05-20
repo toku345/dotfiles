@@ -11,9 +11,8 @@ live="$codex_dir/config.toml"
 mkdir -p "$codex_dir"
 
 if [ ! -f "$live" ]; then
-    cp "$managed" "$live"
-    chmod 600 "$live" 2>/dev/null || true
-    printf '%s\n' "Initialized ~/.codex/config.toml from ~/.codex/config.chezmoi.toml"
+    install -m 600 "$managed" "$live"
+    printf '%s\n' "Initialized ~/.codex/config.toml from baseline"
     exit 0
 fi
 
@@ -21,26 +20,21 @@ if cmp -s "$managed" "$live"; then
     exit 0
 fi
 
-cat <<'MSG'
+cat <<'MSG' >&2
 
 ========================================
- Codex config: manual merge needed
+ Codex config: drift detected (chezmoi apply blocked)
 ========================================
 
-Managed baseline:
-  ~/.codex/config.chezmoi.toml
-
-Live config used by Codex:
-  ~/.codex/config.toml
-
-Review and merge carefully:
+Run:
   diff -u ~/.codex/config.toml ~/.codex/config.chezmoi.toml
 
-Keep these local-only sections in ~/.codex/config.toml:
-  - [projects."..."]
-  - [mcp_servers.*]
-  - [notice.*]
+Merge baseline updates into ~/.codex/config.toml while keeping the
+local-only sections documented in docs/codex.md.
+
+After merge, re-run: chezmoi apply
 
 ========================================
 
 MSG
+exit 1
