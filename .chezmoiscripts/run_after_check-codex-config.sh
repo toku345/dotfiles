@@ -81,6 +81,7 @@ Review:
 Merge baseline updates into ~/.codex/config.toml. Keep local-only sections
 documented in docs/codex.md. After merging, ACK the new baseline:
   shasum -a 256 ~/.codex/config.chezmoi.toml | awk '{print \$1}' > ~/.codex/.baseline-hash
+  chmod 600 ~/.codex/.baseline-hash
 
 Then re-run: chezmoi apply
 
