@@ -1,0 +1,27 @@
+# Global gitignore — applies to all repos via git's default
+# core.excludesFile (~/.config/git/ignore).
+#
+# Strategy: deny-by-default for bare-name secret patterns.
+# When a repo legitimately needs to commit a matching file:
+#   - One-off:   git add -f path/to/file
+#   - Recurring: add `!pattern` to that repo's .gitignore with a comment
+#
+# Background: Issue #220, PR #216 (Claude Code session leakage),
+#             ADR 0024 (this change), ADR 0001 (baseline non-coverage).
+
+# Machine-local Claude Code config
+**/.claude/settings.local.json
+**/CLAUDE.local.md
+
+# Bare-name secret patterns
+.env
+.env.*
+.envrc
+.netrc
+.npmrc
+id_ed25519
+id_ed25519.*
+id_rsa
+id_rsa.*
+*.key
+*.pem
