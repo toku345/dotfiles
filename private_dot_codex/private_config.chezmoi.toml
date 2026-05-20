@@ -3,10 +3,8 @@
 # Codex reads ~/.codex/config.toml. This file is kept separate so chezmoi can
 # manage stable defaults without overwriting local state that Codex updates.
 #
-# Keep these local-only sections in ~/.codex/config.toml:
-# - [projects."..."]
-# - [mcp_servers.*]
-# - [notice.*]
+# Keep Codex's local-only sections (projects.*, mcp_servers.*, notice.*)
+# in ~/.codex/config.toml. See docs/codex.md for the full guidance.
 
 model = "gpt-5.5"
 model_reasoning_effort = "high"
