@@ -22,31 +22,43 @@ if [ ! -f "$live" ]; then
     exit 0
 fi
 
-# Case 2: state 不在 → seed (migration)
+# Case 2: state 不在 → seed (safe) or block (unverified migration)
 if [ ! -f "$state" ]; then
-    if ! cmp -s "$managed" "$live"; then
-        cat >&2 <<'MSG'
+    if cmp -s "$managed" "$live"; then
+        # Case 2b: live == baseline → safely seed
+        printf '%s\n' "$managed_hash" > "$state"
+        chmod 600 "$state"
+        exit 0
+    fi
+    # Case 2a: live != baseline → unverified migration, require explicit ACK
+    cat >&2 <<'MSG'
 
 ========================================
- Codex baseline: hash state seeded (drift unverified)
+ Codex baseline: unverified migration (chezmoi apply blocked)
 ========================================
 
-First apply with hash-based drift detection.
-Baseline and live differ; expected if Codex has already written
-local-only sections (projects.*, mcp_servers.*, notice.*).
+First apply with hash-based drift detection. Baseline and live differ.
 
-If this host may have missed a baseline update, review:
+This could mean:
+  (a) Codex has written local-only sections
+      (projects.*, mcp_servers.*, notice.*) -- expected, no merge needed
+  (b) This host missed an earlier baseline update -- merge required
+
+Review:
   diff -u ~/.codex/config.toml ~/.codex/config.chezmoi.toml
 
-Future baseline updates will block `chezmoi apply` until ACKed.
+If (b), merge baseline updates into ~/.codex/config.toml first.
+
+Then ACK the current baseline:
+  shasum -a 256 ~/.codex/config.chezmoi.toml | awk '{print $1}' > ~/.codex/.baseline-hash
+  chmod 600 ~/.codex/.baseline-hash
+
+Re-run: chezmoi apply
 
 ========================================
 
 MSG
-    fi
-    printf '%s\n' "$managed_hash" > "$state"
-    chmod 600 "$state"
-    exit 0
+    exit 1
 fi
 
 # Case 3: state == current baseline hash → no-op
