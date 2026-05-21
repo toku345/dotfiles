@@ -1,4 +1,4 @@
-# ADR 0024: Global gitignore deny-by-default for bare-name secret patterns
+# ADR 0025: Global gitignore deny-by-default for bare-name secret patterns
 
 ## Status
 
