@@ -275,7 +275,7 @@ git log --pretty=format:"%h %ad %s" --date=short -- '*.age'
 
 Hardening defaults are committed for npm/bun, pip, and uv to mitigate the class of attack exemplified by [Mini Shai-Hulud](https://blog.flatt.tech/entry/mini_shai_hulud) (2026-04, npm postinstall + malicious bun runtime download) and the `lightning@2.6.2/2.6.3` PyPI compromise (2026-04).
 
-For the broader developer-environment update policy covering VS Code extensions, Homebrew/Linuxbrew, apt, asdf, Codex, Claude, and high-privilege CLIs, see [ADR 0025](adr/0025-development-update-policy.md).
+For the broader developer-environment update policy covering VS Code extensions, Homebrew/Linuxbrew, apt, asdf, Codex, Claude, and high-privilege CLIs, see [ADR 0026](adr/0026-development-update-policy.md). The ADR records the policy; concrete enforcement is partial and is tracked via the follow-up issues linked there.
 
 ### Defenses in place
 
