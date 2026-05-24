@@ -8,10 +8,7 @@
 #   - Recurring: add a narrow negate pattern (e.g. `!tests/fixtures/*.key`)
 #     to that repo's .gitignore with a justifying comment.
 #     AVOID broad negates like `!*.key` — they re-open the deny gate
-#     repo-wide and become accident sources. See ADR 0025.
-#
-# Background: Issue #220, PR #216 (Claude Code session leakage),
-#             ADR 0025 (this change), ADR 0001 (baseline non-coverage).
+#     repo-wide and become accident sources.
 
 # Machine-local Claude Code config
 **/.claude/settings.local.json
