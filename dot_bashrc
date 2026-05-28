@@ -57,5 +57,13 @@ alias l='eza -ahl --git'
 alias ll='ls -ahl'
 alias tree='eza -T'
 
+# SSH agent: use the systemd user ssh-agent socket if present (docs/headless-linux-auth-setup.md).
+# -z guard never clobbers a forwarded agent; -S guard is a no-op where the service is absent.
+if [[ -z "$SSH_AUTH_SOCK" ]]; then
+    _ssh_agent_sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ssh-agent.socket"
+    [[ -S "$_ssh_agent_sock" ]] && export SSH_AUTH_SOCK="$_ssh_agent_sock"
+    unset _ssh_agent_sock
+fi
+
 # Machine-specific overrides
 [[ -f "$HOME/.bashrc.local" ]] && source "$HOME/.bashrc.local"
