@@ -7,7 +7,7 @@ Reproducible procedure for the "path X" SSH/git authentication on a headless Lin
 Assume credentials will be exfiltrated; minimize post-compromise blast radius. On a headless Linux dev box (the most-exposed machine):
 
 - Use a **GitHub-only** SSH key, passphrase-protected — so a DGX compromise can at worst push to personal GitHub (gated by passphrase capture), never reach other hosts.
-- **No agent forwarding** into or out of the box (a forwarded agent is a live signing oracle). A work key that also authenticates internal servers must never be reachable here.
+- **No agent forwarding** into or out of the box (a forwarded agent is a live signing oracle). A broadly-scoped key — one that also authenticates hosts beyond GitHub — must never be reachable here.
 - A **systemd user ssh-agent** caches the key with a bounded timeout so non-interactive git works without leaving the key decrypted indefinitely.
 - End state is YubiKey FIDO2 (touch-per-auth); this is the interim.
 
@@ -100,7 +100,7 @@ systemctl --user enable --now ssh-agent.service
 
 ## 6. Point the shell at the agent (bash)
 
-On Linux this repo manages `~/.bashrc` (`.chezmoiignore` excludes the bash configs only on macOS) and `~/.bash_profile` sources it on SSH login. Add this to the chezmoi source `dot_bashrc`:
+On Linux this repo manages `~/.bashrc` (`.chezmoiignore` excludes the bash configs only on macOS) and `~/.bash_profile` sources it on SSH login. **This block already lives in chezmoi source `dot_bashrc`, so `chezmoi apply` deploys it automatically — on a new box there is nothing to add here.** For reference:
 
 ```bash
 if [[ -z "$SSH_AUTH_SOCK" ]]; then
@@ -110,7 +110,7 @@ if [[ -z "$SSH_AUTH_SOCK" ]]; then
 fi
 ```
 
-Then `chezmoi apply ~/.bashrc`. The `-S` guard makes it a no-op on machines without the service; the `-z` guard never clobbers an already-set (e.g. forwarded) agent. `${XDG_RUNTIME_DIR:-/run/user/$(id -u)}` keeps it working even if `XDG_RUNTIME_DIR` is unset in the session.
+The `-S` guard makes it a no-op on machines without the service; the `-z` guard never clobbers an already-set (e.g. forwarded) agent. `${XDG_RUNTIME_DIR:-/run/user/$(id -u)}` keeps it working even if `XDG_RUNTIME_DIR` is unset in the session.
 
 (On a fish-based Linux box you would use a `~/.config/fish/conf.d/*.fish` snippet with equivalent logic — but note this repo excludes `~/.config/fish` on Linux, so that path is not chezmoi-managed here.)
 
@@ -137,4 +137,4 @@ ssh-add -l                                              # only id_ed25519_github
 
 - Switch personal repos from HTTPS to SSH remotes (`git remote set-url origin git@github.com:<user>/<repo>.git`) so pushes use this key and no HTTPS token is needed.
 - Old/vestigial on-disk keys should be quarantined or removed once confirmed unused (`mv ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.quarantined`; verify git + login still work; restore if anything breaks).
-- The work key (which also authenticates internal servers) must never be forwarded here: on the client side use `ForwardAgent no` + `IdentityAgent none` for this host, and on this box `AllowAgentForwarding no` (step 4).
+- A broadly-scoped key (one that authenticates hosts beyond GitHub) must never be forwarded here: on the client side use `ForwardAgent no` + `IdentityAgent none` for this host, and on this box `AllowAgentForwarding no` (step 4).
