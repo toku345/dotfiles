@@ -1,6 +1,6 @@
 # Headless Linux Git Auth Setup (DGX Spark / clean-install reproducible)
 
-Reproducible procedure for the "path X" SSH/git authentication on a headless Linux box (e.g. DGX Spark, Ubuntu aarch64), per [Issue #231](https://github.com/toku345/dotfiles/issues/231).
+Reproducible procedure for the "path X" SSH/git authentication on a headless Linux box (e.g. DGX Spark, Ubuntu aarch64).
 
 ## Goal and threat model
 
