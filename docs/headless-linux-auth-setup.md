@@ -6,9 +6,9 @@ Reproducible procedure for the "path X" SSH/git authentication on a headless Lin
 
 Assume credentials will be exfiltrated; minimize post-compromise blast radius. On a headless Linux dev box (the most-exposed machine):
 
-- Use a **GitHub-only** SSH key, passphrase-protected — so a DGX compromise can at worst push to personal GitHub (gated by passphrase capture), never reach other hosts.
+- Use a **GitHub-only** SSH key, passphrase-protected — so a DGX compromise can at worst push to personal GitHub, never reach other hosts. Durable theft of the key is gated by passphrase capture (the key never leaves the box usable without it); an active session within the agent's TTL window can still push without the passphrase (see ADR 0027 Consequences).
 - **No agent forwarding** into or out of the box (a forwarded agent is a live signing oracle). A broadly-scoped key — one that also authenticates hosts beyond GitHub — must never be reachable here.
-- A **systemd user ssh-agent** caches the key with a bounded timeout so non-interactive git works without leaving the key decrypted indefinitely.
+- A **systemd user ssh-agent** caches the key with a bounded timeout so non-interactive git — within a login/interactive session and its child processes, which inherit `SSH_AUTH_SOCK` from `~/.bashrc` — works without leaving the key decrypted indefinitely. (A fresh `ssh box '<cmd>'` runs a non-login non-interactive shell that does not source `~/.bashrc`, so it has no `SSH_AUTH_SOCK` unless it is set explicitly.)
 - End state is YubiKey FIDO2 (touch-per-auth); this is the interim.
 
 ## Prerequisites
@@ -104,13 +104,13 @@ On Linux this repo manages `~/.bashrc` (`.chezmoiignore` excludes the bash confi
 
 ```bash
 _ssh_agent_sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ssh-agent.socket"
-if [[ ! -S "$SSH_AUTH_SOCK" && -S "$_ssh_agent_sock" ]]; then
+if [[ -S "$_ssh_agent_sock" ]]; then
     export SSH_AUTH_SOCK="$_ssh_agent_sock"
 fi
 unset _ssh_agent_sock
 ```
 
-The `-S "$_ssh_agent_sock"` test makes it a no-op on machines without the service. The `! -S "$SSH_AUTH_SOCK"` test sets the systemd socket only when the inherited value is empty or stale/dead — so a live agent is never clobbered, but a dead value (e.g. from a reconnected tmux/cmux session) does not silently block git. `${XDG_RUNTIME_DIR:-/run/user/$(id -u)}` keeps it working even if `XDG_RUNTIME_DIR` is unset in the session.
+The `-S "$_ssh_agent_sock"` test makes it a no-op on machines without the service. When the systemd socket exists this box always points `SSH_AUTH_SOCK` at it, deliberately ignoring any inherited value — by design, since the box is GitHub-only with no agent forwarding (step 4 / ADR 0027): a stray forwarded or broader-scoped agent is never used, and a stale inherited value (e.g. from a reconnected tmux/cmux session) cannot silently block git. `${XDG_RUNTIME_DIR:-/run/user/$(id -u)}` keeps it working even if `XDG_RUNTIME_DIR` is unset in the session. If the systemd socket is absent, `SSH_AUTH_SOCK` keeps its inherited value (empty on a forwarding-free login), so git prompts for the passphrase or fails loudly rather than using a hidden agent. (`-S` is a type test, not a liveness probe: if the agent crashed but left a stale socket inode, `SSH_AUTH_SOCK` is pointed at it and git fails loudly with a connection error — still no hidden agent.)
 
 (On a fish-based Linux box you would use a `~/.config/fish/conf.d/*.fish` snippet with equivalent logic — but note this repo excludes `~/.config/fish` on Linux, so that path is not chezmoi-managed here.)
 

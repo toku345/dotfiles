@@ -57,11 +57,12 @@ alias l='eza -ahl --git'
 alias ll='ls -ahl'
 alias tree='eza -T'
 
-# SSH agent: use the systemd user ssh-agent socket if present (docs/headless-linux-auth-setup.md).
-# Override only when no live agent socket is inherited from the parent session: a non-empty but
-# dead SSH_AUTH_SOCK (stale tmux/cmux env, crashed agent) would otherwise silently block git.
+# SSH agent: always prefer the systemd user ssh-agent socket when it exists.
+# This box is GitHub-only with no agent forwarding (ADR 0027), so we deliberately ignore any inherited
+# SSH_AUTH_SOCK — a stray forwarded or broader-scoped agent is never used here, and a stale inherited
+# value cannot silently block git. No-op (keeps the inherited value) on machines without the service.
 _ssh_agent_sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ssh-agent.socket"
-if [[ ! -S "$SSH_AUTH_SOCK" && -S "$_ssh_agent_sock" ]]; then
+if [[ -S "$_ssh_agent_sock" ]]; then
     export SSH_AUTH_SOCK="$_ssh_agent_sock"
 fi
 unset _ssh_agent_sock
