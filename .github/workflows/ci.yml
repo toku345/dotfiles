@@ -170,6 +170,9 @@ jobs:
       - name: Validate bundled Codex agents and licenses
         run: python3 tests/codex/verify_pr_review_bundle.py
 
+      - name: Validate pr-review verifier fail-closed behavior
+        run: python3 tests/codex/test_verify_pr_review_bundle_negative.py
+
   fish-syntax:
     name: Fish Syntax Check
     runs-on: ubuntu-latest
