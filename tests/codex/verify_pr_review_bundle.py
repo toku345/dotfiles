@@ -165,7 +165,7 @@ PROCEDURE_SKILL_SNIPPETS = [
     "the first output line must be either `COVERAGE_OK",
     "`FATAL_COVERAGE_ERROR",
     "missing a first-line `COVERAGE_OK ...` or `FATAL_COVERAGE_ERROR ...` sentinel",
-    "fatal coverage error",
+    "Fail closed before Stage 2 or aggregation if any specialist output reports a fatal coverage error",
     "unable to verify the packet",
     "Review-only contract: do not edit files",
     "`wait_agent` with multiple targets returns when a target reaches a final status",
