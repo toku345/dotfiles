@@ -5,11 +5,11 @@ Status: Draft (2026-05-18, rev.8 — authoritative diff packet + coverage-failur
 
 ## Context
 
-`dot_local/bin/executable_triple-review` (1144 lines bash) is the pre-PR review gate. It runs three reviewer legs (`PR` = `claude -p /pr-review-toolkit:review-pr`, `SEC` = `claude -p /security-review`, `ADV` = `node codex-companion.mjs adversarial-review`) in parallel and aggregates findings via a fourth `claude -p` call.
+`dot_local/bin/executable_triple-review` (1144 lines bash) is the pre-PR review gate. It runs three reviewer legs (`PR` = `claude -p /pr-review-toolkit:review-pr`, `SEC` = `claude -p /security-review`, `ADV` = `node codex-companion.mjs adversarial-review`) in parallel and aggregates findings via another `claude -p` call.
 
 Two converging pressures motivate a rework:
 
-1. **2026-06-15 Claude Code pricing change** — `claude -p` invocations begin consuming Max plan's separate $100/mo Agent SDK credit budget rather than counting against the subscription rate limits. The current script makes 4 `claude -p` calls per run. Source: [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) (Anthropic Help Center).
+1. **2026-06-15 Claude Code pricing change** — `claude -p` invocations begin consuming Max plan's separate $100/mo Agent SDK credit budget rather than counting against the subscription rate limits. The current script makes 3 `claude -p` calls per run plus one Codex adversarial leg. Source: [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) (Anthropic Help Center).
 2. **Implementation fragility** — Issues #189 (per-leg timeout missing), #197 (PATH-stripped startup), #201 (3-factor hang: `claude_p_neutral` × `--wait` × production-scale diff), #204 (positive-validator gate), #205 (enrich FAILED marker) all stem from the bash + `claude -p` orchestration layer. Each fix adds complexity rather than removing root causes.
 
 Additionally:
@@ -250,12 +250,13 @@ Task IDs below use `T<n>` to avoid collision with GitHub Issue numbering (e.g., 
 - [ ] **No-PR fail-closed verified**: smoke test on a branch without a PR aborts with actionable error message; same branch with `ALLOW_NO_PR=1` proceeds with `origin/HEAD` fallback and a visible degraded-coverage warning in the output
 - [x] **Explicit-base bypass verified**: `--base main` skipped all `gh` checks, resolved `main` to `origin/main`, validated the commit, and collected the committed diff before spawning specialists
 - [ ] **Base-ref normalization verified**: auto-detected PR review fetches the reported base branch and verifies `FETCH_HEAD` equals `baseRefOid`; manual branch review accepts immutable OIDs directly or fetches validated origin branch names through `FETCH_HEAD`; unresolved or unsafe bases abort before diff collection
+- [x] **Auto-PR happy-path smoke verified on PR #215**: Codex 0.135.0 loaded `~/.codex/skills/pr-review/SKILL.md`, read bundled `references/review-criteria.md`, resolved PR base `main` / `98c935a756b912fe8704d00d47c72dfb802528f7`, fetched `refs/heads/main`, verified `FETCH_HEAD^{commit}` matched `baseRefOid`, wrote an authoritative diff packet, spawned 7 Stage-1 specialists with bounded fanout, validated matching `COVERAGE_OK` sentinels, skipped Stage 2 because Critical candidates existed, and passed final worktree + unchanged-HEAD guards
 - [ ] **Clean-worktree guard verified**: smoke test with a deliberately dirty worktree (uncommitted tracked-modified or untracked-non-ignored file) aborts with actionable error
 - [ ] **gh-auth precondition verified**: smoke test on a system with stale `gh` auth aborts early with a recovery hint, not a silent silent-fail downstream
 - [ ] **Sandbox-blocked-`gh` precondition verified**: smoke test invoking the skill under an inadequate `--sandbox` mode (whichever Phase 3 determined insufficient) aborts early with a recovery hint specifying the correct `--sandbox` flag (and mentions the `--base <branch>` escape hatch), rather than failing mid-flow on the gh shell-out
 - [ ] `codex exec` on a tiny test PR completes end-to-end (smoke test)
 
-Current verification boundary: CI currently checks bundle integrity and static contract drift via `tests/codex/verify_pr_review_bundle.py`; it does **not** run a live `codex exec` review. Static checks now cover severity normalization, fatal-on-missing-context wording, `$HEAD_REF`-bound collection, authoritative diff-packet hash requirements, and coverage-failure abort wording, but the Phase 4 runtime smoke cases remain manual. Until Phase 5 compares the new skill against legacy `triple-review` on historical PRs, legacy `triple-review` remains the fallback / authoritative gate for cutover decisions.
+Current verification boundary: CI currently checks bundle integrity and static contract drift via `tests/codex/verify_pr_review_bundle.py`; it does **not** run a live `codex exec` review. Static checks now cover severity normalization, fatal-on-missing-context wording, `$HEAD_REF`-bound collection, authoritative diff-packet hash requirements, and coverage-failure abort wording. One live happy-path review has completed on PR #215, but the negative fail-closed smoke cases remain manual. Until Phase 5 compares the new skill against legacy `triple-review` on historical PRs, legacy `triple-review` remains the fallback / authoritative gate for cutover decisions.
 
 **Phase 5 (T9)**:
 - [ ] 3 historical PRs reviewed by both old `triple-review` and new Codex skill
