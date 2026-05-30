@@ -765,6 +765,22 @@ STUB
   [[ "$output" == *"欠損として扱い"* ]]
 }
 
+@test "T2-17B build_aggregation_prompt: review gate policy suppresses nit churn" {
+  local a="$SCRATCH_DIR/pr.md" b="$SCRATCH_DIR/sec.md" c="$SCRATCH_DIR/adv.md"
+  printf 'PR finding\n' > "$a"
+  printf 'SEC finding\n' > "$b"
+  printf 'ADV finding\n' > "$c"
+  run bash -c "source '$SRC_SCRIPT'; build_aggregation_prompt '$a' '$b' '$c'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Review gate policy"* ]]
+  [[ "$output" == *"merge を止めるべき事実"* ]]
+  [[ "$output" == *"nit・style・好み・根拠の薄い懸念・過剰な書き換え提案を修正キューに入れない"* ]]
+  [[ "$output" == *"一致だけでは対応必須にしない"* ]]
+  [[ "$output" == *"最大 5 件"* ]]
+  [[ "$output" == *"再レビュー文脈"* ]]
+  [[ "$output" == *"新しい nit / style / optional refactor suggestion を増やして反復ループを伸ばさない"* ]]
+}
+
 # =============================================================================
 # Tier 2-F: make_workdir
 # =============================================================================
