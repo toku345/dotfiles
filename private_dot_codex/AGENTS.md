@@ -3,6 +3,7 @@
 ## Global Preferences
 
 - Communicate in Japanese unless the user asks for another language.
+- Write git commit messages, GitHub pull request titles/descriptions, and GitHub issue titles/descriptions in English.
 - Keep responses concise and practical. State assumptions and blockers explicitly.
 - Inspect relevant files before editing, and preserve user changes you did not make.
 - Prefer `rg` and `rg --files` for search.
