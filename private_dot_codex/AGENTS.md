@@ -11,11 +11,11 @@
 
 ## Code Review Guidelines
 
-- Treat built-in review as the everyday floor, specialist review skills as heavy gates, and coaching workflows as learning aids. Do not run heavy multi-agent gates for typo-level or purely mechanical changes.
+- Treat built-in review as the everyday floor and specialist review skills as heavy gates. Do not run heavy multi-agent gates for typo-level or purely mechanical changes.
 - Review gates should identify facts that may block merge, not maximize the number of findings. Prioritize concrete user impact, operational risk, security/data-loss risk, or silent false-green risk.
 - Do not put nits, style preferences, speculative rewrites, or weakly grounded concerns into the fix queue. Record them as optional suggestions only when they materially help the user.
 - For blocker findings, include the affected file/line when available, the observed failure mode, why it matters, and the smallest reasonable fix. If one part is missing but the risk may be severe, call out the missing verification instead of dismissing the issue.
-- On re-review, focus on whether prior Critical/Important findings were resolved. Raise new findings only when they are clear merge blockers.
+- On re-review, focus on whether prior high-priority (Critical/Important-equivalent) findings were resolved. Raise new findings only when they are clear merge blockers.
 
 ## Git Commit Messages
 

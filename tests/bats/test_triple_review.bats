@@ -772,13 +772,26 @@ STUB
   printf 'ADV finding\n' > "$c"
   run bash -c "source '$SRC_SCRIPT'; build_aggregation_prompt '$a' '$b' '$c'"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Review gate policy"* ]]
+  [[ "$output" == *"レビュー gate の方針:"* ]]
   [[ "$output" == *"merge を止めるべき事実"* ]]
   [[ "$output" == *"nit・style・好み・根拠の薄い懸念・過剰な書き換え提案を修正キューに入れない"* ]]
   [[ "$output" == *"一致だけでは対応必須にしない"* ]]
-  [[ "$output" == *"最大 5 件"* ]]
   [[ "$output" == *"再レビュー文脈"* ]]
   [[ "$output" == *"新しい nit / style / optional refactor suggestion を増やして反復ループを伸ばさない"* ]]
+}
+
+@test "T2-17C build_aggregation_prompt: candidate and no-action sections each keep max-five cap" {
+  local a="$SCRATCH_DIR/pr.md" b="$SCRATCH_DIR/sec.md" c="$SCRATCH_DIR/adv.md"
+  printf 'PR finding\n' > "$a"
+  printf 'SEC finding\n' > "$b"
+  printf 'ADV finding\n' > "$c"
+  run bash -c "source '$SRC_SCRIPT'; build_aggregation_prompt '$a' '$b' '$c'"
+  [ "$status" -eq 0 ]
+  local consider no_action
+  consider=$(printf '%s\n' "$output" | awk '$0 == "### 要検討" {f=1; next} $0 == "### 対応不要" {f=0} f {print}')
+  no_action=$(printf '%s\n' "$output" | awk '$0 == "### 対応不要" {f=1; next} $0 == "### 矛盾" {f=0} f {print}')
+  [[ "$consider" == *"最大 5 件"* ]]
+  [[ "$no_action" == *"最大 5 件"* ]]
 }
 
 # =============================================================================
