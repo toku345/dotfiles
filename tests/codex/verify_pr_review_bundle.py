@@ -16,7 +16,9 @@ import tomllib
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 AGENTS_DIR = REPO_ROOT / "private_dot_codex" / "agents"
-SKILL = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review" / "SKILL.md"
+SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
+SKILL = SKILL_DIR / "SKILL.md"
+REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
 
 EXPECTED_AGENTS = {
     "adversarial-reviewer": {
@@ -96,6 +98,13 @@ EXPECTED_FILE_HASHES = {
 
 REQUIRED_SKILL_SNIPPETS = [
     "Intended successor to the legacy bash `triple-review` orchestrator.",
+    "using the bundled `references/review-criteria.md` gate policy",
+    "Use the bundled `references/review-criteria.md` as the source of truth",
+    "Optimize for merge decisions, not finding count.",
+    "Do not put nits, style preferences, speculative rewrites, or weakly grounded concerns into the fix queue.",
+    "Important findings are capped at 5",
+    "Suggestions are capped at 3",
+    "Re-review verifies prior Critical/Important findings",
     "If the command fails, abort with the command output",
     "skip `gh` entirely",
     'git check-ref-format --branch "$BASE"',
@@ -166,6 +175,7 @@ PROCEDURE_SKILL_SNIPPETS = [
 ]
 
 CRITICAL_NORMALIZATION_SNIPPETS = [
+    "Apply `references/review-criteria.md` before trusting specialist labels.",
     'Treat a finding as "Critical"',
     'Treat a finding as "Important"',
     "`security-reviewer` reports `Severity: High`",
@@ -174,6 +184,9 @@ CRITICAL_NORMALIZATION_SNIPPETS = [
     "`Severity: MEDIUM`",
     "case-insensitive equivalent",
     "`pr-test-analyzer` reports a Critical Gap or Important Improvement",
+    "AND the finding explains a concrete merge-blocking risk from the committed branch diff.",
+    "Do not promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important.",
+    "missing verification stated explicitly instead of silently dropping it",
 ]
 
 FINAL_GUARD_SNIPPETS = [
@@ -182,6 +195,20 @@ FINAL_GUARD_SNIPPETS = [
     "If output is non-empty, abort",
     "Run `git rev-parse HEAD` again",
     "HEAD changed during review",
+]
+
+REQUIRED_REVIEW_CRITERIA_SNIPPETS = [
+    "# pr-review Review Criteria",
+    "skill-bundled detailed gate policy for `$pr-review`",
+    "Global `AGENTS.md` / `CLAUDE.md` files should keep only the short cross-repository policy",
+    "Optimize for merge decisions, not finding count.",
+    "grounded in the committed branch diff",
+    "Do not put nits, style preferences, speculative rewrites, or weakly grounded concerns into the fix queue.",
+    "silent false-green",
+    "Important findings are capped at 5",
+    "Suggestions are capped at 3",
+    "Nits do not enter the fix queue.",
+    "Re-review verifies prior Critical/Important findings.",
 ]
 
 FORBIDDEN_ACTIVE_AGENT_SNIPPETS = [
@@ -230,6 +257,14 @@ def verify_license_files() -> None:
         actual_hash = sha256(path)
         if actual_hash != expected_hash:
             fail(f"{rel}: sha256 mismatch: expected {expected_hash}, got {actual_hash}")
+
+
+def verify_review_criteria() -> None:
+    if not REVIEW_CRITERIA.is_file():
+        fail(f"missing bundled review criteria: {REVIEW_CRITERIA.relative_to(REPO_ROOT)}")
+    raw = REVIEW_CRITERIA.read_text(encoding="utf-8")
+    for needle in REQUIRED_REVIEW_CRITERIA_SNIPPETS:
+        require_contains(raw, needle, str(REVIEW_CRITERIA))
 
 
 def verify_agent_toml() -> None:
@@ -356,6 +391,7 @@ def verify_skill_contract() -> None:
 
 def main() -> None:
     verify_license_files()
+    verify_review_criteria()
     verify_agent_toml()
     verify_skill_contract()
     print("OK: Codex pr-review bundle validation passed")

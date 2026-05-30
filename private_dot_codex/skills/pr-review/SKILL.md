@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Comprehensive pre-PR review orchestrator. Spawns up to 8 specialist subagents (code-reviewer, security-reviewer, adversarial-reviewer, pr-test-analyzer, comment-analyzer, silent-failure-hunter, type-design-analyzer, code-simplifier) on the current branch's changes against its base ref, then synthesizes Critical / Important / Suggestions / Strengths findings. Use before creating a pull request as a quality gate. Intended successor to the legacy bash `triple-review` orchestrator.
+description: Comprehensive pre-PR review orchestrator. Spawns up to 8 specialist subagents (code-reviewer, security-reviewer, adversarial-reviewer, pr-test-analyzer, comment-analyzer, silent-failure-hunter, type-design-analyzer, code-simplifier) on the current branch's changes against its base ref, then synthesizes Critical / Important / Suggestions / Strengths findings using the bundled `references/review-criteria.md` gate policy. Use before creating a pull request as a quality gate. Intended successor to the legacy bash `triple-review` orchestrator.
 ---
 
 # pr-review
@@ -8,6 +8,17 @@ description: Comprehensive pre-PR review orchestrator. Spawns up to 8 specialist
 ## Goal
 
 Run a comprehensive specialist review of the current branch's changes against its base, then synthesize findings into a single actionable report.
+
+## Review Criteria
+
+Use the bundled `references/review-criteria.md` as the source of truth for severity normalization, output budgeting, and re-review behavior. The short global `AGENTS.md` / `CLAUDE.md` policy explains when to choose built-in review versus heavy gates; this skill file and its bundled reference define how `$pr-review` gates a change once invoked.
+
+Apply these high-level constraints throughout the Procedure:
+- Optimize for merge decisions, not finding count.
+- Do not put nits, style preferences, speculative rewrites, or weakly grounded concerns into the fix queue.
+- Important findings are capped at 5 in the final aggregation; Suggestions are capped at 3.
+- If evidence is incomplete but the risk may be severe, state the missing verification explicitly instead of silently dropping the finding.
+- Re-review verifies prior Critical/Important findings and should not extend the loop with new nits, style feedback, or optional refactors.
 
 ## Preconditions
 
@@ -115,17 +126,22 @@ After preconditions pass:
    - Each successful specialist returns the coverage sentinel followed by markdown findings.
 
 4. **Scan Stage 1 output and normalize severity before Stage 2**:
+   - Apply `references/review-criteria.md` before trusting specialist labels. Specialist labels are useful signals, but final severity must still satisfy the bundled criteria.
    - Treat a finding as "Critical" if:
      - The specialist explicitly labels it Critical, OR
      - `code-reviewer` reports confidence ≥ 90, OR
      - `adversarial-reviewer` returns `needs-attention` framing with any finding confidence ≥ 0.7, OR
      - `silent-failure-hunter` explicitly labels the finding CRITICAL, OR
      - `security-reviewer` reports `Severity: High` / `Severity: HIGH` / any case-insensitive equivalent
+     - AND the finding explains a concrete merge-blocking risk from the committed branch diff.
    - Treat a finding as "Important" if:
      - The specialist explicitly labels it Important, High, or HIGH without meeting the Critical rules above, OR
      - `security-reviewer` reports `Severity: Medium` / `Severity: MEDIUM` / any case-insensitive equivalent, OR
      - `pr-test-analyzer` reports a Critical Gap or Important Improvement that is not already Critical
+     - AND the finding is likely worth fixing before merge but is not a proven blocker.
    - Treat remaining advisory findings as Suggestions unless the specialist explicitly marks them as positive observations.
+   - Do not promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important.
+   - If evidence is incomplete but the risk may be severe, keep the item with the missing verification stated explicitly instead of silently dropping it.
 
 5. **Stage 2 — conditional `code-simplifier` pass**:
    - If Stage 1 surfaced **no** Critical findings, record `expected_stage2 = {code-simplifier}`, then spawn `code-simplifier` with the same target description, `$BASE_REF`, `$BASE_COMMIT`, `$HEAD_REF`, changed-file list, `git status --short`, `git log --no-decorate "$BASE_COMMIT..$HEAD_REF"`, diff packet path, byte count, SHA-256, Scope contract, Coverage sentinel contract, and review-only contract, plus a brief Stage 1 summary so it knows what's already flagged. Request advisory simplification findings only.
@@ -156,10 +172,10 @@ After preconditions pass:
   - Why it matters: ...
   - Suggested fix: ...
 
-## Important Issues (X found)
+## Important Issues (X shown, top 5)
 - [<specialist>]: <description> [<file>:<line>]
 
-## Suggestions (X found)
+## Suggestions (X shown, max 3)
 - [<specialist>]: <description> [<file>:<line>]
 
 ## Strengths
@@ -169,7 +185,7 @@ After preconditions pass:
 1. Fix Critical issues first
 2. Address Important issues
 3. Consider Suggestions
-4. Re-run review after fixes
+4. Re-run review after fixes to verify prior Critical/Important findings
 ```
 
 ## See also
