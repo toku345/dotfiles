@@ -21,6 +21,10 @@ network_access = false
 multi_agent = true
 apps = true
 guardian_approval = true
+terminal_resize_reflow = true
+memories = true
+network_proxy = true
+mentions_v2 = true
 
 [plugins."github@openai-curated"]
 enabled = true
