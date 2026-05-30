@@ -246,6 +246,9 @@ Task IDs below use `T<n>` to avoid collision with GitHub Issue numbering (e.g., 
 - [x] Per-source SPDX/license verification recorded and enforced: bundled LICENSE/NOTICE SHA-256 values are pinned by `tests/codex/verify_pr_review_bundle.py`
 
 **Phase 4 (T8)**:
+
+Version note: the initial design and Phase 3 PoC references intentionally retain Codex CLI 0.130.0 because that was the version used to verify `features.multi_agent`, skill path loading, and non-interactive `$pr-review` syntax. The PR #215 dogfood run below used Codex CLI 0.135.0 and observed no breaking changes in those contracts.
+
 - [x] `SKILL.md` includes: description, **Preconditions section** (gh auth, terminal direct, clean worktree, PR existence with `ALLOW_NO_PR` opt-in), procedure (Stage 1 parallel spawn + explicit wait polling + advisory Stage 2 `code-simplifier`), **explicit applicability logic** (`operational_paths` + path categories from `git diff --name-only`, content categories from the full diff packet, not reliance on description auto-dispatch), available specialists, scope alignment via `gh pr view --json baseRefName,baseRefOid`, authoritative diff packet hash, final dirty-worktree + unchanged-HEAD guard, output format
 - [ ] **No-PR fail-closed verified**: smoke test on a branch without a PR aborts with actionable error message; same branch with `ALLOW_NO_PR=1` proceeds with `origin/HEAD` fallback and a visible degraded-coverage warning in the output
 - [x] **Explicit-base bypass verified**: `--base main` skipped all `gh` checks, resolved `main` to `origin/main`, validated the commit, and collected the committed diff before spawning specialists
