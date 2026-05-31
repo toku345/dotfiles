@@ -6,6 +6,7 @@
 .claude/plans/
 .claude/todos/
 .claude/projects/
+.codex/pr-review-coach/
 
 # Plaintext age private key — only key.txt.age belongs in the repo.
 key.txt

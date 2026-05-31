@@ -1,13 +1,13 @@
 ---
 name: pr-review-coach
-description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit>. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
+description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit>. Asks exactly one question at a time and stores resumable local state under .codex/pr-review-coach/. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
 ---
 
 # pr-review-coach
 
 ## Goal
 
-Help the user understand the committed branch diff before a gate review. Produce review questions, reading focus, and learning hooks, not a fix queue.
+Help the user understand the committed branch diff before a gate review. Run a one-question-at-a-time coaching loop with a local state file, so the conversation can resume without turning into a fix queue.
 
 This skill is intentionally separate from `$pr-review`:
 - `$pr-review-coach` builds the user's review judgment.
@@ -19,11 +19,13 @@ This skill is intentionally separate from `$pr-review`:
 - Require an explicit `--base <ref-or-commit>` in the user prompt. If it is missing, stop and ask the user to rerun with `--base`.
 - Treat `<base>` as an already available local ref or commit. Do not run `git fetch`, `gh`, or network commands.
 - Review only committed changes in `<base>...HEAD`.
-- Do not edit files, create files, apply patches, run formatters, or dirty the worktree.
+- Do not edit project files, apply patches, run formatters, or dirty tracked files.
+- The only permitted write is the ignored local coach state file under `.codex/pr-review-coach/`.
 - Do not spawn subagents or specialist reviewers.
 - Do not use the merge-gate taxonomy `Critical`, `Important`, or `Suggestions`.
 - Do not decide whether the PR can merge.
 - Do not create a fix queue. Phrase observations as questions, reading focus, assumptions to verify, or learning notes.
+- Ask exactly one question per response unless the user explicitly asks for a summary or the coaching loop is complete.
 
 ## Preconditions
 
@@ -40,6 +42,7 @@ Run these checks before reading the diff:
 3. **Base and HEAD pinning** — Run:
    - `BASE_COMMIT=$(git rev-parse --verify "<base>^{commit}")`
    - `HEAD_REF=$(git rev-parse HEAD)`
+   - `HEAD_SHORT=$(git rev-parse --short=12 HEAD)`
    If either command fails, abort with the command output and ask the user to provide a valid local base ref or commit.
 
 ## Procedure
@@ -54,38 +57,81 @@ After preconditions pass:
 
 2. If the diff is empty, run the final guard and say there are no committed changes relative to the base.
 
-3. Read the diff for understanding, not triage:
+3. Prepare or load the local coach state:
+   - State directory: `.codex/pr-review-coach/`
+   - State file: `.codex/pr-review-coach/$HEAD_SHORT.md`
+   - The state file is local, ignored, and must not be committed.
+   - If the state file does not exist, create it after reading the diff.
+   - If it exists, load it and resume from its `current_question`.
+   - If `base_commit` or `head_ref` in the state file differs from the pinned values, create a new state file for the current `HEAD_SHORT` instead of reusing stale state.
+
+4. State file contents should be compact Markdown:
+   - `base`: the user-provided base string
+   - `base_commit`: pinned base commit
+   - `head_ref`: pinned HEAD
+   - `snapshot`: 2-3 bullets about the diff
+   - `questions`: numbered candidate questions, maximum 5
+   - `answered`: prior question/answer pairs
+   - `current_question`: the single question to ask next
+   - `review_focus`: up to 3 reading focus bullets
+   - `learning_hook`: 1-2 learning notes
+   - `ledger_draft`: notes the user can carry into their review
+
+5. Read the diff for understanding, not triage:
    - What changed?
    - Which files should the user read first?
    - What intent or assumption is visible from the diff?
    - What is still unclear from code alone?
    - What review habit would help on this PR?
 
-4. Keep output bounded:
-   - At most 5 questions.
+6. Keep output bounded:
+   - Generate at most 5 candidate questions in the state file.
+   - Output exactly 1 question in the response.
    - At most 3 review focus bullets.
-   - At most 3 learning hooks.
+   - At most 2 learning hooks.
    - Prefer one strong question over several weak ones.
 
-5. Final guard:
+7. Continuing a coaching loop:
+   - If the user answers the current question, update `answered`, advance `current_question`, and ask the next question.
+   - If the user invokes the skill again without an answer, repeat the current question with shorter context.
+   - If all questions are answered, produce the final summary and mark the state as complete.
+   - If the user asks for a summary early, produce a summary from answered items and leave the state resumable.
+
+8. Final guard:
    - Run `git status --porcelain --untracked-files=normal` again.
    - Run `git rev-parse HEAD` again and compare with `HEAD_REF`.
-   - If the worktree or HEAD changed, abort and explain that the coaching output may not match the current branch state.
+   - Ignore `.codex/pr-review-coach/` state files when interpreting worktree cleanliness.
+   - If tracked/unignored worktree content or HEAD changed, abort and explain that the coaching output may not match the current branch state.
 
 ## Output Format
 
-Use this exact section structure:
+For an active coaching turn, use this section structure:
 
 ```markdown
 # Review Coach
 
-## PR Snapshot
+## State
+- 状態ファイル:
+- 進捗:
+
+## Snapshot
 - 何が変わったか:
-- なぜ重要そうか:
 - 最初に読むべき場所:
 
-## Questions For You
+## Next Question
 1. ...
+
+## Why This Question
+- ...
+```
+
+For the final summary, use this section structure:
+
+```markdown
+# Review Coach Summary
+
+## What You Clarified
+- ...
 
 ## Review Focus
 - ...
@@ -106,4 +152,5 @@ Use this exact section structure:
 - Be concrete and grounded in the committed diff.
 - If a conclusion depends on missing information, state what to verify instead of guessing.
 - Use plain Japanese. Keep each bullet short enough to act on.
+- Keep the coaching loop one-question-at-a-time. Do not list the remaining questions unless the user asks.
 - Avoid praise, scoring, severity labels, and merge advice.
