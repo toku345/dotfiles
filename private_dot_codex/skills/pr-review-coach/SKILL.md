@@ -22,6 +22,7 @@ This skill is intentionally separate from `$pr-review`:
 - Do not edit project files, apply patches, run formatters, or dirty tracked files.
 - The only permitted write is the ignored local coach state file under `.codex/pr-review-coach/`.
 - Do not spawn subagents or specialist reviewers.
+- Do not read unrelated memory files, previous session logs, or review history. Use only the current user prompt, this skill file, the local coach state file, and the git context collected below unless the user explicitly supplies extra context.
 - Do not use the merge-gate taxonomy `Critical`, `Important`, or `Suggestions`.
 - Do not decide whether the PR can merge.
 - Do not create a fix queue. Phrase observations as questions, reading focus, assumptions to verify, or learning notes.
@@ -41,6 +42,7 @@ Run these checks before reading the diff:
 
 3. **Base and HEAD pinning** — Run:
    - `BASE_COMMIT=$(git rev-parse --verify "<base>^{commit}")`
+   - `BASE_SHORT=$(git rev-parse --short=12 "$BASE_COMMIT")`
    - `HEAD_REF=$(git rev-parse HEAD)`
    - `HEAD_SHORT=$(git rev-parse --short=12 HEAD)`
    If either command fails, abort with the command output and ask the user to provide a valid local base ref or commit.
@@ -59,11 +61,11 @@ After preconditions pass:
 
 3. Prepare or load the local coach state:
    - State directory: `.codex/pr-review-coach/`
-   - State file: `.codex/pr-review-coach/$HEAD_SHORT.md`
+   - State file: `.codex/pr-review-coach/$BASE_SHORT-$HEAD_SHORT.md`
    - The state file is local, ignored, and must not be committed.
    - If the state file does not exist, create it after reading the diff.
    - If it exists, load it and resume from its `current_question`.
-   - If `base_commit` or `head_ref` in the state file differs from the pinned values, create a new state file for the current `HEAD_SHORT` instead of reusing stale state.
+   - If `base_commit` or `head_ref` in the state file differs from the pinned values, do not reuse it. Create or use the state file derived from the current `$BASE_SHORT-$HEAD_SHORT` pair.
 
 4. State file contents should be compact Markdown:
    - `base`: the user-provided base string
