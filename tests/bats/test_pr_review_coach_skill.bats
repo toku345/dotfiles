@@ -75,8 +75,47 @@ make_state_file() {
   [ -e "$expired" ]
 }
 
+@test "cleanup-state fails loudly when state enumeration fails" {
+  mkdir -p "$STATE_ROOT/repos/repo-a"
+  local stub_dir="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/find" <<'STUB'
+#!/usr/bin/env bash
+printf 'find stub failure\n' >&2
+exit 1
+STUB
+  chmod +x "$stub_dir/find"
+
+  run --separate-stderr env PATH="$stub_dir:$PATH" bash "$CLEANUP_SCRIPT" \
+    --state-root "$STATE_ROOT"
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"find stub failure"* ]]
+  [[ "$stderr" == *"failed to enumerate state files under $STATE_ROOT/repos"* ]]
+}
+
+@test "cleanup-state fails loudly when state sorting fails" {
+  make_state_file repo-a current 203001010000
+  local stub_dir="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/sort" <<'STUB'
+#!/usr/bin/env bash
+printf 'sort stub failure\n' >&2
+exit 1
+STUB
+  chmod +x "$stub_dir/sort"
+
+  run --separate-stderr env PATH="$stub_dir:$PATH" bash "$CLEANUP_SCRIPT" \
+    --state-root "$STATE_ROOT" \
+    --max-age-days 99999
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"sort stub failure"* ]]
+  [[ "$stderr" == *"failed to sort state files under $STATE_ROOT/repos/repo-a"* ]]
+}
+
 @test "SKILL.md documented cleanup invocation uses bash and works without execute bit" {
-  grep -Fq 'bash "$SKILL_DIR/scripts/cleanup-state.sh" --state-root "$STATE_ROOT" --current "$STATE_FILE"' "$SKILL_MD"
+  grep -Fq "bash \"\$SKILL_DIR/scripts/cleanup-state.sh\" --state-root \"\$STATE_ROOT\" --current \"\$STATE_FILE\"" "$SKILL_MD"
   [ ! -x "$CLEANUP_SCRIPT" ]
 
   local expired current

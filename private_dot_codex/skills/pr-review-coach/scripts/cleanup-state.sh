@@ -69,11 +69,49 @@ delete_file() {
   fi
 }
 
+cleanup_tmp_dir() {
+  [[ -n "${tmp_dir:-}" ]] || return 0
+  rm -rf -- "$tmp_dir"
+}
+
+enumerate_state_files() {
+  local root="$1" out="$2"
+  if ! find "$root" -type f -name '*.md' -print0 >"$out"; then
+    printf 'failed to enumerate state files under %s\n' "$root" >&2
+    exit 1
+  fi
+}
+
+enumerate_repo_dirs() {
+  local root="$1" out="$2"
+  if ! find "$root" -mindepth 1 -maxdepth 1 -type d -print0 >"$out"; then
+    printf 'failed to enumerate repo state directories under %s\n' "$root" >&2
+    exit 1
+  fi
+}
+
+enumerate_repo_files() {
+  local repo_dir="$1" out="$2"
+  if ! find "$repo_dir" -type f -name '*.md' -print0 >"$out"; then
+    printf 'failed to enumerate state files under %s\n' "$repo_dir" >&2
+    exit 1
+  fi
+}
+
+sort_repo_files() {
+  local repo_dir="$1" in_file="$2" out_file="$3"
+  if ! sort -rn "$in_file" >"$out_file"; then
+    printf 'failed to sort state files under %s\n' "$repo_dir" >&2
+    exit 1
+  fi
+}
+
 state_root="$(default_state_root)"
 max_age_days="${CODEX_PR_REVIEW_COACH_MAX_AGE_DAYS:-30}"
 max_files_per_repo="${CODEX_PR_REVIEW_COACH_MAX_FILES_PER_REPO:-20}"
 dry_run=0
 current_files=()
+tmp_dir=""
 
 while (($#)); do
   case "$1" in
@@ -134,16 +172,37 @@ repos_dir="$state_root/repos"
 now="$(date +%s)"
 max_age_seconds=$((max_age_days * 86400))
 
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pr-review-coach-cleanup.XXXXXX")" || {
+  printf 'failed to create temporary directory\n' >&2
+  exit 1
+}
+trap cleanup_tmp_dir EXIT
+
+state_files="$tmp_dir/state-files.nul"
+repo_dirs="$tmp_dir/repo-dirs.nul"
+repo_files="$tmp_dir/repo-files.nul"
+repo_mtimes="$tmp_dir/repo-mtimes.tsv"
+repo_sorted="$tmp_dir/repo-sorted.tsv"
+
+enumerate_state_files "$repos_dir" "$state_files"
 while IFS= read -r -d '' file; do
   mtime="$(file_mtime "$file")"
   age=$((now - mtime))
   if (( age > max_age_seconds )); then
     delete_file "$file"
   fi
-done < <(find "$repos_dir" -type f -name '*.md' -print0)
+done <"$state_files"
 
+enumerate_repo_dirs "$repos_dir" "$repo_dirs"
 while IFS= read -r -d '' repo_dir; do
   count=0
+  enumerate_repo_files "$repo_dir" "$repo_files"
+  : >"$repo_mtimes"
+  while IFS= read -r -d '' file; do
+    printf '%s\t%s\n' "$(file_mtime "$file")" "$file" >>"$repo_mtimes"
+  done <"$repo_files"
+  sort_repo_files "$repo_dir" "$repo_mtimes" "$repo_sorted"
+
   while IFS=$'\t' read -r _mtime file; do
     [[ -n "${file:-}" ]] || continue
     [[ -f "$file" ]] || continue
@@ -151,12 +210,8 @@ while IFS= read -r -d '' repo_dir; do
     if (( count > max_files_per_repo )); then
       delete_file "$file"
     fi
-  done < <(
-    while IFS= read -r -d '' file; do
-      printf '%s\t%s\n' "$(file_mtime "$file")" "$file"
-    done < <(find "$repo_dir" -type f -name '*.md' -print0) | sort -rn
-  )
-done < <(find "$repos_dir" -mindepth 1 -maxdepth 1 -type d -print0)
+  done <"$repo_sorted"
+done <"$repo_dirs"
 
 if (( ! dry_run )); then
   find "$repos_dir" -depth -type d -empty -exec rmdir {} +
