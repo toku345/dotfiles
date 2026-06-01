@@ -5,9 +5,10 @@ updates:
     schedule:
       interval: "weekly"
     # Supply chain defense: time-based isolation (cooldown). Hold back action
-    # updates published within the last 7 days so a compromised release is
-    # likely detected and yanked before Dependabot proposes it. Mirrors the
-    # 7-day cooldown in ~/.npmrc (min-release-age) and ~/.bunfig.toml.
+    # version updates published within the last 7 days so a compromised release
+    # is likely detected and yanked before Dependabot proposes it. Security
+    # update PRs bypass cooldown and still need manual age/provenance review.
+    # Mirrors the 7-day cooldown in ~/.npmrc and ~/.bunfig.toml.
     cooldown:
       default-days: 7
     commit-message:
