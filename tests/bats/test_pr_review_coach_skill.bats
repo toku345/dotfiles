@@ -78,6 +78,20 @@ make_state_file() {
   [ -e "$new" ]
 }
 
+@test "cleanup-state preserves parent dir for not-yet-created current file" {
+  local current
+  mkdir -p "$STATE_ROOT/repos/repo-a"
+  current="$STATE_ROOT/repos/repo-a/current.md"
+
+  run bash "$CLEANUP_SCRIPT" \
+    --state-root "$STATE_ROOT" \
+    --current "$current"
+
+  [ "$status" -eq 0 ]
+  [ -d "$STATE_ROOT/repos/repo-a" ]
+  [ ! -e "$current" ]
+}
+
 @test "cleanup-state dry-run reports deletions without deleting" {
   local expired
   expired="$(make_state_file repo-a old 202001010000)"

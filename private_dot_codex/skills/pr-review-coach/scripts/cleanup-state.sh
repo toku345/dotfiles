@@ -61,6 +61,16 @@ is_current_file() {
   return 1
 }
 
+is_current_ancestor_dir() {
+  local candidate
+  candidate="$(abs_path "$1")"
+  local current
+  for current in "${current_files[@]}"; do
+    [[ "$current" == "$candidate"/* ]] && return 0
+  done
+  return 1
+}
+
 delete_file() {
   local file="$1"
   is_current_file "$file" && return 0
@@ -185,6 +195,7 @@ repo_dirs="$tmp_dir/repo-dirs.nul"
 repo_files="$tmp_dir/repo-files.nul"
 repo_mtimes="$tmp_dir/repo-mtimes.tsv"
 repo_sorted="$tmp_dir/repo-sorted.tsv"
+empty_dirs="$tmp_dir/empty-dirs.nul"
 
 enumerate_state_files "$repos_dir" "$state_files"
 while IFS= read -r -d '' file; do
@@ -216,5 +227,15 @@ while IFS= read -r -d '' repo_dir; do
 done <"$repo_dirs"
 
 if (( ! dry_run )); then
-  find "$repos_dir" -depth -type d -empty -exec rmdir {} +
+  if ! find "$repos_dir" -depth -type d -empty -print0 >"$empty_dirs"; then
+    printf 'failed to enumerate empty state directories under %s\n' "$repos_dir" >&2
+    exit 1
+  fi
+  while IFS= read -r -d '' dir; do
+    is_current_ancestor_dir "$dir" && continue
+    if ! rmdir -- "$dir"; then
+      printf 'failed to remove empty state directory: %s\n' "$dir" >&2
+      exit 1
+    fi
+  done <"$empty_dirs"
 fi
