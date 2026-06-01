@@ -1,3 +1,24 @@
+# Supply chain defense: time-based isolation (cooldown). Refuses to install
+# npm package versions published within the last N days, so a malicious
+# version is likely detected and unpublished/yanked before it ever lands on
+# disk. This is the layer `ignore-scripts` (below) cannot provide: many
+# payloads run at require/import time from the package main entry, not via
+# lifecycle scripts, so the script gate alone does not stop them.
+#
+# Unit is DAYS. npm flattens this to `--before = now - 86400000ms * value`
+# (verified in npm 11.12.1 @npmcli/config definitions.js). 7 days matches
+# ~/.bunfig.toml `minimumReleaseAge = 604800` and uv's `exclude-newer`.
+# Requires npm >= 11.10.0; older npm silently ignores it (fail-open on the
+# cooldown only — `ignore-scripts` still applies).
+#
+# Recovery: for an urgent patch newer than the window, override per-
+# invocation with `npm install --min-release-age=0 <pkg>` (invocation-wide,
+# like all npm install flags — affects every transitive dep resolved in that
+# command). npm has no per-package cooldown exclude (unlike bun's
+# minimumReleaseAgeExcludes). See docs/security.md "Recovery workflow".
+# Reference: https://docs.npmjs.com/cli/v11/using-npm/config#min-release-age
+min-release-age=7
+
 # Supply chain defense: disable npm lifecycle scripts (preinstall/postinstall
 # /install/prepare). Scope: npm only. bun does not read ~/.npmrc for this
 # setting — its equivalent lives in ~/.bunfig.toml (`[install] ignoreScripts`).
