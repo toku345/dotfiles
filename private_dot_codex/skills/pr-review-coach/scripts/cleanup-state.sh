@@ -12,7 +12,9 @@ Options:
   --state-root DIR        State root. Default:
                           ${CODEX_PR_REVIEW_COACH_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach}
   --max-age-days N        Delete state files older than N days. Default: 30.
-  --max-files-per-repo N  Keep at most N newest state files per repo. Default: 20.
+  --max-files-per-repo N  Keep the N newest state files per repo. Default: 20.
+                          Files passed with --current are always preserved,
+                          even when that exceeds this cap.
   --current PATH          Never delete this state file. May be repeated.
   --dry-run               Print files that would be deleted without deleting.
   -h, --help              Show this help.

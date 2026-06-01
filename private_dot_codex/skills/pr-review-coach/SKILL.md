@@ -75,7 +75,7 @@ After preconditions pass:
    - If the state file does not exist, create it after reading the diff.
    - If it exists, load it and resume from its `current_question`.
    - If `base_commit` or `head_ref` in the state file differs from the pinned values, do not reuse it. Create or use the state file derived from the current `$BASE_SHORT-$HEAD_SHORT` pair.
-   - Cleanup policy is centralized in `scripts/cleanup-state.sh`: delete state files older than 30 days and keep at most 20 newest files per repo, always preserving `$STATE_FILE`.
+   - Cleanup policy is centralized in `scripts/cleanup-state.sh`: delete state files older than 30 days, keep the 20 newest files per repo, and always preserve `$STATE_FILE` even when that exceeds the cap.
 
 4. State file contents should be compact Markdown:
    - `status`: `active` or `complete`

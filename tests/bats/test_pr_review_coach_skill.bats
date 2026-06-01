@@ -60,6 +60,24 @@ make_state_file() {
   [ -e "$new" ]
 }
 
+@test "cleanup-state preserves current file during count pruning" {
+  local current mid new
+  current="$(make_state_file repo-a current 202601010000)"
+  mid="$(make_state_file repo-a mid 202601010100)"
+  new="$(make_state_file repo-a new 202601010200)"
+
+  run bash "$CLEANUP_SCRIPT" \
+    --state-root "$STATE_ROOT" \
+    --max-age-days 99999 \
+    --max-files-per-repo 2 \
+    --current "$current"
+
+  [ "$status" -eq 0 ]
+  [ -e "$current" ]
+  [ -e "$mid" ]
+  [ -e "$new" ]
+}
+
 @test "cleanup-state dry-run reports deletions without deleting" {
   local expired
   expired="$(make_state_file repo-a old 202001010000)"
@@ -135,6 +153,14 @@ STUB
   grep -q 'XDG_STATE_HOME' "$SKILL_MD"
   grep -q 'scripts/cleanup-state.sh' "$SKILL_MD"
   ! grep -q 'State directory: `.codex/pr-review-coach/`' "$SKILL_MD"
+}
+
+@test "SKILL.md pins clean worktree and final stale-output guards" {
+  grep -Fq "git status --porcelain --untracked-files=normal" "$SKILL_MD"
+  grep -Fq "If output is non-empty, abort and explain that the coach covers committed branch diff only" "$SKILL_MD"
+  grep -Fq "Run \`git status --porcelain --untracked-files=normal\` again" "$SKILL_MD"
+  grep -Fq "Run \`git rev-parse HEAD\` again and compare with \`HEAD_REF\`" "$SKILL_MD"
+  grep -Fq "If any worktree content or HEAD changed, abort" "$SKILL_MD"
 }
 
 @test "SKILL.md allows answer continuation without --base only from one current state file" {
