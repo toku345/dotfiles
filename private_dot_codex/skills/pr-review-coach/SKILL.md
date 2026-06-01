@@ -63,6 +63,7 @@ After preconditions pass:
    - `git log --no-decorate "$BASE_COMMIT..$HEAD_REF"`
    - `git diff --name-only "$BASE_COMMIT"..."$HEAD_REF"`
    - `git diff "$BASE_COMMIT"..."$HEAD_REF"`
+   - Run each command independently. If any command fails, abort with the command output and do not continue with partial context.
 
 2. If the diff is empty, run the final guard and say there are no committed changes relative to the base.
 

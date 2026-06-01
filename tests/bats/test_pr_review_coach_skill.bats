@@ -92,3 +92,9 @@ make_state_file() {
   grep -q 'current_question' "$SKILL_MD"
   ! grep -q 'If it is missing, stop and ask the user to rerun with `--base`' "$SKILL_MD"
 }
+
+@test "SKILL.md fail-closes when context collection commands fail" {
+  grep -q 'Run each command independently' "$SKILL_MD"
+  grep -q 'If any command fails, abort with the command output' "$SKILL_MD"
+  grep -q 'do not continue with partial context' "$SKILL_MD"
+}
