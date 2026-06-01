@@ -20,7 +20,7 @@ This skill is intentionally separate from `$pr-review`:
 - Treat `<base>` as an already available local ref or commit. Do not run `git fetch`, `gh`, or network commands.
 - Review only committed changes in `<base>...HEAD`.
 - Do not edit project files, apply patches, run formatters, or dirty tracked files.
-- The only permitted write is the external coach state file under `${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach/`.
+- The only permitted write is the external coach state file under `STATE_ROOT`; `STATE_ROOT` defaults to `${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach/` and must not be inside the target worktree.
 - Do not spawn subagents or specialist reviewers.
 - Do not read unrelated memory files, previous session logs, or review history. Use only the current user prompt, this skill file, the local coach state file, and the git context collected below unless the user explicitly supplies extra context.
 - Do not use the merge-gate taxonomy `Critical`, `Important`, or `Suggestions`.
@@ -40,6 +40,7 @@ Run these checks before reading the diff:
    - `REPO_ROOT=$(git rev-parse --show-toplevel)`
    - Compute `REPO_KEY` as the SHA-256 of the absolute `REPO_ROOT` path.
    - `STATE_ROOT=${CODEX_PR_REVIEW_COACH_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach}`
+   - Resolve `STATE_ROOT` to an absolute path before creating it. If the resolved `STATE_ROOT` is equal to `REPO_ROOT` or inside `REPO_ROOT`, abort before creating any state directory; the coach must never write state into the target worktree.
    - `STATE_DIR=$STATE_ROOT/repos/$REPO_KEY`
    - `HEAD_REF=$(git rev-parse HEAD)`
    - `HEAD_SHORT=$(git rev-parse --short=12 HEAD)`

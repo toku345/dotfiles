@@ -152,6 +152,8 @@ STUB
 @test "SKILL.md stores state outside the target worktree and delegates pruning to script" {
   grep -q 'XDG_STATE_HOME' "$SKILL_MD"
   grep -q 'scripts/cleanup-state.sh' "$SKILL_MD"
+  grep -Fq 'If the resolved `STATE_ROOT` is equal to `REPO_ROOT` or inside `REPO_ROOT`, abort before creating any state directory' "$SKILL_MD"
+  grep -q 'must never write state into the target worktree' "$SKILL_MD"
   ! grep -q 'State directory: `.codex/pr-review-coach/`' "$SKILL_MD"
 }
 
