@@ -39,7 +39,7 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 主要なツリー（自明なサブディレクトリは省略）:
 
 - `private_dot_config/` → `~/.config/`（fish, ghostty, cmux, starship, tmux, karabiner 等）
-- `private_dot_ssh/` → `~/.ssh/`
+- `private_dot_ssh/` → `~/.ssh/`（`config.tmpl` 1行目で machine-local `~/.ssh/config.local` を Include。host 固有・per-machine な SSH 設定はそこに置く＝chezmoi 非管理で `apply` 時に消えない）
 - `private_dot_claude/` → `~/.claude/`（Claude Code 設定）
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
@@ -129,6 +129,10 @@ switch (uname)
         # Linux
 end
 ```
+
+### Shell config の OS 別 deploy（非対称）
+
+上記 `switch (uname)` は config **内容**の runtime 判定。deploy **時**の取捨は別レイヤーで、`.chezmoiignore` が **Linux で `.config/fish/**` を除外・macOS で `.bashrc`/`.bash_profile` を除外**する。つまり Linux 機の shell 配線 (PATH / `SSH_AUTH_SOCK` 等) は chezmoi 管理の `dot_bashrc` に置く（fish 設定は Linux 非管理）、macOS は fish 側。Linux box で「fish に書く」と deploy されず無効になる罠。
 
 ## Bash Script Gotchas
 
