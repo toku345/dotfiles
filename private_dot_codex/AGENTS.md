@@ -18,6 +18,15 @@
 - For blocker findings, include the affected file/line when available, the observed failure mode, why it matters, and the smallest reasonable fix. If one part is missing but the risk may be severe, call out the missing verification instead of dismissing the issue.
 - On re-review, focus on whether prior high-priority (Critical/Important-equivalent) findings were resolved. Raise new findings only when they are clear merge blockers.
 
+## GitHub / Remote Git Auth
+
+- First identify the host's SSH agent path with `ssh -G github.com | rg '^identityagent '`.
+- On hosts that use 1Password SSH Agent via `IdentityAgent`, a normal terminal `ssh -T git@github.com` or `git fetch` can succeed while Codex sandboxed commands fail with SSH agent communication errors, `Operation not permitted`, or port 22 sandbox denials.
+- On SSH/headless Linux hosts, do not assume access to a desktop 1Password SSH Agent; use the host-specific SSH agent setup unless that host is explicitly configured to run 1Password SSH Agent.
+- Do not work around this by adding plaintext private keys unless the user explicitly accepts that security tradeoff.
+- For `$pr-review`, prefer fetching the base in a normal terminal and passing an immutable commit SHA to the review: run `git fetch origin refs/heads/main && git rev-parse FETCH_HEAD`, then use `$pr-review --base <sha>` in Codex.
+- For remote `git fetch` / `git push` from Codex, use per-command sandbox escalation. For PR/issue metadata, prefer the GitHub connector over `gh` when available.
+
 ## Git Commit Messages
 
 When you write or edit a git commit message, ensure the message ends with this trailer exactly once:
