@@ -1,6 +1,6 @@
 ---
 name: pr-review-coach
-description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit>. Asks exactly one question at a time and stores resumable local state under .codex/pr-review-coach/. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
+description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit>. Asks exactly one question at a time and stores resumable local state outside the target worktree. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
 ---
 
 # pr-review-coach
@@ -20,7 +20,7 @@ This skill is intentionally separate from `$pr-review`:
 - Treat `<base>` as an already available local ref or commit. Do not run `git fetch`, `gh`, or network commands.
 - Review only committed changes in `<base>...HEAD`.
 - Do not edit project files, apply patches, run formatters, or dirty tracked files.
-- The only permitted write is the ignored local coach state file under `.codex/pr-review-coach/`.
+- The only permitted write is the external coach state file under `${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach/`.
 - Do not spawn subagents or specialist reviewers.
 - Do not read unrelated memory files, previous session logs, or review history. Use only the current user prompt, this skill file, the local coach state file, and the git context collected below unless the user explicitly supplies extra context.
 - Do not use the merge-gate taxonomy `Critical`, `Important`, or `Suggestions`.
@@ -60,12 +60,18 @@ After preconditions pass:
 2. If the diff is empty, run the final guard and say there are no committed changes relative to the base.
 
 3. Prepare or load the local coach state:
-   - State directory: `.codex/pr-review-coach/`
-   - State file: `.codex/pr-review-coach/$BASE_SHORT-$HEAD_SHORT.md`
-   - The state file is local, ignored, and must not be committed.
+   - Resolve the repo root with `git rev-parse --show-toplevel`; if it fails, abort.
+   - Compute `REPO_KEY` as the SHA-256 of the absolute repo root path.
+   - State root: `${CODEX_PR_REVIEW_COACH_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach}`
+   - State directory: `$STATE_ROOT/repos/$REPO_KEY/`
+   - State file: `$STATE_ROOT/repos/$REPO_KEY/$BASE_SHORT-$HEAD_SHORT.md`
+   - Create the state directory with `mkdir -p`; if creation or a temporary write+rename preflight fails, abort instead of falling back to the target worktree.
+   - Run this skill's `scripts/cleanup-state.sh --state-root "$STATE_ROOT" --current "$STATE_FILE"` before creating or updating state. If cleanup fails, warn and continue; cleanup failure must not alter the coaching result.
+   - The state file is outside the target worktree and must not be committed.
    - If the state file does not exist, create it after reading the diff.
    - If it exists, load it and resume from its `current_question`.
    - If `base_commit` or `head_ref` in the state file differs from the pinned values, do not reuse it. Create or use the state file derived from the current `$BASE_SHORT-$HEAD_SHORT` pair.
+   - Cleanup policy is centralized in `scripts/cleanup-state.sh`: delete state files older than 30 days and keep at most 20 newest files per repo, always preserving `$STATE_FILE`.
 
 4. State file contents should be compact Markdown:
    - `base`: the user-provided base string
@@ -102,8 +108,8 @@ After preconditions pass:
 8. Final guard:
    - Run `git status --porcelain --untracked-files=normal` again.
    - Run `git rev-parse HEAD` again and compare with `HEAD_REF`.
-   - Ignore `.codex/pr-review-coach/` state files when interpreting worktree cleanliness.
-   - If tracked/unignored worktree content or HEAD changed, abort and explain that the coaching output may not match the current branch state.
+   - If any final guard command fails, abort with the command output.
+   - If any worktree content or HEAD changed, abort and explain that the coaching output may not match the current branch state.
 
 ## Output Format
 
