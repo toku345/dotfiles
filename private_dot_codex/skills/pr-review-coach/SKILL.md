@@ -20,7 +20,7 @@ This skill is intentionally separate from `$pr-review`:
 - Treat `<base>` as an already available local ref or commit. Do not run `git fetch`, `gh`, or network commands.
 - Review only committed changes in `<base>...HEAD`.
 - Do not edit project files, apply patches, run formatters, or dirty tracked files.
-- The only permitted write is the external coach state file under `STATE_ROOT`; `STATE_ROOT` defaults to `${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach/` and must not be inside the target worktree.
+- The only permitted writes are under `STATE_ROOT`: creating/updating the current coach state file and pruning stale coach state via `scripts/cleanup-state.sh`. `STATE_ROOT` defaults to `${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach/` and must not be inside the target worktree.
 - Do not spawn subagents or specialist reviewers.
 - Do not read unrelated memory files, previous session logs, or review history. Use only the current user prompt, this skill file, the local coach state file, and the git context collected below unless the user explicitly supplies extra context.
 - Do not use the merge-gate taxonomy `Critical`, `Important`, or `Suggestions`.
@@ -38,9 +38,9 @@ Run these checks before reading the diff:
 
 2. **State location and HEAD pinning** — Run:
    - `REPO_ROOT=$(git rev-parse --show-toplevel)`
-   - Compute `REPO_KEY` as the SHA-256 of the absolute `REPO_ROOT` path.
+   - Resolve `REPO_ROOT` to its canonical physical path (for example with `pwd -P` / `realpath` semantics) and compute `REPO_KEY` as the SHA-256 of that canonical path.
    - `STATE_ROOT=${CODEX_PR_REVIEW_COACH_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach}`
-   - Resolve `STATE_ROOT` to an absolute path before creating it. If the resolved `STATE_ROOT` is equal to `REPO_ROOT` or inside `REPO_ROOT`, abort before creating any state directory; the coach must never write state into the target worktree.
+   - Resolve `STATE_ROOT` to a canonical physical path before creating it, canonicalizing the nearest existing parent and appending any missing path components. If the canonical `STATE_ROOT` is equal to canonical `REPO_ROOT` or inside canonical `REPO_ROOT`, abort before creating any state directory; the coach must never write state into the target worktree through lexical paths, symlinks, or `..` traversal.
    - `STATE_DIR=$STATE_ROOT/repos/$REPO_KEY`
    - `HEAD_REF=$(git rev-parse HEAD)`
    - `HEAD_SHORT=$(git rev-parse --short=12 HEAD)`
@@ -53,7 +53,7 @@ Run these checks before reading the diff:
    - If no matching state file exists, stop with: `--base <ref-or-commit> を指定してください。例: $pr-review-coach --base main`
    - If multiple matching state files exist, stop and ask the user to rerun with `--base` because the continuation base is ambiguous.
    - If exactly one matching state file exists, set `STATE_FILE` to it, load `status`, `base`, `base_commit`, and `head_ref` from the file, set `BASE` and `BASE_COMMIT` from those fields, and compute `BASE_SHORT=$(git rev-parse --short=12 "$BASE_COMMIT")`.
-   - For continuation state, abort if `status` is not `active`, if `head_ref` differs from `HEAD_REF`, if `BASE_COMMIT` does not resolve to a commit, or if the state file lacks `current_question`.
+   - For any existing `STATE_FILE`, whether it was selected by explicit `--base` or continuation lookup, validate it before reuse. If `status` is `complete`, produce the final summary from that state or ask the user to start a new coaching run with a different base/HEAD; do not resume it as an active question. Otherwise, abort if `status` is not `active`, if `head_ref` differs from `HEAD_REF`, if `base_commit` differs from `BASE_COMMIT`, if `BASE_COMMIT` does not resolve to a commit, or if the state file lacks `current_question`.
 
 ## Procedure
 
@@ -74,7 +74,7 @@ After preconditions pass:
    - Resolve `SKILL_DIR` as this skill's directory and run `bash "$SKILL_DIR/scripts/cleanup-state.sh" --state-root "$STATE_ROOT" --current "$STATE_FILE"` before creating or updating state. If cleanup fails, warn and continue; cleanup failure must not alter the coaching result.
    - The state file is outside the target worktree and must not be committed.
    - If the state file does not exist, create it after reading the diff.
-   - If it exists, load it and resume from its `current_question`.
+   - If it exists and passed the existing-state validation from Preconditions, load it and resume from its `current_question`.
    - If `base_commit` or `head_ref` in the state file differs from the pinned values, do not reuse it. Create or use the state file derived from the current `$BASE_SHORT-$HEAD_SHORT` pair.
    - Cleanup policy is centralized in `scripts/cleanup-state.sh`: delete state files older than 30 days, keep the 20 newest files per repo, and always preserve `$STATE_FILE` even when that exceeds the cap.
 

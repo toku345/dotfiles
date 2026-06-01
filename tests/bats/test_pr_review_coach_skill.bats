@@ -166,9 +166,18 @@ STUB
 @test "SKILL.md stores state outside the target worktree and delegates pruning to script" {
   grep -q 'XDG_STATE_HOME' "$SKILL_MD"
   grep -q 'scripts/cleanup-state.sh' "$SKILL_MD"
-  grep -Fq 'If the resolved `STATE_ROOT` is equal to `REPO_ROOT` or inside `REPO_ROOT`, abort before creating any state directory' "$SKILL_MD"
+  grep -q 'canonical physical path' "$SKILL_MD"
+  grep -Fq 'If the canonical `STATE_ROOT` is equal to canonical `REPO_ROOT` or inside canonical `REPO_ROOT`, abort before creating any state directory' "$SKILL_MD"
+  grep -q 'symlinks, or `..` traversal' "$SKILL_MD"
   grep -q 'must never write state into the target worktree' "$SKILL_MD"
   ! grep -q 'State directory: `.codex/pr-review-coach/`' "$SKILL_MD"
+
+  local guard_line mkdir_line
+  guard_line="$(grep -n 'canonical `STATE_ROOT` is equal' "$SKILL_MD" | cut -d: -f1)"
+  mkdir_line="$(grep -n 'Create the state directory with `mkdir -p`' "$SKILL_MD" | cut -d: -f1)"
+  [ -n "$guard_line" ]
+  [ -n "$mkdir_line" ]
+  [ "$guard_line" -lt "$mkdir_line" ]
 }
 
 @test "SKILL.md pins clean worktree and final stale-output guards" {
@@ -185,7 +194,11 @@ STUB
   grep -Fq 'Find state files matching `$STATE_DIR/*-$HEAD_SHORT.md`' "$SKILL_MD"
   grep -q 'If multiple matching state files exist' "$SKILL_MD"
   grep -q '`status`: `active` or `complete`' "$SKILL_MD"
-  grep -q 'abort if `status` is not `active`' "$SKILL_MD"
+  grep -Fq 'For any existing `STATE_FILE`, whether it was selected by explicit `--base` or continuation lookup, validate it before reuse' "$SKILL_MD"
+  grep -q 'Otherwise, abort if `status` is not `active`' "$SKILL_MD"
+  grep -q 'If `status` is `complete`' "$SKILL_MD"
+  grep -q 'do not resume it as an active question' "$SKILL_MD"
+  grep -q 'passed the existing-state validation' "$SKILL_MD"
   grep -q 'set `status: complete`' "$SKILL_MD"
   grep -q 'current_question' "$SKILL_MD"
   ! grep -q 'If it is missing, stop and ask the user to rerun with `--base`' "$SKILL_MD"
