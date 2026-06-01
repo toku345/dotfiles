@@ -8,8 +8,8 @@
 # Unit is DAYS. npm materializes the effective relative window as `before`
 # during install/config resolution. 7 days matches ~/.bunfig.toml
 # `minimumReleaseAge = 604800` and uv's `exclude-newer`.
-# Requires npm >= 11.10.0; older npm silently ignores it (fail-open on the
-# cooldown only — `ignore-scripts` still applies).
+# Requires npm >= 11.10.0; older npm does not enforce the cooldown (npm 11.2+
+# may warn about the unknown key). `ignore-scripts` still applies.
 #
 # Recovery: for an urgent patch newer than the window, override in a throwaway
 # recovery workspace with `npm install --min-release-age=0 <pkg>`. The override
