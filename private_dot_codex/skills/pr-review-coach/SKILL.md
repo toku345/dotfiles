@@ -1,6 +1,6 @@
 ---
 name: pr-review-coach
-description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit>. Asks exactly one question at a time and stores resumable local state outside the target worktree. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
+description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit> for the first turn, then resumes from local state on answer turns. Asks exactly one question at a time and stores resumable local state outside the target worktree. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
 ---
 
 # pr-review-coach
@@ -16,7 +16,7 @@ This skill is intentionally separate from `$pr-review`:
 ## Hard Boundaries
 
 - Respond in Japanese.
-- Require an explicit `--base <ref-or-commit>` in the user prompt. If it is missing, stop and ask the user to rerun with `--base`.
+- Require an explicit `--base <ref-or-commit>` on the first turn. If `--base` is missing, continue only when exactly one state file for the current repo and HEAD can be resolved.
 - Treat `<base>` as an already available local ref or commit. Do not run `git fetch`, `gh`, or network commands.
 - Review only committed changes in `<base>...HEAD`.
 - Do not edit project files, apply patches, run formatters, or dirty tracked files.
@@ -36,16 +36,23 @@ Run these checks before reading the diff:
    - If the command fails, abort with the command output.
    - If output is non-empty, abort and explain that the coach covers committed branch diff only, so uncommitted changes would be silently excluded.
 
-2. **Base required** — Extract `--base <ref-or-commit>` from the user prompt.
-   - If missing, stop with: `--base <ref-or-commit> を指定してください。例: $pr-review-coach --base main`
-   - Reject base values that start with `-` or `+`, contain `:`, or contain whitespace.
-
-3. **Base and HEAD pinning** — Run:
-   - `BASE_COMMIT=$(git rev-parse --verify "<base>^{commit}")`
-   - `BASE_SHORT=$(git rev-parse --short=12 "$BASE_COMMIT")`
+2. **State location and HEAD pinning** — Run:
+   - `REPO_ROOT=$(git rev-parse --show-toplevel)`
+   - Compute `REPO_KEY` as the SHA-256 of the absolute `REPO_ROOT` path.
+   - `STATE_ROOT=${CODEX_PR_REVIEW_COACH_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach}`
+   - `STATE_DIR=$STATE_ROOT/repos/$REPO_KEY`
    - `HEAD_REF=$(git rev-parse HEAD)`
    - `HEAD_SHORT=$(git rev-parse --short=12 HEAD)`
-   If either command fails, abort with the command output and ask the user to provide a valid local base ref or commit.
+   If any command fails, abort with the command output.
+
+3. **Base or continuation resolution** — Extract optional `--base <ref-or-commit>` from the user prompt.
+   - Reject base values that start with `-` or `+`, contain `:`, or contain whitespace.
+   - If `--base` is present, set `BASE` to that value, run `BASE_COMMIT=$(git rev-parse --verify "$BASE^{commit}")`, `BASE_SHORT=$(git rev-parse --short=12 "$BASE_COMMIT")`, and `STATE_FILE=$STATE_DIR/$BASE_SHORT-$HEAD_SHORT.md`. If either command fails, abort with the command output and ask the user to provide a valid local base ref or commit.
+   - If `--base` is missing, treat the prompt as an answer continuation. Find state files matching `$STATE_DIR/*-$HEAD_SHORT.md`.
+   - If no matching state file exists, stop with: `--base <ref-or-commit> を指定してください。例: $pr-review-coach --base main`
+   - If multiple matching state files exist, stop and ask the user to rerun with `--base` because the continuation base is ambiguous.
+   - If exactly one matching state file exists, set `STATE_FILE` to it, load `status`, `base`, `base_commit`, and `head_ref` from the file, set `BASE` and `BASE_COMMIT` from those fields, and compute `BASE_SHORT=$(git rev-parse --short=12 "$BASE_COMMIT")`.
+   - For continuation state, abort if `status` is not `active`, if `head_ref` differs from `HEAD_REF`, if `BASE_COMMIT` does not resolve to a commit, or if the state file lacks `current_question`.
 
 ## Procedure
 
@@ -60,11 +67,7 @@ After preconditions pass:
 2. If the diff is empty, run the final guard and say there are no committed changes relative to the base.
 
 3. Prepare or load the local coach state:
-   - Resolve the repo root with `git rev-parse --show-toplevel`; if it fails, abort.
-   - Compute `REPO_KEY` as the SHA-256 of the absolute repo root path.
-   - State root: `${CODEX_PR_REVIEW_COACH_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/codex/pr-review-coach}`
-   - State directory: `$STATE_ROOT/repos/$REPO_KEY/`
-   - State file: `$STATE_ROOT/repos/$REPO_KEY/$BASE_SHORT-$HEAD_SHORT.md`
+   - Use the `STATE_ROOT`, `STATE_DIR`, and `STATE_FILE` resolved in Preconditions.
    - Create the state directory with `mkdir -p`; if creation or a temporary write+rename preflight fails, abort instead of falling back to the target worktree.
    - Run this skill's `scripts/cleanup-state.sh --state-root "$STATE_ROOT" --current "$STATE_FILE"` before creating or updating state. If cleanup fails, warn and continue; cleanup failure must not alter the coaching result.
    - The state file is outside the target worktree and must not be committed.
@@ -74,6 +77,7 @@ After preconditions pass:
    - Cleanup policy is centralized in `scripts/cleanup-state.sh`: delete state files older than 30 days and keep at most 20 newest files per repo, always preserving `$STATE_FILE`.
 
 4. State file contents should be compact Markdown:
+   - `status`: `active` or `complete`
    - `base`: the user-provided base string
    - `base_commit`: pinned base commit
    - `head_ref`: pinned HEAD
@@ -102,7 +106,7 @@ After preconditions pass:
 7. Continuing a coaching loop:
    - If the user answers the current question, update `answered`, advance `current_question`, and ask the next question.
    - If the user invokes the skill again without an answer, repeat the current question with shorter context.
-   - If all questions are answered, produce the final summary and mark the state as complete.
+   - If all questions are answered, produce the final summary, set `status: complete`, and clear `current_question` so the state cannot be resumed as an active answer continuation.
    - If the user asks for a summary early, produce a summary from answered items and leave the state resumable.
 
 8. Final guard:

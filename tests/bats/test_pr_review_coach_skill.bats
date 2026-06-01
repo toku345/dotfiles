@@ -80,3 +80,15 @@ make_state_file() {
   grep -q 'scripts/cleanup-state.sh' "$SKILL_MD"
   ! grep -q 'State directory: `.codex/pr-review-coach/`' "$SKILL_MD"
 }
+
+@test "SKILL.md allows answer continuation without --base only from one current state file" {
+  grep -q 'explicit `--base <ref-or-commit>` on the first turn' "$SKILL_MD"
+  grep -q 'If `--base` is missing, treat the prompt as an answer continuation' "$SKILL_MD"
+  grep -Fq 'Find state files matching `$STATE_DIR/*-$HEAD_SHORT.md`' "$SKILL_MD"
+  grep -q 'If multiple matching state files exist' "$SKILL_MD"
+  grep -q '`status`: `active` or `complete`' "$SKILL_MD"
+  grep -q 'abort if `status` is not `active`' "$SKILL_MD"
+  grep -q 'set `status: complete`' "$SKILL_MD"
+  grep -q 'current_question' "$SKILL_MD"
+  ! grep -q 'If it is missing, stop and ask the user to rerun with `--base`' "$SKILL_MD"
+}
