@@ -75,6 +75,23 @@ make_state_file() {
   [ -e "$expired" ]
 }
 
+@test "SKILL.md documented cleanup invocation uses bash and works without execute bit" {
+  grep -Fq 'bash "$SKILL_DIR/scripts/cleanup-state.sh" --state-root "$STATE_ROOT" --current "$STATE_FILE"' "$SKILL_MD"
+  [ ! -x "$CLEANUP_SCRIPT" ]
+
+  local expired current
+  expired="$(make_state_file repo-a old 202001010000)"
+  current="$(make_state_file repo-a current 202001010001)"
+
+  run bash "$SKILL_DIR/scripts/cleanup-state.sh" \
+    --state-root "$STATE_ROOT" \
+    --current "$current"
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$expired" ]
+  [ -e "$current" ]
+}
+
 @test "SKILL.md stores state outside the target worktree and delegates pruning to script" {
   grep -q 'XDG_STATE_HOME' "$SKILL_MD"
   grep -q 'scripts/cleanup-state.sh' "$SKILL_MD"

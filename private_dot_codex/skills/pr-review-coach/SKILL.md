@@ -70,7 +70,7 @@ After preconditions pass:
 3. Prepare or load the local coach state:
    - Use the `STATE_ROOT`, `STATE_DIR`, and `STATE_FILE` resolved in Preconditions.
    - Create the state directory with `mkdir -p`; if creation or a temporary write+rename preflight fails, abort instead of falling back to the target worktree.
-   - Run this skill's `scripts/cleanup-state.sh --state-root "$STATE_ROOT" --current "$STATE_FILE"` before creating or updating state. If cleanup fails, warn and continue; cleanup failure must not alter the coaching result.
+   - Resolve `SKILL_DIR` as this skill's directory and run `bash "$SKILL_DIR/scripts/cleanup-state.sh" --state-root "$STATE_ROOT" --current "$STATE_FILE"` before creating or updating state. If cleanup fails, warn and continue; cleanup failure must not alter the coaching result.
    - The state file is outside the target worktree and must not be committed.
    - If the state file does not exist, create it after reading the diff.
    - If it exists, load it and resume from its `current_question`.
