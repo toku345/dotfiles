@@ -222,10 +222,18 @@ The GitHub Actions workflow (`.github/workflows/security-checks.yml`) performs:
    - PASS: No secrets detected
    - FAIL: Potential secrets found
 
+4. **AI Tool Update Policy Invariants**
+   - Verifies Claude Code updater policy settings in `private_dot_claude/settings.json`
+   - Requires `env.DISABLE_AUTOUPDATER="1"`, `autoUpdatesChannel="stable"`, and `extraKnownMarketplaces.openai-codex.autoUpdate=false`
+   - Requires `env.FORCE_AUTOUPDATE_PLUGINS` to stay unset
+   - PASS: AI-tool update policy settings are enforced
+   - FAIL: Claude/Codex auto-update controls drift from ADR 0026
+
 ### How It Works
 
 The workflow uses:
 - **ripgrep** - Fast pattern matching for secret detection
+- **Python** - Static checks for JSON policy invariants
 - **Shell scripts** - Lightweight checks without external dependencies
 - **No password required** - CI cannot decrypt files (password not stored)
 
@@ -406,9 +414,18 @@ Committed in `~/.claude/settings.json`:
 
 **Plugin auto-updates are covered by the kill switch.** The official marketplace defaults to auto-update *on*, but `DISABLE_AUTOUPDATER` overrides that for plugins as well as the binary — so the plugins that drive internal automation (`pr-review-toolkit` behind triple-review, `commit-commands`, `hookify`, etc.) stay frozen until a reviewed update. **Do not set `FORCE_AUTOUPDATE_PLUGINS=1`** — that flag re-enables plugin auto-updates even while the binary updater is disabled, which is the opposite of this policy.
 
-Intentional plugin updates are manual and reviewed: before updating, record the marketplace name, installed plugin versions or SHAs, and the source diff or release notes to inspect. Then run `/plugin marketplace update <name>` and `/plugin update`, record the after versions or SHAs, and smoke-test the affected automation (for example, `triple-review --help` plus one dry-run/preflight check when `pr-review-toolkit` changes).
+Intentional plugin updates are manual and reviewed: before updating, record the marketplace name, installed plugin versions or SHAs (`claude plugin list --json`), and the source diff or release notes to inspect. Then run `claude plugin marketplace update <marketplace>` followed by a target-specific update such as `claude plugin update pr-review-toolkit@claude-plugins-official`, record the after versions or SHAs with `claude plugin list --json`, and smoke-test the affected automation (for example, `triple-review --help` plus one dry-run/preflight check when `pr-review-toolkit` changes).
 
-Install Claude Code with the official native installer. For routine installs or reinstalls that should follow the delayed channel, use `curl -fsSL https://claude.ai/install.sh | bash -s stable`. For routine native-installer updates, use `claude update` after `autoUpdatesChannel=stable` is present in `~/.claude/settings.json`. Avoid npm-based install/update paths for this machine; explicit latest-channel installs belong only in the cooldown-bypass cases below.
+Install Claude Code with the official native installer. For routine installs or reinstalls that should follow the delayed channel, download the installer first and execute the reviewed file so download failures are visible:
+
+```bash
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+curl -fsSL https://claude.ai/install.sh -o "$tmp"
+bash "$tmp" stable
+```
+
+For routine native-installer updates, use `claude update` after `autoUpdatesChannel=stable` is present in `~/.claude/settings.json`. Avoid npm-based install/update paths for this machine; explicit latest-channel installs belong only in the cooldown-bypass cases below.
 
 Smoke verification recorded for #226: after deploying the managed Claude settings, live `~/.claude/settings.json` was checked and contained `env.DISABLE_AUTOUPDATER="1"`, `autoUpdatesChannel="stable"`, and `extraKnownMarketplaces.openai-codex.autoUpdate=false`.
 

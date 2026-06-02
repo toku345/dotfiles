@@ -119,6 +119,11 @@ jobs:
 
           echo "OK: No obvious secrets detected"
 
+      - name: Verify AI tool update policy invariants
+        run: |
+          echo "Checking Claude/Codex update policy settings..."
+          python3 tests/codex/verify_claude_update_policy.py
+
       - name: Security check summary
         if: success()
         run: |
@@ -129,3 +134,4 @@ jobs:
           echo "  - No plaintext key.txt found"
           echo "  - Age encrypted files verified"
           echo "  - No common secret patterns detected"
+          echo "  - Claude/Codex update policy settings enforced"
