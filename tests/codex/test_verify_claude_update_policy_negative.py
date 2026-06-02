@@ -148,6 +148,36 @@ def main() -> None:
         if 'ERROR: autoUpdatesChannel must be "stable"' not in result.stderr:
             raise AssertionError(f"CLI negative test: unexpected stderr {result.stderr!r}")
 
+        missing_settings = pathlib.Path(tmpdir) / "missing-settings.json"
+        result = subprocess.run(
+            [sys.executable, str(VERIFY_SCRIPT), "--settings", str(missing_settings)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 2:
+            raise AssertionError(
+                f"CLI missing file test: expected exit 2, got {result.returncode}; "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
+        if "Traceback" in result.stderr or "ERROR: unable to read " not in result.stderr:
+            raise AssertionError(f"CLI missing file test: unexpected stderr {result.stderr!r}")
+
+        settings.write_text("{bad json", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(VERIFY_SCRIPT), "--settings", str(settings)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 2:
+            raise AssertionError(
+                f"CLI malformed JSON test: expected exit 2, got {result.returncode}; "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
+        if "Traceback" in result.stderr or "ERROR: invalid JSON in " not in result.stderr:
+            raise AssertionError(f"CLI malformed JSON test: unexpected stderr {result.stderr!r}")
+
     print("OK: Claude/Codex update policy negative tests passed")
 
 

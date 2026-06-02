@@ -96,7 +96,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    data = json.loads(settings.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8"))
+    except OSError as exc:
+        print(f"ERROR: unable to read {settings}: {exc}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: invalid JSON in {settings}: {exc}", file=sys.stderr)
+        return 2
+
     failures = validate_update_policy(data)
 
     if failures:
