@@ -4,6 +4,8 @@
 
 Accepted as policy (2026-05-21). Enforcement is partial; remaining controls are tracked in Follow-ups.
 
+**Amendment 2026-06-02 (#226)**: The AI-tool and high-privilege-CLI controls are implemented. `~/.claude/settings.json` now sets `env.DISABLE_AUTOUPDATER=1` — which disables automatic updates for the Claude Code binary *and* all plugins, including the built-in `claude-plugins-official` marketplace — plus `autoUpdatesChannel=stable`; the Codex plugin marketplace keeps `autoUpdate=false`. `FORCE_AUTOUPDATE_PLUGINS` is intentionally left unset (setting it would re-enable plugin auto-updates despite the kill switch). The operational runbook — high-privilege CLI/cask review list, manual update flow, and the conditions under which a security fix bypasses the 7-day cooldown — lives in [docs/security.md](../security.md#developer-tool-update-workflow). The Homebrew/asdf surface (#225) and VS Code surface (#229) remain open.
+
 ## Context
 
 Developer machines have multiple update channels that can become arbitrary-code execution paths: VS Code extensions, editor applications, Homebrew/Linuxbrew formulae and casks, apt packages, language package managers, runtime managers, cloud CLIs, AI coding tools, and their plugin systems. The goal is not to stop all updates. The goal is to move routine updates into reviewable windows while keeping security updates timely.

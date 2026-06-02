@@ -9,7 +9,8 @@ This guide covers security best practices and emergency procedures for managing 
 3. [CI/CD Security Checks](#cicd-security-checks)
 4. [Audit Trail](#audit-trail)
 5. [Package Manager Supply Chain Defense](#package-manager-supply-chain-defense)
-6. [Best Practices](#best-practices)
+6. [Developer-Tool Update Workflow](#developer-tool-update-workflow)
+7. [Best Practices](#best-practices)
 
 ## Security Overview
 
@@ -388,6 +389,46 @@ grep -E 'minimumReleaseAge|ignoreScripts' ~/.bunfig.toml
 pip config list                                    # → install.only-binary = :all:
 grep -E 'exclude-newer|no-build' ~/.config/uv/uv.toml  # → both settings present
 ```
+
+## Developer-Tool Update Workflow
+
+Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface. (The Homebrew/asdf surface and the VS Code surface are tracked separately and will plug into the same manual flow.)
+
+### Claude Code and Codex (AI coding tools)
+
+Committed in `~/.claude/settings.json`:
+
+| Key | Value | Effect |
+| --- | --- | --- |
+| `env.DISABLE_AUTOUPDATER` | `"1"` | Disables automatic updates for **both the Claude Code binary and all plugins**, including the built-in `claude-plugins-official` marketplace. This is the global kill switch. |
+| `autoUpdatesChannel` | `"stable"` | When an update does run (a manual `/update`, or if the kill switch is ever unset on a machine), follow the stable channel — a build that is typically ~1 week old and skips versions with major regressions. A built-in ~1-week cooldown that mirrors the package-manager cooldowns above. |
+| `extraKnownMarketplaces.openai-codex.autoUpdate` | `false` | Per-marketplace auto-update off for the Codex plugin marketplace. Redundant under `DISABLE_AUTOUPDATER`, but kept explicit to document intent for that credential-adjacent tool. |
+
+**Plugin auto-updates are covered by the kill switch.** The official marketplace defaults to auto-update *on*, but `DISABLE_AUTOUPDATER` overrides that for plugins as well as the binary — so the plugins that drive internal automation (`pr-review-toolkit` behind triple-review, `commit-commands`, `hookify`, etc.) stay frozen until a reviewed update. **Do not set `FORCE_AUTOUPDATE_PLUGINS=1`** — that flag re-enables plugin auto-updates even while the binary updater is disabled, which is the opposite of this policy.
+
+Intentional updates are manual and reviewed: `/plugin marketplace update <name>` then `/plugin update`, in a window where the diff can be read. Update the Claude Code binary manually per the official setup docs (`brew upgrade` / `npm install -g @anthropic-ai/claude-code@latest` / native installer).
+
+### High-privilege CLIs and casks
+
+These tools run with privileges that touch credentials, source control, cloud accounts, containers, or input devices, so an auto-pulled compromised release is high-impact. Review release notes before upgrading; pinning is acceptable, but each pin needs at least a quarterly manual review so security fixes are not missed:
+
+- `codex`, `claude` — AI tools and their plugin systems
+- `gh` — GitHub auth/token; `op` — 1Password CLI, a direct path to the vault that Mini Shai-Hulud targets
+- `docker` / container tooling
+- cloud CLIs (`aws`, `gcloud`), credential/session helpers
+- `karabiner-elements` (input monitoring), editor casks (VS Code, etc.)
+
+**Manual update flow:** `brew update` → inspect `brew outdated` and the target's release notes → unpin only the reviewed target → `brew upgrade <name>` → smoke-test → re-pin if appropriate.
+
+### When to bypass the cooldown
+
+The 7-day cooldown is the default for *routine* updates, not a brake on security. Apply an update immediately (skip the cooldown) when:
+
+- a security advisory or CVE fix names the version, or there is an active exploit, or
+- it is a break/fix needed to restore work, or
+- it is an OS security update.
+
+Security-sensitive libraries — `git`, `curl`, `openssl`, `ca-certificates` — must **not** be long-term pinned; update them promptly. The cooldown reduces exposure to *malicious* fresh releases; it must never delay a *fix* for a known-exploited bug.
 
 ## Best Practices
 
