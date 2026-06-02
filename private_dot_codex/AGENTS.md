@@ -29,7 +29,7 @@ Rules:
 - Do not duplicate this trailer if it already exists.
 - Keep one blank line between the commit body and trailer block.
 
-## Implementation notes
+## Implementation Notes
 
 When implementing a spec or non-trivial feature, maintain
 `implementation-notes.md` at the project root only when the user asks for it,
