@@ -123,6 +123,7 @@ jobs:
         run: |
           echo "Checking Claude/Codex update policy settings..."
           python3 tests/codex/verify_claude_update_policy.py
+          python3 tests/codex/test_verify_claude_update_policy_negative.py
 
       - name: Security check summary
         if: success()

@@ -16,9 +16,11 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 
 
-def main() -> int:
-    data = json.loads(SETTINGS.read_text())
+def validate_update_policy(data: object) -> list[str]:
     failures: list[str] = []
+
+    if not isinstance(data, dict):
+        return ["settings root must be an object"]
 
     env = data.get("env")
     if not isinstance(env, dict):
@@ -39,8 +41,32 @@ def main() -> int:
         marketplace = marketplaces.get("openai-codex")
         if not isinstance(marketplace, dict):
             failures.append("extraKnownMarketplaces.openai-codex must be present")
-        elif marketplace.get("autoUpdate") is not False:
-            failures.append("extraKnownMarketplaces.openai-codex.autoUpdate must be false")
+        else:
+            source = marketplace.get("source")
+            if not isinstance(source, dict):
+                failures.append("extraKnownMarketplaces.openai-codex.source must be an object")
+            else:
+                if source.get("source") != "github":
+                    failures.append('extraKnownMarketplaces.openai-codex.source.source must be "github"')
+                if source.get("repo") != "openai/codex-plugin-cc":
+                    failures.append(
+                        'extraKnownMarketplaces.openai-codex.source.repo must be "openai/codex-plugin-cc"'
+                    )
+            if marketplace.get("autoUpdate") is not False:
+                failures.append("extraKnownMarketplaces.openai-codex.autoUpdate must be false")
+
+    enabled_plugins = data.get("enabledPlugins")
+    if not isinstance(enabled_plugins, dict):
+        failures.append("enabledPlugins must be an object")
+    elif enabled_plugins.get("codex@openai-codex") is not True:
+        failures.append('enabledPlugins."codex@openai-codex" must be true')
+
+    return failures
+
+
+def main() -> int:
+    data = json.loads(SETTINGS.read_text())
+    failures = validate_update_policy(data)
 
     if failures:
         for failure in failures:

@@ -224,7 +224,7 @@ The GitHub Actions workflow (`.github/workflows/security-checks.yml`) performs:
 
 4. **AI Tool Update Policy Invariants**
    - Verifies Claude Code updater policy settings in `private_dot_claude/settings.json`
-   - Requires `env.DISABLE_AUTOUPDATER="1"`, `autoUpdatesChannel="stable"`, and `extraKnownMarketplaces.openai-codex.autoUpdate=false`
+   - Requires `env.DISABLE_AUTOUPDATER="1"`, `autoUpdatesChannel="stable"`, `enabledPlugins["codex@openai-codex"]=true`, and `extraKnownMarketplaces.openai-codex` to point at `github:openai/codex-plugin-cc` with `autoUpdate=false`
    - Requires `env.FORCE_AUTOUPDATE_PLUGINS` to stay unset
    - PASS: AI-tool update policy settings are enforced
    - FAIL: Claude/Codex auto-update controls drift from ADR 0026
@@ -419,6 +419,8 @@ Intentional plugin updates are manual and reviewed: before updating, record the 
 Install Claude Code with the official native installer. For routine installs or reinstalls that should follow the delayed channel, download the installer first and execute the reviewed file so download failures are visible:
 
 ```bash
+set -euo pipefail
+
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 curl -fsSL https://claude.ai/install.sh -o "$tmp"
