@@ -401,12 +401,16 @@ Committed in `~/.claude/settings.json`:
 | Key | Value | Effect |
 | --- | --- | --- |
 | `env.DISABLE_AUTOUPDATER` | `"1"` | Disables automatic updates for **both the Claude Code binary and all plugins**, including the built-in `claude-plugins-official` marketplace. This is the global kill switch. |
-| `autoUpdatesChannel` | `"stable"` | When an update does run (a manual `/update`, or if the kill switch is ever unset on a machine), follow the stable channel — a build that is typically ~1 week old and skips versions with major regressions. A built-in ~1-week cooldown that mirrors the package-manager cooldowns above. |
+| `autoUpdatesChannel` | `"stable"` | When an update does run through `claude update`, or if the kill switch is ever unset on a machine, follow the stable channel — a build that is typically ~1 week old and skips versions with major regressions. This approximates the 7-day routine-update delay, but it is a release-channel policy rather than a hard package-age gate. |
 | `extraKnownMarketplaces.openai-codex.autoUpdate` | `false` | Per-marketplace auto-update off for the Codex plugin marketplace. Redundant under `DISABLE_AUTOUPDATER`, but kept explicit to document intent for that credential-adjacent tool. |
 
 **Plugin auto-updates are covered by the kill switch.** The official marketplace defaults to auto-update *on*, but `DISABLE_AUTOUPDATER` overrides that for plugins as well as the binary — so the plugins that drive internal automation (`pr-review-toolkit` behind triple-review, `commit-commands`, `hookify`, etc.) stay frozen until a reviewed update. **Do not set `FORCE_AUTOUPDATE_PLUGINS=1`** — that flag re-enables plugin auto-updates even while the binary updater is disabled, which is the opposite of this policy.
 
-Intentional updates are manual and reviewed: `/plugin marketplace update <name>` then `/plugin update`, in a window where the diff can be read. Update the Claude Code binary manually per the official setup docs (`brew upgrade` / `npm install -g @anthropic-ai/claude-code@latest` / native installer).
+Intentional plugin updates are manual and reviewed: before updating, record the marketplace name, installed plugin versions or SHAs, and the source diff or release notes to inspect. Then run `/plugin marketplace update <name>` and `/plugin update`, record the after versions or SHAs, and smoke-test the affected automation (for example, `triple-review --help` plus one dry-run/preflight check when `pr-review-toolkit` changes).
+
+Install Claude Code with the official native installer. For routine installs or reinstalls that should follow the delayed channel, use `curl -fsSL https://claude.ai/install.sh | bash -s stable`. For routine native-installer updates, use `claude update` after `autoUpdatesChannel=stable` is present in `~/.claude/settings.json`. Avoid npm-based install/update paths for this machine; explicit latest-channel installs belong only in the cooldown-bypass cases below.
+
+Smoke verification recorded for #226: after deploying the managed Claude settings, live `~/.claude/settings.json` was checked and contained `env.DISABLE_AUTOUPDATER="1"`, `autoUpdatesChannel="stable"`, and `extraKnownMarketplaces.openai-codex.autoUpdate=false`.
 
 ### High-privilege CLIs and casks
 
@@ -418,7 +422,7 @@ These tools run with privileges that touch credentials, source control, cloud ac
 - cloud CLIs (`aws`, `gcloud`), credential/session helpers
 - `karabiner-elements` (input monitoring), editor casks (VS Code, etc.)
 
-**Manual update flow:** `brew update` → inspect `brew outdated` and the target's release notes → unpin only the reviewed target → `brew upgrade <name>` → smoke-test → re-pin if appropriate.
+**Manual update flow:** `brew update` → inspect `brew outdated` and the target's release notes → unpin only the reviewed target → `brew upgrade <name>` → smoke-test → re-pin if appropriate. This is a documented manual control; a pinned/reviewed inventory or reminder mechanism is still needed before high-privilege CLI/cask review can be considered fully enforced.
 
 ### When to bypass the cooldown
 
