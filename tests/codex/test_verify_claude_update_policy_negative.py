@@ -103,6 +103,16 @@ def main() -> None:
         )
     )
 
+    data = copy.deepcopy(baseline)
+    data["enabledPlugins"]["codex@untrusted-marketplace"] = True
+    mutations.append(
+        (
+            "untrusted Codex plugin enabled",
+            data,
+            'enabledPlugins must not enable Codex plugins outside "codex@openai-codex"',
+        )
+    )
+
     for name, data, expected in mutations:
         assert_fails_closed(name, data, expected, verifier)
 

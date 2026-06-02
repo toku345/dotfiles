@@ -58,8 +58,19 @@ def validate_update_policy(data: object) -> list[str]:
     enabled_plugins = data.get("enabledPlugins")
     if not isinstance(enabled_plugins, dict):
         failures.append("enabledPlugins must be an object")
-    elif enabled_plugins.get("codex@openai-codex") is not True:
-        failures.append('enabledPlugins."codex@openai-codex" must be true')
+    else:
+        if enabled_plugins.get("codex@openai-codex") is not True:
+            failures.append('enabledPlugins."codex@openai-codex" must be true')
+        for plugin_name, enabled in enabled_plugins.items():
+            if (
+                isinstance(plugin_name, str)
+                and plugin_name.startswith("codex@")
+                and plugin_name != "codex@openai-codex"
+                and enabled is True
+            ):
+                failures.append(
+                    'enabledPlugins must not enable Codex plugins outside "codex@openai-codex"'
+                )
 
     return failures
 
