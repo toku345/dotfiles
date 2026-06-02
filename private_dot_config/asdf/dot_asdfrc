@@ -1,1 +1,3 @@
 legacy_version_file = yes
+plugin_repository_last_check_duration = never
+disable_plugin_short_name_repository = yes

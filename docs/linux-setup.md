@@ -63,7 +63,7 @@ SSH 接続時には login shell として `~/.bash_profile` 経由で `~/.bashrc
 
 ### 言語マネージャーの導入
 
-Linux でも macOS と同じく **asdf** が Linuxbrew 経由で導入されます (`brew install asdf`)。`asdf plugin add <name>` と `asdf install` で利用可能 (参照: [ADR 0023](adr/0023-asdf-on-linux-via-linuxbrew.md))。Java は asdf-java の `set-java-home.bash` hook が `dot_bashrc` で source されるため、`JAVA_HOME` が自動設定され Gradle/Maven 等もそのまま動きます。
+Linux でも macOS と同じく **asdf** が Linuxbrew 経由で導入されます (`brew install asdf`)。プラグインは **explicit Git URL 指定で追加**します (`asdf plugin add <name> <git-url>`)。supply-chain 対策で短縮名リポジトリ (short-name repository) を無効化しているため、`asdf plugin add <name>` 単体 (短縮名) は使えません ([docs/security.md](security.md#homebrew-and-asdf-update-controls) 参照)。追加後は `asdf install` で利用可能 (参照: [ADR 0023](adr/0023-asdf-on-linux-via-linuxbrew.md))。Java は asdf-java の `set-java-home.bash` hook が `dot_bashrc` で source されるため、`JAVA_HOME` が自動設定され Gradle/Maven 等もそのまま動きます。
 
 言語ごとの専用ツール (Python: `uv` の高速インストーラー / JS: `bun` ランタイム / Rust: `rustup` 公式ツールチェイン) も併用可能です。`dot_bashrc` は `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin` を asdf shim より**後ろ**で PATH に prepend するため、最終 PATH では専用ツールが asdf shim より優先されます。
 

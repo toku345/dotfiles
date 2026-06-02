@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 # Interactive shell configuration (Linux)
 
+# Homebrew update policy (ADR 0026): make routine updates deliberate instead of
+# a side effect of installing. NO_AUTO_UPDATE stops the implicit `brew update`
+# on install; NO_INSTALL_UPGRADE stops `brew install` from upgrading existing
+# formulae; NO_INSTALLED_DEPENDENTS_CHECK stops the post-install auto-upgrade of
+# outdated dependents (so only the named target changes); ASK prompts before
+# upgrades in an interactive TTY (skipped, not hung, without one);
+# CASK_OPTS=--require-sha refuses casks without a checksum (macOS-relevant; inert
+# on Linux). Security fixes bypass this — see docs/security.md "When to bypass
+# the cooldown".
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_UPGRADE=1
+export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+export HOMEBREW_ASK=1
+export HOMEBREW_CASK_OPTS=--require-sha
+
 # Linuxbrew shellenv
 if [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]]; then
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
