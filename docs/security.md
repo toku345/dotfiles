@@ -282,13 +282,15 @@ For the broader developer-environment update policy covering VS Code extensions,
 | File | Setting | Effect |
 | --- | --- | --- |
 | `~/.npmrc` | `ignore-scripts=true` | Disables `pre/postinstall` lifecycle scripts for **npm only**. Blocks the most common arbitrary-code-execution vector. |
+| `~/.npmrc` | `min-release-age=7` | Time-based isolation for **npm only**. Refuses npm versions published within the last 7 days (unit is days; npm ≥ 11.10.0). Reduces exposure to freshly published malicious versions that bypass lifecycle-script gating by running at require/import time. Mirrors bun's `minimumReleaseAge` and uv's `exclude-newer`. |
 | `~/.bunfig.toml` | `[install] minimumReleaseAge = 604800` | Time-based isolation for bun's npm package manager. Refuses npm packages younger than 7 days (in seconds). Mirrors uv's `exclude-newer`. |
 | `~/.bunfig.toml` | `[install] ignoreScripts = true` | Disables lifecycle scripts for **bun only**. bun does not honor `~/.npmrc`'s `ignore-scripts`, so this is a separate defense, not a backup. As a global toggle it skips scripts even for packages listed in a project's `trustedDependencies`. |
 | `~/.config/pip/pip.conf` | `[install] only-binary = :all:` | Refuses sdists; installs pre-built wheels only. Prevents `setup.py` / build-backend code from executing at install time. |
 | `~/.config/uv/uv.toml` | `exclude-newer = "7 days"` | Time-based isolation: refuses to resolve PyPI distributions uploaded within the last 7 days. Most malicious versions are detected and yanked inside this window. |
 | `~/.config/uv/uv.toml` | `no-build = true` | Refuses sdists; installs pre-built wheels only. Mirrors pip's `only-binary = :all:`. Prevents PEP 517 build-backend / `setup.py` code from executing at install time — `exclude-newer` alone does not close this path. |
 
-Both time-based settings (`minimumReleaseAge`, `exclude-newer`) are expressed as **durations**, not absolute dates, so the cooldown window slides automatically — no periodic maintenance is required. If a value blocks a legitimately-needed fresh package, dependency resolution simply pins to an older version (fail-safe).
+All three time-based settings (`min-release-age`, `minimumReleaseAge`, `exclude-newer`) are expressed as **durations**, not absolute dates, so the cooldown window slides automatically — no periodic maintenance is required. If a value blocks a legitimately-needed fresh package, dependency resolution selects an eligible older version when constraints allow; otherwise it fails closed.
+`chezmoi apply` also fails loudly when `npm` exists but is older than 11.10.0, because older npm versions do not enforce `min-release-age`. The apply-time gate also checks the default effective npm config from a temporary empty directory, so project-local `.npmrc` files do not affect the check. Per-command or per-project recovery overrides are still intentional escape hatches; they should only be used in the isolated recovery workflow below.
 
 ### Defense scope (what is and isn't blocked)
 
@@ -296,6 +298,7 @@ A few subtleties that are easy to read past in the table above:
 
 - **Time-based isolation does not stop build-time code execution.** uv's `exclude-newer` only filters which distributions are *resolvable*; once a sdist is selected, its `setup.py` / PEP 517 build backend still executes arbitrary Python at install time. `no-build = true` is what closes that path. pip's `only-binary = :all:` plays the same role. Treat `exclude-newer` and `no-build` as complementary, not redundant.
 - **`ignore-scripts=true` silently skips lifecycle scripts.** Many npm packages legitimately rely on `postinstall` to fetch platform binaries or run native builds. Under this default, `npm install` / `bun install` succeed but the runtime later fails with a missing module or binary. When such a failure is suspected, follow the *isolated recovery* flow in the next section rather than relaxing the defense in the daily project tree.
+- **Lifecycle-script gating does not stop require-time code execution.** `ignore-scripts` / `ignoreScripts` only block `pre/postinstall` hooks. A malicious version whose payload lives in the package main entry runs when application code `require`s/`import`s it — the script gate never sees it. The `min-release-age` / `minimumReleaseAge` cooldown reduces exposure to fresh poisoned versions that are likely to be yanked inside the window. Treat the script gate and the cooldown as complementary, not redundant.
 - **`~/.npmrc` and `~/.bunfig.toml` are independent.** Disabling scripts in one file does not cover the other tool — see the table above.
 
 ### Recovery workflow (when a package legitimately needs lifecycle scripts)
@@ -334,9 +337,15 @@ npm install --ignore-scripts=false <pkg>
 #    project. The user-global defenses stay intact throughout.
 ```
 
-Per-package overrides for the non-script gates remain safe and narrow:
+Temporary overrides for the non-script gates differ by tool:
 
 ```bash
+# npm: widen the cooldown for an urgent patch newer than the window.
+# Invocation-wide (affects every transitive dep resolved in the command), so
+# run it only in the throwaway recovery workspace and audit the lockfile diff.
+# npm has no per-package exclude, unlike bun's minimumReleaseAgeExcludes.
+npm install --min-release-age=0 <pkg>
+
 # bun: widen the cooldown
 #   per-invocation:
 bun add --minimum-release-age 0 <pkg>
@@ -373,6 +382,8 @@ Use overrides only for the single command (or single project) that needs them �
 
 ```bash
 npm config get ignore-scripts                     # → true
+npm --version                                     # → 11.10.0 or newer
+npm config get before                             # → timestamp about 7 days ago
 grep -E 'minimumReleaseAge|ignoreScripts' ~/.bunfig.toml
 pip config list                                    # → install.only-binary = :all:
 grep -E 'exclude-newer|no-build' ~/.config/uv/uv.toml  # → both settings present
