@@ -32,8 +32,11 @@ Rules:
 ## Implementation notes
 
 When implementing a spec or non-trivial feature, maintain
-`implementation-notes.md` at the project root. Update it as meaningful
-implementation decisions arise, including:
+`implementation-notes.md` at the project root only when the user asks for it,
+the repository already uses it, or local project guidance requests it. Treat
+the file as part of the working change and commit it only when that matches
+the project convention or user request. Update it as meaningful implementation
+decisions arise, including:
 
 - Design decisions: choices made where the spec was ambiguous
 - Deviations: intentional departures from the spec, and why
