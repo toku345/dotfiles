@@ -165,3 +165,19 @@ Codex (コードレビュー / 調査委譲 / 別案試行) の運用詳細は s
 「厚く理解する対象」に該当する変更で `codex` 利用可能なときのみ、プラン完成後に自動レビューを実施する。
 
 Codex 自動レビューはプラン段階の in-session 補助、PR 作成直前の `triple-review` は最終 gate。両者は別フェーズで動き、重複しない。
+
+## Implementation Notes
+
+When implementing a spec or non-trivial feature, maintain
+`implementation-notes.md` at the project root only when the user asks for it,
+the repository already uses it, or local project guidance requests it. Treat
+the file as part of the working change and commit it only when that matches
+the project convention or user request. Update it as meaningful implementation
+decisions arise, including:
+
+- Design decisions: choices made where the spec was ambiguous
+- Deviations: intentional departures from the spec, and why
+- Tradeoffs: alternatives considered and why you picked the chosen approach
+- Open questions: anything you want me to confirm or revise
+
+For small one-off edits, this is not required.
