@@ -135,4 +135,4 @@ jobs:
           echo "  - No plaintext key.txt found"
           echo "  - Age encrypted files verified"
           echo "  - No common secret patterns detected"
-          echo "  - Claude/Codex update policy settings enforced"
+          echo "  - Claude/Codex update policy source settings checked"

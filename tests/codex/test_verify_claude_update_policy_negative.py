@@ -7,6 +7,9 @@ import copy
 import importlib.util
 import json
 import pathlib
+import subprocess
+import sys
+import tempfile
 from types import ModuleType
 
 
@@ -94,6 +97,16 @@ def main() -> None:
     )
 
     data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"]["openai-codex"]["source"]["ref"] = "main"
+    mutations.append(
+        (
+            "ambiguous Codex marketplace source",
+            data,
+            'extraKnownMarketplaces.openai-codex.source must contain only "source" and "repo"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
     data["enabledPlugins"]["codex@openai-codex"] = False
     mutations.append(
         (
@@ -115,6 +128,25 @@ def main() -> None:
 
     for name, data, expected in mutations:
         assert_fails_closed(name, data, expected, verifier)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = pathlib.Path(tmpdir) / "settings.json"
+        data = copy.deepcopy(baseline)
+        data["autoUpdatesChannel"] = "latest"
+        settings.write_text(json.dumps(data), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(VERIFY_SCRIPT), "--settings", str(settings)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 1:
+            raise AssertionError(
+                f"CLI negative test: expected exit 1, got {result.returncode}; "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
+        if 'ERROR: autoUpdatesChannel must be "stable"' not in result.stderr:
+            raise AssertionError(f"CLI negative test: unexpected stderr {result.stderr!r}")
 
     print("OK: Claude/Codex update policy negative tests passed")
 

@@ -13,7 +13,7 @@ import sys
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
+DEFAULT_SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 
 
 def validate_update_policy(data: object) -> list[str]:
@@ -46,6 +46,10 @@ def validate_update_policy(data: object) -> list[str]:
             if not isinstance(source, dict):
                 failures.append("extraKnownMarketplaces.openai-codex.source must be an object")
             else:
+                if set(source) != {"source", "repo"}:
+                    failures.append(
+                        'extraKnownMarketplaces.openai-codex.source must contain only "source" and "repo"'
+                    )
                 if source.get("source") != "github":
                     failures.append('extraKnownMarketplaces.openai-codex.source.source must be "github"')
                 if source.get("repo") != "openai/codex-plugin-cc":
@@ -75,8 +79,24 @@ def validate_update_policy(data: object) -> list[str]:
     return failures
 
 
-def main() -> int:
-    data = json.loads(SETTINGS.read_text())
+def parse_settings_path(argv: list[str]) -> pathlib.Path:
+    if not argv:
+        return DEFAULT_SETTINGS
+    if len(argv) == 2 and argv[0] == "--settings":
+        return pathlib.Path(argv[1])
+    raise ValueError("usage: verify_claude_update_policy.py [--settings PATH]")
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    try:
+        settings = parse_settings_path(argv)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    data = json.loads(settings.read_text(encoding="utf-8"))
     failures = validate_update_policy(data)
 
     if failures:
@@ -84,7 +104,7 @@ def main() -> int:
             print(f"ERROR: {failure}", file=sys.stderr)
         return 1
 
-    print("OK: Claude/Codex update policy settings are enforced")
+    print("OK: Claude/Codex update policy source settings match ADR 0026")
     return 0
 
 
