@@ -1,7 +1,8 @@
 {
   "env": {
     "EDITOR": "code-insiders --wait",
-    "VISUAL": "code-insiders --wait"
+    "VISUAL": "code-insiders --wait",
+    "DISABLE_AUTOUPDATER": "1"
   },
   "permissions": {
     "allow": [
@@ -158,6 +159,7 @@
   "outputStyle": "JUIZ",
   "viewMode": "verbose",
   "language": "Japanese",
+  "autoUpdatesChannel": "stable",
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
