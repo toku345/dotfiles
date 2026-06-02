@@ -290,7 +290,7 @@ For the broader developer-environment update policy covering VS Code extensions,
 | `~/.config/uv/uv.toml` | `no-build = true` | Refuses sdists; installs pre-built wheels only. Mirrors pip's `only-binary = :all:`. Prevents PEP 517 build-backend / `setup.py` code from executing at install time — `exclude-newer` alone does not close this path. |
 
 All three time-based settings (`min-release-age`, `minimumReleaseAge`, `exclude-newer`) are expressed as **durations**, not absolute dates, so the cooldown window slides automatically — no periodic maintenance is required. If a value blocks a legitimately-needed fresh package, dependency resolution selects an eligible older version when constraints allow; otherwise it fails closed.
-`chezmoi apply` also fails loudly when `npm` exists but is older than 11.10.0, because older npm versions do not enforce `min-release-age`.
+`chezmoi apply` also fails loudly when `npm` exists but is older than 11.10.0, because older npm versions do not enforce `min-release-age`. The apply-time gate also checks the default effective npm config from a temporary empty directory, so project-local `.npmrc` files do not affect the check. Per-command or per-project recovery overrides are still intentional escape hatches; they should only be used in the isolated recovery workflow below.
 
 ### Defense scope (what is and isn't blocked)
 

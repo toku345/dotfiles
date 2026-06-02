@@ -5,6 +5,7 @@ set -eu
 required_major=11
 required_minor=10
 required_patch=0
+required_cooldown_days=7
 
 if ! command -v npm >/dev/null 2>&1; then
     exit 0
@@ -18,11 +19,11 @@ npm_version=$(npm --version) || {
 parse_npm_version() {
     version=$1
 
+    old_ifs=$IFS
     IFS=.
     # shellcheck disable=SC2086
     set -- $version
-    IFS=' 	
-'
+    IFS=$old_ifs
 
     major=${1:-}
     minor=${2:-}
@@ -36,6 +37,77 @@ parse_npm_version() {
     esac
 
     printf '%s %s %s\n' "$major" "$minor" "$patch"
+}
+
+validate_before_window() {
+    before_value=$1
+
+    if ! command -v node >/dev/null 2>&1; then
+        printf '%s\n' "error: npm is installed, but node is not available for npm cooldown validation" >&2
+        return 1
+    fi
+
+    node -e '
+const before = Date.parse(process.argv[1]);
+const requiredDays = Number(process.argv[2]);
+if (!Number.isFinite(before) || !Number.isFinite(requiredDays)) {
+  process.exit(2);
+}
+const ageDays = (Date.now() - before) / 86400000;
+process.exit(ageDays >= requiredDays - 0.25 && ageDays <= requiredDays + 0.25 ? 0 : 1);
+' "$before_value" "$required_cooldown_days"
+}
+
+verify_effective_cooldown() {
+    tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/npm-cooldown-check.XXXXXX") || {
+        printf '%s\n' "error: cannot create temporary directory for npm cooldown validation" >&2
+        return 1
+    }
+    trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
+    effective_min_release_age=$(cd "$tmpdir" && npm config get min-release-age) || {
+        printf '%s\n' "error: cannot read effective npm min-release-age" >&2
+        return 1
+    }
+    effective_before=$(cd "$tmpdir" && npm config get before) || {
+        printf '%s\n' "error: cannot read effective npm before setting" >&2
+        return 1
+    }
+
+    case "$effective_before" in
+        "" | null | undefined)
+            if [ "$effective_min_release_age" = "$required_cooldown_days" ]; then
+                return 0
+            fi
+            ;;
+        *)
+            if validate_before_window "$effective_before"; then
+                return 0
+            fi
+            ;;
+    esac
+
+    cat >&2 <<MSG
+
+========================================
+ npm cooldown not effective (chezmoi apply blocked)
+========================================
+
+~/.npmrc should enforce min-release-age=$required_cooldown_days by default, but npm reports:
+  min-release-age=$effective_min_release_age
+  before=$effective_before
+
+Remove any default npm config override that disables or replaces the cooldown,
+then re-run:
+  chezmoi apply
+
+Per-command recovery overrides such as --min-release-age=0 should be used only
+in an isolated throwaway workspace, not as default shell or project config.
+
+========================================
+
+MSG
+    return 1
 }
 
 parsed=$(parse_npm_version "$npm_version") || {
@@ -78,3 +150,5 @@ Upgrade npm, then re-run:
 MSG
     exit 1
 fi
+
+verify_effective_cooldown
