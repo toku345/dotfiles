@@ -28,3 +28,16 @@ Rules:
 - Keep existing trailers and append this trailer at the end if missing.
 - Do not duplicate this trailer if it already exists.
 - Keep one blank line between the commit body and trailer block.
+
+## Implementation notes
+
+When implementing a spec or non-trivial feature, maintain
+`implementation-notes.md` at the project root. Update it as meaningful
+implementation decisions arise, including:
+
+- Design decisions: choices made where the spec was ambiguous
+- Deviations: intentional departures from the spec, and why
+- Tradeoffs: alternatives considered and why you picked the chosen approach
+- Open questions: anything you want me to confirm or revise
+
+For small one-off edits, this is not required.
