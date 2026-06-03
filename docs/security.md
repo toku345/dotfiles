@@ -445,7 +445,7 @@ These tools run with privileges that touch credentials, source control, cloud ac
 - cloud CLIs (`aws`, `gcloud`), credential/session helpers
 - `karabiner-elements` (input monitoring), editor casks (VS Code, etc.)
 
-**Manual update flow:** `brew update` → inspect `brew outdated` and the target's release notes → unpin only the reviewed target → `brew upgrade <name>` → smoke-test → re-pin if appropriate. This is a documented manual control; a pinned/reviewed inventory or reminder mechanism is still needed before high-privilege CLI/cask review can be considered fully enforced.
+**Manual update flow:** `brew update` → inspect `brew outdated` and the target's release notes → unpin only the reviewed target → `brew upgrade <name>` → smoke-test → re-pin if appropriate. For security-sensitive libraries (`git`, `curl`, `openssl`, `ca-certificates`), temporarily re-enable Homebrew's dependent repair path while upgrading: `env -u HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK brew upgrade <name>`, then run `brew linkage --test` or review and repair affected dependents explicitly. This is a documented manual control; a pinned/reviewed inventory or reminder mechanism is still needed before high-privilege CLI/cask review can be considered fully enforced.
 
 ### Homebrew and asdf update controls
 
@@ -467,7 +467,7 @@ Committed so routine OS-package and runtime updates are deliberate, not implicit
 
 **Scope limitation (asdf):** these controls are **shell-scoped**. `~/.config/asdf/.asdfrc` is read only because `dot_bashrc`/`config.fish` export `ASDF_CONFIG_FILE` to point at it; an asdf invocation that does not inherit that environment (a non-interactive script, cron job, or GUI-launched process) falls back to asdf's default `~/.asdfrc` (absent) and its built-in defaults, where the short-name repository is **enabled**. This is acceptable today because the hardened action — `asdf plugin add <short-name>` — is run interactively and no repo automation calls asdf. If a non-rc asdf path is ever added, manage `~/.asdfrc` (e.g. a symlink to the XDG file) to close it.
 
-**Homebrew updates** follow the manual flow above (`brew update` → `brew outdated` → upgrade the named, reviewed target). Security fixes bypass the cooldown — see [When to bypass the cooldown](#when-to-bypass-the-cooldown).
+**Homebrew updates** follow the manual flow above (`brew update` → `brew outdated` → upgrade the named, reviewed target). For security-sensitive libraries, unset `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` for the upgrade so Homebrew can repair outdated or broken dependents, then smoke-test the affected tools. Security fixes bypass the cooldown — see [When to bypass the cooldown](#when-to-bypass-the-cooldown).
 
 ### When to bypass the cooldown
 

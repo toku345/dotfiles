@@ -53,7 +53,13 @@ assert_policy_env_output() {
 }
 
 @test "fish config exports the Homebrew policy env and ASDF_CONFIG_FILE when fish is available" {
-  command -v fish >/dev/null || skip "fish required to validate fish policy exports"
+  if ! command -v fish >/dev/null; then
+    if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+      echo "fish required to validate fish policy exports in CI" >&2
+      return 1
+    fi
+    skip "fish required to validate fish policy exports"
+  fi
 
   run --separate-stderr env -i \
     HOME="$BATS_TEST_TMPDIR/home" \
