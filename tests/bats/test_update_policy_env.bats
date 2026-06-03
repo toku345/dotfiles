@@ -1,0 +1,74 @@
+#!/usr/bin/env bats
+# shellcheck shell=bash
+
+bats_require_minimum_version 1.5.0
+
+setup() {
+  REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+  export REPO_ROOT
+}
+
+assert_line_present() {
+  local needle="$1"
+  local file="$2"
+  grep -Fqx "$needle" "$file"
+}
+
+line_number_of() {
+  local needle="$1"
+  local file="$2"
+  grep -Fnx "$needle" "$file" | cut -d: -f1 | head -n1
+}
+
+@test "dot_bashrc exports Homebrew policy env and ASDF_CONFIG_FILE" {
+  run --separate-stderr env -i \
+    HOME="$BATS_TEST_TMPDIR/home" \
+    PATH="/usr/bin:/bin" \
+    bash --noprofile --norc -c \
+      'source "$1"; env | grep -E "^(HOMEBREW_|ASDF_CONFIG_FILE=)" | sort' \
+      bash "$REPO_ROOT/dot_bashrc"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ASDF_CONFIG_FILE=$BATS_TEST_TMPDIR/home/.config/asdf/.asdfrc"* ]]
+  [[ "$output" == *"HOMEBREW_ASK=1"* ]]
+  [[ "$output" == *"HOMEBREW_CASK_OPTS=--require-sha"* ]]
+  [[ "$output" == *"HOMEBREW_NO_AUTO_UPDATE=1"* ]]
+  [[ "$output" == *"HOMEBREW_NO_INSTALL_UPGRADE=1"* ]]
+  [[ "$output" == *"HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1"* ]]
+}
+
+@test "fish config declares the Homebrew policy env" {
+  fish_config="$REPO_ROOT/private_dot_config/private_fish/config.fish"
+
+  assert_line_present "set -gx HOMEBREW_NO_AUTO_UPDATE 1" "$fish_config"
+  assert_line_present "set -gx HOMEBREW_NO_INSTALL_UPGRADE 1" "$fish_config"
+  assert_line_present "set -gx HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK 1" "$fish_config"
+  assert_line_present "set -gx HOMEBREW_ASK 1" "$fish_config"
+  assert_line_present "set -gx HOMEBREW_CASK_OPTS --require-sha" "$fish_config"
+}
+
+@test "run-once package installer exports Homebrew policy env before brew calls" {
+  script="$REPO_ROOT/.chezmoiscripts/run_once_before_install-minimum-packages.sh"
+  first_brew_line="$(grep -n '^[[:space:]]*brew ' "$script" | cut -d: -f1 | head -n1)"
+  [ -n "$first_brew_line" ]
+
+  for line in \
+    "export HOMEBREW_NO_AUTO_UPDATE=1" \
+    "export HOMEBREW_NO_INSTALL_UPGRADE=1" \
+    "export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1" \
+    "export HOMEBREW_ASK=1" \
+    "export HOMEBREW_CASK_OPTS=--require-sha"
+  do
+    assert_line_present "$line" "$script"
+    policy_line="$(line_number_of "$line" "$script")"
+    [ -n "$policy_line" ]
+    [ "$policy_line" -lt "$first_brew_line" ]
+  done
+}
+
+@test "managed asdf config disables the short-name repository" {
+  asdfrc="$REPO_ROOT/private_dot_config/asdf/dot_asdfrc"
+
+  assert_line_present "plugin_repository_last_check_duration = never" "$asdfrc"
+  assert_line_present "disable_plugin_short_name_repository = yes" "$asdfrc"
+}

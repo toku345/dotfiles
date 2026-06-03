@@ -449,19 +449,21 @@ These tools run with privileges that touch credentials, source control, cloud ac
 
 ### Homebrew and asdf update controls
 
-Committed so routine OS-package and runtime updates are deliberate, not implicit. Linux wiring lives in `dot_bashrc`, macOS in `config.fish` (the repo deploys shell config per-OS); the asdf config is OS-agnostic.
+Committed so routine OS-package and runtime updates are deliberate, not implicit. Linux wiring lives in `dot_bashrc`, macOS in `config.fish` (the repo deploys shell config per-OS), and the run-once bootstrap installer exports the same Homebrew variables before its `brew` calls; the asdf config is OS-agnostic.
 
 | Location | Setting | Effect |
 | --- | --- | --- |
 | `~/.bashrc` (Linux) / `~/.config/fish/config.fish` (macOS) | `HOMEBREW_NO_AUTO_UPDATE=1` | No implicit `brew update` on install — installing a formula no longer silently pulls fresh metadata for everything. |
 | same | `HOMEBREW_NO_INSTALL_UPGRADE=1` | `brew install <x>` no longer upgrades already-installed formulae as a side effect. |
-| same | `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1` | After an install/upgrade, do not auto-upgrade outdated *dependents* — only the named, reviewed target changes. `NO_INSTALL_UPGRADE` alone does not cover this (verified against Homebrew 5.1.14). Trade-off: broken linkage in a dependent is not auto-repaired; run `brew upgrade <dependent>` by hand if it surfaces. |
+| same | `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1` | After an install/upgrade, do not run the extra outdated-dependent check/auto-upgrade pass. `NO_INSTALL_UPGRADE` alone does not cover this (verified against Homebrew 5.1.14). The requested formula/cask dependency plan can still include dependencies, and those dependencies are part of the reviewed change. Trade-off: broken linkage in a dependent is not auto-repaired; run `brew upgrade <dependent>` by hand if it surfaces. |
 | same | `HOMEBREW_ASK=1` | Prompt for confirmation before upgrades/installs **in an interactive TTY**. Without a TTY the prompt is skipped (it does not hang), so this is interactive friction, not an automation gate. |
 | same | `HOMEBREW_CASK_OPTS=--require-sha` | Refuse casks without a checksum (macOS-relevant; inert on Linux). A legitimately unsigned cask (e.g. some fonts) installs with a one-off override: `env HOMEBREW_CASK_OPTS= brew install --cask <name>`. |
 | `~/.config/asdf/.asdfrc` | `plugin_repository_last_check_duration = never` | Never auto-sync the asdf plugin short-name repository (default: every 60 min). |
 | `~/.config/asdf/.asdfrc` | `disable_plugin_short_name_repository = yes` | Disable the short-name plugin repository entirely; add plugins by explicit Git URL only. |
 
 **Operational rules (asdf):** pin exact versions in `.tool-versions` (never `latest`); do not run `asdf install <tool> latest` or `asdf plugin update --all`; update a runtime only when intentionally reviewing that upgrade.
+
+**Scope limitation (Homebrew):** these controls apply to `brew` invocations that inherit the managed environment: new Linux bash sessions, macOS fish sessions, and the repository's run-once bootstrap installer. Existing shells from before deployment, GUI-launched commands, `sudo`/`env -i`, shells that do not source the managed config, and future non-rc automation must set the `HOMEBREW_*` variables explicitly before invoking `brew`.
 
 **Scope limitation (asdf):** these controls are **shell-scoped**. `~/.config/asdf/.asdfrc` is read only because `dot_bashrc`/`config.fish` export `ASDF_CONFIG_FILE` to point at it; an asdf invocation that does not inherit that environment (a non-interactive script, cron job, or GUI-launched process) falls back to asdf's default `~/.asdfrc` (absent) and its built-in defaults, where the short-name repository is **enabled**. This is acceptable today because the hardened action — `asdf plugin add <short-name>` — is run interactively and no repo automation calls asdf. If a non-rc asdf path is ever added, manage `~/.asdfrc` (e.g. a symlink to the XDG file) to close it.
 

@@ -16,6 +16,8 @@ export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_ASK=1
 export HOMEBREW_CASK_OPTS=--require-sha
 
+export ASDF_CONFIG_FILE="$HOME/.config/asdf/.asdfrc"
+
 # Linuxbrew shellenv
 if [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]]; then
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
@@ -29,7 +31,6 @@ fi
 # an overlay — see ADR 0023). To use the asdf-pinned version of an overlapping
 # tool, run `asdf exec <tool>` / `asdf shell <tool> <version>`.
 if command -v asdf &>/dev/null; then
-    export ASDF_CONFIG_FILE="$HOME/.config/asdf/.asdfrc"
     export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
     . <(asdf completion bash)
     # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)
