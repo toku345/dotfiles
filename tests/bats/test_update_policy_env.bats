@@ -21,12 +21,17 @@ line_number_of() {
 }
 
 assert_policy_env_output() {
-  [[ "$output" == *"ASDF_CONFIG_FILE=$BATS_TEST_TMPDIR/home/.config/asdf/.asdfrc"* ]]
-  [[ "$output" == *"HOMEBREW_ASK=1"* ]]
-  [[ "$output" == *"HOMEBREW_CASK_OPTS=--require-sha"* ]]
-  [[ "$output" == *"HOMEBREW_NO_AUTO_UPDATE=1"* ]]
-  [[ "$output" == *"HOMEBREW_NO_INSTALL_UPGRADE=1"* ]]
-  [[ "$output" == *"HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1"* ]]
+  local expected
+  for expected in \
+    "ASDF_CONFIG_FILE=$BATS_TEST_TMPDIR/home/.config/asdf/.asdfrc" \
+    "HOMEBREW_ASK=1" \
+    "HOMEBREW_CASK_OPTS=--require-sha" \
+    "HOMEBREW_NO_AUTO_UPDATE=1" \
+    "HOMEBREW_NO_INSTALL_UPGRADE=1" \
+    "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1"
+  do
+    grep -Fqx "$expected" <<<"$output"
+  done
 }
 
 @test "dot_bashrc exports Homebrew policy env and ASDF_CONFIG_FILE" {
