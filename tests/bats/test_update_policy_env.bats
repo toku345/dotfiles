@@ -68,9 +68,11 @@ assert_policy_env_output() {
   assert_policy_env_output
 }
 
-@test "run-once package installer exports Homebrew policy env before brew calls" {
+@test "run-once package installer exports Homebrew policy env before OS branch and brew calls" {
   script="$REPO_ROOT/.chezmoiscripts/run_once_before_install-minimum-packages.sh"
+  first_os_branch_line="$(grep -n '^[[:space:]]*if \[ "\$CHEZMOI_OS" = ' "$script" | cut -d: -f1 | head -n1)"
   first_brew_line="$(grep -n '^[[:space:]]*brew ' "$script" | cut -d: -f1 | head -n1)"
+  [ -n "$first_os_branch_line" ]
   [ -n "$first_brew_line" ]
 
   for line in \
@@ -83,6 +85,7 @@ assert_policy_env_output() {
     assert_line_present "$line" "$script"
     policy_line="$(line_number_of "$line" "$script")"
     [ -n "$policy_line" ]
+    [ "$policy_line" -lt "$first_os_branch_line" ]
     [ "$policy_line" -lt "$first_brew_line" ]
   done
 }
