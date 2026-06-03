@@ -400,7 +400,7 @@ grep -E 'exclude-newer|no-build' ~/.config/uv/uv.toml  # → both settings prese
 
 ## Developer-Tool Update Workflow
 
-Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface. (The Homebrew/asdf surface and the VS Code surface are tracked separately and will plug into the same manual flow.)
+Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface, with the implemented Homebrew/asdf controls documented below. The VS Code surface is still tracked separately and will plug into the same manual flow.
 
 ### Claude Code and Codex (AI coding tools)
 
@@ -445,7 +445,29 @@ These tools run with privileges that touch credentials, source control, cloud ac
 - cloud CLIs (`aws`, `gcloud`), credential/session helpers
 - `karabiner-elements` (input monitoring), editor casks (VS Code, etc.)
 
-**Manual update flow:** `brew update` → inspect `brew outdated` and the target's release notes → unpin only the reviewed target → `brew upgrade <name>` → smoke-test → re-pin if appropriate. This is a documented manual control; a pinned/reviewed inventory or reminder mechanism is still needed before high-privilege CLI/cask review can be considered fully enforced.
+**Manual update flow:** `brew update` → inspect `brew outdated` and the target's release notes → unpin only the reviewed target → `brew upgrade <name>` → smoke-test → re-pin if appropriate. For security-sensitive libraries (`git`, `curl`, `openssl`, `ca-certificates`), temporarily re-enable Homebrew's dependent repair path while upgrading: `env -u HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK brew upgrade <name>`, then run `brew linkage --test` or review and repair affected dependents explicitly. This is a documented manual control; a pinned/reviewed inventory or reminder mechanism is still needed before high-privilege CLI/cask review can be considered fully enforced.
+
+### Homebrew and asdf update controls
+
+Committed so routine OS-package and runtime updates are deliberate, not implicit. Linux wiring lives in `dot_bashrc`, macOS in `config.fish` (the repo deploys shell config per-OS), and the run-once bootstrap installer exports the same Homebrew variables before its `brew` calls; the asdf config is OS-agnostic.
+
+| Location | Setting | Effect |
+| --- | --- | --- |
+| `~/.bashrc` (Linux) / `~/.config/fish/config.fish` (macOS) | `HOMEBREW_NO_AUTO_UPDATE=1` | No implicit `brew update` on install — installing a formula no longer silently pulls fresh metadata for everything. |
+| same | `HOMEBREW_NO_INSTALL_UPGRADE=1` | `brew install <x>` no longer upgrades already-installed formulae as a side effect. |
+| same | `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1` | After an install/upgrade, do not run the extra outdated-dependent check/auto-upgrade pass. `NO_INSTALL_UPGRADE` alone does not cover this (verified against Homebrew 5.1.14). The requested formula/cask dependency plan can still include dependencies, and those dependencies are part of the reviewed change. Trade-off: outdated dependents and broken linkage are not auto-repaired; use `brew linkage --test`, then `brew upgrade <dependent>` for reviewed outdated dependents or `brew reinstall <dependent>` for broken linkage. |
+| same | `HOMEBREW_ASK=1` | Pass `--ask` to install/upgrade/reinstall: Homebrew prints the plan and prompts only when it includes dependencies, dependants, or packages beyond the named arguments; named-target operations may only print the plan. Without a TTY the prompt is skipped, so this is plan visibility, not an enforcement gate. |
+| same | `HOMEBREW_CASK_OPTS=--require-sha` | Refuse casks without a checksum (macOS-relevant; inert on Linux). A legitimately unsigned cask (e.g. some fonts) installs with a one-off override: `env HOMEBREW_CASK_OPTS= brew install --cask <name>`. |
+| `~/.config/asdf/.asdfrc` | `plugin_repository_last_check_duration = never` | Never auto-sync the asdf plugin short-name repository (default: every 60 min). |
+| `~/.config/asdf/.asdfrc` | `disable_plugin_short_name_repository = yes` | Disable the short-name plugin repository entirely; add plugins by explicit Git URL only. |
+
+**Operational rules (asdf):** pin exact versions in `.tool-versions` (never `latest`); do not run `asdf install <tool> latest` or `asdf plugin update --all`; update a runtime only when intentionally reviewing that upgrade.
+
+**Scope limitation (Homebrew):** these controls apply to `brew` invocations that inherit the managed environment: new Linux bash sessions, macOS fish sessions, and the repository's run-once bootstrap installer. Existing shells from before deployment, GUI-launched commands, `sudo`/`env -i`, shells that do not source the managed config, and future non-rc automation must set the `HOMEBREW_*` variables explicitly before invoking `brew`.
+
+**Scope limitation (asdf):** these controls are **shell-scoped**. `~/.config/asdf/.asdfrc` is read only because `dot_bashrc`/`config.fish` export `ASDF_CONFIG_FILE` to point at it; an asdf invocation that does not inherit that environment (a non-interactive script, cron job, or GUI-launched process) falls back to asdf's default `~/.asdfrc` (absent) and its built-in defaults, where the short-name repository is **enabled**. This is acceptable today because the hardened action — `asdf plugin add <short-name>` — is run interactively and no repo automation calls asdf. If a non-rc asdf path is ever added, manage `~/.asdfrc` (e.g. a symlink to the XDG file) to close it.
+
+**Homebrew updates** follow the manual flow above (`brew update` → `brew outdated` → upgrade the named, reviewed target). For security-sensitive libraries, unset `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` for the upgrade so Homebrew can repair outdated or broken dependents, then smoke-test the affected tools. Security fixes bypass the cooldown — see [When to bypass the cooldown](#when-to-bypass-the-cooldown).
 
 ### When to bypass the cooldown
 

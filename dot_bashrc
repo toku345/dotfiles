@@ -1,6 +1,23 @@
 #!/usr/bin/env bash
 # Interactive shell configuration (Linux)
 
+# Homebrew update policy (ADR 0026): make routine updates deliberate instead of
+# a side effect of installing. NO_AUTO_UPDATE stops the implicit `brew update`
+# on install; NO_INSTALL_UPGRADE stops `brew install` from upgrading existing
+# formulae; NO_INSTALLED_DEPENDENTS_CHECK stops the post-install auto-upgrade of
+# outdated dependents after the requested operation; ASK prints the plan and
+# prompts only when Homebrew adds dependencies/dependants or extra packages;
+# CASK_OPTS=--require-sha refuses casks without a checksum (macOS-relevant; inert
+# on Linux). Security fixes bypass this — see docs/security.md "When to bypass
+# the cooldown".
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_UPGRADE=1
+export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+export HOMEBREW_ASK=1
+export HOMEBREW_CASK_OPTS=--require-sha
+
+export ASDF_CONFIG_FILE="$HOME/.config/asdf/.asdfrc"
+
 # Linuxbrew shellenv
 if [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]]; then
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
@@ -14,7 +31,6 @@ fi
 # an overlay — see ADR 0023). To use the asdf-pinned version of an overlapping
 # tool, run `asdf exec <tool>` / `asdf shell <tool> <version>`.
 if command -v asdf &>/dev/null; then
-    export ASDF_CONFIG_FILE="$HOME/.config/asdf/.asdfrc"
     export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
     . <(asdf completion bash)
     # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)

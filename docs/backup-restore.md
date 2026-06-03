@@ -130,6 +130,11 @@ git push backup main
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
    # chezmoiとageのインストール
+   export HOMEBREW_NO_AUTO_UPDATE=1
+   export HOMEBREW_NO_INSTALL_UPGRADE=1
+   export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+   export HOMEBREW_ASK=1
+   export HOMEBREW_CASK_OPTS=--require-sha
    brew install chezmoi age
    ```
 
@@ -189,6 +194,11 @@ sudo apt-get install -y build-essential curl file git procps
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
 # Step 3: chezmoi + age
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_UPGRADE=1
+export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+export HOMEBREW_ASK=1
+export HOMEBREW_CASK_OPTS=--require-sha
 brew install chezmoi age
 
 # Step 4: init + apply

@@ -231,11 +231,12 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install bats-core
+      - name: Install bats-core and fish
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats
+          sudo apt-get install -y bats fish
           bats --version
+          fish --version
 
       - name: Run bats test suite
         run: bats tests/bats/
