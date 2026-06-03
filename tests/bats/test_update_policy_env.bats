@@ -35,7 +35,7 @@ assert_policy_env_output() {
 }
 
 @test "dot_bashrc exports Homebrew policy env and ASDF_CONFIG_FILE" {
-  run --separate-stderr env -i \
+  run env -i \
     HOME="$BATS_TEST_TMPDIR/home" \
     PATH="/usr/bin:/bin" \
     bash --noprofile --norc -c \
@@ -66,7 +66,7 @@ assert_policy_env_output() {
     skip "fish required to validate fish policy exports"
   fi
 
-  run --separate-stderr env -i \
+  run env -i \
     HOME="$BATS_TEST_TMPDIR/home" \
     PATH="$PATH" \
     fish --no-config -c '
@@ -115,7 +115,7 @@ assert_policy_env_output() {
 STUB
   chmod +x "$stub_dir/brew"
 
-  run --separate-stderr env -i \
+  run env -i \
     CHEZMOI_OS=darwin \
     PATH="$stub_dir:/usr/bin:/bin" \
     BREW_STUB_LOG="$BATS_TEST_TMPDIR/brew.log" \
