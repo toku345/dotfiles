@@ -47,7 +47,6 @@ Pinned tools can silently miss fixes if never reviewed. Any cask or plugin pin m
 Concrete enforcement is implemented incrementally through these follow-ups:
 
 - #229 — VS Code extension autoUpdate hardening per ADR 0026
-- #225 — Harden Homebrew and asdf update behavior
 
 When a follow-up is implemented, add an `**Amendment YYYY-MM-DD**:` line under Status documenting the change, per this repository's ADR amendment convention.
 

@@ -37,7 +37,7 @@ line_number_of() {
   [[ "$output" == *"HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1"* ]]
 }
 
-@test "fish config declares the Homebrew policy env" {
+@test "fish config declares the Homebrew policy env and ASDF_CONFIG_FILE" {
   fish_config="$REPO_ROOT/private_dot_config/private_fish/config.fish"
 
   assert_line_present "set -gx HOMEBREW_NO_AUTO_UPDATE 1" "$fish_config"
@@ -45,6 +45,7 @@ line_number_of() {
   assert_line_present "set -gx HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK 1" "$fish_config"
   assert_line_present "set -gx HOMEBREW_ASK 1" "$fish_config"
   assert_line_present "set -gx HOMEBREW_CASK_OPTS --require-sha" "$fish_config"
+  assert_line_present 'set -gx ASDF_CONFIG_FILE $HOME/.config/asdf/.asdfrc' "$fish_config"
 }
 
 @test "run-once package installer exports Homebrew policy env before brew calls" {

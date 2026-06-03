@@ -400,7 +400,7 @@ grep -E 'exclude-newer|no-build' ~/.config/uv/uv.toml  # → both settings prese
 
 ## Developer-Tool Update Workflow
 
-Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface. (The Homebrew/asdf surface and the VS Code surface are tracked separately and will plug into the same manual flow.)
+Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface, with the implemented Homebrew/asdf controls documented below. The VS Code surface is still tracked separately and will plug into the same manual flow.
 
 ### Claude Code and Codex (AI coding tools)
 

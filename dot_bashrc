@@ -5,8 +5,8 @@
 # a side effect of installing. NO_AUTO_UPDATE stops the implicit `brew update`
 # on install; NO_INSTALL_UPGRADE stops `brew install` from upgrading existing
 # formulae; NO_INSTALLED_DEPENDENTS_CHECK stops the post-install auto-upgrade of
-# outdated dependents (so only the named target changes); ASK prompts before
-# upgrades in an interactive TTY (skipped, not hung, without one);
+# outdated dependents after the requested operation; ASK prompts before upgrades
+# in an interactive TTY (skipped, not hung, without one);
 # CASK_OPTS=--require-sha refuses casks without a checksum (macOS-relevant; inert
 # on Linux). Security fixes bypass this — see docs/security.md "When to bypass
 # the cooldown".
