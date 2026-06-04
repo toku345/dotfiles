@@ -204,6 +204,18 @@ STUB
   ! grep -q 'If it is missing, stop and ask the user to rerun with `--base`' "$SKILL_MD"
 }
 
+@test "SKILL.md requires direct reaction before advancing coaching questions" {
+  grep -Fq "On answer turns, respond to the user's answer before moving on" "$SKILL_MD"
+  grep -Fq 'Say directly whether the answer is correct, partly correct, or off target' "$SKILL_MD"
+  grep -Fq 'Do not advance to the next candidate question until the current answer is good enough to record as answered' "$SKILL_MD"
+  grep -Fq 'Response To Your Answer' "$SKILL_MD"
+  grep -Fq '合っています' "$SKILL_MD"
+  grep -Fq '一部合っています' "$SKILL_MD"
+  grep -Fq 'そこは違います' "$SKILL_MD"
+  grep -Fq 'If the answer is incomplete, ambiguous, or off target, update `answer_attempts`, keep the same `current_question`' "$SKILL_MD"
+  grep -Fq 'If the user sends an additional response for the same question' "$SKILL_MD"
+}
+
 @test "SKILL.md fail-closes when context collection commands fail" {
   grep -q 'Run each command independently' "$SKILL_MD"
   grep -q 'If any command fails, abort with the command output' "$SKILL_MD"
