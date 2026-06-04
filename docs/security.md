@@ -469,6 +469,36 @@ Committed so routine OS-package and runtime updates are deliberate, not implicit
 
 **Homebrew updates** follow the manual flow above (`brew update` → `brew outdated` → upgrade the named, reviewed target). For security-sensitive libraries, unset `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` for the upgrade so Homebrew can repair outdated or broken dependents, then smoke-test the affected tools. Security fixes bypass the cooldown — see [When to bypass the cooldown](#when-to-bypass-the-cooldown).
 
+### VS Code extensions and updates
+
+VS Code's extension marketplace is an update channel: an auto-updating extension can pull compromised code that runs with editor — and, via tasks/debuggers, shell — privileges. ADR 0026 requires extension auto-update off, update checks on, manual application updates, and workspace trust restricted. This is **documented as manual machine setup** rather than chezmoi-managed: the settings file is app-owned (VS Code rewrites it), full of personal settings, and lives at platform-specific macOS-only paths, so a managed file would churn and risk clobbering personal config for marginal benefit.
+
+Set these in VS Code user settings (`Cmd+,` → *Open Settings (JSON)*), for whichever build you run. macOS paths:
+
+- Stable: `~/Library/Application Support/Code/User/settings.json`
+- Insiders: `~/Library/Application Support/Code - Insiders/User/settings.json`
+
+```jsonc
+{
+  "extensions.autoUpdate": false,                          // extensions do not auto-update
+  "extensions.autoCheckUpdates": true,                     // but available updates are still surfaced
+  "update.mode": "manual",                                 // the app updates only on request
+  "security.workspace.trust.untrustedFiles": "newWindow"   // untrusted files open in a restricted window
+}
+```
+
+Verify (per build — swap in `Code - Insiders` as needed):
+
+```bash
+S="$HOME/Library/Application Support/Code/User/settings.json"
+jq '{autoUpdate: ."extensions.autoUpdate", autoCheck: ."extensions.autoCheckUpdates", update: ."update.mode", trust: ."security.workspace.trust.untrustedFiles"}' "$S"
+# expect: autoUpdate=false, autoCheck=true, update="manual", trust="newWindow"
+```
+
+The urgent control (extension auto-update off) is already applied by hand on both Macs; this records the full set for completeness and reproducibility. If Settings Sync is enabled, set these in the synced profile so they propagate instead of being overwritten.
+
+**Editor-migration note:** moving to a single-binary editor without an extension marketplace (e.g. Helix, or Lem) would *remove* this attack surface — there are no auto-updating extensions, and the editor's own updates fold into the Homebrew controls above (`brew upgrade <editor>`). Treat such a migration as a net supply-chain reduction; re-evaluate this subsection if VS Code is retired.
+
 ### When to bypass the cooldown
 
 The 7-day cooldown is the default for *routine* updates, not a brake on security. Apply an update immediately (skip the cooldown) when:
