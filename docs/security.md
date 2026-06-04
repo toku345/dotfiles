@@ -400,7 +400,7 @@ grep -E 'exclude-newer|no-build' ~/.config/uv/uv.toml  # → both settings prese
 
 ## Developer-Tool Update Workflow
 
-Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface, with the implemented Homebrew/asdf controls documented below. The VS Code surface is still tracked separately and will plug into the same manual flow.
+Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface, with the implemented Homebrew/asdf controls and documented VS Code manual setup below.
 
 ### Claude Code and Codex (AI coding tools)
 
@@ -478,6 +478,8 @@ Set these in VS Code user settings (`Cmd+,` → *Open Settings (JSON)*), for whi
 - Stable: `~/Library/Application Support/Code/User/settings.json`
 - Insiders: `~/Library/Application Support/Code - Insiders/User/settings.json`
 
+If you use VS Code Profiles, apply and verify these settings in the active profile's settings file as well as the default user settings.
+
 ```jsonc
 {
   "extensions.autoUpdate": false,                          // extensions do not auto-update
@@ -494,6 +496,8 @@ S="$HOME/Library/Application Support/Code/User/settings.json"
 jq '{autoUpdate: ."extensions.autoUpdate", autoCheck: ."extensions.autoCheckUpdates", update: ."update.mode", trust: ."security.workspace.trust.untrustedFiles"}' "$S"
 # expect: autoUpdate=false, autoCheck=true, update="manual", trust="newWindow"
 ```
+
+The `jq` check works when `settings.json` is strict JSON. If the file uses JSONC comments or trailing commas, verify in VS Code's Settings JSON view or use a JSONC-capable parser.
 
 The urgent control (extension auto-update off) is already applied by hand on both Macs; this records the full set for completeness and reproducibility. If Settings Sync is enabled, set these in the synced profile so they propagate instead of being overwritten.
 

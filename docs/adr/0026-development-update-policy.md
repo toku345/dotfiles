@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted as policy (2026-05-21). Enforcement is partial; remaining controls are tracked in Follow-ups.
+Accepted as policy (2026-05-21). Enforcement is partial; remaining controls are tracked in Follow-ups when open.
 
 **Amendment 2026-06-02 (#226)**: The Claude Code updater controls and Claude-side Codex plugin marketplace registration/auto-update controls are implemented, and the AI-tool/high-privilege-CLI manual update runbook is documented. `~/.claude/settings.json` now sets `env.DISABLE_AUTOUPDATER=1` — which disables automatic updates for the Claude Code binary *and* all plugins, including the built-in `claude-plugins-official` marketplace — plus `autoUpdatesChannel=stable`; the Codex plugin marketplace keeps `autoUpdate=false`. `FORCE_AUTOUPDATE_PLUGINS` is intentionally left unset (setting it would re-enable plugin auto-updates despite the kill switch). This user-settings change does not deploy Claude Code managed settings such as `strictKnownMarketplaces`; hard marketplace source allowlisting remains a separate managed-settings control if this machine later needs that stronger gate. The operational runbook — high-privilege CLI/cask review list, manual update flow, and the conditions under which a security fix bypasses the 7-day cooldown — lives in [docs/security.md](../security.md#developer-tool-update-workflow). High-privilege CLI/cask review remains a manual runbook control until a pinned/reviewed inventory or reminder mechanism is added. The Homebrew/asdf surface (#225) and VS Code surface (#229) remain open.
 
@@ -46,9 +46,7 @@ Pinned tools can silently miss fixes if never reviewed. Any cask or plugin pin m
 
 ## Follow-ups
 
-Concrete enforcement is implemented incrementally through these follow-ups:
-
-- #229 — VS Code extension autoUpdate hardening per ADR 0026
+Concrete enforcement is implemented incrementally through follow-ups. Current open follow-ups: none.
 
 When a follow-up is implemented, add an `**Amendment YYYY-MM-DD**:` line under Status documenting the change, per this repository's ADR amendment convention.
 
