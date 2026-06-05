@@ -483,7 +483,7 @@ If you use VS Code Profiles, use the Settings editor's **Apply Setting to all Pr
 - Stable profile: `~/Library/Application Support/Code/User/profiles/<profile ID>/settings.json`
 - Insiders profile: `~/Library/Application Support/Code - Insiders/User/profiles/<profile ID>/settings.json`
 
-A profile `settings.json` exists only after that profile overrides settings. If the active profile has no profile settings file, verify the default user settings and keep using VS Code's **Apply Setting to all Profiles** action for these four controls.
+A profile `settings.json` exists only after that profile overrides settings. Always verify the effective value in the active profile through VS Code's Settings UI; if the active profile has no profile settings file, also verify the default user settings and keep using VS Code's **Apply Setting to all Profiles** action for these four controls.
 
 ```jsonc
 {
@@ -511,9 +511,9 @@ Checklist before treating a machine/build/profile as compliant:
 - If Settings Sync is enabled, confirm the synced profile keeps the same values after sync completes or after any sync conflict/restore.
 - Re-run this checklist whenever the machine, VS Code build, active profile, or Settings Sync state changes.
 
-As of 2026-06-03, the urgent control (`extensions.autoUpdate=false`) was verified by hand on the current Macs. Treat that as dated evidence, not a permanent invariant: rerun the checklist for every new or rebuilt Mac, new VS Code build, new or switched profile, Insiders install, Settings Sync enablement, or Settings Sync conflict/restore. If Settings Sync is enabled, set these in the synced profile so they propagate instead of being overwritten.
+As of 2026-06-03, all four controls were verified by hand on the current Macs. Treat that as dated evidence, not a permanent invariant: rerun the checklist for every new or rebuilt Mac, new VS Code build, new or switched profile, Insiders install, Settings Sync enablement, or Settings Sync conflict/restore. If Settings Sync is enabled, set these in the synced profile so they propagate instead of being overwritten.
 
-**Editor-migration note:** moving to a single-binary editor without an extension marketplace (e.g. Helix, or Lem) would *remove* this attack surface — there are no auto-updating extensions, and the editor's own updates fold into the Homebrew controls above (`brew upgrade <editor>`). Treat such a migration as a net supply-chain reduction; re-evaluate this subsection if VS Code is retired.
+**Editor-migration note:** moving to a single-binary editor without an extension marketplace (e.g. Helix, or Lem) would *remove* this attack surface only if the editor is installed through the reviewed Homebrew flow and no separate editor plugin/package updater is enabled. Treat such a migration as a net supply-chain reduction under those conditions; re-evaluate this subsection if VS Code is retired.
 
 ### When to bypass the cooldown
 
