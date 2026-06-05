@@ -17,7 +17,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0  # Full history for better security scanning
+          fetch-depth: 0  # Full history for the gitleaks history scan
+          persist-credentials: false
 
       - name: Check for plaintext key.txt
         run: |
@@ -74,50 +75,22 @@ jobs:
             done < <(echo "$AGE_FILES")
           fi
 
-      - name: Scan for common secrets
+      - name: Scan for secrets (gitleaks)
+        env:
+          GL_VER: "8.30.1"
+          GL_SHA: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
         run: |
-          echo "Scanning for common secret patterns..."
-
-          # Install ripgrep for better performance
-          sudo apt-get update -qq
-          sudo apt-get install -y ripgrep
-
-          SECRETS_FOUND=0
-
-          # AWS Access Keys (exclude encrypted files and documentation)
-          if rg -i 'AKIA[0-9A-Z]{16}' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' 2>/dev/null; then
-            echo "ERROR: Found potential AWS Access Key"
-            SECRETS_FOUND=1
-          fi
-
-          # Private Keys (exclude encrypted files and documentation)
-          # Use -e flag to prevent the pattern's leading dashes from being interpreted as flags
-          if rg -e '-----BEGIN.*PRIVATE KEY-----' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' 2>/dev/null; then
-            echo "ERROR: Found potential private key"
-            SECRETS_FOUND=1
-          fi
-
-          # GitHub Personal Access Tokens (all variants: ghp_, ghu_, ghs_, ghr_)
-          if rg 'gh[pusr]_[a-zA-Z0-9]{36}' --type-not lock --type-not svg 2>/dev/null; then
-            echo "ERROR: Found potential GitHub Personal Access Token"
-            SECRETS_FOUND=1
-          fi
-
-          # Generic API keys (basic pattern - warning only due to high false positive rate)
-          # Fixed: Use literal space and tab instead of \s which doesn't work in single quotes
-          if rg -i 'api[_-]?key[" =:]+[a-zA-Z0-9]{32,}' --type-not lock --type-not svg --type-not json -g '!*.age' -g '!**/security.md' 2>/dev/null; then
-            echo "WARNING: Found potential API key pattern (may be false positive)"
-            # Don't fail on this one, just warn
-          fi
-
-          if [ $SECRETS_FOUND -eq 1 ]; then
-            echo ""
-            echo "ERROR: Security check failed - Potential secrets found in repository!"
-            echo "Please review the findings above and remove any sensitive data."
-            exit 1
-          fi
-
-          echo "OK: No obvious secrets detected"
+          echo "Scanning for secrets with gitleaks (full history)..."
+          # Pinned binary + checksum: covers all GitHub token variants (gho_,
+          # github_pat_) that the previous hand-rolled rg regex missed.
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VER}/gitleaks_${GL_VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          echo "${GL_SHA}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+          # .gitleaks.toml at repo root configures the ruleset + allowlist.
+          gitleaks git . --no-banner --redact --exit-code 1
+          echo "OK: gitleaks found no secrets"
 
       - name: Verify AI tool update policy invariants
         run: |
@@ -134,5 +107,5 @@ jobs:
           echo "Checks performed:"
           echo "  - No plaintext key.txt found"
           echo "  - Age encrypted files verified"
-          echo "  - No common secret patterns detected"
+          echo "  - No secrets detected (gitleaks, full history)"
           echo "  - Claude/Codex update policy source settings checked"

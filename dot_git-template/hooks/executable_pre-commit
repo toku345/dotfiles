@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# Global pre-commit secret gate (Layer L2 of the secret-scanning baseline).
+# Deployed by chezmoi to ~/.git-template/hooks/pre-commit and wired via
+# init.templateDir in ~/.config/git/config, so every newly cloned or
+# `git init`ed repo inherits it. Activate on an already-cloned repo by
+# re-running `git init` inside it.
+#
+# This local gate is bypassable with `git commit --no-verify` by design. The
+# authoritative gate is CI gitleaks (Layer L3) + GitHub push protection, which
+# cannot be skipped under schedule pressure (Money Forward lesson: technical
+# gates over human discipline). See
+# docs/adr/0028-gitleaks-secret-scanning-baseline.md.
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  printf 'gitleaks not on PATH; skipping local secret scan (CI still gates).\n' >&2
+  exit 0
+fi
+
+exec gitleaks protect --staged --redact --no-banner

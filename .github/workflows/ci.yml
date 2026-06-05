@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Run ShellCheck on shell scripts
         run: |
@@ -84,6 +86,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install chezmoi
         run: |
@@ -183,6 +187,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install fish shell
         run: |
@@ -218,6 +224,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       # T4-1〜T4-7 invoke triple-review-broker-cleanup, an ESM Node helper
       # that requires Node 20+. Without this pin the job silently relies on
@@ -240,3 +248,31 @@ jobs:
 
       - name: Run bats test suite
         run: bats tests/bats/
+
+  zizmor:
+    name: Zizmor Actions Lint
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Run zizmor on workflows
+        env:
+          ZIZMOR_VER: "1.25.2"
+        run: |
+          pip install "zizmor==${ZIZMOR_VER}"
+          # Offline static audits cover the CAMPFIRE-relevant checks
+          # (unpinned actions, pull_request_target, credential persistence,
+          # excessive permissions, template injection).
+          zizmor --no-online-audits .github/workflows/

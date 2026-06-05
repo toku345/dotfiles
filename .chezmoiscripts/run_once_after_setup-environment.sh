@@ -1,8 +1,11 @@
 #!/bin/sh
 
-# git-secrets setup (cross-platform)
-git secrets --install "$HOME"/.git-templates/git-secrets
-git secrets --register-aws --global
+# Local secret-scan gate: a gitleaks pre-commit hook is deployed to
+# ~/.git-template/hooks/pre-commit and wired via init.templateDir in
+# ~/.config/git/config, so new clones/inits inherit it automatically — no
+# imperative install step is needed here. Activate it on an already-cloned
+# repo by re-running `git init` inside it.
+# See docs/adr/0028-gitleaks-secret-scanning-baseline.md.
 
 # macOS-specific settings
 if [ "$CHEZMOI_OS" = "darwin" ]; then

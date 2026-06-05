@@ -215,10 +215,10 @@ The GitHub Actions workflow (`.github/workflows/security-checks.yml`) performs:
    - PASS: All files properly encrypted
    - FAIL: Missing or corrupted .age files
 
-3. **Secret Pattern Detection**
-   - Scans for common secrets using pattern matching
-   - Detects: AWS keys, private keys, GitHub tokens, API keys
-   - Excludes: Encrypted files, documentation examples
+3. **Secret Detection (gitleaks)**
+   - Scans the full git history with gitleaks (version-pinned binary, checksum-verified)
+   - Detects 150+ provider patterns, including every GitHub token variant (`ghp_`, `gho_`, `github_pat_`, …)
+   - Config + allowlist: `.gitleaks.toml` at the repo root
    - PASS: No secrets detected
    - FAIL: Potential secrets found
 
@@ -232,7 +232,8 @@ The GitHub Actions workflow (`.github/workflows/security-checks.yml`) performs:
 ### How It Works
 
 The workflow uses:
-- **ripgrep** - Fast pattern matching for secret detection
+- **gitleaks** - Secret scanning across full git history (version-pinned + checksum-verified)
+- **zizmor** - GitHub Actions workflow hardening lint (in `ci.yml`)
 - **Python** - Static checks for JSON policy invariants
 - **Shell scripts** - Lightweight checks without external dependencies
 - **No password required** - CI cannot decrypt files (password not stored)
@@ -240,8 +241,8 @@ The workflow uses:
 ### Limitations
 
 - Cannot verify decryption (no password in CI)
-- Pattern matching may have false positives
-- Only catches common secret patterns
+- gitleaks detects structured secrets, not unstructured PII (names, card numbers)
+- A local pre-commit hook is bypassable with `--no-verify`; CI + GitHub push protection are the authoritative gates
 - Manual review still important for sensitive changes
 
 ### If CI Fails
@@ -251,7 +252,16 @@ The workflow uses:
 3. **Fix corrupted .age files** if encryption check failed
 4. **Verify you didn't commit `~/key.txt`** (plaintext key)
 
-If you believe it's a false positive, review the patterns in the workflow file.
+If you believe it's a false positive, add a scoped entry to `.gitleaks.toml`.
+
+### Secret-scanning layers (and other repos)
+
+The same baseline applies beyond CI (see [ADR 0028](./adr/0028-gitleaks-secret-scanning-baseline.md)):
+
+- **Local (L2)** — a gitleaks `pre-commit` hook is installed globally via `init.templateDir` (`~/.git-template/hooks/pre-commit`); new clones inherit it. Bypassable with `--no-verify`.
+- **CI (L3)** — gitleaks + zizmor, authoritative. Other repos get the same gate with one line: `uses: toku345/dotfiles/.github/workflows/secret-scan.reusable.yml@main`.
+- **Server (L3)** — enable GitHub secret scanning + push protection per repo (free on public repos; the only un-skippable layer).
+- **Fleet sweep (L4)** — `repo-security-audit` reports posture across all repos; `repo-security-audit --history-sweep` runs gitleaks over each repo's full history.
 
 ## Audit Trail
 
@@ -510,10 +520,9 @@ Security-sensitive libraries — `git`, `curl`, `openssl`, `ca-certificates` —
 git status
 git diff
 
-# Check for secrets locally (requires ripgrep)
-# Use same exclusions as CI for consistent results
-rg -i 'AKIA[0-9A-Z]{16}' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' .
-rg -e '-----BEGIN.*PRIVATE KEY-----' --type-not lock --type-not svg -g '!*.age' -g '!**/security.md' .
+# Check for secrets locally (requires gitleaks; same engine as CI)
+gitleaks dir . --no-banner --redact      # working tree
+gitleaks git . --no-banner --redact      # full history
 
 # Verify encrypted files. Aggregates failures and exits non-zero so this
 # block is safe to embed in CI / pre-commit, not just eyeball checks.
