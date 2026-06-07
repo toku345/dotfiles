@@ -45,6 +45,8 @@ Additionally:
 | F | `codex review` builtin subcommand (`codex review --base <branch>`) | ❌ | Single-perspective review only; no multi-specialist fan-out, no per-file-type conditional spawning, no orchestrated output format. Useful as a quick sanity-check or fallback but cannot replace the 8-specialist coverage that motivated the migration |
 | **α** | **Pure Codex Skill + 8 specialist subagents** | **✅** | intended successor to bash `triple-review`; credit-neutral; narrow context per specialist; standard OSS licensing |
 
+> **Environment-split note:** Alternative C (Claude-side) was rejected here on credit-economy grounds *assuming Codex is freely available*. In company environments where Codex is restricted that premise fails, and the Claude-side variant is adopted instead — see [ADR 0029](../adr/0029-claude-pr-review-dynamic-workflow.md) and [docs/design/claude-pr-review.md](claude-pr-review.md). This does not change the Codex-side decision where Codex is available.
+
 ## Trial-and-error log (corrections taken during deliberation)
 
 The following corrections were applied during the brainstorming session that produced this design. They are recorded here (not in the eventual ADR) so future readers can trace why certain options were rejected.
@@ -309,3 +311,5 @@ Current verification boundary: CI currently checks bundle integrity and static c
 - [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) — `pr-review-toolkit` source (Apache-2.0)
 - [anthropics/claude-code-security-review](https://github.com/anthropics/claude-code-security-review) — `security-review` source (MIT)
 - [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) — `adversarial-review` source (Apache-2.0; `NOTICE` file requires §4(d) preservation in derivatives)
+- [ADR 0029 (claude-pr-review-dynamic-workflow)](../adr/0029-claude-pr-review-dynamic-workflow.md) — Claude-side variant adopted where Codex is unavailable (company environment); does not supersede this Codex-side decision
+- [docs/design/claude-pr-review.md](claude-pr-review.md) — Claude-side sibling design (environment-split, not a replacement)
