@@ -89,6 +89,7 @@ After preconditions pass:
    - `questions`: numbered candidate questions, maximum 5
    - `answered`: prior accepted question/answer pairs
    - `answer_attempts`: current-question attempts and coach reactions that were not yet accepted, if any
+   - `skipped_answer_attempts`: skipped or moved-on question attempts and coach reactions that are no longer tied to `current_question`, if any
    - `current_question`: the single question to ask next
    - `review_focus`: up to 3 reading focus bullets
    - `learning_hook`: 1-2 learning notes
@@ -113,7 +114,7 @@ After preconditions pass:
    - If the answer is correct enough for the review habit being practiced, update `answered`, advance `current_question`, and ask the next candidate question.
    - If the answer is incomplete, ambiguous, or off target, update `answer_attempts`, keep the same `current_question`, and ask one narrower follow-up about the same question. Do not advance yet.
    - If the user sends an additional response for the same question, respond to that attempt with the same direct judgment, then either accept and advance or keep the current question with one narrower follow-up.
-   - If the user explicitly asks to skip or move on, record the attempt in `answer_attempts`, advance `current_question`, and note what remains unverified.
+   - If the user explicitly asks to skip or move on, record the attempt in `skipped_answer_attempts`, advance `current_question`, and note what remains unverified. Keep `answer_attempts` reserved for the active `current_question`; do not carry skipped attempts into the next question's current-attempt state.
    - If the user invokes the skill again without an answer, repeat the current question with shorter context.
    - If all questions are answered, produce the final summary, set `status: complete`, and clear `current_question` so the state cannot be resumed as an active answer continuation.
    - If the user asks for a summary early, produce a summary from answered items and leave the state resumable.

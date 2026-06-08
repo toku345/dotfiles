@@ -214,6 +214,9 @@ STUB
   grep -Fq 'そこは違います' "$SKILL_MD"
   grep -Fq 'If the answer is incomplete, ambiguous, or off target, update `answer_attempts`, keep the same `current_question`' "$SKILL_MD"
   grep -Fq 'If the user sends an additional response for the same question' "$SKILL_MD"
+  grep -Fq '`skipped_answer_attempts`: skipped or moved-on question attempts and coach reactions that are no longer tied to `current_question`' "$SKILL_MD"
+  grep -Fq 'If the user explicitly asks to skip or move on, record the attempt in `skipped_answer_attempts`, advance `current_question`' "$SKILL_MD"
+  grep -Fq 'Keep `answer_attempts` reserved for the active `current_question`; do not carry skipped attempts into the next question' "$SKILL_MD"
 }
 
 @test "SKILL.md fail-closes when context collection commands fail" {
