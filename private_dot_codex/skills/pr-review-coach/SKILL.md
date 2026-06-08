@@ -1,6 +1,6 @@
 ---
 name: pr-review-coach
-description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit> for the first turn, then resumes from local state on answer turns. Asks exactly one question at a time and stores resumable local state outside the target worktree. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
+description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit> for the first turn, then resumes from local state on answer turns. Asks at most one question at a time and stores resumable local state outside the target worktree. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
 ---
 
 # pr-review-coach
@@ -26,7 +26,9 @@ This skill is intentionally separate from `$pr-review`:
 - Do not use the merge-gate taxonomy `Critical`, `Important`, or `Suggestions`.
 - Do not decide whether the PR can merge.
 - Do not create a fix queue. Phrase observations as questions, reading focus, assumptions to verify, or learning notes.
-- Ask exactly one question per response unless the user explicitly asks for a summary or the coaching loop is complete.
+- Ask at most one question per response unless the user explicitly asks for a summary or the coaching loop is complete.
+- On answer turns, respond to the user's answer before moving on. Say directly whether the answer is correct, partly correct, or off target, and explain the smallest concrete reason from the diff.
+- Do not advance to the next candidate question until the current answer is good enough to record as answered, or the user explicitly asks to skip it.
 
 ## Preconditions
 
@@ -85,7 +87,9 @@ After preconditions pass:
    - `head_ref`: pinned HEAD
    - `snapshot`: 2-3 bullets about the diff
    - `questions`: numbered candidate questions, maximum 5
-   - `answered`: prior question/answer pairs
+   - `answered`: prior accepted question/answer pairs
+   - `answer_attempts`: current-question attempts and coach reactions that were not yet accepted, if any
+   - `skipped_answer_attempts`: skipped or moved-on question attempts and coach reactions that are no longer tied to `current_question`, if any
    - `current_question`: the single question to ask next
    - `review_focus`: up to 3 reading focus bullets
    - `learning_hook`: 1-2 learning notes
@@ -100,13 +104,17 @@ After preconditions pass:
 
 6. Keep output bounded:
    - Generate at most 5 candidate questions in the state file.
-   - Output exactly 1 question in the response.
+   - Output at most 1 question in the response.
    - At most 3 review focus bullets.
    - At most 2 learning hooks.
    - Prefer one strong question over several weak ones.
 
 7. Continuing a coaching loop:
-   - If the user answers the current question, update `answered`, advance `current_question`, and ask the next question.
+   - If the user answers the current question, first write a `Response To Your Answer` section. Use direct language: `合っています`, `一部合っています`, or `そこは違います`.
+   - If the answer is correct enough for the review habit being practiced, update `answered`, advance `current_question`, and ask the next candidate question.
+   - If the answer is incomplete, ambiguous, or off target, update `answer_attempts`, keep the same `current_question`, and ask one narrower follow-up about the same question. Do not advance yet.
+   - If the user sends an additional response for the same question, respond to that attempt with the same direct judgment, then either accept and advance or keep the current question with one narrower follow-up.
+   - If the user explicitly asks to skip or move on, record the attempt in `skipped_answer_attempts`, advance `current_question`, and note what remains unverified. Keep `answer_attempts` reserved for the active `current_question`; do not carry skipped attempts into the next question's current-attempt state.
    - If the user invokes the skill again without an answer, repeat the current question with shorter context.
    - If all questions are answered, produce the final summary, set `status: complete`, and clear `current_question` so the state cannot be resumed as an active answer continuation.
    - If the user asks for a summary early, produce a summary from answered items and leave the state resumable.
@@ -127,6 +135,9 @@ For an active coaching turn, use this section structure:
 ## State
 - 状態ファイル:
 - 進捗:
+
+## Response To Your Answer
+- （回答継続ターンのみ。合っています / 一部合っています / そこは違います、のいずれかを明示する）
 
 ## Snapshot
 - 何が変わったか:
