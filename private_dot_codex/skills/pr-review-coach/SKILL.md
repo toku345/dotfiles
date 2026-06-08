@@ -1,6 +1,6 @@
 ---
 name: pr-review-coach
-description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit> for the first turn, then resumes from local state on answer turns. Asks exactly one question at a time and stores resumable local state outside the target worktree. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
+description: Japanese-only PR understanding coach. Use when the user wants to prepare their own review, understand a branch diff, identify questions to ask, or build review judgment before running a merge gate. Requires an explicit --base <ref-or-commit> for the first turn, then resumes from local state on answer turns. Asks at most one question at a time and stores resumable local state outside the target worktree. Single-agent only; does not spawn specialist reviewers, does not produce Critical/Important/Suggestions gate findings, and does not decide merge readiness.
 ---
 
 # pr-review-coach
