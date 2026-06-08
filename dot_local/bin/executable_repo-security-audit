@@ -85,31 +85,59 @@ sweep() {
     printf 'gitleaks not on PATH (required for --history-sweep).\n' >&2
     exit 1
   }
-  local repo branch vis fork tmp found=0
+  local repo branch vis fork tmp found=0 coverage_failed=0 sweep_tmp_root sweep_status=0
+  sweep_tmp_root="$(mktemp -d)"
+  cleanup_sweep_tmp() {
+    rm -rf "$sweep_tmp_root"
+  }
+  trap cleanup_sweep_tmp EXIT INT TERM
+
   while IFS=$'\t' read -r repo branch vis fork; do
     [ -z "$repo" ] && continue
-    tmp="$(mktemp -d)"
+    tmp="$(mktemp -d "$sweep_tmp_root/repo.XXXXXX")"
     if ! gh repo clone "$repo" "$tmp/repo" -- --mirror --quiet >/dev/null 2>&1; then
       printf '  !    clone failed: %s\n' "$repo" >&2
-      rm -rf "$tmp"
+      coverage_failed=1
       continue
     fi
-    if gitleaks git "$tmp/repo" --no-banner --redact --exit-code 1 >/dev/null 2>&1; then
-      printf '  ok   %s\n' "$repo"
-    else
-      printf '  LEAK %s\n' "$repo"
-      found=1
-    fi
+    local scan_status
+    set +e
+    gitleaks git "$tmp/repo" --no-banner --redact --exit-code 42 >/dev/null 2>&1
+    scan_status=$?
+    set -e
+    case "$scan_status" in
+      0)
+        printf '  ok   %s\n' "$repo"
+        ;;
+      42)
+        printf '  LEAK %s\n' "$repo"
+        found=1
+        ;;
+      *)
+        printf '  !    scan failed: %s\n' "$repo" >&2
+        coverage_failed=1
+        ;;
+    esac
     rm -rf "$tmp"
   done <<EOF
 $repos_tsv
 EOF
+  if [ "$coverage_failed" -ne 0 ]; then
+    printf 'History sweep incomplete — one or more repos were not scanned.\n' >&2
+  fi
   if [ "$found" -ne 0 ]; then
     printf 'Leaks detected — rotate affected keys FIRST, then clean history.\n' >&2
-  else
+  elif [ "$coverage_failed" -eq 0 ]; then
     printf 'No leaks found across history.\n'
   fi
-  return "$found"
+  if [ "$coverage_failed" -ne 0 ]; then
+    sweep_status=2
+  else
+    sweep_status="$found"
+  fi
+  cleanup_sweep_tmp
+  trap - EXIT INT TERM
+  return "$sweep_status"
 }
 
 case "$mode" in

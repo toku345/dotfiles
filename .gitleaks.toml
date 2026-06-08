@@ -12,11 +12,5 @@ title = "dotfiles gitleaks config"
 # silently missed.
 useDefault = true
 
-[allowlist]
-description = "Repo-specific false positives"
-# docs/security.md documents secret-detection patterns as examples; it
-# describes secrets, it never contains live ones. A future edit that adds a
-# token-shaped example must not break the gate.
-paths = [
-  '''docs/security\.md''',
-]
+# No repo-wide allowlists. Prefer non-token placeholders in docs, or use a
+# tightly scoped `gitleaks:allow` comment for an intentional one-line fixture.

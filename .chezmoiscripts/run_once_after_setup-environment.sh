@@ -2,9 +2,10 @@
 
 # Local secret-scan gate: a gitleaks pre-commit hook is deployed to
 # ~/.git-template/hooks/pre-commit and wired via init.templateDir in
-# ~/.config/git/config, so new clones/inits inherit it automatically — no
-# imperative install step is needed here. Activate it on an already-cloned
-# repo by re-running `git init` inside it.
+# ~/.config/git/config, so new clones/inits inherit it automatically when no
+# pre-commit hook already exists. Existing repos with old git-secrets/custom
+# hooks need manual inspect/replace/chain migration because git templates never
+# overwrite hooks.
 # See docs/adr/0028-gitleaks-secret-scanning-baseline.md.
 
 # macOS-specific settings

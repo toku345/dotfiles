@@ -217,8 +217,9 @@ The GitHub Actions workflow (`.github/workflows/security-checks.yml`) performs:
 
 3. **Secret Detection (gitleaks)**
    - Scans the full git history with gitleaks (version-pinned binary, checksum-verified)
+   - On pull requests, uses the protected base branch's `.gitleaks.toml` when available so the PR cannot weaken its own scanner config
    - Detects 150+ provider patterns, including every GitHub token variant (`ghp_`, `gho_`, `github_pat_`, …)
-   - Config + allowlist: `.gitleaks.toml` at the repo root
+   - Config: `.gitleaks.toml` at the repo root (no repo-wide allowlists)
    - PASS: No secrets detected
    - FAIL: Potential secrets found
 
@@ -242,7 +243,7 @@ The workflow uses:
 
 - Cannot verify decryption (no password in CI)
 - gitleaks detects structured secrets, not unstructured PII (names, card numbers)
-- A local pre-commit hook is bypassable with `--no-verify`; CI + GitHub push protection are the authoritative gates
+- A local pre-commit hook is bypassable with `--no-verify`; configured CI + GitHub push protection are the authoritative gates
 - Manual review still important for sensitive changes
 
 ### If CI Fails
@@ -258,8 +259,8 @@ If you believe it's a false positive, add a scoped entry to `.gitleaks.toml`.
 
 The same baseline applies beyond CI (see [ADR 0028](./adr/0028-gitleaks-secret-scanning-baseline.md)):
 
-- **Local (L2)** — a gitleaks `pre-commit` hook is installed globally via `init.templateDir` (`~/.git-template/hooks/pre-commit`); new clones inherit it. Bypassable with `--no-verify`.
-- **CI (L3)** — gitleaks + zizmor, authoritative. Other repos get the same gate with one line: `uses: toku345/dotfiles/.github/workflows/secret-scan.reusable.yml@main`.
+- **Local (L2)** — a gitleaks `pre-commit` hook is installed globally via `init.templateDir` (`~/.git-template/hooks/pre-commit`); new clones inherit it only when no `pre-commit` hook already exists. Existing repos with old git-secrets/custom hooks need manual inspect/replace/chain migration because git templates never overwrite hooks. Bypassable with `--no-verify`.
+- **CI (L3)** — gitleaks + zizmor, authoritative once configured. Other repos get the same gate with one line: `uses: toku345/dotfiles/.github/workflows/secret-scan.reusable.yml@<commit-sha-or-version-tag>` (`@main` is a convenience tradeoff, not the hardened default).
 - **Server (L3)** — enable GitHub secret scanning + push protection per repo (free on public repos; the only un-skippable layer).
 - **Fleet sweep (L4)** — `repo-security-audit` reports posture across all repos; `repo-security-audit --history-sweep` runs gitleaks over each repo's full history.
 

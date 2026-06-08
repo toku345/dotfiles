@@ -16,12 +16,12 @@ A fleet audit across all personal repos confirmed the gap matters beyond this re
 
 Adopt gitleaks as the single secret scanner and retire git-secrets, structured as layers:
 
-- **L2 — local pre-commit (best-effort).** A framework-free global hook at `~/.git-template/hooks/pre-commit` runs `gitleaks protect --staged`. Wired via `init.templateDir`, it covers every new repo unconditionally and replaces git-secrets 1:1. It is intentionally bypassable with `--no-verify`; it is convenience, not the authoritative gate.
-- **L3 — CI (authoritative).** `security-checks.yml` installs a version-pinned gitleaks binary verified against a hardcoded SHA-256 and runs `gitleaks git .` over full history, replacing the hand-rolled regex. `zizmor` lints the workflows themselves for hardening regressions (unpinned actions, `pull_request_target`, credential persistence, excessive permissions). Both are exposed as a reusable workflow (`secret-scan.reusable.yml`) so other repos gain the same gate via one `uses:` line.
+- **L2 — local pre-commit (best-effort).** A framework-free global hook at `~/.git-template/hooks/pre-commit` runs `gitleaks protect --staged`. Wired via `init.templateDir`, it covers every new repo or `git init` only when `.git/hooks/pre-commit` does not already exist; existing repos with old git-secrets or custom hooks need manual inspect/replace/chain migration because git templates never overwrite hooks. It is intentionally bypassable with `--no-verify`; it is convenience, not the authoritative gate.
+- **L3 — CI (authoritative).** `security-checks.yml` installs a version-pinned gitleaks binary verified against a hardcoded SHA-256 and runs `gitleaks git .` over full history, replacing the hand-rolled regex. On pull requests, the scan uses a trusted `.gitleaks.toml` from the protected base branch when available, otherwise gitleaks default rules, so a PR cannot weaken its own scanner config. `zizmor` lints the workflows themselves for hardening regressions (unpinned actions, `pull_request_target`, credential persistence, excessive permissions). Both are exposed as a reusable workflow (`secret-scan.reusable.yml`) so other repos gain the same gate via one `uses:` line; pin that reference to a commit SHA or version tag, and use `@main` only as an explicit mutable-dependency tradeoff.
 - **L3 — server-side (un-skippable).** GitHub secret scanning + push protection, enabled per public repo, is the layer that survives a bypassed local hook.
 - **L4 — periodic sweep.** `repo-security-audit` (read-only) reports the fleet's posture and, with `--history-sweep`, runs gitleaks over each repo's full history to surface already-committed live secrets.
 
-The gitleaks config (`.gitleaks.toml`) extends the built-in ruleset (`useDefault = true`) with a minimal allowlist; a full scan of current files and all history produced zero findings and zero false positives, so no broader tuning is warranted.
+The gitleaks config (`.gitleaks.toml`) extends the built-in ruleset (`useDefault = true`) with no repo-wide allowlist; a full scan of current files and all history produced zero findings and zero false positives, so no broader tuning is warranted.
 
 Money Forward's first layer — masking production PII before it can enter a repo — is declined. It targets unstructured business PII (names, card numbers) that gitleaks cannot detect and that does not exist in this personal scope; the age two-layer model already protects secrets at rest. Importing that machinery would be complexity without a matching risk.
 
@@ -30,7 +30,7 @@ Money Forward's first layer — masking production PII before it can enter a rep
 - Token coverage becomes comprehensive (150+ providers, all GitHub variants) and plan-independent, so private repos finally have a secret gate.
 - The baseline propagates by reference: a caller repo adds one `uses:` line instead of copying YAML, and `repo-security-audit` makes drift across the fleet visible on demand.
 - gitleaks does not detect unstructured PII — acceptable here, since none is present and the age model covers secrets at rest.
-- The local hook is bypassable and silently no-ops when gitleaks is absent; this is deliberate, because CI and push protection are authoritative. Pinned gitleaks/zizmor versions and the embedded checksum require periodic bumps.
+- The local hook is bypassable and warns/no-ops when gitleaks is absent; this is deliberate, because configured CI and push protection are authoritative, but each repo still needs those layers enabled separately. Pinned gitleaks/zizmor versions and the embedded checksum require periodic bumps.
 
 ## Related
 
