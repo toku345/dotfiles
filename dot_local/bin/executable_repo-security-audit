@@ -46,7 +46,8 @@ if [ -z "$owner" ]; then
   owner="$(gh api user --jq '.login')"
 fi
 
-list_args=(--limit 500
+repo_list_limit=500
+list_args=(--limit "$repo_list_limit"
   --json "nameWithOwner,defaultBranchRef,visibility,isFork"
   --jq '.[] | [.nameWithOwner, (.defaultBranchRef.name // "main"), .visibility, (.isFork|tostring)] | @tsv')
 if [ "$include_archived" -eq 0 ]; then
@@ -57,6 +58,12 @@ repos_tsv="$(gh repo list "$owner" "${list_args[@]}")"
 if [ -z "$repos_tsv" ]; then
   printf 'No repositories found for owner %s.\n' "$owner" >&2
   exit 1
+fi
+repo_count="$(grep -c . <<<"$repos_tsv")"
+if [ "$repo_count" -ge "$repo_list_limit" ]; then
+  printf 'Repository listing reached the %s-repository cap for owner %s; refusing partial audit.\n' "$repo_list_limit" "$owner" >&2
+  printf 'Use GitHub API pagination or split the audit scope before trusting results.\n' >&2
+  exit 2
 fi
 
 posture() {
@@ -192,6 +199,12 @@ EOF
 }
 
 case "$mode" in
-  posture) posture | column -t -s "$(printf '\t')" ;;
+  posture)
+    if command -v column >/dev/null 2>&1; then
+      posture | column -t -s "$(printf '\t')"
+    else
+      posture
+    fi
+    ;;
   sweep) sweep ;;
 esac

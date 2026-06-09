@@ -22,9 +22,16 @@ STUB
 }
 
 refute_grep() {
-  if grep "$@"; then
-    return 1
-  fi
+  local grep_status
+  set +e
+  grep "$@"
+  grep_status="$?"
+  set -e
+  case "$grep_status" in
+    0) return 1 ;;
+    1) return 0 ;;
+    *) return 2 ;;
+  esac
 }
 
 write_gh_stub() {
@@ -39,6 +46,12 @@ case "$1 $2" in
 esac
 case "$1 $2" in
   "repo list")
+    if [ -n "${GH_STUB_REPO_LIST_COUNT:-}" ]; then
+      for ((i = 1; i <= GH_STUB_REPO_LIST_COUNT; i++)); do
+        printf 'toku/repo%03d\tmain\tPRIVATE\tfalse\n' "$i"
+      done
+      exit 0
+    fi
     printf 'toku/ok\tmain\tPRIVATE\tfalse\n'
     printf 'toku/fail\tmain\tPRIVATE\tfalse\n'
     ;;
@@ -118,13 +131,21 @@ STUB
   write_gitleaks_stub
   local log="$BATS_TEST_TMPDIR/gitleaks.log"
 
-  run --separate-stderr env \
+  run env \
     PATH="$STUB_DIR:/usr/bin:/bin" \
     GITLEAKS_STUB_LOG="$log" \
     /bin/bash "$PRE_COMMIT_HOOK"
 
   [ "$status" -eq 0 ]
   [ "$(cat "$log")" = "protect --staged --redact --no-banner" ]
+}
+
+@test "refute_grep propagates grep errors" {
+  local workflow="$REPO_ROOT/.github/workflows/secret-scan.reusable.yml"
+
+  run refute_grep -q '[' "$workflow"
+
+  [ "$status" -eq 2 ]
 }
 
 @test "repo-security-audit history sweep fails closed on clone failure" {
@@ -181,6 +202,20 @@ STUB
   [ -z "$stderr" ]
   [ "$(grep -c '^api repos/toku/ok --jq ' "$log")" -eq 1 ]
   [ "$(grep -c '^api repos/toku/fail --jq ' "$log")" -eq 1 ]
+}
+
+@test "repo-security-audit fails closed when repo listing hits the cap" {
+  write_gh_stub
+
+  run --separate-stderr env \
+    PATH="$STUB_DIR:/usr/bin:/bin" \
+    REPO_AUDIT_OWNER=toku \
+    GH_STUB_REPO_LIST_COUNT=500 \
+    /bin/bash "$REPO_AUDIT"
+
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"Repository listing reached the 500-repository cap"* ]]
+  [[ "$stderr" == *"refusing partial audit"* ]]
 }
 
 @test "PR gitleaks workflows fail closed when trusted base fetch fails" {
