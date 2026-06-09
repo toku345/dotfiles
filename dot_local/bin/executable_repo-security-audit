@@ -61,23 +61,77 @@ fi
 
 posture() {
   printf 'repo\tvis\tfork\ttoken\tsecrets\tenvs\twf\tbprot\tsecscan\tpushprot\n'
-  local repo branch vis fork token secrets envs wf bprot secscan pushprot
+  local repo branch vis fork token secrets envs wf bprot secscan pushprot coverage_failed=0
+  local gh_err gh_status
+  gh_err="$(mktemp)"
+  cleanup_posture_tmp() {
+    rm -f "$gh_err"
+  }
+  trap cleanup_posture_tmp RETURN
+  mark_posture_failure() {
+    local repo_name="$1"
+    local field="$2"
+    printf 'posture check failed: %s %s\n' "$repo_name" "$field" >&2
+    coverage_failed=1
+  }
+  is_gh_not_found() {
+    grep -Eiq '(^|[^0-9])404([^0-9]|$)|not[[:space:]]+found' "$gh_err"
+  }
   while IFS=$'\t' read -r repo branch vis fork; do
     [ -z "$repo" ] && continue
-    token="$(gh api "repos/$repo/actions/permissions/workflow" --jq '.default_workflow_permissions' 2>/dev/null || echo 'n/a')"
-    secrets="$(gh secret list -R "$repo" --json name --jq 'length' 2>/dev/null || echo '?')"
-    envs="$(gh api "repos/$repo/environments" --jq '.total_count // 0' 2>/dev/null || echo 0)"
+    if ! token="$(gh api "repos/$repo/actions/permissions/workflow" --jq '.default_workflow_permissions' 2>"$gh_err")"; then
+      token='ERROR'
+      mark_posture_failure "$repo" token
+    fi
+    if ! secrets="$(gh secret list -R "$repo" --json name --jq 'length' 2>"$gh_err")"; then
+      secrets='ERROR'
+      mark_posture_failure "$repo" secrets
+    fi
+    if ! envs="$(gh api "repos/$repo/environments" --jq '.total_count // 0' 2>"$gh_err")"; then
+      envs='ERROR'
+      mark_posture_failure "$repo" envs
+    fi
     # gh prints the 404 body to stdout when a repo has no workflows dir; the
     # if-form discards it (else branch wins) instead of capturing JSON noise.
-    if ! wf="$(gh api "repos/$repo/contents/.github/workflows" --jq '[.[] | select(.name|test("\\.ya?ml$"))] | length' 2>/dev/null)"; then wf=0; fi
-    if gh api "repos/$repo/branches/$branch/protection" >/dev/null 2>&1; then bprot='yes'; else bprot='no'; fi
-    secscan="$(gh api "repos/$repo" --jq '.security_and_analysis.secret_scanning.status // "n/a"' 2>/dev/null || echo 'n/a')"
-    pushprot="$(gh api "repos/$repo" --jq '.security_and_analysis.secret_scanning_push_protection.status // "n/a"' 2>/dev/null || echo 'n/a')"
+    if ! wf="$(gh api "repos/$repo/contents/.github/workflows" --jq '[.[] | select(.name|test("\\.ya?ml$"))] | length' 2>"$gh_err")"; then
+      if is_gh_not_found; then
+        wf=0
+      else
+        wf='ERROR'
+        mark_posture_failure "$repo" wf
+      fi
+    fi
+    set +e
+    gh api "repos/$repo/branches/$branch/protection" >/dev/null 2>"$gh_err"
+    gh_status=$?
+    set -e
+    if [ "$gh_status" -eq 0 ]; then
+      bprot='yes'
+    elif is_gh_not_found; then
+      bprot='no'
+    else
+      bprot='ERROR'
+      mark_posture_failure "$repo" bprot
+    fi
+    if ! secscan="$(gh api "repos/$repo" --jq '.security_and_analysis.secret_scanning.status // "n/a"' 2>"$gh_err")"; then
+      secscan='ERROR'
+      mark_posture_failure "$repo" secscan
+    fi
+    if ! pushprot="$(gh api "repos/$repo" --jq '.security_and_analysis.secret_scanning_push_protection.status // "n/a"' 2>"$gh_err")"; then
+      pushprot='ERROR'
+      mark_posture_failure "$repo" pushprot
+    fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$repo" "$vis" "$fork" "$token" "$secrets" "$envs" "$wf" "$bprot" "$secscan" "$pushprot"
   done <<EOF
 $repos_tsv
 EOF
+  cleanup_posture_tmp
+  trap - RETURN
+  if [ "$coverage_failed" -ne 0 ]; then
+    printf 'Posture audit incomplete — one or more repo checks failed.\n' >&2
+    return 2
+  fi
 }
 
 sweep() {

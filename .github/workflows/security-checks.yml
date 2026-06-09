@@ -107,7 +107,9 @@ jobs:
               GITLEAKS_CONFIG_ARGS=(--config /tmp/gitleaks-trusted.toml)
               echo "Using trusted gitleaks config from base branch ${GITHUB_BASE_REF}"
             else
-              echo "No trusted base .gitleaks.toml found; using gitleaks default rules"
+              printf '[extend]\nuseDefault = true\n' > /tmp/gitleaks-default.toml
+              GITLEAKS_CONFIG_ARGS=(--config /tmp/gitleaks-default.toml)
+              echo "No trusted base .gitleaks.toml found; using explicit gitleaks default rules"
             fi
           elif [ -f .gitleaks.toml ]; then
             GITLEAKS_CONFIG_ARGS=(--config .gitleaks.toml)

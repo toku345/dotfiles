@@ -37,6 +37,47 @@ case "$1 $2" in
     fi
     mkdir -p "$target"
     ;;
+  "api user")
+    printf 'toku\n'
+    ;;
+  "api repos/toku/ok/actions/permissions/workflow")
+    printf 'read\n'
+    ;;
+  "api repos/toku/ok/environments")
+    printf '0\n'
+    ;;
+  "api repos/toku/ok/contents/.github/workflows")
+    printf '1\n'
+    ;;
+  "api repos/toku/ok/branches/main/protection")
+    if [ "${GH_STUB_POSTURE_FAIL_FIELD:-}" = "bprot" ]; then
+      printf 'gh: network denied\n' >&2
+      exit 1
+    fi
+    printf 'gh: Not Found (HTTP 404)\n' >&2
+    exit 1
+    ;;
+  "api repos/toku/ok")
+    if [ "${GH_STUB_POSTURE_FAIL_FIELD:-}" = "repo" ]; then
+      printf 'gh: network denied\n' >&2
+      exit 1
+    fi
+    printf 'n/a\n'
+    ;;
+  "api "*)
+    if [ "${GH_STUB_POSTURE_FAIL:-}" = "1" ]; then
+      printf 'gh: network denied\n' >&2
+      exit 1
+    fi
+    printf '0\n'
+    ;;
+  "secret list")
+    if [ "${GH_STUB_POSTURE_FAIL_FIELD:-}" = "secrets" ]; then
+      printf 'gh: network denied\n' >&2
+      exit 1
+    fi
+    printf '0\n'
+    ;;
   *)
     printf 'unsupported gh invocation: %s\n' "$*" >&2
     exit 2
@@ -104,6 +145,20 @@ STUB
   [[ "$stderr" == *"Leaks detected — rotate affected keys FIRST, then clean history."* ]]
 }
 
+@test "repo-security-audit posture accepts expected not-configured states" {
+  write_gh_stub
+
+  run --separate-stderr env \
+    PATH="$STUB_DIR:/usr/bin:/bin" \
+    REPO_AUDIT_OWNER=toku \
+    /bin/bash "$REPO_AUDIT"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"toku/ok"* ]]
+  [[ "$output" == *"no"* ]]
+  [ -z "$stderr" ]
+}
+
 @test "PR gitleaks workflows fail closed when trusted base fetch fails" {
   local workflow
   for workflow in \
@@ -117,5 +172,33 @@ STUB
     grep -q -- '--config-env=http.https://github.com/.extraheader=GITLEAKS_GIT_AUTH_HEADER' "$workflow"
     grep -q 'Failed to fetch trusted base branch' "$workflow"
     grep -q 'refusing to fall back to default gitleaks rules' "$workflow"
+    grep -q 'printf .*\[extend\].*useDefault = true' "$workflow"
+    grep -q -- '--config /tmp/gitleaks-default.toml' "$workflow"
   done
+}
+
+@test "reusable gitleaks workflow keeps scanner version and checksum non-overridable" {
+  local workflow="$REPO_ROOT/.github/workflows/secret-scan.reusable.yml"
+
+  ! grep -q 'gitleaks-version:' "$workflow"
+  ! grep -q 'gitleaks-sha256-linux-x64:' "$workflow"
+  ! grep -q 'inputs.gitleaks-version' "$workflow"
+  ! grep -q 'inputs.gitleaks-sha256-linux-x64' "$workflow"
+  grep -q 'GL_VER: "8.30.1"' "$workflow"
+  grep -q 'GL_SHA: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"' "$workflow"
+}
+
+@test "repo-security-audit posture fails closed on GitHub API failure" {
+  write_gh_stub
+
+  run --separate-stderr env \
+    PATH="$STUB_DIR:/usr/bin:/bin" \
+    REPO_AUDIT_OWNER=toku \
+    GH_STUB_POSTURE_FAIL=1 \
+    /bin/bash "$REPO_AUDIT"
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$stderr" == *"posture check failed: toku/fail token"* ]]
+  [[ "$stderr" == *"Posture audit incomplete"* ]]
 }
