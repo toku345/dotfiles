@@ -1,0 +1,16 @@
+# gitleaks configuration — Layer L3 (CI) and L2 (local hook) of the
+# secret-scanning baseline. Consumed by .github/workflows/security-checks.yml
+# and the global pre-commit hook (~/.git-template/hooks/pre-commit).
+# See docs/adr/0028-gitleaks-secret-scanning-baseline.md.
+
+title = "dotfiles gitleaks config"
+
+[extend]
+# Build on gitleaks' built-in ruleset (150+ providers). Crucially this covers
+# every GitHub token variant — gho_ (OAuth, what `gh` stores) and github_pat_
+# (fine-grained PAT) — that the previous hand-rolled `rg 'gh[pusr]_'` regex
+# silently missed.
+useDefault = true
+
+# No repo-wide allowlists. Prefer non-token placeholders in docs, or use a
+# tightly scoped `gitleaks:allow` comment for an intentional one-line fixture.

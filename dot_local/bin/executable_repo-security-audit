@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# repo-security-audit — read-only CAMPFIRE-profile audit across your GitHub repos.
+#
+# Part of the secret-scanning baseline (docs/adr/0028-gitleaks-secret-scanning-baseline.md).
+# Read-only: never mutates repo settings.
+#
+# Modes:
+#   (default)           posture table: default token perms, repo secrets, deploy
+#                       environments, workflow presence, branch protection, and
+#                       GitHub secret-scanning + push-protection status per repo.
+#   --history-sweep     clone each repo (mirror) into a temp dir and run gitleaks
+#                       over full history (Layer L4). Requires gitleaks.
+#   --include-archived  include archived repos (default: skip them).
+#
+# Env: REPO_AUDIT_OWNER  owner/org to audit (default: current gh user).
+# Requires: gh (authenticated). --history-sweep also requires gitleaks.
+set -Eeuo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: repo-security-audit [--history-sweep] [--include-archived] [-h|--help]
+  (default)           posture table across all repos
+  --history-sweep     clone each repo + gitleaks over full history (Layer L4)
+  --include-archived  include archived repos
+Env: REPO_AUDIT_OWNER  owner/org to audit (default: current gh user)
+EOF
+}
+
+mode="posture"
+include_archived=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --history-sweep) mode="sweep" ;;
+    --include-archived) include_archived=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+command -v gh >/dev/null 2>&1 || { printf 'gh not found on PATH.\n' >&2; exit 1; }
+
+owner="${REPO_AUDIT_OWNER:-}"
+if [ -z "$owner" ]; then
+  owner="$(gh api user --jq '.login')"
+fi
+
+repo_list_limit=500
+list_args=(--limit "$repo_list_limit"
+  --json "nameWithOwner,defaultBranchRef,visibility,isFork"
+  --jq '.[] | [.nameWithOwner, (.defaultBranchRef.name // "main"), .visibility, (.isFork|tostring)] | @tsv')
+if [ "$include_archived" -eq 0 ]; then
+  list_args=(--no-archived "${list_args[@]}")
+fi
+
+repos_tsv="$(gh repo list "$owner" "${list_args[@]}")"
+if [ -z "$repos_tsv" ]; then
+  printf 'No repositories found for owner %s.\n' "$owner" >&2
+  exit 1
+fi
+repo_count="$(grep -c . <<<"$repos_tsv")"
+if [ "$repo_count" -ge "$repo_list_limit" ]; then
+  printf 'Repository listing reached the %s-repository cap for owner %s; refusing partial audit.\n' "$repo_list_limit" "$owner" >&2
+  printf 'Use GitHub API pagination or split the audit scope before trusting results.\n' >&2
+  exit 2
+fi
+
+posture() {
+  printf 'repo\tvis\tfork\ttoken\tsecrets\tenvs\twf\tbprot\tsecscan\tpushprot\n'
+  local repo branch vis fork token secrets envs wf bprot secscan pushprot coverage_failed=0
+  local gh_err gh_status repo_meta
+  gh_err="$(mktemp)"
+  cleanup_posture_tmp() {
+    rm -f "$gh_err"
+  }
+  mark_posture_failure() {
+    local repo_name="$1"
+    local field="$2"
+    printf 'posture check failed: %s %s\n' "$repo_name" "$field" >&2
+    coverage_failed=1
+  }
+  is_gh_not_found() {
+    grep -Eiq '(^|[^0-9])404([^0-9]|$)|not[[:space:]]+found' "$gh_err"
+  }
+  while IFS=$'\t' read -r repo branch vis fork; do
+    [ -z "$repo" ] && continue
+    if ! token="$(gh api "repos/$repo/actions/permissions/workflow" --jq '.default_workflow_permissions' 2>"$gh_err")"; then
+      token='ERROR'
+      mark_posture_failure "$repo" token
+    fi
+    if ! secrets="$(gh secret list -R "$repo" --json name --jq 'length' 2>"$gh_err")"; then
+      secrets='ERROR'
+      mark_posture_failure "$repo" secrets
+    fi
+    if ! envs="$(gh api "repos/$repo/environments" --jq '.total_count // 0' 2>"$gh_err")"; then
+      envs='ERROR'
+      mark_posture_failure "$repo" envs
+    fi
+    # gh prints the 404 body to stdout when a repo has no workflows dir; the
+    # if-form discards it (else branch wins) instead of capturing JSON noise.
+    if ! wf="$(gh api "repos/$repo/contents/.github/workflows" --jq '[.[] | select(.name|test("\\.ya?ml$"))] | length' 2>"$gh_err")"; then
+      if is_gh_not_found; then
+        wf=0
+      else
+        wf='ERROR'
+        mark_posture_failure "$repo" wf
+      fi
+    fi
+    set +e
+    gh api "repos/$repo/branches/$branch/protection" >/dev/null 2>"$gh_err"
+    gh_status=$?
+    set -e
+    if [ "$gh_status" -eq 0 ]; then
+      bprot='yes'
+    elif is_gh_not_found; then
+      bprot='no'
+    else
+      bprot='ERROR'
+      mark_posture_failure "$repo" bprot
+    fi
+    if ! repo_meta="$(gh api "repos/$repo" --jq '[.security_and_analysis.secret_scanning.status // "n/a", .security_and_analysis.secret_scanning_push_protection.status // "n/a"] | @tsv' 2>"$gh_err")"; then
+      secscan='ERROR'
+      pushprot='ERROR'
+      mark_posture_failure "$repo" secscan
+    else
+      IFS=$'\t' read -r secscan pushprot <<<"$repo_meta"
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$vis" "$fork" "$token" "$secrets" "$envs" "$wf" "$bprot" "$secscan" "$pushprot"
+  done <<EOF
+$repos_tsv
+EOF
+  cleanup_posture_tmp
+  if [ "$coverage_failed" -ne 0 ]; then
+    printf 'Posture audit incomplete — one or more repo checks failed.\n' >&2
+    return 2
+  fi
+}
+
+sweep() {
+  command -v gitleaks >/dev/null 2>&1 || {
+    printf 'gitleaks not on PATH (required for --history-sweep).\n' >&2
+    exit 1
+  }
+  local repo branch vis fork tmp found=0 coverage_failed=0 sweep_tmp_root sweep_status=0
+  sweep_tmp_root="$(mktemp -d)"
+  cleanup_sweep_tmp() {
+    rm -rf "$sweep_tmp_root"
+  }
+  trap cleanup_sweep_tmp EXIT INT TERM
+
+  while IFS=$'\t' read -r repo branch vis fork; do
+    [ -z "$repo" ] && continue
+    tmp="$(mktemp -d "$sweep_tmp_root/repo.XXXXXX")"
+    if ! gh repo clone "$repo" "$tmp/repo" -- --mirror --quiet >/dev/null 2>&1; then
+      printf '  !    clone failed: %s\n' "$repo" >&2
+      coverage_failed=1
+      continue
+    fi
+    local scan_status
+    set +e
+    gitleaks git "$tmp/repo" --no-banner --redact --exit-code 42 >/dev/null 2>&1
+    scan_status=$?
+    set -e
+    case "$scan_status" in
+      0)
+        printf '  ok   %s\n' "$repo"
+        ;;
+      42)
+        printf '  LEAK %s\n' "$repo"
+        found=1
+        ;;
+      *)
+        printf '  !    scan failed: %s\n' "$repo" >&2
+        coverage_failed=1
+        ;;
+    esac
+    rm -rf "$tmp"
+  done <<EOF
+$repos_tsv
+EOF
+  if [ "$coverage_failed" -ne 0 ]; then
+    printf 'History sweep incomplete — one or more repos were not scanned.\n' >&2
+  fi
+  if [ "$found" -ne 0 ]; then
+    printf 'Leaks detected — rotate affected keys FIRST, then clean history.\n' >&2
+  elif [ "$coverage_failed" -eq 0 ]; then
+    printf 'No leaks found across history.\n'
+  fi
+  if [ "$coverage_failed" -ne 0 ]; then
+    sweep_status=2
+  else
+    sweep_status="$found"
+  fi
+  cleanup_sweep_tmp
+  trap - EXIT INT TERM
+  return "$sweep_status"
+}
+
+case "$mode" in
+  posture)
+    if command -v column >/dev/null 2>&1; then
+      posture | column -t -s "$(printf '\t')"
+    else
+      posture
+    fi
+    ;;
+  sweep) sweep ;;
+esac

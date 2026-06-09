@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Run ShellCheck on shell scripts
         run: |
@@ -57,7 +59,7 @@ jobs:
             echo ""
             echo "Checking: $script"
             shellcheck --severity=warning "$script" || FAILED=1
-          done < <(find .chezmoiscripts dot_local/bin tests/bats/bin .claude/hooks \
+          done < <(find .chezmoiscripts dot_local/bin dot_git-template/hooks tests/bats/bin .claude/hooks \
               -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" \) \
               2>/dev/null)
 
@@ -84,6 +86,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install chezmoi
         run: |
@@ -183,6 +187,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install fish shell
         run: |
@@ -218,6 +224,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       # T4-1〜T4-7 invoke triple-review-broker-cleanup, an ESM Node helper
       # that requires Node 20+. Without this pin the job silently relies on
@@ -240,3 +248,9 @@ jobs:
 
       - name: Run bats test suite
         run: bats tests/bats/
+
+  reusable-secret-scan:
+    name: Reusable Secret Scan
+    uses: ./.github/workflows/secret-scan.reusable.yml
+    permissions:
+      contents: read

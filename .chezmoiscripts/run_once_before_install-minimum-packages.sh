@@ -11,7 +11,7 @@ export HOMEBREW_CASK_OPTS=--require-sha
 if [ "$CHEZMOI_OS" = "darwin" ]; then
     # ==== macOS: Homebrew ====
     brew update
-    brew install coreutils git git-secrets git-delta starship fzf eza bat fd ripgrep
+    brew install coreutils git gitleaks git-delta starship fzf eza bat fd ripgrep
     brew install tmux direnv shadowenv asdf age fish nano aspell gh
     brew install coderabbitai/tap/git-gtr
     brew install --cask karabiner-elements
@@ -31,7 +31,7 @@ elif [ "$CHEZMOI_OS" = "linux" ]; then
 
     brew update
     brew install gh tmux starship fzf eza bat fd ripgrep \
-                 git-delta direnv nano aspell git-secrets asdf
+                 git-delta direnv nano aspell gitleaks asdf
     brew install coderabbitai/tap/git-gtr
 
 else
