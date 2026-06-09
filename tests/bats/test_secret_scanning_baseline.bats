@@ -111,6 +111,10 @@ STUB
     "$REPO_ROOT/.github/workflows/secret-scan.reusable.yml"
   do
     ! grep -Eq 'git fetch .*GITHUB_BASE_REF.*\|\| true' "$workflow"
+    ! grep -q 'AUTHORIZATION: bearer' "$workflow"
+    grep -q 'x-access-token:%s' "$workflow"
+    grep -q 'GITLEAKS_GIT_AUTH_HEADER="AUTHORIZATION: basic' "$workflow"
+    grep -q -- '--config-env=http.https://github.com/.extraheader=GITLEAKS_GIT_AUTH_HEADER' "$workflow"
     grep -q 'Failed to fetch trusted base branch' "$workflow"
     grep -q 'refusing to fall back to default gitleaks rules' "$workflow"
   done
