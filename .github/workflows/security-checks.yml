@@ -6,15 +6,15 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
 jobs:
   secret-scan:
     uses: ./.github/workflows/secret-scan.reusable.yml
 
   security:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout repository
