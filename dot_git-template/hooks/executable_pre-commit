@@ -8,10 +8,9 @@
 # inspect/replace/chain migration; git templates never overwrite hooks.
 #
 # This local gate is bypassable with `git commit --no-verify` by design. The
-# authoritative gate is CI gitleaks (Layer L3) + GitHub push protection, which
-# cannot be skipped under schedule pressure (Money Forward lesson: technical
-# gates over human discipline). See
-# docs/adr/0028-gitleaks-secret-scanning-baseline.md.
+# fail-closed gate is required CI gitleaks (Layer L3). GitHub push protection
+# adds server-side prevention, but repository bypass policy controls who can
+# override it. See docs/adr/0028-gitleaks-secret-scanning-baseline.md.
 set -euo pipefail
 
 if ! command -v gitleaks >/dev/null 2>&1; then

@@ -217,7 +217,7 @@ The GitHub Actions workflow (`.github/workflows/security-checks.yml`) performs:
 
 3. **Secret Detection (gitleaks)**
    - Scans the full git history with gitleaks (version-pinned binary, checksum-verified)
-   - On pull requests, uses the protected base branch's `.gitleaks.toml` when available so the PR cannot weaken its own scanner config
+   - On pull requests, fetches the protected base branch's `.gitleaks.toml` when available so the PR cannot weaken its own scanner config; fetch failures are fatal rather than silently falling back to defaults
    - Detects 150+ provider patterns, including every GitHub token variant (`ghp_`, `gho_`, `github_pat_`, …)
    - Config: `.gitleaks.toml` at the repo root (no repo-wide allowlists)
    - PASS: No secrets detected
@@ -243,7 +243,7 @@ The workflow uses:
 
 - Cannot verify decryption (no password in CI)
 - gitleaks detects structured secrets, not unstructured PII (names, card numbers)
-- A local pre-commit hook is bypassable with `--no-verify`; configured CI + GitHub push protection are the authoritative gates
+- A local pre-commit hook is bypassable with `--no-verify`; required CI is the fail-closed merge gate, and GitHub push protection adds server-side prevention subject to repository bypass policy
 - Manual review still important for sensitive changes
 
 ### If CI Fails
@@ -253,15 +253,15 @@ The workflow uses:
 3. **Fix corrupted .age files** if encryption check failed
 4. **Verify you didn't commit `~/key.txt`** (plaintext key)
 
-If you believe it's a false positive, add a scoped entry to `.gitleaks.toml`.
+If you believe a gitleaks result is a false positive, prefer removing or rewriting the fixture. If an allowlist is genuinely required, add the narrowest scoped entry to `.gitleaks.toml`. For pull requests, the scan uses the protected base branch's config, so an allowlist added in the same PR will not affect that PR until the trusted base config is updated by a separate reviewed change or maintainer-approved process.
 
 ### Secret-scanning layers (and other repos)
 
 The same baseline applies beyond CI (see [ADR 0028](./adr/0028-gitleaks-secret-scanning-baseline.md)):
 
 - **Local (L2)** — a gitleaks `pre-commit` hook is installed globally via `init.templateDir` (`~/.git-template/hooks/pre-commit`); new clones inherit it only when no `pre-commit` hook already exists. Existing repos with old git-secrets/custom hooks need manual inspect/replace/chain migration because git templates never overwrite hooks. Bypassable with `--no-verify`.
-- **CI (L3)** — gitleaks + zizmor, authoritative once configured. Other repos get the same gate with one line: `uses: toku345/dotfiles/.github/workflows/secret-scan.reusable.yml@<commit-sha-or-version-tag>` (`@main` is a convenience tradeoff, not the hardened default).
-- **Server (L3)** — enable GitHub secret scanning + push protection per repo (free on public repos; the only un-skippable layer).
+- **CI (L3)** — gitleaks + zizmor, authoritative once configured and required by branch protection. Other repos get the same gate with one line: `uses: toku345/dotfiles/.github/workflows/secret-scan.reusable.yml@<commit-sha-or-version-tag>` (`@main` is a convenience tradeoff, not the hardened default).
+- **Server (L3)** — enable GitHub secret scanning + push protection per repo (free on public repos). Repository push protection blocks detected secrets before they land, but users with write/bypass privileges can bypass or request bypass depending on repository policy; use delegated bypass or equivalent controls when bypass review must be enforced.
 - **Fleet sweep (L4)** — `repo-security-audit` reports posture across all repos; `repo-security-audit --history-sweep` runs gitleaks over each repo's full history.
 
 ## Audit Trail

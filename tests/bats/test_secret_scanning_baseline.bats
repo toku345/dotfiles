@@ -32,7 +32,7 @@ case "$1 $2" in
   "repo clone")
     repo="$3"
     target="$4"
-    if [ "$repo" = "toku/fail" ]; then
+    if [ "${GH_STUB_CLONE_FAIL_REPO:-}" = "$repo" ]; then
       exit 1
     fi
     mkdir -p "$target"
@@ -74,6 +74,7 @@ STUB
   run --separate-stderr env \
     PATH="$STUB_DIR:/usr/bin:/bin" \
     REPO_AUDIT_OWNER=toku \
+    GH_STUB_CLONE_FAIL_REPO=toku/fail \
     GITLEAKS_STUB_LOG="$log" \
     /bin/bash "$REPO_AUDIT" --history-sweep
 
@@ -82,4 +83,35 @@ STUB
   [[ "$output" != *"No leaks found across history"* ]]
   [[ "$stderr" == *"clone failed: toku/fail"* ]]
   [[ "$stderr" == *"History sweep incomplete"* ]]
+}
+
+@test "repo-security-audit history sweep fails when leaks are detected" {
+  write_gh_stub
+  write_gitleaks_stub
+  local log="$BATS_TEST_TMPDIR/gitleaks.log"
+
+  run --separate-stderr env \
+    PATH="$STUB_DIR:/usr/bin:/bin" \
+    REPO_AUDIT_OWNER=toku \
+    GITLEAKS_STUB_LOG="$log" \
+    GITLEAKS_STUB_STATUS=42 \
+    /bin/bash "$REPO_AUDIT" --history-sweep
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"LEAK toku/ok"* ]]
+  [[ "$output" == *"LEAK toku/fail"* ]]
+  [[ "$output" != *"No leaks found across history"* ]]
+  [[ "$stderr" == *"Leaks detected — rotate affected keys FIRST, then clean history."* ]]
+}
+
+@test "PR gitleaks workflows fail closed when trusted base fetch fails" {
+  local workflow
+  for workflow in \
+    "$REPO_ROOT/.github/workflows/security-checks.yml" \
+    "$REPO_ROOT/.github/workflows/secret-scan.reusable.yml"
+  do
+    ! grep -Eq 'git fetch .*GITHUB_BASE_REF.*\|\| true' "$workflow"
+    grep -q 'Failed to fetch trusted base branch' "$workflow"
+    grep -q 'refusing to fall back to default gitleaks rules' "$workflow"
+  done
 }
