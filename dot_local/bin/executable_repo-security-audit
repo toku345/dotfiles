@@ -62,12 +62,11 @@ fi
 posture() {
   printf 'repo\tvis\tfork\ttoken\tsecrets\tenvs\twf\tbprot\tsecscan\tpushprot\n'
   local repo branch vis fork token secrets envs wf bprot secscan pushprot coverage_failed=0
-  local gh_err gh_status
+  local gh_err gh_status repo_meta
   gh_err="$(mktemp)"
   cleanup_posture_tmp() {
     rm -f "$gh_err"
   }
-  trap cleanup_posture_tmp RETURN
   mark_posture_failure() {
     local repo_name="$1"
     local field="$2"
@@ -113,13 +112,12 @@ posture() {
       bprot='ERROR'
       mark_posture_failure "$repo" bprot
     fi
-    if ! secscan="$(gh api "repos/$repo" --jq '.security_and_analysis.secret_scanning.status // "n/a"' 2>"$gh_err")"; then
+    if ! repo_meta="$(gh api "repos/$repo" --jq '[.security_and_analysis.secret_scanning.status // "n/a", .security_and_analysis.secret_scanning_push_protection.status // "n/a"] | @tsv' 2>"$gh_err")"; then
       secscan='ERROR'
-      mark_posture_failure "$repo" secscan
-    fi
-    if ! pushprot="$(gh api "repos/$repo" --jq '.security_and_analysis.secret_scanning_push_protection.status // "n/a"' 2>"$gh_err")"; then
       pushprot='ERROR'
-      mark_posture_failure "$repo" pushprot
+      mark_posture_failure "$repo" secscan
+    else
+      IFS=$'\t' read -r secscan pushprot <<<"$repo_meta"
     fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$repo" "$vis" "$fork" "$token" "$secrets" "$envs" "$wf" "$bprot" "$secscan" "$pushprot"
@@ -127,7 +125,6 @@ posture() {
 $repos_tsv
 EOF
   cleanup_posture_tmp
-  trap - RETURN
   if [ "$coverage_failed" -ne 0 ]; then
     printf 'Posture audit incomplete — one or more repo checks failed.\n' >&2
     return 2

@@ -7,6 +7,9 @@ on:
     branches: [main, master]
 
 jobs:
+  secret-scan:
+    uses: ./.github/workflows/secret-scan.reusable.yml
+
   security:
     runs-on: ubuntu-latest
 
@@ -17,7 +20,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0  # Full history for the gitleaks history scan
           persist-credentials: false
 
       - name: Check for plaintext key.txt
@@ -75,76 +77,6 @@ jobs:
             done < <(echo "$AGE_FILES")
           fi
 
-      - name: Scan for secrets (gitleaks)
-        env:
-          GL_VER: "8.30.1"
-          GL_SHA: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          echo "Scanning for secrets with gitleaks (full history)..."
-          # Pinned binary + checksum: covers all GitHub token variants (gho_,
-          # github_pat_) that the previous hand-rolled rg regex missed.
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VER}/gitleaks_${GL_VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
-          echo "${GL_SHA}  /tmp/gitleaks.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
-          gitleaks version
-          GITLEAKS_CONFIG_ARGS=()
-          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_BASE_REF:-}" ]; then
-            base_ref="refs/gitleaks-trusted-base/${GITHUB_RUN_ID:-local}"
-            git update-ref -d "$base_ref" 2>/dev/null || true
-            auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
-            GITLEAKS_GIT_AUTH_HEADER="AUTHORIZATION: basic ${auth_header}"
-            export GITLEAKS_GIT_AUTH_HEADER
-            if ! git --config-env=http.https://github.com/.extraheader=GITLEAKS_GIT_AUTH_HEADER \
-              fetch --quiet origin "refs/heads/${GITHUB_BASE_REF}:${base_ref}"; then
-              echo "ERROR: Failed to fetch trusted base branch ${GITHUB_BASE_REF}; refusing to fall back to default gitleaks rules."
-              exit 1
-            fi
-            unset GITLEAKS_GIT_AUTH_HEADER auth_header
-            if git cat-file -e "${base_ref}:.gitleaks.toml" 2>/dev/null; then
-              git show "${base_ref}:.gitleaks.toml" > /tmp/gitleaks-trusted.toml
-              GITLEAKS_CONFIG_ARGS=(--config /tmp/gitleaks-trusted.toml)
-              echo "Using trusted gitleaks config from base branch ${GITHUB_BASE_REF}"
-            else
-              printf '[extend]\nuseDefault = true\n' > /tmp/gitleaks-default.toml
-              GITLEAKS_CONFIG_ARGS=(--config /tmp/gitleaks-default.toml)
-              echo "No trusted base .gitleaks.toml found; using explicit gitleaks default rules"
-            fi
-          elif [ -f .gitleaks.toml ]; then
-            GITLEAKS_CONFIG_ARGS=(--config .gitleaks.toml)
-          fi
-          gitleaks git "${GITLEAKS_CONFIG_ARGS[@]}" . --no-banner --redact --exit-code 1
-
-          fixture_repo="$(mktemp -d)"
-          git init -q "$fixture_repo"
-          git -C "$fixture_repo" config user.email security-fixture@example.invalid
-          git -C "$fixture_repo" config user.name security-fixture
-          python3 - "$fixture_repo/tokens.txt" <<'PY'
-          import sys
-          path = sys.argv[1]
-          with open(path, "w", encoding="utf-8") as fh:
-              fh.write("GITHUB_OAUTH=gho_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7R8" + "\n")
-              fh.write("GITHUB_FINE=github_pat_" + "A1b2C3d4E5f6G7h8I9j0K1" + "_" + "aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0" + "\n")
-          PY
-          git -C "$fixture_repo" add tokens.txt
-          git -C "$fixture_repo" commit -q -m "synthetic token fixtures"
-          set +e
-          gitleaks git "$fixture_repo" --no-banner --redact --exit-code 42 >/tmp/gitleaks-fixture.out 2>&1
-          fixture_status=$?
-          set -e
-          if [ "$fixture_status" -eq 0 ]; then
-            echo "ERROR: gitleaks did not detect synthetic GitHub token fixtures"
-            cat /tmp/gitleaks-fixture.out
-            exit 1
-          fi
-          if [ "$fixture_status" -ne 42 ]; then
-            echo "ERROR: gitleaks fixture scan failed unexpectedly"
-            cat /tmp/gitleaks-fixture.out
-            exit 1
-          fi
-          echo "OK: gitleaks found no secrets"
-
       - name: Verify AI tool update policy invariants
         run: |
           echo "Checking Claude/Codex update policy settings..."
@@ -160,5 +92,4 @@ jobs:
           echo "Checks performed:"
           echo "  - No plaintext key.txt found"
           echo "  - Age encrypted files verified"
-          echo "  - No secrets detected (gitleaks, full history)"
           echo "  - Claude/Codex update policy source settings checked"
