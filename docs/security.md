@@ -411,7 +411,7 @@ grep -E 'exclude-newer|no-build' ~/.config/uv/uv.toml  # → both settings prese
 
 ## Developer-Tool Update Workflow
 
-Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface, with the implemented Homebrew/asdf controls documented below. The VS Code surface is still tracked separately and will plug into the same manual flow.
+Editor extensions, OS package managers, high-privilege CLIs, and AI coding tools are update channels that can each become an arbitrary-code-execution path. [ADR 0026](adr/0026-development-update-policy.md) sets the policy: move routine updates into reviewable windows, but keep security updates timely. This section is the operational runbook for the AI-tool and high-privilege-CLI surface, with the implemented Homebrew/asdf controls and documented VS Code manual setup below.
 
 ### Claude Code and Codex (AI coding tools)
 
@@ -479,6 +479,52 @@ Committed so routine OS-package and runtime updates are deliberate, not implicit
 **Scope limitation (asdf):** these controls are **shell-scoped**. `~/.config/asdf/.asdfrc` is read only because `dot_bashrc`/`config.fish` export `ASDF_CONFIG_FILE` to point at it; an asdf invocation that does not inherit that environment (a non-interactive script, cron job, or GUI-launched process) falls back to asdf's default `~/.asdfrc` (absent) and its built-in defaults, where the short-name repository is **enabled**. This is acceptable today because the hardened action — `asdf plugin add <short-name>` — is run interactively and no repo automation calls asdf. If a non-rc asdf path is ever added, manage `~/.asdfrc` (e.g. a symlink to the XDG file) to close it.
 
 **Homebrew updates** follow the manual flow above (`brew update` → `brew outdated` → upgrade the named, reviewed target). For security-sensitive libraries, unset `HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK` for the upgrade so Homebrew can repair outdated or broken dependents, then smoke-test the affected tools. Security fixes bypass the cooldown — see [When to bypass the cooldown](#when-to-bypass-the-cooldown).
+
+### VS Code extensions and updates
+
+VS Code's extension marketplace is an update channel: an auto-updating extension can pull compromised code that runs with editor — and, via tasks/debuggers, shell — privileges. ADR 0026 requires extension auto-update off, update checks on, manual application updates, and workspace trust restricted. This is **documented as manual machine setup** rather than chezmoi-managed: the settings file is app-owned (VS Code rewrites it), full of personal settings, and lives at platform-specific macOS-only paths, so a managed file would churn and risk clobbering personal config for marginal benefit.
+
+Set these in VS Code user settings (`Cmd+,` -> *Open Settings (JSON)*), for whichever build you run. macOS default-profile paths:
+
+- Stable: `~/Library/Application Support/Code/User/settings.json`
+- Insiders: `~/Library/Application Support/Code - Insiders/User/settings.json`
+
+If you use VS Code Profiles, use the Settings editor's **Apply Setting to all Profiles** action when possible, or apply and verify these settings in each active profile's settings file as well as the default user settings. Profile settings live under `User/profiles/<profile ID>/settings.json`; on macOS:
+
+- Stable profile: `~/Library/Application Support/Code/User/profiles/<profile ID>/settings.json`
+- Insiders profile: `~/Library/Application Support/Code - Insiders/User/profiles/<profile ID>/settings.json`
+
+A profile `settings.json` exists only after that profile overrides settings. Always verify the effective value in the active profile through VS Code's Settings UI; if the active profile has no profile settings file, also verify the default user settings and keep using VS Code's **Apply Setting to all Profiles** action for these four controls.
+
+```jsonc
+{
+  "extensions.autoUpdate": false,                          // extensions do not auto-update
+  "extensions.autoCheckUpdates": true,                     // but available updates are still surfaced
+  "update.mode": "manual",                                 // the app updates only on request
+  "security.workspace.trust.untrustedFiles": "newWindow"   // untrusted files open in a restricted window
+}
+```
+
+Verify every VS Code build/profile that exists on the machine: Stable default, Insiders default if installed, and every active profile settings file. Swap in `Code - Insiders` or a `User/profiles/<profile ID>/settings.json` path as needed:
+
+```bash
+S="$HOME/Library/Application Support/Code/User/settings.json"
+jq '{autoUpdate: ."extensions.autoUpdate", autoCheck: ."extensions.autoCheckUpdates", update: ."update.mode", trust: ."security.workspace.trust.untrustedFiles"}' "$S"
+# expect: autoUpdate=false, autoCheck=true, update="manual", trust="newWindow"
+```
+
+The `jq` check works when `settings.json` is strict JSON. If the file uses JSONC comments or trailing commas, verify in VS Code's Settings JSON view or use a JSONC-capable parser.
+
+Checklist before treating a machine/build/profile as compliant:
+
+- Identify the active VS Code build and profile for the window you use.
+- Apply or verify the four settings in the default user settings and in every active profile settings file.
+- If Settings Sync is enabled, confirm the synced profile keeps the same values after sync completes or after any sync conflict/restore.
+- Re-run this checklist whenever the machine, VS Code build, active profile, or Settings Sync state changes.
+
+As of 2026-06-03, all four controls were verified by hand on the current Macs. Treat that as dated evidence, not a permanent invariant: rerun the checklist for every new or rebuilt Mac, new VS Code build, new or switched profile, Insiders install, Settings Sync enablement, or Settings Sync conflict/restore. If Settings Sync is enabled, set these in the synced profile so they propagate instead of being overwritten.
+
+**Editor-migration note:** moving to a single-binary editor without an extension marketplace (e.g. Helix, or Lem) would *remove* this attack surface only if the editor is installed through the reviewed Homebrew flow and no separate editor plugin/package updater is enabled. Treat such a migration as a net supply-chain reduction under those conditions; re-evaluate this subsection if VS Code is retired.
 
 ### When to bypass the cooldown
 

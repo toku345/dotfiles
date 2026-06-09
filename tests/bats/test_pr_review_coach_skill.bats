@@ -204,6 +204,26 @@ STUB
   ! grep -q 'If it is missing, stop and ask the user to rerun with `--base`' "$SKILL_MD"
 }
 
+@test "SKILL.md requires direct reaction before advancing coaching questions" {
+  grep -Fq "On answer turns, respond to the user's answer before moving on" "$SKILL_MD"
+  grep -Fq 'Say directly whether the answer is correct, partly correct, or off target' "$SKILL_MD"
+  grep -Fq 'Do not advance to the next candidate question until the current answer is good enough to record as answered' "$SKILL_MD"
+  response_section="$(
+    awk '
+      /^## Response To Your Answer$/ {in_section=1; next}
+      /^## / && in_section {exit}
+      in_section {print}
+    ' "$SKILL_MD"
+  )"
+  [[ -n "$response_section" ]]
+  printf '%s\n' "$response_section" | grep -qE '^- .*合っています.*一部合っています.*そこは違います'
+  grep -Fq 'If the answer is incomplete, ambiguous, or off target, update `answer_attempts`, keep the same `current_question`' "$SKILL_MD"
+  grep -Fq 'If the user sends an additional response for the same question' "$SKILL_MD"
+  grep -Fq '`skipped_answer_attempts`: skipped or moved-on question attempts and coach reactions that are no longer tied to `current_question`' "$SKILL_MD"
+  grep -Fq 'If the user explicitly asks to skip or move on, record the attempt in `skipped_answer_attempts`, advance `current_question`' "$SKILL_MD"
+  grep -Fq 'Keep `answer_attempts` reserved for the active `current_question`; do not carry skipped attempts into the next question' "$SKILL_MD"
+}
+
 @test "SKILL.md fail-closes when context collection commands fail" {
   grep -q 'Run each command independently' "$SKILL_MD"
   grep -q 'If any command fails, abort with the command output' "$SKILL_MD"
