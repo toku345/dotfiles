@@ -29,6 +29,8 @@ Run these in order. If any fails, abort with the indicated error; do not launch 
 1. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with its output. If output is non-empty, abort with:
    > "Worktree has uncommitted changes: \<list\>. The review covers committed branch diff only; uncommitted changes would be silently excluded. Commit or stash first, then retry."
 
+   Sandbox caveat: in repos whose tracked names collide with sandbox baseline denies (e.g. a chezmoi source dir), sandboxed `git status` reports ghost char-special entries (`crw-rw-rw- nobody nogroup 1, 3` under `ls -la`) as untracked. Verify with `ls -la | grep '^c'` and re-run the status check outside the sandbox before trusting a non-empty result.
+
 2. **Base ref resolution** — Determine `$BASE` from one of three sources, in priority order:
    - (a) **Explicit base** from the user prompt (e.g. `--base develop`, "review against develop"): use it verbatim and skip `gh`. If it is an immutable commit OID, set `$BASE_REF` to it. Otherwise validate it as a branch name (`git check-ref-format --branch "$BASE"`; reject leading `-`/`+`, `:`, or other refspec separators), run `git fetch --quiet origin "refs/heads/$BASE"` (abort on failure), set `$BASE_REF=FETCH_HEAD`, and resolve `$BASE_COMMIT` immediately.
    - (b) **`--allow-no-pr`** in the prompt: skip `gh`. Run `git fetch --quiet origin` and `git remote set-head origin --auto` (abort if either fails), then `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` (abort if it fails or is empty). Strip `origin/` for `$BASE`, keep the full `origin/<branch>` as `$BASE_REF`, and add a `**Degraded coverage**: no PR base, fell back to default branch` line to the final report.
@@ -42,7 +44,7 @@ Run these in order. If any fails, abort with the indicated error; do not launch 
 ## Collect (main session)
 
 1. `HEAD_REF=$(git rev-parse HEAD)` — record it.
-2. **Empty diff check**: if `git diff --name-only "$BASE_COMMIT...$HEAD_REF"` is empty, run the Final guard below, then report `No committed changes relative to <base>; nothing to review.` and stop.
+2. **Empty diff check + changed files**: run `git diff --name-only "$BASE_COMMIT...$HEAD_REF"` and record the output as `changedFiles` (one path per array element — this main-session list is the authoritative specialist-routing input; the workflow refuses to re-derive it from an agent echo). If empty, run the Final guard below, then report `No committed changes relative to <base>; nothing to review.` and stop.
 3. **Diff packet**: `diff_packet=$(mktemp "${TMPDIR:-/tmp}/pr-review-diff.XXXXXX")` (suffix-free template — suffixed templates collide on BSD mktemp), then `git diff "$BASE_COMMIT...$HEAD_REF" > "$diff_packet"`. Record byte count (`wc -c`) and SHA-256 (`sha256sum` / `shasum -a 256`). Abort if any step fails. The packet is authoritative for all specialists.
 4. **Shared references** (deploy-skew defense — file existence alone is not enough):
    - Read `~/.claude/skills/pr-review/references/review-criteria.md` and verify it contains the sentinel `PR_REVIEW_CRITERIA_SHARED_V1`. Keep the full contents as `criteria`.
@@ -64,6 +66,7 @@ Workflow({
     packetPath: "<$diff_packet>",
     packetBytes: <byte count>,
     packetSha: "<sha256>",
+    changedFiles: ["<path>", ...],
     criteria: "<contents of review-criteria.md>",
     severityRules: <parsed severity-rules.json object>
   }
@@ -84,7 +87,7 @@ The workflow runs in the background; wait for its completion notification before
 
 ## Render the result
 
-The workflow returns a structured object (`critical`, `important`/`importantTotal`, `suggestions`/`suggestionsTotal`, `strengths`, `refuted`, `specialists`, `stage2Ran`). Render it as:
+The workflow returns a structured object (`critical`, `important`/`importantOverflow`/`importantTotal`, `suggestions`/`suggestionsOverflow`/`suggestionsTotal`, `strengths`, `refuted`, `specialists`, `stage2Ran`). Render it as:
 
 ```markdown
 # PR Review: <branch> vs <base>
@@ -100,6 +103,10 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
 
 ## Important Issues (shown X of <importantTotal>, cap 5)
 - [<specialist>] <why> [<file>:<line>] — verdict: <verdict><, missing verification: ... if present>
+
+<if importantOverflow is non-empty:>
+### Beyond cap (verified but not prioritized)
+- [<specialist>] <one-line summary of why> [<file>:<line>] — verdict: <verdict>
 
 ## Suggestions (shown X of <suggestionsTotal>, cap 3)
 - [<specialist>] <why> [<file>:<line>]

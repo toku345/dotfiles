@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-会社環境で Codex CLI が使えないため、Codex `$pr-review` 相当の pre-PR レビュー gate を **Claude Code の dynamic workflow** で作る。**Phase 1-4/7 完了**（設計記録 + specialist 移植 + 共有配置 + `pr-review.js` + `SKILL.md` wrapper）。次は **Phase 5（pruned token 実測）と Phase 6（smoke test）** — どちらも実走が必要なので、ユーザー同席のセッションで `chezmoi apply` 後に実施する。
+会社環境で Codex CLI が使えないため、Codex `$pr-review` 相当の pre-PR レビュー gate を **Claude Code の dynamic workflow** で作る。**Phase 1-6/7 完了**。Phase 5/6 は 2026-06-10 にこの branch 自身の diff で実走済み（gate は本物の Critical 2件を検出・verify confirmed → 修正済み、これが seeded-control を上回る positive control になった）。残は **Phase 7 finalize**（この handoff 削除 + design doc Accepted 化）と、任意の re-review 実走。
 
 ## 現在地
 
@@ -29,11 +29,16 @@
 | `private_dot_claude/workflows/pr-review.js` | Phase 3: dynamic workflow 本体。args sentinel 検証 → categorizer agent (packet sha + file list + content flags) → Stage1 `parallel()` barrier → coverage fail-closed → severity-rules.json 解釈で正規化 → Stage2 条件 spawn → Critical/Important のみ verify → caps 集約。stub harness で 17 assertions pass (S1 混在 / S2 Stage2 / S3 coverage 失敗 / S4 args 不正) |
 | `private_dot_claude/skills/pr-review/SKILL.md` | Phase 4: main-session wrapper。preconditions / `gh` base 解決 (OID 照合) / diff packet / sentinel 検証付き reference 読込 / `Workflow({scriptPath, args})` / 事後 worktree+HEAD guard / markdown render |
 
-## 残作業 (Phase 5-7) — 詳細は `claude-pr-review.md` の Implementation plan
+## Phase 5-6 実走結果 (2026-06-10)
 
-- **Phase 5**: pruned token 実測（un-pruned 671k subset が上限。verify を Critical/Important に絞った値を1 diff で測定）。**要 `chezmoi apply`**（skill/workflow/references を live 配備してから実走）
-- **Phase 6**: smoke test（seeded-finding positive control を1件含める）。Phase 5 と同一 run で兼ねられる可能性あり
-- **Phase 7**: finalize（この handoff doc 削除、design doc を Accepted に）
+- **実測**: 20 agents (categorizer 1 + Stage1 7 + verify 12) / **約 1.23M subagent tokens / 約 25 分**（18 files, 113KB packet）。token gate は機能（Suggestion 9件は verify 除外）したが、コストは diff サイズでなく **Critical/Important 件数**に比例する — 詳細は design doc の Open questions 更新参照
+- **Gate 検出 → 修正済み**: ①`normConfidence` が security-reviewer の 0-10 scale を未正規化（cap 切り捨てで security finding が silent drop）→ per-specialist `confidenceScale` + `importantOverflow`/`suggestionsOverflow` 返却で修正。②workflow logic のテスト未コミット → `tests/claude/test_pr_review_workflow.mjs`（25 assertions）+ CI job 追加。③`category_label` rule の case-sensitivity → `case_insensitive: true` + verifier mirror。④categorizer の file list 信頼ギャップ → `args.changedFiles`（main session 計算値）を authoritative 化
+- **運用 gotcha**: Workflow tool は `args` を JSON 文字列で渡すことがある → script 冒頭で defensive `JSON.parse`。sandbox ghost char-special entries が precondition 1 を偽陽性にする → SKILL.md に注記済み。早発の completed task-notification があり得る（TaskOutput が running を返す間は信用しない）
+- 未表示だった Important 5件 (cap 超過分・旧実装で silent drop) は transcripts (`subagents/workflows/wf_40ebee15-f21/`) に残存。修正後の re-review で再収集可能
+
+## 残作業 (Phase 7)
+
+- **Phase 7**: finalize（この handoff doc 削除、design doc を Accepted に）。任意: 修正後の re-review 実走（コスト ~1M tokens 級、ユーザー判断）
 
 ## 別 PC での再開手順
 

@@ -14,6 +14,7 @@
  *     packetPath:    absolute path to the authoritative diff packet,
  *     packetBytes:   diff packet byte count,
  *     packetSha:     64-hex SHA-256 of the diff packet,
+ *     changedFiles:  git diff --name-only BASE...HEAD list (authoritative, main-session-computed),
  *     criteria:      contents of references/review-criteria.md (deployed copy, with sentinel),
  *     severityRules: parsed references/severity-rules.json (shared escalation table),
  *   }
@@ -43,13 +44,23 @@ function fail(msg) {
 const HEX40 = /^[0-9a-f]{40}$/
 const HEX64 = /^[0-9a-f]{64}$/
 
-const a = args || {}
+// the harness may deliver args as a JSON-encoded string instead of an object
+let a = args || {}
+if (typeof a === 'string') {
+  try {
+    a = JSON.parse(a)
+  } catch (e) {
+    fail(`args arrived as a string but is not valid JSON: ${e.message}`)
+  }
+}
 if (typeof a.base !== 'string' || a.base === '') fail('args.base (base branch name or ref) is required')
 if (!HEX40.test(a.baseCommit || '')) fail(`args.baseCommit must be a 40-hex commit OID, got '${a.baseCommit}'`)
 if (!HEX40.test(a.headRef || '')) fail(`args.headRef must be a 40-hex commit OID, got '${a.headRef}'`)
 if (typeof a.packetPath !== 'string' || !a.packetPath.startsWith('/')) fail('args.packetPath must be an absolute path to the diff packet')
 if (typeof a.packetBytes !== 'number' || a.packetBytes <= 0) fail('args.packetBytes must be the positive byte count of the diff packet')
 if (!HEX64.test(a.packetSha || '')) fail(`args.packetSha must be a 64-hex SHA-256, got '${a.packetSha}'`)
+if (!Array.isArray(a.changedFiles) || a.changedFiles.length === 0 || a.changedFiles.some(f => typeof f !== 'string' || f === ''))
+  fail('args.changedFiles must be the non-empty `git diff --name-only BASE...HEAD` list from the main session (authoritative — the workflow must not re-derive it from an unverified agent echo)')
 if (typeof a.criteria !== 'string' || !a.criteria.includes('PR_REVIEW_CRITERIA_SHARED_V1'))
   fail('args.criteria must be the deployed ~/.claude/skills/pr-review/references/review-criteria.md (sentinel PR_REVIEW_CRITERIA_SHARED_V1 missing — deploy skew? run `chezmoi apply -v` and retry)')
 
@@ -72,11 +83,10 @@ const scope = `${a.baseCommit}...${a.headRef}`
 
 const CATEGORIZE_SCHEMA = {
   type: 'object',
-  required: ['packetShaObserved', 'files', 'commentChanges', 'typeChanges', 'statusShort', 'commitLog'],
+  required: ['packetShaObserved', 'commentChanges', 'typeChanges', 'statusShort', 'commitLog'],
   additionalProperties: false,
   properties: {
     packetShaObserved: { type: 'string', description: "observed SHA-256 of the diff packet, or 'UNREADABLE'" },
-    files: { type: 'array', items: { type: 'string' }, description: 'git diff --name-only output, one path per element, verbatim' },
     commentChanges: { type: 'boolean', description: 'any added or removed comment line in source files (including mixed code+comment hunks)' },
     typeChanges: { type: 'boolean', description: 'any hunk introducing or modifying class/interface/type/struct/enum/trait/dataclass/schema definitions' },
     statusShort: { type: 'string', description: 'git status --short output, verbatim (may be empty)' },
@@ -112,7 +122,7 @@ const SPECIALIST_SCHEMA = {
         additionalProperties: false,
         properties: {
           label: { type: 'string', description: "the specialist's native severity/category label (e.g. Critical, Important, High, Medium, CRITICAL, 'Critical Gap')" },
-          confidence: { type: 'number', description: 'native confidence scale: 0-100 (code-reviewer), 0-1 (adversarial-reviewer), 0-10 (security-reviewer)' },
+          confidence: { type: 'number', description: 'native confidence scale: 0-1 (adversarial-reviewer), 0-10 (security-reviewer), 0-100 (all other specialists)' },
           file: { type: 'string' },
           line: { type: 'integer' },
           why: { type: 'string', description: 'concrete risk grounded in the committed diff: observed failure mode + user/operational impact' },
@@ -126,12 +136,14 @@ const SPECIALIST_SCHEMA = {
 
 const VERDICT_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'reasoning'],
+  required: ['verdict', 'reasoning', 'scope', 'packetSha'],
   additionalProperties: false,
   properties: {
     verdict: { type: 'string', enum: ['confirmed', 'refuted', 'needs-verification'] },
     reasoning: { type: 'string' },
     missingVerification: { type: 'string', description: "for 'needs-verification': the specific check that is missing" },
+    scope: { type: 'string', description: 'the BASE_COMMIT...HEAD_REF scope you verified against' },
+    packetSha: { type: 'string', description: 'the diff-packet SHA-256 you verified yourself before judging' },
   },
 }
 
@@ -139,38 +151,48 @@ const VERDICT_SCHEMA = {
 // Specialist registry (six pr-review-toolkit agents reused, two ported agents)
 // ---------------------------------------------------------------------------
 
+// confidenceScale = the specialist's native confidence maximum; used to
+// normalize cross-specialist ordering before the Important/Suggestion caps
 const SPECIALISTS = {
   'code-reviewer': {
     agentType: 'pr-review-toolkit:code-reviewer',
+    confidenceScale: 100,
     labelGuidance: 'Label each finding Critical, Important, or Suggestion, and attach your confidence on a 0-100 scale.',
   },
   'security-reviewer': {
     agentType: 'security-reviewer',
+    confidenceScale: 10,
     labelGuidance: "Put the security severity (High, Medium, or Low) in `label` and your 0-10 exploitability confidence in `confidence`; include the vulnerability category in `why`.",
   },
   'adversarial-reviewer': {
     agentType: 'adversarial-reviewer',
+    confidenceScale: 1,
     labelGuidance: "Set the top-level `framing` to 'needs-attention' or 'acceptable', and attach a 0-1 confidence to every finding.",
   },
   'pr-test-analyzer': {
     agentType: 'pr-review-toolkit:pr-test-analyzer',
-    labelGuidance: "Label each finding 'Critical Gap', 'Important Improvement', or 'Suggestion'.",
+    confidenceScale: 100,
+    labelGuidance: "Label each finding 'Critical Gap', 'Important Improvement', or 'Suggestion', and attach your confidence on a 0-100 scale.",
   },
   'comment-analyzer': {
     agentType: 'pr-review-toolkit:comment-analyzer',
-    labelGuidance: 'Label each finding Critical, Important, or Suggestion.',
+    confidenceScale: 100,
+    labelGuidance: 'Label each finding Critical, Important, or Suggestion, and attach your confidence on a 0-100 scale.',
   },
   'silent-failure-hunter': {
     agentType: 'pr-review-toolkit:silent-failure-hunter',
-    labelGuidance: 'Label each finding CRITICAL, HIGH, MEDIUM, or LOW.',
+    confidenceScale: 100,
+    labelGuidance: 'Label each finding CRITICAL, HIGH, MEDIUM, or LOW, and attach your confidence on a 0-100 scale.',
   },
   'type-design-analyzer': {
     agentType: 'pr-review-toolkit:type-design-analyzer',
-    labelGuidance: 'Label each finding Critical, Important, or Suggestion.',
+    confidenceScale: 100,
+    labelGuidance: 'Label each finding Critical, Important, or Suggestion, and attach your confidence on a 0-100 scale.',
   },
   'code-simplifier': {
     agentType: 'pr-review-toolkit:code-simplifier',
-    labelGuidance: 'Label every finding Suggestion — Stage 2 is advisory simplification only.',
+    confidenceScale: 100,
+    labelGuidance: 'Label every finding Suggestion — Stage 2 is advisory simplification only. Attach your confidence on a 0-100 scale.',
   },
 }
 
@@ -258,6 +280,7 @@ function verifyPrompt(f, ctx) {
     f.fix ? `- proposed fix: ${f.fix}` : null,
     '',
     "Verdict rules: return 'refuted' only with concrete evidence that the claim is wrong or not grounded in this diff; 'confirmed' when the failure mode is clearly grounded in the diff; otherwise 'needs-verification' with the specific missing check named in missingVerification. Severe-but-unproven risks are kept visible, never silently dropped.",
+    `Echo coverage: set 'scope' to '${ctx.scope}' and 'packetSha' to the SHA-256 you verified yourself — the workflow rejects your verdict if either does not match what it supplied.`,
   ].filter(Boolean).join('\n')
 }
 
@@ -279,7 +302,9 @@ function ruleAppliesTo(rule, specialist) {
 }
 
 function labelMatches(rule, finding) {
-  const wanted = rule.labels || rule.values || []
+  const wanted = rule.labels || rule.values
+  if (!Array.isArray(wanted) || wanted.length === 0)
+    fail(`severity-rules: ${rule.kind} rule carries neither 'labels' nor 'values' — a rule that can never match would silently weaken the gate`)
   const got = (finding.label || '').trim()
   return wanted.some(w => rule.case_insensitive ? w.toLowerCase() === got.toLowerCase() : w === got)
 }
@@ -312,7 +337,8 @@ function normalizeSeverity(specialist, finding, framing) {
 
 function normConfidence(f) {
   const c = typeof f.confidence === 'number' ? f.confidence : 0
-  return c <= 1 ? c * 100 : c
+  const scale = (SPECIALISTS[f.specialist] || {}).confidenceScale || 100
+  return (c / scale) * 100
 }
 
 function byConfidenceDesc(x, y) {
@@ -328,18 +354,17 @@ const cat = await agent([
   'You are the diff categorizer for the pr-review gate. Work read-only; do not modify any file. Do not review the changes — only verify and categorize.',
   '',
   `1. Verify the diff packet at ${a.packetPath}: compute its SHA-256 (sha256sum or shasum -a 256) and byte count (wc -c). Expected: SHA-256 ${a.packetSha}, ${a.packetBytes} bytes. Return the observed SHA-256 verbatim in packetShaObserved; if the file is missing or unreadable, return 'UNREADABLE'.`,
-  `2. Run: git diff --name-only ${scope} — return the file list verbatim in files (one path per element).`,
-  `3. Run: git status --short — return verbatim in statusShort. Run: git log --no-decorate ${a.baseCommit}..${a.headRef} — return verbatim in commitLog.`,
-  '4. Inspect the diff packet hunks and set two flags: commentChanges = any added or removed comment line in source files (including mixed code+comment hunks); typeChanges = any hunk introducing or modifying class / interface / type / struct / enum / trait / dataclass / schema definitions.',
+  `2. Run: git status --short — return verbatim in statusShort. Run: git log --no-decorate ${a.baseCommit}..${a.headRef} — return verbatim in commitLog.`,
+  '3. Inspect the diff packet hunks and set two flags: commentChanges = any added or removed comment line in source files (including mixed code+comment hunks); typeChanges = any hunk introducing or modifying class / interface / type / struct / enum / trait / dataclass / schema definitions.',
 ].join('\n'), { label: 'categorize', phase: 'Categorize', schema: CATEGORIZE_SCHEMA })
 
 if (!cat) fail('categorizer returned no usable output — fail closed')
 if (cat.packetShaObserved !== a.packetSha)
   fail(`diff packet integrity check failed: expected SHA-256 ${a.packetSha}, observed '${cat.packetShaObserved}'`)
-if (cat.files.length === 0)
-  fail(`no committed changes in ${scope} — nothing to review (the SKILL.md empty-diff precondition should have caught this)`)
 
-const categories = categorizePaths(cat.files)
+// path routing uses the main-session-computed args.changedFiles, never an
+// agent echo — a truncated echo would silently narrow the specialist fan-out
+const categories = categorizePaths(a.changedFiles)
 
 const applicable = ALWAYS.slice()
 if (categories.codePaths.length > 0) applicable.push('pr-test-analyzer')
@@ -347,7 +372,7 @@ if (categories.docsPaths.length > 0 || cat.commentChanges) applicable.push('comm
 if (categories.codePaths.length > 0) applicable.push('silent-failure-hunter')
 if (cat.typeChanges) applicable.push('type-design-analyzer')
 
-log(`Categorized ${cat.files.length} changed files (code=${categories.codePaths.length}, docs=${categories.docsPaths.length}, tests=${categories.testPaths.length}, operational=${categories.operationalPaths.length}); Stage 1 specialists: ${applicable.join(', ')}`)
+log(`Categorized ${a.changedFiles.length} changed files (code=${categories.codePaths.length}, docs=${categories.docsPaths.length}, tests=${categories.testPaths.length}, operational=${categories.operationalPaths.length}); Stage 1 specialists: ${applicable.join(', ')}`)
 
 const ctx = {
   base: a.base,
@@ -357,7 +382,7 @@ const ctx = {
   packetPath: a.packetPath,
   packetBytes: a.packetBytes,
   packetSha: a.packetSha,
-  files: cat.files,
+  files: a.changedFiles,
   statusShort: cat.statusShort,
   commitLog: cat.commitLog,
   criteria: a.criteria,
@@ -386,6 +411,8 @@ applicable.forEach((name, i) => {
   for (const f of r.findings) {
     const severity = normalizeSeverity(name, f, r.framing)
     if (severity === 'nit') continue
+    if (severity === 'suggestion' && (f.label || '').trim().toLowerCase() !== 'suggestion')
+      log(`severity fallback: [${name}] label '${f.label}' matched no escalation rule — treated as Suggestion (verify the label vocabulary if this looks wrong)`)
     findings.push({ ...f, specialist: name, severity })
   }
   for (const s of r.strengths) strengths.push({ specialist: name, note: s })
@@ -436,6 +463,10 @@ const verdicts = await parallel(toVerify.map((f, i) => () =>
 toVerify.forEach((f, i) => {
   const v = verdicts[i]
   if (!v) fail(`verifier for [${f.specialist}] ${f.file} returned no usable output — fail closed`)
+  // a verdict can remove a Critical from the fix queue, so it gets the same
+  // coverage echo gate as the specialists that put it there
+  if (v.scope !== scope || v.packetSha !== a.packetSha)
+    fail(`verifier for [${f.specialist}] ${f.file} echoed scope='${v.scope}' packetSha='${v.packetSha}', expected scope='${scope}' packetSha='${a.packetSha}' — verdict rejected, fail closed`)
   f.verdict = v.verdict
   f.verdictReasoning = v.reasoning
   if (v.missingVerification) f.missingVerification = v.missingVerification
@@ -452,10 +483,12 @@ const critical = kept.filter(f => f.severity === 'critical').sort(byConfidenceDe
 const important = kept.filter(f => f.severity === 'important').sort(byConfidenceDesc)
 const suggestions = kept.filter(f => f.severity === 'suggestion').sort(byConfidenceDesc)
 
-if (important.length > caps.important) log(`Important findings capped: showing ${caps.important} of ${important.length} (highest confidence first)`)
-if (suggestions.length > caps.suggestion) log(`Suggestions capped: showing ${caps.suggestion} of ${suggestions.length}`)
+if (important.length > caps.important) log(`Important findings capped: showing ${caps.important} of ${important.length} (highest normalized confidence first; overflow returned in importantOverflow)`)
+if (suggestions.length > caps.suggestion) log(`Suggestions capped: showing ${caps.suggestion} of ${suggestions.length} (overflow returned in suggestionsOverflow)`)
 log(`pr-review gate result: ${critical.length} Critical, ${important.length} Important, ${suggestions.length} Suggestions, ${refuted.length} refuted by verification`)
 
+// caps bound the rendered fix queue (review-criteria.md), but the capped-out
+// tail is still returned — content must never be silently unrecoverable
 return {
   scope,
   base: a.base,
@@ -467,8 +500,10 @@ return {
   typeChanges: cat.typeChanges,
   critical,
   important: important.slice(0, caps.important),
+  importantOverflow: important.slice(caps.important),
   importantTotal: important.length,
   suggestions: suggestions.slice(0, caps.suggestion),
+  suggestionsOverflow: suggestions.slice(caps.suggestion),
   suggestionsTotal: suggestions.length,
   strengths,
   refuted,

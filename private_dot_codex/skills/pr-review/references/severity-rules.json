@@ -62,7 +62,8 @@
       {
         "kind": "category_label",
         "specialist": "pr-test-analyzer",
-        "labels": ["Critical Gap", "Important Improvement"]
+        "labels": ["Critical Gap", "Important Improvement"],
+        "case_insensitive": true
       }
     ]
   },

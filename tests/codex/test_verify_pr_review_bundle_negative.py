@@ -101,6 +101,20 @@ def main() -> None:
             "PR_REVIEW_SEVERITY_RULES_V0",
             "sentinel mismatch",
         ),
+        (
+            "output caps inflation",
+            "private_dot_codex/skills/pr-review/references/severity-rules.json",
+            '"important": 5',
+            '"important": 50',
+            "output_caps mismatch",
+        ),
+        (
+            "critical guard weakening",
+            "private_dot_codex/skills/pr-review/references/severity-rules.json",
+            "merge-blocking risk",
+            "noteworthy concern",
+            "critical.guard",
+        ),
     ]
 
     with tempfile.TemporaryDirectory(prefix="pr-review-verifier-negative-") as tmp:

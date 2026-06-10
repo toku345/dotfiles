@@ -207,7 +207,7 @@ EXPECTED_CRITICAL_ANY_OF = [
 EXPECTED_IMPORTANT_ANY_OF = [
     {"kind": "explicit_label", "specialist": "*", "labels": ["Important", "High"], "case_insensitive": True},
     {"kind": "severity_field", "specialist": "security-reviewer", "values": ["Medium"], "case_insensitive": True},
-    {"kind": "category_label", "specialist": "pr-test-analyzer", "labels": ["Critical Gap", "Important Improvement"]},
+    {"kind": "category_label", "specialist": "pr-test-analyzer", "labels": ["Critical Gap", "Important Improvement"], "case_insensitive": True},
 ]
 
 FINAL_GUARD_SNIPPETS = [

@@ -125,7 +125,7 @@ For `security-reviewer` and `adversarial-reviewer`:
 
 - **Per-specialist timeout (ADR 0029 R2 / issue #189):** does the workflow runtime expose a per-subagent wall-clock cap? If not, wrap the `parallel()` await in a JS deadline and fail closed on overrun.
 - ~~**`review-criteria.md` share mechanism**~~ — resolved in Phase 2: chezmoi template include (see "Gate policy & severity contract").
-- **Pruned token cost:** must be measured before finalizing (Phase 5); the un-pruned 671k subset figure is the ceiling to stay well under.
+- ~~**Pruned token cost**~~ — measured in Phase 5 (2026-06-10, live run on this branch's own 18-file / 113 KB diff): **20 agents (1 categorizer + 7 Stage 1 + 12 verify), ~1.23M subagent tokens, ~25 min**. The token gate works as designed (9 Suggestions were excluded from verify), but the cost scales with the number of Critical/Important findings (12 here), not just diff size — the un-pruned 671k figure was a six-specialist subset with full verify on a smaller finding set, so it is not a ceiling for finding-heavy thick diffs. Treat ~0.5-1.5M tokens as the realistic budget for a thick change; the gate stays reserved for thick changes per `review-criteria.md` Review Modes.
 - **agentType model pins:** the two opus-pinned reused agents set a cost floor; decide whether the ported agents inherit or pin.
 
 ## Risks
