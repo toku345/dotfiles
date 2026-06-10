@@ -87,6 +87,20 @@ def main() -> None:
             "The diff packet is advisory",
             "The diff packet is authoritative",
         ),
+        (
+            "severity table threshold weakening",
+            "private_dot_codex/skills/pr-review/references/severity-rules.json",
+            '"min": 90',
+            '"min": 99',
+            "critical.any_of mismatch",
+        ),
+        (
+            "severity table sentinel drift",
+            "private_dot_codex/skills/pr-review/references/severity-rules.json",
+            "PR_REVIEW_SEVERITY_RULES_V1",
+            "PR_REVIEW_SEVERITY_RULES_V0",
+            "sentinel mismatch",
+        ),
     ]
 
     with tempfile.TemporaryDirectory(prefix="pr-review-verifier-negative-") as tmp:

@@ -116,9 +116,11 @@ jobs:
               EXEC_ARGS=""
             fi
 
-            if ! chezmoi execute-template $EXEC_ARGS --file "$tmpl" > /dev/null 2>&1; then
+            # --source .: resolve include() against the checkout, not the
+            # runner's default ~/.local/share/chezmoi (empty on CI)
+            if ! chezmoi --source . execute-template $EXEC_ARGS --file "$tmpl" > /dev/null 2>&1; then
               echo "ERROR: Invalid template syntax in $tmpl"
-              chezmoi execute-template $EXEC_ARGS --file "$tmpl" 2>&1 || true
+              chezmoi --source . execute-template $EXEC_ARGS --file "$tmpl" 2>&1 || true
               FAILED=1
             fi
           done < <(find . -name "*.tmpl" -type f 2>/dev/null)
