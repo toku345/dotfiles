@@ -39,13 +39,28 @@ assert_policy_env_output() {
   fi
 }
 
+# Discriminate grep exit codes like refute_grep in test_secret_scanning_baseline.bats:
+# a bare `if grep ...` treats grep errors (exit 2: missing/unreadable file, bad
+# pattern) the same as "pattern absent" and silently passes.
 assert_pattern_absent() {
   local pattern="$1"
   local file="$2"
-  if grep -q "$pattern" "$file"; then
-    echo "pattern '$pattern' must not appear in $file" >&2
-    return 1
-  fi
+  local grep_status
+  set +e
+  grep -q "$pattern" "$file"
+  grep_status="$?"
+  set -e
+  case "$grep_status" in
+    0)
+      echo "pattern '$pattern' must not appear in $file" >&2
+      return 1
+      ;;
+    1) return 0 ;;
+    *)
+      echo "grep failed (status $grep_status) while checking '$pattern' in $file" >&2
+      return 2
+      ;;
+  esac
 }
 
 @test "dot_bashrc exports Homebrew policy env and ASDF_CONFIG_FILE" {
