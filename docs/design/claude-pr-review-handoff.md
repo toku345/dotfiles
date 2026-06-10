@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-会社環境で Codex CLI が使えないため、Codex `$pr-review` 相当の pre-PR レビュー gate を **Claude Code の dynamic workflow** で作る。**Phase 1-2/7 完了**（設計記録 + 不足 specialist 2体の移植 + gate policy/severity table の共有配置）。次は **Phase 3 の `pr-review.js`（実装の山場）**。
+会社環境で Codex CLI が使えないため、Codex `$pr-review` 相当の pre-PR レビュー gate を **Claude Code の dynamic workflow** で作る。**Phase 1-4/7 完了**（設計記録 + specialist 移植 + 共有配置 + `pr-review.js` + `SKILL.md` wrapper）。次は **Phase 5（pruned token 実測）と Phase 6（smoke test）** — どちらも実走が必要なので、ユーザー同席のセッションで `chezmoi apply` 後に実施する。
 
 ## 現在地
 
@@ -26,14 +26,13 @@
 | `docs/design/codex-pr-review.md` | N3: 前方参照 + 環境分岐注記を追記 |
 | `private_dot_codex/skills/pr-review/references/severity-rules.json` | Phase 2: severity escalation table (canonical, sentinel `PR_REVIEW_SEVERITY_RULES_V1`)。Codex `SKILL.md` step 4 のインライン logic を置換 |
 | `private_dot_claude/skills/pr-review/references/*.tmpl` | Phase 2: `{{ include }}` thin template で canonical を Claude 側へ配信 (drift 構造的に不可能)。Go Template Policy 逸脱の理由は design doc に記録 |
+| `private_dot_claude/workflows/pr-review.js` | Phase 3: dynamic workflow 本体。args sentinel 検証 → categorizer agent (packet sha + file list + content flags) → Stage1 `parallel()` barrier → coverage fail-closed → severity-rules.json 解釈で正規化 → Stage2 条件 spawn → Critical/Important のみ verify → caps 集約。stub harness で 17 assertions pass (S1 混在 / S2 Stage2 / S3 coverage 失敗 / S4 args 不正) |
+| `private_dot_claude/skills/pr-review/SKILL.md` | Phase 4: main-session wrapper。preconditions / `gh` base 解決 (OID 照合) / diff packet / sentinel 検証付き reference 読込 / `Workflow({scriptPath, args})` / 事後 worktree+HEAD guard / markdown render |
 
-## 残作業 (Phase 3-7) — 詳細は `claude-pr-review.md` の Implementation plan
+## 残作業 (Phase 5-7) — 詳細は `claude-pr-review.md` の Implementation plan
 
-- **Phase 3 (山場)**: `private_dot_claude/workflows/pr-review.js` —
-  `args 受け取り (base/baseCommit/headRef/packetPath/packetSha)` → 条件 spawn → `Stage1 parallel() barrier` → `coverage hash fail-closed (JS で照合・不一致は throw)` → `severity 正規化` → `Stage2 条件 spawn (Critical 無しのとき code-simplifier)` → `token-gated verify (Critical/Important のみ)` → `集約 (Important≤5 / Suggestions≤3)`
-- **Phase 4**: `SKILL.md` wrapper — preconditions (clean worktree / base 解決) → メインループで `gh` 解決 → `Workflow({args})` → 結果を markdown render
-- **Phase 5**: pruned token 実測（un-pruned 671k subset が上限。verify を Critical/Important に絞った値を1 diff で測定）
-- **Phase 6**: smoke test（seeded-finding positive control を1件含める）
+- **Phase 5**: pruned token 実測（un-pruned 671k subset が上限。verify を Critical/Important に絞った値を1 diff で測定）。**要 `chezmoi apply`**（skill/workflow/references を live 配備してから実走）
+- **Phase 6**: smoke test（seeded-finding positive control を1件含める）。Phase 5 と同一 run で兼ねられる可能性あり
 - **Phase 7**: finalize（この handoff doc 削除、design doc を Accepted に）
 
 ## 別 PC での再開手順
