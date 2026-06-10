@@ -24,7 +24,7 @@
 export const meta = {
   name: 'pr-review',
   description: 'Pre-PR gate: fan out review specialists over a pinned diff packet, fail closed on coverage, verify Critical/Important findings only',
-  whenToUse: 'Launched by the pr-review skill with a full args packet (base/baseCommit/headRef/packetPath/packetBytes/packetSha/criteria/severityRules). Do not launch bare.',
+  whenToUse: 'Launched by the pr-review skill with a full args packet (base/baseCommit/headRef/packetPath/packetBytes/packetSha/changedFiles/criteria/severityRules). Do not launch bare.',
   phases: [
     { title: 'Categorize', detail: 'packet integrity + changed-file list + content flags' },
     { title: 'Stage1', detail: 'parallel specialist reviews (barrier, coverage fail-closed)' },

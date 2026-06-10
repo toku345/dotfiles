@@ -23,6 +23,10 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
     (repo / "tests" / "codex").mkdir(parents=True)
     shutil.copy2(REPO_ROOT / VERIFY_SCRIPT, repo / VERIFY_SCRIPT)
     shutil.copytree(REPO_ROOT / "private_dot_codex", repo / "private_dot_codex")
+    shutil.copytree(
+        REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
+        repo / "private_dot_claude" / "skills" / "pr-review" / "references",
+    )
     return repo
 
 
@@ -114,6 +118,13 @@ def main() -> None:
             "merge-blocking risk",
             "noteworthy concern",
             "critical.guard",
+        ),
+        (
+            "claude share template inlined (drift bypass)",
+            "private_dot_claude/skills/pr-review/references/severity-rules.json.tmpl",
+            'include "private_dot_codex/skills/pr-review/references/severity-rules.json"',
+            'print "inlined-weakened-table"',
+            "severity-rules.json.tmpl",
         ),
     ]
 

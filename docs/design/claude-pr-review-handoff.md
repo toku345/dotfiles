@@ -35,6 +35,8 @@
 - **Gate 検出 → 修正済み**: ①`normConfidence` が security-reviewer の 0-10 scale を未正規化（cap 切り捨てで security finding が silent drop）→ per-specialist `confidenceScale` + `importantOverflow`/`suggestionsOverflow` 返却で修正。②workflow logic のテスト未コミット → `tests/claude/test_pr_review_workflow.mjs`（25 assertions）+ CI job 追加。③`category_label` rule の case-sensitivity → `case_insensitive: true` + verifier mirror。④categorizer の file list 信頼ギャップ → `args.changedFiles`（main session 計算値）を authoritative 化
 - **運用 gotcha**: Workflow tool は `args` を JSON 文字列で渡すことがある → script 冒頭で defensive `JSON.parse`。sandbox ghost char-special entries が precondition 1 を偽陽性にする → SKILL.md に注記済み。早発の completed task-notification があり得る（TaskOutput が running を返す間は信用しない）
 - 未表示だった Important 5件 (cap 超過分・旧実装で silent drop) は transcripts (`subagents/workflows/wf_40ebee15-f21/`) に残存。修正後の re-review で再収集可能
+- **Re-review 実走 (同日、修正後)**: **0 Critical** — 前回 Critical/Important は全て解消確認。新規 Important 13件は全て non-blocker (doc/contract 整合性・テスト補強系) で、安価な subset (whenToUse 補記 / framing token 統一 / harness 増強 / `.tmpl` include-pin / handoff 更新) を即修正。約 1.39M subagent tokens / 22 agents
+- **Hang インシデント**: re-review 初回 run で code-reviewer (opus pin) が 49 分無出力 → Stage1 `parallel()` barrier がハング。`TaskStop` → 同一 args で `resumeFromRunId` 再起動 (journal cache で完了済み 7 agents は即時返却) で復旧。**per-specialist timeout 不在 (design doc open question / ADR 0029 R2) が実地で顕在化** — workflow runtime に per-agent timeout が無い現状、運用 workaround は「journal で進捗監視 → stuck なら TaskStop + resume」
 
 ## 残作業 (Phase 7)
 
@@ -44,8 +46,8 @@
 
 1. `git fetch origin && git switch claude-pr-review-skill`（PR #258 のブランチ）
 2. **worktree は使わない**（メイン repo で作業する方針に変更済み。理由: worktree は `~/.local/share/chezmoi-worktrees/` の sandbox write 許可が要り煩雑だった）
-3. `docs/design/claude-pr-review.md` の Phase 2 から着手
-4. dynamic workflow を試すときは下記「制約」を踏まえる
+3. 残作業は **Phase 7 finalize のみ**（上記「Phase 5-6 実走結果」と「残作業」を参照）
+4. dynamic workflow を再実走するときは下記「制約」と「Phase 5-6 実走結果」の運用 gotcha を踏まえる
 
 ## 重要な決定・制約・gotcha（実装前に必読）
 

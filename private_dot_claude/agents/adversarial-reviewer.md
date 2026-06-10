@@ -31,6 +31,8 @@ Modifications from upstream:
     is documented for non-workflow use.
   - <structured_output_contract> kept as markdown conventions; when a schema is attached the
     workflow maps the ship/no-ship framing and per-finding fields into structured output.
+    The upstream clean-case framing token "approve" is renamed "acceptable" to match the
+    workflow's SPECIALIST_SCHEMA framing enum (one vocabulary across prompt and schema).
   - Tool access restricted to read-only review (no Write/Edit); permissionMode: plan.
   - Upstream adversarial stance (role, attack surface, review method, finding bar,
     grounding/calibration/final-check rules) preserved verbatim.
@@ -83,7 +85,7 @@ Report only material findings. Do not include style feedback, naming feedback, l
 
 Return compact, specific markdown. After populating coverage, use a ship/no-ship framing:
 - "needs-attention" if there is any material risk worth blocking on
-- "approve" only if you cannot support any substantive adversarial finding from the provided context
+- "acceptable" only if you cannot support any substantive adversarial finding from the provided context
 
 Every finding must include:
 - the affected file

@@ -60,7 +60,7 @@ async function agentStub(prompt, opts = {}) {
   const label = opts.label || ''
   if (label === 'categorize') {
     return {
-      packetShaObserved: SHA,
+      packetShaObserved: scenario.badPacket ? 'f'.repeat(64) : SHA,
       commentChanges: false,
       typeChanges: true,
       statusShort: '',
@@ -69,6 +69,7 @@ async function agentStub(prompt, opts = {}) {
   }
   if (label.startsWith('stage1:')) {
     const name = label.slice('stage1:'.length)
+    if (scenario.nullSpecialist === name) throw new Error('simulated agent death')
     const findings = scenario.suggestionsOnly
       ? (name === 'code-reviewer' ? [STAGE1_FINDINGS['code-reviewer'][1]] : [])
       : STAGE1_FINDINGS[name]
@@ -154,6 +155,7 @@ assert(r1.important.find(f => f.missingVerification), 'S1: needs-verification ke
 assert(r1.categories.docsPaths.length === 1 && r1.categories.codePaths.length === 3, 'S1: path categorization (docs=1, code=3)')
 assert(r1.important.some(f => (f.label || '').toLowerCase() === 'critical gap'), 'S1: case-drifted pr-test-analyzer label still escalates to Important')
 assert(r1.importantOverflow.length === 0 && r1.suggestionsOverflow.length === 0, 'S1: no overflow under caps')
+assert(r1.suggestionsTotal === 1, `S1: Nit excluded from fix queue (only the code-reviewer Suggestion remains) — got ${r1.suggestionsTotal}`)
 
 // S2: suggestions only — Stage2 runs and contributes
 const r2 = await run(makeArgs(), { suggestionsOnly: true })
@@ -203,6 +205,38 @@ await expectThrow(noFiles, {}, /changedFiles/, 'S6: missing changedFiles rejecte
 // S7: string-encoded args are parsed (harness delivers args as JSON string)
 const r7 = await run(JSON.stringify(makeArgs()))
 assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
+
+// S8: categorizer packet-integrity gate fails closed on hash mismatch
+await expectThrow(makeArgs(), { badPacket: true }, /diff packet integrity check failed/, 'S8: categorizer hash mismatch throws')
+
+// S9: a dead Stage-1 specialist (null from parallel) fails closed
+await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adversarial-reviewer returned no usable output/, 'S9: null specialist result throws')
+
+// S10: rule-interpreter fail-loud guards — label-less rule and unknown kind
+{
+  const broken = JSON.parse(JSON.stringify(rules))
+  broken.important.any_of.push({ kind: 'explicit_label', specialist: '*' })
+  await expectThrow(makeArgs({ severityRules: broken }), {}, /neither 'labels' nor 'values'/, 'S10: label-less rule throws')
+  const unknown = JSON.parse(JSON.stringify(rules))
+  unknown.critical.any_of.push({ kind: 'vibes_based', specialist: '*' })
+  await expectThrow(makeArgs({ severityRules: unknown }), {}, /unknown rule kind 'vibes_based'/, 'S10: unknown rule kind throws')
+}
+
+// S11: the JS confidenceScale registry must agree with the scale annotations
+// in the canonical table (the live-run Critical was exactly this drift)
+{
+  const source = readFileSync(WORKFLOW_PATH, 'utf8')
+  const registry = {}
+  for (const m of source.matchAll(/'([\w-]+)':\s*\{\s*agentType:[^}]*?confidenceScale:\s*([0-9.]+)/gs)) {
+    registry[m[1]] = Number(m[2])
+  }
+  const annotated = [...rules.critical.any_of, ...rules.important.any_of].filter(r => r.specialist && r.specialist !== '*' && r.scale)
+  assert(annotated.length >= 2, `S11: table carries scale annotations to check (${annotated.length})`)
+  for (const r of annotated) {
+    const max = Number(r.scale.split('-')[1])
+    assert(registry[r.specialist] === max, `S11: registry[${r.specialist}]=${registry[r.specialist]} matches table scale ${r.scale}`)
+  }
+}
 
 if (failed) {
   console.error('SOME ASSERTIONS FAILED')

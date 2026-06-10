@@ -21,6 +21,15 @@ SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
 REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
 SEVERITY_RULES = SKILL_DIR / "references" / "severity-rules.json"
+CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
+
+# The Claude-side copies are drift-proof only while they stay one-line
+# {{ include }} templates of the Codex canonical; an inline replacement would
+# render fine and pass the CI template-syntax check, so pin the include here.
+EXPECTED_TMPL_INCLUDES = {
+    "review-criteria.md.tmpl": 'include "private_dot_codex/skills/pr-review/references/review-criteria.md"',
+    "severity-rules.json.tmpl": 'include "private_dot_codex/skills/pr-review/references/severity-rules.json"',
+}
 
 EXPECTED_AGENTS = {
     "adversarial-reviewer": {
@@ -333,6 +342,25 @@ def verify_severity_rules() -> None:
     require_contains(data.get("incomplete_evidence", ""), "do not silently drop it", f"{context}:incomplete_evidence")
 
 
+def verify_claude_share_templates() -> None:
+    for name, include_line in EXPECTED_TMPL_INCLUDES.items():
+        path = CLAUDE_REFS_DIR / name
+        if not path.is_file():
+            fail(f"missing Claude-side share template: {path.relative_to(REPO_ROOT)}")
+        raw = path.read_text(encoding="utf-8")
+        require_contains(raw, "{{ " + include_line, str(path))
+        body_lines = [
+            line
+            for line in raw.splitlines()
+            if line.strip() and "include " not in line and not line.lstrip().startswith("<!--")
+        ]
+        if body_lines:
+            fail(
+                f"{path}: contains inline content beyond the include + sentinel header — "
+                f"an inline copy can drift from the Codex canonical: {body_lines[:2]!r}"
+            )
+
+
 def verify_agent_toml() -> None:
     actual_files = sorted(path.name for path in AGENTS_DIR.glob("*.toml"))
     expected_files = sorted(meta["file"] for meta in EXPECTED_AGENTS.values())
@@ -459,6 +487,7 @@ def main() -> None:
     verify_license_files()
     verify_review_criteria()
     verify_severity_rules()
+    verify_claude_share_templates()
     verify_agent_toml()
     verify_skill_contract()
     print("OK: Codex pr-review bundle validation passed")

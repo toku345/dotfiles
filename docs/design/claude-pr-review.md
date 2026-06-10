@@ -56,6 +56,8 @@ The six `pr-review-toolkit` specialists (`code-reviewer`, `silent-failure-hunter
 
 ## Workflow structure (pr-review.js)
 
+Pre-implementation sketch, kept for the shape of the design — the committed `private_dot_claude/workflows/pr-review.js` is authoritative and has since grown beyond it (required `changedFiles`/`criteria`/`severityRules` args, per-specialist confidence scales, verifier coverage echo, overflow returns).
+
 ```
 meta { phases: [Stage1, Stage2, Verify] }
 
