@@ -41,7 +41,11 @@ The gate spans the sandbox boundary because a capability PoC proved that workflo
 
 ```
 private_dot_claude/
-├── skills/pr-review/SKILL.md       # main-session wrapper: preconditions, base resolution, Workflow launch, render
+├── skills/pr-review/
+│   ├── SKILL.md                    # main-session wrapper: preconditions, base resolution, Workflow launch, render
+│   └── references/
+│       ├── review-criteria.md.tmpl   # {{ include }} of the Codex-bundle canonical + generated-from sentinel header
+│       └── severity-rules.json.tmpl  # {{ include }} of the Codex-bundle canonical
 ├── workflows/pr-review.js          # the dynamic workflow (deployed to ~/.claude/workflows/)
 └── agents/
     ├── security-reviewer.md        # ported from Codex security-reviewer.toml (MIT)
@@ -101,7 +105,9 @@ For `security-reviewer` and `adversarial-reviewer`:
 
 ## Gate policy & severity contract
 
-`review-criteria.md` (26 lines, Codex-decoupled) is the shared gate policy. It currently lives in the Codex bundle (`private_dot_codex/skills/pr-review/references/`). Deploy it to a Claude-readable path via chezmoi so both skills read one source (Open question: 2-target deploy vs symlink vs copy-with-sentinel). The severity-escalation logic (confidence thresholds, per-specialist label mapping) currently embedded in the Codex `SKILL.md` must also be shared, not just the criteria file — encode it once (e.g. a small machine-readable severity table next to `review-criteria.md`) and have both paths read it.
+`review-criteria.md` (26 lines, Codex-decoupled) is the shared gate policy, and `severity-rules.json` (sentinel `PR_REVIEW_SEVERITY_RULES_V1`) is the machine-readable severity-escalation table extracted from the Codex `SKILL.md` step 4 (confidence thresholds, per-specialist label mapping, output caps). Both are canonical in the Codex bundle (`private_dot_codex/skills/pr-review/references/`); the Codex `SKILL.md` now points at the table instead of carrying inline escalation prose.
+
+**Share mechanism (Phase 2 decision): chezmoi template include.** The Claude-side copies under `private_dot_claude/skills/pr-review/references/` are one-line `.tmpl` files (`{{ include "private_dot_codex/..." }}`), so every `chezmoi apply` regenerates them from the canonical files and drift is structurally impossible. Rejected alternatives: a symlink dangles if `~/.codex` is ever machine-gated in `.chezmoiignore`; copy-with-sentinel needs a separate CI equality check to stay honest. Trade-off: this deviates from the repo's Go Template Usage Policy (`.tmpl` avoidance), accepted because a one-line include wrapper for md/json has none of the ShellCheck/syntax-highlighting costs that motivated the policy, and `private_dot_ssh/config.tmpl` is existing precedent. The Claude `SKILL.md` (Phase 4) reads `severity-rules.json` in the main session and passes the parsed rules into the workflow via `args` — workflow scripts have no filesystem access, so the table must cross the boundary as data.
 
 ## Implementation plan (phases)
 
@@ -118,7 +124,7 @@ For `security-reviewer` and `adversarial-reviewer`:
 ## Open questions
 
 - **Per-specialist timeout (ADR 0029 R2 / issue #189):** does the workflow runtime expose a per-subagent wall-clock cap? If not, wrap the `parallel()` await in a JS deadline and fail closed on overrun.
-- **`review-criteria.md` share mechanism:** chezmoi 2-target deploy, symlink, or copy-with-sentinel — pick the one that survives `chezmoi apply` without drift.
+- ~~**`review-criteria.md` share mechanism**~~ — resolved in Phase 2: chezmoi template include (see "Gate policy & severity contract").
 - **Pruned token cost:** must be measured before finalizing (Phase 5); the un-pruned 671k subset figure is the ceiling to stay well under.
 - **agentType model pins:** the two opus-pinned reused agents set a cost floor; decide whether the ported agents inherit or pin.
 

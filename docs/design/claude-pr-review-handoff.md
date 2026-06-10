@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-会社環境で Codex CLI が使えないため、Codex `$pr-review` 相当の pre-PR レビュー gate を **Claude Code の dynamic workflow** で作る。**Phase 1/7 完了**（設計記録 + 不足 specialist 2体の移植）。次は **Phase 3 の `pr-review.js`（実装の山場）**。
+会社環境で Codex CLI が使えないため、Codex `$pr-review` 相当の pre-PR レビュー gate を **Claude Code の dynamic workflow** で作る。**Phase 1-2/7 完了**（設計記録 + 不足 specialist 2体の移植 + gate policy/severity table の共有配置）。次は **Phase 3 の `pr-review.js`（実装の山場）**。
 
 ## 現在地
 
@@ -14,7 +14,7 @@
 - draft PR #258、**CI 全 green**（gitleaks 含む。specialist `.md` の "API keys/passwords/tokens" 散文は誤検知されない）
 - コミット: `0bb42d6` docs / `38a1b9b` feat
 
-## 完了 (Phase 1)
+## 完了 (Phase 1-2)
 
 | ファイル | 内容 |
 |---|---|
@@ -24,10 +24,11 @@
 | `private_dot_claude/agents/adversarial-reviewer.md` | Apache-2.0。同上 |
 | `private_dot_claude/agents/LICENSE-*` / `NOTICE-*` | upstream と sha256 一致で同梱 |
 | `docs/design/codex-pr-review.md` | N3: 前方参照 + 環境分岐注記を追記 |
+| `private_dot_codex/skills/pr-review/references/severity-rules.json` | Phase 2: severity escalation table (canonical, sentinel `PR_REVIEW_SEVERITY_RULES_V1`)。Codex `SKILL.md` step 4 のインライン logic を置換 |
+| `private_dot_claude/skills/pr-review/references/*.tmpl` | Phase 2: `{{ include }}` thin template で canonical を Claude 側へ配信 (drift 構造的に不可能)。Go Template Policy 逸脱の理由は design doc に記録 |
 
-## 残作業 (Phase 2-7) — 詳細は `claude-pr-review.md` の Implementation plan
+## 残作業 (Phase 3-7) — 詳細は `claude-pr-review.md` の Implementation plan
 
-- **Phase 2**: `review-criteria.md`（現状 Codex bundle 内）を Claude-readable path に共有配置。chezmoi の deploy 方法を決める（2-target / symlink / copy+sentinel）
 - **Phase 3 (山場)**: `private_dot_claude/workflows/pr-review.js` —
   `args 受け取り (base/baseCommit/headRef/packetPath/packetSha)` → 条件 spawn → `Stage1 parallel() barrier` → `coverage hash fail-closed (JS で照合・不一致は throw)` → `severity 正規化` → `Stage2 条件 spawn (Critical 無しのとき code-simplifier)` → `token-gated verify (Critical/Important のみ)` → `集約 (Important≤5 / Suggestions≤3)`
 - **Phase 4**: `SKILL.md` wrapper — preconditions (clean worktree / base 解決) → メインループで `gh` 解決 → `Workflow({args})` → 結果を markdown render
