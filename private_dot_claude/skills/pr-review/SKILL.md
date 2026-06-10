@@ -89,7 +89,7 @@ The workflow runs in the background; wait for its completion notification before
 
 The workflow returns a structured object (`critical`, `important`/`importantOverflow`/`importantTotal`, `suggestions`/`suggestionsOverflow`/`suggestionsTotal`, `strengths`, `refuted`, `specialists`, `stage2Ran`). Render it as:
 
-```markdown
+```
 # PR Review: <branch> vs <base>
 
 <**Degraded coverage** line if --allow-no-pr was used>
