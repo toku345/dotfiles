@@ -27,12 +27,12 @@ Run a comprehensive specialist review of the current branch's committed changes 
 Run these in order. If any fails, abort with the indicated error; do not launch the workflow.
 
 1. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with its output. If output is non-empty, abort with:
-   > "Worktree has uncommitted changes: \<list\>. The review covers committed branch diff only; uncommitted changes would be silently excluded. Commit or stash first, then retry."
+   > "Worktree has uncommitted changes: <list>. The review covers committed branch diff only; uncommitted changes would be silently excluded. Commit or stash first, then retry."
 
    Sandbox caveat: in repos whose tracked names collide with sandbox baseline denies (e.g. a chezmoi source dir), sandboxed `git status` reports ghost char-special entries (`crw-rw-rw- nobody nogroup 1, 3` under `ls -la`) as untracked. Verify with `ls -la | grep '^c'` and re-run the status check outside the sandbox before trusting a non-empty result.
 
 2. **Base ref resolution** — Determine `$BASE` from one of three sources, in priority order:
-   - (a) **Explicit base** from the user prompt (e.g. `--base develop`, "review against develop"): use it verbatim and skip `gh`. If it is an immutable commit OID, set `$BASE_REF` to it. Otherwise validate it as a branch name (`git check-ref-format --branch "$BASE"`; reject leading `-`/`+`, `:`, or other refspec separators), run `git fetch --quiet origin "refs/heads/$BASE"` (abort on failure), set `$BASE_REF=FETCH_HEAD`, and resolve `$BASE_COMMIT` immediately.
+   - (a) **Explicit base** from the user prompt (e.g. `--base develop`, "review against develop"): use it verbatim and skip `gh`. If it matches a full 40-character hexadecimal commit OID (the same shape the workflow's args validation requires), set `$BASE_REF` to it. Otherwise validate it as a branch name (`git check-ref-format --branch "$BASE"`; reject leading `-`/`+`, `:`, or other refspec separators), run `git fetch --quiet origin "refs/heads/$BASE"` (abort on failure), set `$BASE_REF=FETCH_HEAD`, and resolve `$BASE_COMMIT` immediately.
    - (b) **`--allow-no-pr`** in the prompt: skip `gh`. Run `git fetch --quiet origin` and `git remote set-head origin --auto` (abort if either fails), then `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` (abort if it fails or is empty). Strip `origin/` for `$BASE`, keep the full `origin/<branch>` as `$BASE_REF`, and add a `**Degraded coverage**: no PR base, fell back to default branch` line to the final report.
    - (c) **Open PR**: run `gh pr view --json baseRefName,baseRefOid --jq '[.baseRefName,.baseRefOid] | @tsv'`. `gh` typically needs `dangerouslyDisableSandbox: true` (macOS Seatbelt / hosts.yml restrictions). If it fails with a real credential error, abort with "Run `gh auth login` and retry." Only an explicit "no pull request found" result is the no-PR case; any other failure aborts loudly. On success: validate the branch name with the same rules as (a), `git fetch --quiet origin "refs/heads/$BASE"` (abort on failure), verify `FETCH_HEAD^{commit}` equals the returned `baseRefOid` exactly (abort with both OIDs if not), then set `$BASE_REF=FETCH_HEAD`.
 
@@ -80,7 +80,7 @@ The workflow runs in the background; wait for its completion notification before
 ## Final guard (after the workflow returns)
 
 1. Re-run `git status --porcelain --untracked-files=normal`. If non-empty, abort with:
-   > "Review subagents or concurrent tooling changed the worktree: \<list\>. These changes were not part of the reviewed committed diff. Revert, commit, or stash them, then retry."
+   > "Review subagents or concurrent tooling changed the worktree: <list>. These changes were not part of the reviewed committed diff. Revert, commit, or stash them, then retry."
 2. Re-run `git rev-parse HEAD` and compare with the recorded `$HEAD_REF`. If it differs, abort with:
    > "HEAD changed during review: started at `<old>`, now `<new>`. The completed specialist results do not cover the current commit. Re-run the review."
 3. Remove the diff packet temp file.
