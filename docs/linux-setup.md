@@ -34,7 +34,6 @@ eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-export HOMEBREW_ASK=1
 export HOMEBREW_CASK_OPTS=--require-sha
 brew install chezmoi age
 ```
@@ -112,7 +111,6 @@ docker run --rm -it ubuntu:24.04 bash -c '
         export HOMEBREW_NO_AUTO_UPDATE=1
         export HOMEBREW_NO_INSTALL_UPGRADE=1
         export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-        export HOMEBREW_ASK=1
         export HOMEBREW_CASK_OPTS=--require-sha
         brew install chezmoi age
         chezmoi init --apply toku345 --verbose

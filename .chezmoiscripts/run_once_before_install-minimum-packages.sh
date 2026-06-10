@@ -5,7 +5,6 @@ set -eu
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-export HOMEBREW_ASK=1
 export HOMEBREW_CASK_OPTS=--require-sha
 
 if [ "$CHEZMOI_OS" = "darwin" ]; then

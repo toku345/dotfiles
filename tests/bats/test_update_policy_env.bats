@@ -24,7 +24,6 @@ assert_policy_env_output() {
   local expected
   for expected in \
     "ASDF_CONFIG_FILE=$BATS_TEST_TMPDIR/home/.config/asdf/.asdfrc" \
-    "HOMEBREW_ASK=1" \
     "HOMEBREW_CASK_OPTS=--require-sha" \
     "HOMEBREW_NO_AUTO_UPDATE=1" \
     "HOMEBREW_NO_INSTALL_UPGRADE=1" \
@@ -32,6 +31,21 @@ assert_policy_env_output() {
   do
     grep -Fqx "$expected" <<<"$output"
   done
+  # HOMEBREW_ASK is deprecated upstream (ask mode is the default); must not be set.
+  # Bare `! grep` is exempt from bats errexit tracking, so branch explicitly.
+  if grep -Eq "^HOMEBREW_ASK=" <<<"$output"; then
+    echo "HOMEBREW_ASK must not be exported (deprecated; ask mode is the Homebrew default)" >&2
+    return 1
+  fi
+}
+
+assert_pattern_absent() {
+  local pattern="$1"
+  local file="$2"
+  if grep -q "$pattern" "$file"; then
+    echo "pattern '$pattern' must not appear in $file" >&2
+    return 1
+  fi
 }
 
 @test "dot_bashrc exports Homebrew policy env and ASDF_CONFIG_FILE" {
@@ -52,8 +66,8 @@ assert_policy_env_output() {
   assert_line_present "set -gx HOMEBREW_NO_AUTO_UPDATE 1" "$fish_config"
   assert_line_present "set -gx HOMEBREW_NO_INSTALL_UPGRADE 1" "$fish_config"
   assert_line_present "set -gx HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK 1" "$fish_config"
-  assert_line_present "set -gx HOMEBREW_ASK 1" "$fish_config"
   assert_line_present "set -gx HOMEBREW_CASK_OPTS --require-sha" "$fish_config"
+  assert_pattern_absent "HOMEBREW_ASK" "$fish_config"
   assert_line_present 'set -gx ASDF_CONFIG_FILE $HOME/.config/asdf/.asdfrc' "$fish_config"
 }
 
@@ -86,11 +100,12 @@ assert_policy_env_output() {
   [ -n "$first_os_branch_line" ]
   [ -n "$first_brew_line" ]
 
+  assert_pattern_absent "HOMEBREW_ASK" "$script"
+
   for line in \
     "export HOMEBREW_NO_AUTO_UPDATE=1" \
     "export HOMEBREW_NO_INSTALL_UPGRADE=1" \
     "export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1" \
-    "export HOMEBREW_ASK=1" \
     "export HOMEBREW_CASK_OPTS=--require-sha"
   do
     assert_line_present "$line" "$script"
@@ -127,7 +142,7 @@ STUB
   brew_call_count="$(grep -c '^args=' "$BATS_TEST_TMPDIR/brew.log")"
   [ "$brew_call_count" -gt 0 ]
   [[ "$output" == *"args=update"* ]]
-  [ "$(grep -c '^HOMEBREW_ASK=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
+  assert_pattern_absent '^HOMEBREW_ASK=' "$BATS_TEST_TMPDIR/brew.log"
   [ "$(grep -c '^HOMEBREW_CASK_OPTS=--require-sha$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_AUTO_UPDATE=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_INSTALL_UPGRADE=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
