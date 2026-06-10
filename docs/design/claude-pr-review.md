@@ -1,7 +1,7 @@
 # Claude-side PR Review — Design Doc
 
 Parent decision: [ADR 0029](../adr/0029-claude-pr-review-dynamic-workflow.md)
-Status: Draft
+Status: Accepted (2026-06-11; implemented and live-validated on PR #258 — see "Operational notes")
 
 ## Context
 
@@ -125,14 +125,23 @@ For `security-reviewer` and `adversarial-reviewer`:
 
 ## Open questions
 
-- **Per-specialist timeout (ADR 0029 R2 / issue #189):** does the workflow runtime expose a per-subagent wall-clock cap? If not, wrap the `parallel()` await in a JS deadline and fail closed on overrun.
+- **Per-specialist timeout (ADR 0029 R2 / issue #189):** the workflow runtime exposes no per-subagent wall-clock cap, and a JS deadline is not implementable either (workflow scripts have no `Date.now`/timers). This materialized live on 2026-06-10: an opus-pinned code-reviewer leg went silent for 49 minutes and the Stage 1 `parallel()` barrier waited indefinitely. Operational workaround until the runtime grows a timeout: watch the run's `journal.jsonl` for stalled progress, then `TaskStop` + relaunch with `resumeFromRunId` — completed agents return from the journal cache instantly, so recovery costs only the stuck leg. This remains the gate's weakest operational property.
 - ~~**`review-criteria.md` share mechanism**~~ — resolved in Phase 2: chezmoi template include (see "Gate policy & severity contract").
 - ~~**Pruned token cost**~~ — measured in Phase 5 (2026-06-10, live run on this branch's own 18-file / 113 KB diff): **20 agents (1 categorizer + 7 Stage 1 + 12 verify), ~1.23M subagent tokens, ~25 min**. The token gate works as designed (9 Suggestions were excluded from verify), but the cost scales with the number of Critical/Important findings (12 here), not just diff size — the un-pruned 671k figure was a six-specialist subset with full verify on a smaller finding set, so it is not a ceiling for finding-heavy thick diffs. Treat ~0.5-1.5M tokens as the realistic budget for a thick change; the gate stays reserved for thick changes per `review-criteria.md` Review Modes.
 - **agentType model pins:** the two opus-pinned reused agents set a cost floor; decide whether the ported agents inherit or pin.
 
+## Operational notes (from the 2026-06-10 live runs)
+
+Phase 5/6 ran the gate twice on this feature's own branch (smoke + post-fix re-review). The smoke run surfaced 2 verified Critical findings against the gate's own implementation (confidence-scale mis-normalization, uncommitted test harness) — a stronger positive control than a seeded finding — and the re-review returned 0 Critical after the fixes. Durable observations:
+
+- **Premature task notifications:** the harness can emit a `completed` task-notification while the workflow is still running (observed twice, once 4ms after launch). Do not trust the notification alone; treat `TaskOutput` returning `running` as authoritative and block until it returns the result. The SKILL.md procedure encodes this.
+- **`args` may arrive JSON-string-encoded:** the Workflow tool delivered the args object as a JSON string on the first live launch. `pr-review.js` parses string args defensively; this is an adaptation to undocumented harness behavior and may change upstream.
+- **Verify refute rate is a watch metric:** across 25 verified findings the refute rate was ~4% (1/25). High finding quality is one explanation, but verifier agreement bias (Claude-in-Claude, the accepted ADR 0029 trade-off) is another; if the refuted section stays empty across future runs, re-examine the verifier prompt's refutation incentive.
+- **Approach re-evaluation triggers:** move off the dynamic workflow (to main-loop Agent orchestration plus a deterministic checker script) only if hangs become chronic (≥ frequent per-run intervention), the Workflow tool is deprecated or breaks journal/resume, or a lightweight no-verify variant of the gate is wanted. The code-enforced fail-closed gates, schema-forced specialist outputs, and CI-tested interpreter are workflow-only properties and are the reason this design exists.
+
 ## Risks
 
-See ADR 0029 "Risks". The load-bearing one is the verify token gate (Phase 5 must measure it) and the lost cross-model adversarial perspective (accepted trade-off in the company environment).
+See ADR 0029 "Risks". The load-bearing ones, updated post-measurement: the verify token cost scales with finding count (measured, see Open questions), the missing per-specialist timeout (observed live, see Open questions), and the lost cross-model adversarial perspective (accepted trade-off in the company environment).
 
 ## References
 
