@@ -130,6 +130,7 @@
     ],
     "defaultMode": "auto"
   },
+  "model": "claude-fable-5",
   "statusLine": {
     "type": "command",
     "command": "$HOME/.claude/statusline-command.sh"
@@ -159,7 +160,6 @@
   "outputStyle": "JUIZ",
   "viewMode": "verbose",
   "language": "Japanese",
-  "autoUpdatesChannel": "stable",
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
@@ -189,10 +189,12 @@
     ]
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
+  "autoUpdatesChannel": "stable",
   "tui": "fullscreen",
+  "skipWorkflowUsageWarning": true,
   "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false,
-  "agentPushNotifEnabled": true
+  "voiceEnabled": false
 }
