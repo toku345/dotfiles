@@ -23,6 +23,10 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
     (repo / "tests" / "codex").mkdir(parents=True)
     shutil.copy2(REPO_ROOT / VERIFY_SCRIPT, repo / VERIFY_SCRIPT)
     shutil.copytree(REPO_ROOT / "private_dot_codex", repo / "private_dot_codex")
+    shutil.copytree(
+        REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
+        repo / "private_dot_claude" / "skills" / "pr-review" / "references",
+    )
     return repo
 
 
@@ -86,6 +90,41 @@ def main() -> None:
             "The diff packet is authoritative",
             "The diff packet is advisory",
             "The diff packet is authoritative",
+        ),
+        (
+            "severity table threshold weakening",
+            "private_dot_codex/skills/pr-review/references/severity-rules.json",
+            '"min": 90',
+            '"min": 99',
+            "critical.any_of mismatch",
+        ),
+        (
+            "severity table sentinel drift",
+            "private_dot_codex/skills/pr-review/references/severity-rules.json",
+            "PR_REVIEW_SEVERITY_RULES_V1",
+            "PR_REVIEW_SEVERITY_RULES_V0",
+            "sentinel mismatch",
+        ),
+        (
+            "output caps inflation",
+            "private_dot_codex/skills/pr-review/references/severity-rules.json",
+            '"important": 5',
+            '"important": 50',
+            "output_caps mismatch",
+        ),
+        (
+            "critical guard weakening",
+            "private_dot_codex/skills/pr-review/references/severity-rules.json",
+            "merge-blocking risk",
+            "noteworthy concern",
+            "critical.guard",
+        ),
+        (
+            "claude share template inlined (drift bypass)",
+            "private_dot_claude/skills/pr-review/references/severity-rules.json.tmpl",
+            'include "private_dot_codex/skills/pr-review/references/severity-rules.json"',
+            'print "inlined-weakened-table"',
+            "severity-rules.json.tmpl",
         ),
     ]
 

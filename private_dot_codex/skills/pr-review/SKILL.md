@@ -127,19 +127,10 @@ After preconditions pass:
 
 4. **Scan Stage 1 output and normalize severity before Stage 2**:
    - Apply `references/review-criteria.md` before trusting specialist labels. Specialist labels are useful signals, but final severity must still satisfy the bundled criteria.
-   - Treat a finding as "Critical" if:
-     - The specialist explicitly labels it Critical, OR
-     - `code-reviewer` reports confidence ≥ 90, OR
-     - `adversarial-reviewer` returns `needs-attention` framing with any finding confidence ≥ 0.7, OR
-     - `silent-failure-hunter` explicitly labels the finding CRITICAL, OR
-     - `security-reviewer` reports `Severity: High` / `Severity: HIGH` / any case-insensitive equivalent
-     - AND the finding explains a concrete merge-blocking risk from the committed branch diff.
-   - Treat a finding as "Important" if:
-     - The specialist explicitly labels it Important, High, or HIGH without meeting the Critical rules above, OR
-     - `security-reviewer` reports `Severity: Medium` / `Severity: MEDIUM` / any case-insensitive equivalent, OR
-     - `pr-test-analyzer` reports a Critical Gap or Important Improvement that is not already Critical
-     - AND the finding is likely worth fixing before merge but is not a proven blocker.
-   - Treat remaining advisory findings as Suggestions unless the specialist explicitly marks them as positive observations.
+   - Read `references/severity-rules.json` and classify each finding with its escalation table. The table is shared verbatim with the Claude-side `/pr-review` skill; when the escalation rules change, edit the table, not skill prose.
+     - A finding is **Critical** when it matches any rule in the table's `critical.any_of` AND satisfies `critical.guard` (a concrete merge-blocking risk from the committed branch diff).
+     - A finding that did not qualify as Critical is **Important** when it matches any rule in `important.any_of` AND satisfies `important.guard`.
+     - Treat remaining advisory findings as Suggestions unless the specialist explicitly marks them as positive observations, per the table's `suggestion` rule.
    - Do not promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important.
    - If evidence is incomplete but the risk may be severe, keep the item with the missing verification stated explicitly instead of silently dropping it.
 

@@ -116,9 +116,11 @@ jobs:
               EXEC_ARGS=""
             fi
 
-            if ! chezmoi execute-template $EXEC_ARGS --file "$tmpl" > /dev/null 2>&1; then
+            # --source .: resolve include() against the checkout, not the
+            # runner's default ~/.local/share/chezmoi (empty on CI)
+            if ! chezmoi --source . execute-template $EXEC_ARGS --file "$tmpl" > /dev/null 2>&1; then
               echo "ERROR: Invalid template syntax in $tmpl"
-              chezmoi execute-template $EXEC_ARGS --file "$tmpl" 2>&1 || true
+              chezmoi --source . execute-template $EXEC_ARGS --file "$tmpl" 2>&1 || true
               FAILED=1
             fi
           done < <(find . -name "*.tmpl" -type f 2>/dev/null)
@@ -176,6 +178,29 @@ jobs:
 
       - name: Validate pr-review verifier fail-closed behavior
         run: python3 tests/codex/test_verify_pr_review_bundle_negative.py
+
+  claude-pr-review-workflow:
+    name: Claude pr-review Workflow Logic
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # Same Node 24 pin rationale as the bats job: the harness is ESM with
+      # top-level await; the runner's preinstalled Node is not guaranteed.
+      - name: Setup Node 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+
+      - name: Run pr-review workflow logic tests
+        run: node tests/claude/test_pr_review_workflow.mjs
 
   fish-syntax:
     name: Fish Syntax Check

@@ -8,6 +8,7 @@ TOML parseability, prompt contracts, and vendored license/notice hashes.
 from __future__ import annotations
 
 import hashlib
+import json
 import pathlib
 import re
 import sys
@@ -19,6 +20,16 @@ AGENTS_DIR = REPO_ROOT / "private_dot_codex" / "agents"
 SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
 REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
+SEVERITY_RULES = SKILL_DIR / "references" / "severity-rules.json"
+CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
+
+# The Claude-side copies are drift-proof only while they stay one-line
+# {{ include }} templates of the Codex canonical; an inline replacement would
+# render fine and pass the CI template-syntax check, so pin the include here.
+EXPECTED_TMPL_INCLUDES = {
+    "review-criteria.md.tmpl": 'include "private_dot_codex/skills/pr-review/references/review-criteria.md"',
+    "severity-rules.json.tmpl": 'include "private_dot_codex/skills/pr-review/references/severity-rules.json"',
+}
 
 EXPECTED_AGENTS = {
     "adversarial-reviewer": {
@@ -180,17 +191,32 @@ PROCEDURE_SKILL_SNIPPETS = [
 
 CRITICAL_NORMALIZATION_SNIPPETS = [
     "Apply `references/review-criteria.md` before trusting specialist labels.",
-    'Treat a finding as "Critical"',
-    'Treat a finding as "Important"',
-    "`security-reviewer` reports `Severity: High`",
-    "`Severity: HIGH`",
-    "`security-reviewer` reports `Severity: Medium`",
-    "`Severity: MEDIUM`",
-    "case-insensitive equivalent",
-    "`pr-test-analyzer` reports a Critical Gap or Important Improvement",
-    "AND the finding explains a concrete merge-blocking risk from the committed branch diff.",
+    "Read `references/severity-rules.json` and classify each finding with its escalation table.",
+    "shared verbatim with the Claude-side `/pr-review` skill",
+    "edit the table, not skill prose",
+    "matches any rule in the table's `critical.any_of` AND satisfies `critical.guard`",
+    "concrete merge-blocking risk from the committed branch diff",
+    "matches any rule in `important.any_of` AND satisfies `important.guard`",
     "Do not promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important.",
     "missing verification stated explicitly instead of silently dropping it",
+]
+
+# The escalation semantics moved from SKILL.md prose into severity-rules.json
+# (shared with the Claude-side /pr-review skill); pin them there instead.
+EXPECTED_SEVERITY_SENTINEL = "PR_REVIEW_SEVERITY_RULES_V1"
+EXPECTED_SEVERITY_VERSION = 1
+EXPECTED_OUTPUT_CAPS = {"important": 5, "suggestion": 3}
+EXPECTED_CRITICAL_ANY_OF = [
+    {"kind": "explicit_label", "specialist": "*", "labels": ["Critical"], "case_insensitive": True},
+    {"kind": "confidence_threshold", "specialist": "code-reviewer", "scale": "0-100", "min": 90},
+    {"kind": "framing_with_confidence", "specialist": "adversarial-reviewer", "framing": "needs-attention", "scale": "0-1", "min": 0.7},
+    {"kind": "explicit_label", "specialist": "silent-failure-hunter", "labels": ["CRITICAL"], "case_insensitive": True},
+    {"kind": "severity_field", "specialist": "security-reviewer", "values": ["High"], "case_insensitive": True},
+]
+EXPECTED_IMPORTANT_ANY_OF = [
+    {"kind": "explicit_label", "specialist": "*", "labels": ["Important", "High"], "case_insensitive": True},
+    {"kind": "severity_field", "specialist": "security-reviewer", "values": ["Medium"], "case_insensitive": True},
+    {"kind": "category_label", "specialist": "pr-test-analyzer", "labels": ["Critical Gap", "Important Improvement"], "case_insensitive": True},
 ]
 
 FINAL_GUARD_SNIPPETS = [
@@ -269,6 +295,70 @@ def verify_review_criteria() -> None:
     raw = REVIEW_CRITERIA.read_text(encoding="utf-8")
     for needle in REQUIRED_REVIEW_CRITERIA_SNIPPETS:
         require_contains(raw, needle, str(REVIEW_CRITERIA))
+
+
+def strip_comments(value):
+    """Drop $comment keys (annotation-only) before comparing rule structures."""
+    if isinstance(value, dict):
+        return {k: strip_comments(v) for k, v in value.items() if k != "$comment"}
+    if isinstance(value, list):
+        return [strip_comments(v) for v in value]
+    return value
+
+
+def verify_severity_rules() -> None:
+    context = str(SEVERITY_RULES)
+    if not SEVERITY_RULES.is_file():
+        fail(f"missing bundled severity table: {SEVERITY_RULES.relative_to(REPO_ROOT)}")
+    try:
+        data = json.loads(SEVERITY_RULES.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{context}: invalid JSON: {exc}")
+
+    if data.get("sentinel") != EXPECTED_SEVERITY_SENTINEL:
+        fail(f"{context}: sentinel mismatch: expected {EXPECTED_SEVERITY_SENTINEL!r}, got {data.get('sentinel')!r}")
+    if data.get("version") != EXPECTED_SEVERITY_VERSION:
+        fail(f"{context}: version mismatch: expected {EXPECTED_SEVERITY_VERSION}, got {data.get('version')!r}")
+    if data.get("output_caps") != EXPECTED_OUTPUT_CAPS:
+        fail(f"{context}: output_caps mismatch: expected {EXPECTED_OUTPUT_CAPS}, got {data.get('output_caps')!r}")
+
+    for severity, expected in (
+        ("critical", EXPECTED_CRITICAL_ANY_OF),
+        ("important", EXPECTED_IMPORTANT_ANY_OF),
+    ):
+        section = data.get(severity)
+        if not isinstance(section, dict):
+            fail(f"{context}: missing {severity!r} section")
+        actual = strip_comments(section.get("any_of"))
+        if actual != expected:
+            fail(f"{context}: {severity}.any_of mismatch:\n  expected {expected}\n  got      {actual}")
+        guard = section.get("guard", "")
+        if not isinstance(guard, str) or not guard.strip():
+            fail(f"{context}: {severity}.guard must be a non-empty string")
+
+    require_contains(data["critical"]["guard"], "merge-blocking risk", f"{context}:critical.guard")
+    require_contains(data["important"]["guard"], "not a proven blocker", f"{context}:important.guard")
+    require_contains(data.get("nit", {}).get("rule", ""), "nits do not enter the fix queue", f"{context}:nit.rule")
+    require_contains(data.get("incomplete_evidence", ""), "do not silently drop it", f"{context}:incomplete_evidence")
+
+
+def verify_claude_share_templates() -> None:
+    for name, include_line in EXPECTED_TMPL_INCLUDES.items():
+        path = CLAUDE_REFS_DIR / name
+        if not path.is_file():
+            fail(f"missing Claude-side share template: {path.relative_to(REPO_ROOT)}")
+        raw = path.read_text(encoding="utf-8")
+        require_contains(raw, "{{ " + include_line, str(path))
+        body_lines = [
+            line
+            for line in raw.splitlines()
+            if line.strip() and "include " not in line and not line.lstrip().startswith("<!--")
+        ]
+        if body_lines:
+            fail(
+                f"{path}: contains inline content beyond the include + sentinel header — "
+                f"an inline copy can drift from the Codex canonical: {body_lines[:2]!r}"
+            )
 
 
 def verify_agent_toml() -> None:
@@ -396,6 +486,8 @@ def verify_skill_contract() -> None:
 def main() -> None:
     verify_license_files()
     verify_review_criteria()
+    verify_severity_rules()
+    verify_claude_share_templates()
     verify_agent_toml()
     verify_skill_contract()
     print("OK: Codex pr-review bundle validation passed")
