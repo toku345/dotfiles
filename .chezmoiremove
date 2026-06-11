@@ -1,2 +1,5 @@
 .config/fish/functions/ghostty-theme.fish
 .config/fish/functions/__ghostty_theme_preview.fish
+.local/bin/triple-review
+.local/bin/triple-review-broker-cleanup.mjs
+.claude/output-styles/triple-review.md

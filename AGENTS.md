@@ -25,14 +25,14 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 `.age` ファイルは二層モデル (`key.txt.age` → `~/key.txt` → `encrypted_*.age`)。**`~/key.txt` は絶対にコミットしない**。setup 手順・運用詳細は [docs/security.md](docs/security.md)。
 
-### Triple-Review CLI
+### Pre-PR Review Gates
 
-`triple-review` は default で「PR 必須 + 1-2 leg 失敗で fail-closed」。draft PR を先に作成しておけば 3 reviewer が同じ baseRefName に収束する (Issue #186)。opt-in flags:
+厚い変更の pre-PR gate は環境別に 2 系統 (共有 gate policy: `private_dot_codex/skills/pr-review/references/`):
 
-- `--allow-no-pr`: PR 不在時に `origin/HEAD` fallback (scope 不整合 residual risk あり)
-- `--allow-partial`: 1-2 leg 失敗を許容して aggregation 続行 (`PARTIAL COVERAGE` banner 強制挿入)
+- **Codex 利用可能環境**: Codex CLI の `$pr-review` skill (ターミナルから user 実行。Claude Code 内から自走させない — nested-bwrap 制約)
+- **Codex 不可環境 (会社等)**: Claude Code の `/pr-review` skill + dynamic workflow (セッション内から起動可)
 
-両 flag は combinable。詳細は [`docs/adr/0012`](docs/adr/0012-triple-review-bash-script.md) の "Known limitation — scope alignment" / "Known limitation — partial-failure visibility"。
+どちらも PR 必須 + fail-closed が default。draft PR を先に作成しておけば全 specialist が同じ base ref に収束する。詳細: [ADR 0029](docs/adr/0029-claude-pr-review-dynamic-workflow.md) / [docs/design/claude-pr-review.md](docs/design/claude-pr-review.md)。旧 `triple-review` bash orchestrator は 2026-06 に削除済み ([ADR 0012](docs/adr/0012-triple-review-bash-script.md) は Superseded)。
 
 ## Repository Structure
 
@@ -198,7 +198,7 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 
 - `codex exec` / `codex login` may require `dangerouslyDisableSandbox: true` on macOS when authentication checks run inside sandbox (`system-configuration` access restriction; Rust `dynamic_store.rs` NULL object panic). AI automatically judges sandbox bypass; manual disable is rarely necessary
 - `gh` commands require `dangerouslyDisableSandbox: true` — `excludedCommands` does not bypass macOS Seatbelt Mach service restrictions (`trustd` for TLS). See `docs/adr/0002-claude-code-sandbox-gh-investigation.md`
-- `pgrep` / `ps` は sandbox 内で `sysmond` Mach service が deny され空 (rc≠0) を返す。失敗が silent に「子プロセスなし」へ縮退する罠。`tests/bats/test_triple_review.bats` の T1-7/T1-8/T1-10 は `pgrep -P $$` 可用性チェックで sandbox 内 skip 済。`triple-review` 本体の `collect_descendants` を Claude Code 経由で動かす場合は `dangerouslyDisableSandbox: true` が必要 (通常は terminal 直接実行が想定)。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
+- `pgrep` / `ps` は sandbox 内で `sysmond` Mach service が deny され空 (rc≠0) を返す。失敗が silent に「子プロセスなし」へ縮退する罠。プロセス列挙に依存する script を Claude Code 経由で動かす場合は `dangerouslyDisableSandbox: true` が必要。bats では `pgrep -P $$` 可用性チェックで sandbox 内 skip するパターンを使う。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
 - `chezmoi apply` / `chezmoi diff` require `dangerouslyDisableSandbox` (needs `~/.config/chezmoi/chezmoistate.boltdb`)
 - `GODEBUG=x509usefallbackroots=1` is ineffective for `gh` — do not use
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
@@ -227,12 +227,12 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - `outputStyle` 切替は `/config` メニュー経由のみ (公式スラッシュコマンド・CLI フラグ未提供)、反映は次の新規セッションから
 - `outputStyle` はシステムプロンプトを直接置換し headless `claude -p` にも適用 (Agent tool 経由の subagents には伝播しない)
 - precedence: project-local (`<repo>/.claude/settings.local.json`) > user-global (`~/.claude/settings.json`)
-- 本リポジトリは JUIZ persona を user-global default に設定。triple-review の anti-pollution prompt は撤去済。詳細: `docs/adr/0015-multi-persona-output-styles.md`
+- 本リポジトリは JUIZ persona を user-global default に設定。詳細: `docs/adr/0015-multi-persona-output-styles.md`
 - `verbose: true` (公式 doc 未記載だが実在) — UI ラベル "Verbose output"、default `true`、turn-by-turn logging を制御 (`--verbose` CLI flag の persistent 版)
 - `viewMode` (`"default"` / `"verbose"` / `"focus"`、default `"default"`) — startup transcript view を制御。`verbose` とは別レイヤーで両者独立。verbose 表示にしたければ明示設定必要。<https://code.claude.com/docs/en/settings>
 - `/config` UI 表示値は **effective default**（stored ≠ displayed）。settings.json に該当キーが無くても UI は default を表示する。**閲覧のみでは settings.json は書き換わらず**、UI で toggle した時のみ書き込まれる (2026-05-02 実機検証)
 - `/config` toggle 後の運用: `chezmoi diff` で新規キー確認 → 公式 doc 照会 → default / undocumented キーは `chezmoi apply` で live をクリーンアップ (source 主導削除)、必要なキーのみ `chezmoi re-add` で source に取り込み
 - `agentPushNotifEnabled` (公式 doc 未記載) — UI ラベル "Push when Claude decides"、default `true`。実モバイル push は Remote Control 有効時のみ発火 (changelog 2026-04-15)
 - `teammateMode` (documented, default `"auto"`) — agent team teammates 表示モード (`auto` / `in-process` / `tmux`)。明示値が default と同一なら settings 記載は redundant
-- `claude -p --settings '{"outputStyle":"X"}'` は X が live に未配備/壊れていても rc=0/stderr 空で default style にフォールバックする (claude 2.1.126 で実機確認)。output-style 依存 automation は file 存在 check ではなく**埋め込み sentinel 文字列の grep 検証**を preflight に置く (例: `dot_local/bin/executable_triple-review` の `require_output_style_triple_review`)
+- `claude -p --settings '{"outputStyle":"X"}'` は X が live に未配備/壊れていても rc=0/stderr 空で default style にフォールバックする (claude 2.1.126 で実機確認)。output-style / 配備 asset 依存の automation は file 存在 check ではなく**埋め込み sentinel 文字列の grep 検証**を preflight に置く (例: `/pr-review` skill の `PR_REVIEW_CRITERIA_SHARED_V1` / `PR_REVIEW_SEVERITY_RULES_V1` 検証)
 

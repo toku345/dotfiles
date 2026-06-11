@@ -43,8 +43,8 @@ jobs:
             fi
 
             # The chezmoi `executable_` prefix sets mode 0755 on deploy
-            # but does not imply a shell interpreter — e.g.
-            # dot_local/bin/executable_triple-review-broker-cleanup is Node.
+            # but does not imply a shell interpreter — executables may be
+            # Node, Python, etc.
             # Filter by shebang so non-shell executables don't fail with
             # SC1127 / SC1011 / SC1083 noise. The regex covers bash/sh/
             # dash/ksh/zsh either as a direct interpreter (#!/bin/bash)
@@ -252,10 +252,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # T4-1〜T4-7 invoke triple-review-broker-cleanup, an ESM Node helper
-      # that requires Node 20+. Without this pin the job silently relies on
-      # the ubuntu-latest runner image's preinstalled Node, which fails in
-      # fresh Docker (apt nodejs ships v18 on Ubuntu 24.04).
+      # test_npm_cooldown_check.bats invokes node and requires Node 20+.
+      # Without this pin the job silently relies on the ubuntu-latest
+      # runner image's preinstalled Node, which fails in fresh Docker
+      # (apt nodejs ships v18 on Ubuntu 24.04).
       # Pinned to current Active LTS (Node 24, EOL 2028-04). Node 20 is EOL
       # since 2026-04-30. setup-node v6.x runs on the node24 action runtime,
       # avoiding the deprecation warning emitted by older v4.x releases.

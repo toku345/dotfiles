@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Superseded (2026-06-11). The `triple-review` script and its assets were removed after the Codex `$pr-review` skill (docs/design/codex-pr-review.md) and its Claude-side sibling (`/pr-review`, [ADR 0029](0029-claude-pr-review-dynamic-workflow.md)) replaced it as the pre-PR gate. The headless-`claude -p` orchestration constraints documented here remain historically accurate.
+
+Previously: Accepted
 
 ## Context
 
