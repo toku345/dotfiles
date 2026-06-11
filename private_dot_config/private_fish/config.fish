@@ -11,7 +11,6 @@ fish_add_path $HOME/.local/bin
 set -gx HOMEBREW_NO_AUTO_UPDATE 1
 set -gx HOMEBREW_NO_INSTALL_UPGRADE 1
 set -gx HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK 1
-set -gx HOMEBREW_ASK 1
 set -gx HOMEBREW_CASK_OPTS --require-sha
 
 switch (uname)
