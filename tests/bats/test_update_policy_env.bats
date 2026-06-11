@@ -31,10 +31,10 @@ assert_policy_env_output() {
   do
     grep -Fqx "$expected" <<<"$output"
   done
-  # HOMEBREW_ASK is deprecated upstream (ask mode is the default); must not be set.
+  # Current Homebrew defaults ask mode; HOMEBREW_ASK is deprecated upstream.
   # Bare `! grep` is exempt from bats errexit tracking, so branch explicitly.
   if grep -Eq "^HOMEBREW_ASK=" <<<"$output"; then
-    echo "HOMEBREW_ASK must not be exported (deprecated; ask mode is the Homebrew default)" >&2
+    echo "HOMEBREW_ASK must not be exported (deprecated in current Homebrew)" >&2
     return 1
   fi
 }

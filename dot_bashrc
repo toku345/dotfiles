@@ -7,8 +7,8 @@
 # formulae; NO_INSTALLED_DEPENDENTS_CHECK stops the post-install auto-upgrade of
 # outdated dependents after the requested operation; CASK_OPTS=--require-sha
 # refuses casks without a checksum (macOS-relevant; inert on Linux). Plan
-# visibility (ask mode) is Homebrew's default behaviour — HOMEBREW_ASK is
-# deprecated and must not be set. Security fixes bypass this — see
+# visibility (ask mode) is the current Homebrew default; HOMEBREW_ASK is a
+# deprecated compatibility variable and must not be set. Security fixes bypass this — see
 # docs/security.md "When to bypass the cooldown".
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
