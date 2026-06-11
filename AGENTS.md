@@ -198,7 +198,7 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 
 - `codex exec` / `codex login` may require `dangerouslyDisableSandbox: true` on macOS when authentication checks run inside sandbox (`system-configuration` access restriction; Rust `dynamic_store.rs` NULL object panic). AI automatically judges sandbox bypass; manual disable is rarely necessary
 - `gh` commands require `dangerouslyDisableSandbox: true` — `excludedCommands` does not bypass macOS Seatbelt Mach service restrictions (`trustd` for TLS). See `docs/adr/0002-claude-code-sandbox-gh-investigation.md`
-- `pgrep` / `ps` は sandbox 内で `sysmond` Mach service が deny され空 (rc≠0) を返す。失敗が silent に「子プロセスなし」へ縮退する罠。プロセス列挙に依存する script を Claude Code 経由で動かす場合は `dangerouslyDisableSandbox: true` が必要。bats では `pgrep -P $$` 可用性チェックで sandbox 内 skip するパターンを使う。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
+- `pgrep` / `ps` は sandbox 内で `sysmond` Mach service が deny され空 (rc≠0) を返す。失敗が silent に「子プロセスなし」へ縮退する罠。プロセス列挙に依存する script を Claude Code 経由で動かす場合は `dangerouslyDisableSandbox: true` が必要。bats では `pgrep -P $$` 可用性チェックで sandbox 内 skip するパターンを使う (naive な `pgrep -P 1` probe は「子プロセスが偶々無い」と「pgrep 不能」を混同して flaky になる。reference 実装は削除済み `skip_if_pgrep_unavailable`: `git log -- tests/bats/test_helper_triple_review.bash`)。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations)
 - `chezmoi apply` / `chezmoi diff` require `dangerouslyDisableSandbox` (needs `~/.config/chezmoi/chezmoistate.boltdb`)
 - `GODEBUG=x509usefallbackroots=1` is ineffective for `gh` — do not use
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
