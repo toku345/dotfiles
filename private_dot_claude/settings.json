@@ -130,7 +130,7 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5[1m]",
+  "model": "claude-fable-5",
   "statusLine": {
     "type": "command",
     "command": "$HOME/.claude/statusline-command.sh"
@@ -190,7 +190,7 @@
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
-  "autoUpdatesChannel": "latest",
+  "autoUpdatesChannel": "stable",
   "tui": "fullscreen",
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
