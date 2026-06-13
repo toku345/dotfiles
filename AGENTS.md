@@ -176,15 +176,18 @@ end
 
 ### Docker での Ubuntu CI parity 検証
 
-push 前に CI (ubuntu-latest + `apt-get install bats`) と同等環境で実走:
+push 前に CI (ubuntu-latest + `apt-get install bats fish`) と同等環境で実走:
 
 ```bash
 docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
   apt-get update -qq >/dev/null
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats git procps >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    bats git procps fish jq shellcheck >/dev/null
   bats tests/bats/
 '
 ```
+
+`fish jq shellcheck` は省略不可: GitHub Actions の Bats job は `bats fish` を apt で入れ、`ubuntu-latest` runner 側の `jq` / `shellcheck` に暗黙依存している。素の `ubuntu:24.04` コンテナで欠けると hook 系テストが silent skip して parity gap を隠す (2026-06-11 実測)。新しい Bats テストが実行時依存を増やした場合は、この recipe と `private_dot_claude/agents/bats-docker-parity-runner.md` の baseline の両方を更新すること。
 
 ## Security
 
@@ -235,4 +238,3 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - `agentPushNotifEnabled` (公式 doc 未記載) — UI ラベル "Push when Claude decides"、default `true`。実モバイル push は Remote Control 有効時のみ発火 (changelog 2026-04-15)
 - `teammateMode` (documented, default `"auto"`) — agent team teammates 表示モード (`auto` / `in-process` / `tmux`)。明示値が default と同一なら settings 記載は redundant
 - `claude -p --settings '{"outputStyle":"X"}'` は X が live に未配備/壊れていても rc=0/stderr 空で default style にフォールバックする (claude 2.1.126 で実機確認)。output-style / 配備 asset 依存の automation は file 存在 check ではなく**埋め込み sentinel 文字列の grep 検証**を preflight に置く (例: `/pr-review` skill の `PR_REVIEW_CRITERIA_SHARED_V1` / `PR_REVIEW_SEVERITY_RULES_V1` 検証)
-
