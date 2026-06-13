@@ -27,28 +27,38 @@ const SHA = 'c'.repeat(64)
 const SCOPE = `${BASE}...${HEAD}`
 const FILES = ['src/app.js', 'docs/readme.md', 'tests/foo.test.js', '.github/workflows/ci.yml']
 
+function finding(fields, decision = {}) {
+  return {
+    blocking: decision.blocking ?? true,
+    impact_scope: decision.impact_scope || 'user-visible behavior',
+    verified_assumptions: decision.verified_assumptions || ['grounded in supplied committed diff fixture'],
+    unverified_assumptions: decision.unverified_assumptions || [],
+    ...fields,
+  }
+}
+
 const STAGE1_FINDINGS = {
   'code-reviewer': [
-    { label: 'Important', confidence: 95, file: 'src/app.js', line: 10, why: 'crash on null input', fix: 'guard null' },
-    { label: 'Suggestion', confidence: 40, file: 'src/app.js', line: 22, why: 'duplicated branch', fix: 'extract helper' },
+    finding({ label: 'Important', confidence: 95, file: 'src/app.js', line: 10, why: 'crash on null input', fix: 'guard null' }),
+    finding({ label: 'Suggestion', confidence: 40, file: 'src/app.js', line: 22, why: 'duplicated branch', fix: 'extract helper' }, { blocking: false, impact_scope: 'maintainability' }),
   ],
   'security-reviewer': [
-    { label: 'high', confidence: 9, file: 'src/app.js', line: 30, why: 'command injection via unsanitized arg', fix: 'use execFile' },
-    { label: 'Medium', confidence: 9, file: 'src/app.js', line: 44, why: 'path traversal possible', fix: 'normalize path' },
+    finding({ label: 'high', confidence: 9, file: 'src/app.js', line: 30, why: 'command injection via unsanitized arg', fix: 'use execFile' }, { impact_scope: 'security' }),
+    finding({ label: 'Medium', confidence: 9, file: 'src/app.js', line: 44, why: 'path traversal possible', fix: 'normalize path' }, { blocking: false, impact_scope: 'security' }),
   ],
   'adversarial-reviewer': [
-    { label: 'finding', confidence: 0.8, file: 'src/app.js', line: 50, why: 'race on concurrent writes loses data', fix: 'lock file' },
-    { label: 'Important', confidence: 0.5, file: 'src/app.js', line: 60, why: 'rollback leaves partial state', fix: 'wrap in txn' },
+    finding({ label: 'finding', confidence: 0.8, file: 'src/app.js', line: 50, why: 'race on concurrent writes loses data', fix: 'lock file' }, { impact_scope: 'data integrity' }),
+    finding({ label: 'Important', confidence: 0.5, file: 'src/app.js', line: 60, why: 'rollback leaves partial state', fix: 'wrap in txn' }, { blocking: false, impact_scope: 'rollback safety' }),
   ],
   'silent-failure-hunter': [
-    { label: 'CRITICAL', file: 'src/app.js', line: 70, why: 'catch block swallows error silently', fix: 'rethrow' },
+    finding({ label: 'CRITICAL', file: 'src/app.js', line: 70, why: 'catch block swallows error silently', fix: 'rethrow' }, { impact_scope: 'authoritative gate' }),
   ],
   'pr-test-analyzer': [
     // deliberate case drift: must still escalate via case_insensitive category_label
-    { label: 'Critical gap', confidence: 80, file: 'tests/foo.test.js', why: 'no test for error path', fix: 'add failing-input case' },
+    finding({ label: 'Critical gap', confidence: 80, file: 'tests/foo.test.js', why: 'no test for error path', fix: 'add failing-input case' }, { blocking: false, impact_scope: 'test coverage' }),
   ],
   'comment-analyzer': [
-    { label: 'Nit', file: 'docs/readme.md', why: 'comment wording could be nicer', fix: 'reword' },
+    finding({ label: 'Nit', file: 'docs/readme.md', why: 'comment wording could be nicer', fix: 'reword' }, { blocking: false, impact_scope: 'documentation wording' }),
   ],
   'type-design-analyzer': [],
 }
@@ -84,7 +94,7 @@ async function agentStub(prompt, opts = {}) {
   if (label === 'stage2:code-simplifier') {
     return {
       coverage: { specialist: 'code-simplifier', scope: SCOPE, packetSha: SHA },
-      findings: [{ label: 'Suggestion', confidence: 50, file: 'src/app.js', line: 5, why: 'two branches collapse to one', fix: 'merge branches' }],
+      findings: [finding({ label: 'Suggestion', confidence: 50, file: 'src/app.js', line: 5, why: 'two branches collapse to one', fix: 'merge branches' }, { blocking: false, impact_scope: 'maintainability' })],
       strengths: [],
     }
   }
@@ -168,14 +178,14 @@ assert(r2.suggestionsTotal === 2, `S2: stage1 + simplifier suggestions — got $
   const savedCr = STAGE1_FINDINGS['code-reviewer']
   const savedSec = STAGE1_FINDINGS['security-reviewer']
   STAGE1_FINDINGS['code-reviewer'] = [
-    { label: 'Important', confidence: 85, file: 'src/a.js', line: 1, why: 'cr a', fix: 'f' },
-    { label: 'Important', confidence: 80, file: 'src/b.js', line: 2, why: 'cr b', fix: 'f' },
-    { label: 'Important', confidence: 75, file: 'src/c.js', line: 3, why: 'cr c', fix: 'f' },
-    { label: 'Important', confidence: 70, file: 'src/d.js', line: 4, why: 'cr d', fix: 'f' },
-    { label: 'Important', confidence: 65, file: 'src/e.js', line: 5, why: 'cr e', fix: 'f' },
+    finding({ label: 'Important', confidence: 85, file: 'src/a.js', line: 1, why: 'cr a', fix: 'f' }, { blocking: false }),
+    finding({ label: 'Important', confidence: 80, file: 'src/b.js', line: 2, why: 'cr b', fix: 'f' }, { blocking: false }),
+    finding({ label: 'Important', confidence: 75, file: 'src/c.js', line: 3, why: 'cr c', fix: 'f' }, { blocking: false }),
+    finding({ label: 'Important', confidence: 70, file: 'src/d.js', line: 4, why: 'cr d', fix: 'f' }, { blocking: false }),
+    finding({ label: 'Important', confidence: 65, file: 'src/e.js', line: 5, why: 'cr e', fix: 'f' }, { blocking: false }),
   ]
   STAGE1_FINDINGS['security-reviewer'] = [
-    { label: 'Medium', confidence: 9, file: 'src/app.js', line: 44, why: 'weak random token generation', fix: 'use crypto.randomBytes' },
+    finding({ label: 'Medium', confidence: 9, file: 'src/app.js', line: 44, why: 'weak random token generation', fix: 'use crypto.randomBytes' }, { blocking: false, impact_scope: 'security' }),
   ]
   const r3 = await run(makeArgs())
   STAGE1_FINDINGS['code-reviewer'] = savedCr
@@ -205,6 +215,26 @@ await expectThrow(noFiles, {}, /changedFiles/, 'S6: missing changedFiles rejecte
 // S7: string-encoded args are parsed (harness delivers args as JSON string)
 const r7 = await run(JSON.stringify(makeArgs()))
 assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
+
+// S7b: a Critical candidate with local-only impact or unverified assumptions is downgraded
+{
+  const savedCr = STAGE1_FINDINGS['code-reviewer']
+  STAGE1_FINDINGS['code-reviewer'] = [
+    finding(
+      { label: 'Critical', confidence: 99, file: 'src/local-cache.js', line: 1, why: 'local cache may be stale on one workstation', fix: 'clear cache' },
+      {
+        blocking: false,
+        impact_scope: 'machine-local developer workflow',
+        verified_assumptions: ['cache path is ignored state'],
+        unverified_assumptions: ['the stale cache affects CI or a user-visible merge outcome'],
+      },
+    ),
+  ]
+  const r7b = await run(makeArgs())
+  STAGE1_FINDINGS['code-reviewer'] = savedCr
+  assert(r7b.critical.length === 3, `S7b: local-only Critical candidate downgraded — Critical ${r7b.critical.length}`)
+  assert(r7b.important.some(f => f.file === 'src/local-cache.js'), 'S7b: downgraded candidate remains visible as Important')
+}
 
 // S8: categorizer packet-integrity gate fails closed on hash mismatch
 await expectThrow(makeArgs(), { badPacket: true }, /diff packet integrity check failed/, 'S8: categorizer hash mismatch throws')

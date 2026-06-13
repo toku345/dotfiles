@@ -116,6 +116,8 @@ REQUIRED_SKILL_SNIPPETS = [
     "Important findings are capped at 5",
     "Suggestions are capped at 3",
     "Re-review verifies prior Critical/Important findings",
+    "Critical findings require `blocking: yes`, `impact_scope`, `verified_assumptions`, and no `unverified_assumptions`",
+    "Stop the review loop when Critical and Important are both 0",
     "If the command fails, abort with the command output",
     "skip `gh` entirely",
     'git check-ref-format --branch "$BASE"',
@@ -199,6 +201,9 @@ CRITICAL_NORMALIZATION_SNIPPETS = [
     "matches any rule in `important.any_of` AND satisfies `important.guard`",
     "Do not promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important.",
     "missing verification stated explicitly instead of silently dropping it",
+    "Treat a specialist Critical label as a candidate, not final severity.",
+    "Re-check `blocking`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`",
+    "Downgrade local-only, ignored generated state, developer-workflow-only false-green",
 ]
 
 # The escalation semantics moved from SKILL.md prose into severity-rules.json
@@ -235,10 +240,14 @@ REQUIRED_REVIEW_CRITERIA_SNIPPETS = [
     "grounded in the committed branch diff",
     "Do not put nits, style preferences, speculative rewrites, or weakly grounded concerns into the fix queue.",
     "silent false-green",
+    "`blocking: yes/no`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`",
+    "Machine-local or ignored state",
     "Important findings are capped at 5",
     "Suggestions are capped at 3",
     "Nits do not enter the fix queue.",
     "Re-review verifies prior Critical/Important findings.",
+    "Critical 0 / Important 0",
+    "review churn",
 ]
 
 FORBIDDEN_ACTIVE_AGENT_SNIPPETS = [
@@ -337,6 +346,10 @@ def verify_severity_rules() -> None:
             fail(f"{context}: {severity}.guard must be a non-empty string")
 
     require_contains(data["critical"]["guard"], "merge-blocking risk", f"{context}:critical.guard")
+    require_contains(data["critical"]["guard"], "blocking=yes", f"{context}:critical.guard")
+    require_contains(data["critical"]["guard"], "impact_scope", f"{context}:critical.guard")
+    require_contains(data["critical"]["guard"], "unverified_assumptions", f"{context}:critical.guard")
+    require_contains(" ".join(data["critical"].get("downgrade_to_important", [])), "machine-local", f"{context}:critical.downgrade_to_important")
     require_contains(data["important"]["guard"], "not a proven blocker", f"{context}:important.guard")
     require_contains(data.get("nit", {}).get("rule", ""), "nits do not enter the fix queue", f"{context}:nit.rule")
     require_contains(data.get("incomplete_evidence", ""), "do not silently drop it", f"{context}:incomplete_evidence")
@@ -419,6 +432,9 @@ def verify_agent_toml() -> None:
         require_contains(data["developer_instructions"], "$BASE_COMMIT...$HEAD_REF", str(path))
         require_contains(data["developer_instructions"], "return a fatal coverage error", str(path))
         require_contains(data["developer_instructions"], "do not edit files", str(path))
+        require_contains(data["developer_instructions"], "impact_scope", str(path))
+        require_contains(data["developer_instructions"], "verified_assumptions", str(path))
+        require_contains(data["developer_instructions"], "unverified_assumptions", str(path))
 
         if expected_name == "security-reviewer":
             require_contains(data["developer_instructions"], "Do not explore the repository beyond the orchestrator-provided", str(path))
