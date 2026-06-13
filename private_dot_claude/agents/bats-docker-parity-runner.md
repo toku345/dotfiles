@@ -47,10 +47,16 @@ mirrors the GitHub Actions environment:
 
 - **Image**: `ubuntu:24.04` (close enough to `ubuntu-latest` for
   parity work; adjust only if the real CI runner image changes).
-- **Packages**: at minimum `bats`, `git`, `procps`. Add `fish`, `jq`,
-  `shellcheck`, `nodejs`, etc. when the suite under test depends on
-  them — running with too few packages will silently `skip` tests
-  that need them and hide the parity gap you were looking for.
+- **Packages**: for a full `tests/bats/` run the baseline is `bats git
+  procps fish jq shellcheck` — the GitHub Actions Bats job installs
+  `bats fish` and implicitly relies on the `ubuntu-latest` runner's
+  `jq` / `shellcheck`. A bare container without those runner-provided
+  tools can silently `skip` hook tests, hiding the parity gap you were
+  looking for. Trim the list only when running a subset of `.bats`
+  files that does not need a package — verify by running that subset
+  and checking for exit-127 failures or skips (see Diagnostic
+  Heuristics below). When new tests introduce a dependency, extend this
+  baseline (and the AGENTS.md recipe) instead of installing it ad hoc.
 - **Scope**: mount the repo at the container's working directory and
   run the bats suite for the full `tests/bats/` tree (or the specific
   `.bats` files the user requested).
