@@ -98,6 +98,9 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
 
 ## Critical Issues (N found)
 - [<specialist>] <why> [<file>:<line>]
+  - Impact scope: <impact_scope>
+  - Verified assumptions: <verified_assumptions>
+  - Unverified assumptions: <unverified_assumptions; should be empty for Critical>
   - Verdict: <verdict>(<verdictReasoning>; missing verification: <missingVerification> if present)
   - Suggested fix: <fix>
 
@@ -122,10 +125,12 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
 2. Address Important issues
 3. Consider Suggestions
 4. Re-run this skill after fixes to verify prior Critical/Important findings
+5. Stop when Critical 0 / Important 0; do not re-run for Suggestions only
+6. If this is the third or later pass and Critical/Important findings still churn, escalate to human judgment
 ```
 
 Omit empty sections (except render `## Critical Issues (0 found)` explicitly — the absence of Criticals is the gate's headline). Findings with `verdict: needs-verification` stay in the fix queue with their missing verification stated; never silently drop them.
 
 ## Re-review
 
-On a re-run after fixes, prioritize confirming whether each prior Critical/Important finding was fixed, remains, or was intentionally rejected. Raise new findings only when they are clear merge blockers; do not extend the loop with new nits, style feedback, or optional refactors. (This guidance also reaches the specialists via the bundled criteria.)
+On a re-run after fixes, prioritize confirming whether each prior Critical/Important finding was fixed, remains, or was intentionally rejected. Raise new findings only when they are clear merge blockers; do not extend the loop with new nits, style feedback, or optional refactors. If the result is Critical 0 / Important 0, stop the gate loop. If only Suggestions remain, do not re-run the gate just to chase them. On the third and later pass, if Critical/Important findings keep appearing or changing without stable blocker evidence, call out possible review churn and return the decision to a human maintainer. (This guidance also reaches the specialists via the bundled criteria.)

@@ -34,6 +34,8 @@ When spawned by the `pr-review` skill, review only the orchestrator-provided `$B
 Your first output line must be a coverage sentinel: `COVERAGE_OK adversarial-reviewer $BASE_COMMIT...$HEAD_REF <packet_sha256>` after verifying scope and packet integrity, or `FATAL_COVERAGE_ERROR adversarial-reviewer: <reason>` when coverage cannot be verified. The sentinel must appear before any markdown; missing or malformed sentinels make the output unusable by the orchestrator.
 
 In `pr-review` workflows, you are advisory-only: do not edit files, apply patches, run formatters that write files, or otherwise dirty the worktree. Return markdown findings only.
+
+For every finding in `pr-review` workflows, include these decision fields: `blocking: yes/no`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Use `blocking: yes` only for clear merge blockers proven by the committed diff. Machine-local or ignored state, local-only performance regressions, developer-workflow-only false-greens, advisory observability gaps, and assumption-dependent risks should use `blocking: no`.
 </orchestrator_scope_contract>
 
 <role>

@@ -19,6 +19,8 @@ Apply these high-level constraints throughout the Procedure:
 - Important findings are capped at 5 in the final aggregation; Suggestions are capped at 3.
 - If evidence is incomplete but the risk may be severe, state the missing verification explicitly instead of silently dropping the finding.
 - Re-review verifies prior Critical/Important findings and should not extend the loop with new nits, style feedback, or optional refactors.
+- Critical findings require `blocking: yes`, `impact_scope`, `verified_assumptions`, and no `unverified_assumptions` needed for the blocker claim.
+- Stop the review loop when Critical and Important are both 0; do not re-run only for Suggestions.
 
 ## Preconditions
 
@@ -103,6 +105,7 @@ After preconditions pass:
      - Scope contract: review only the orchestrator-provided `$BASE_COMMIT...$HEAD_REF` committed branch diff. Do not substitute unqualified `git diff`, unstaged changes, a PR re-detection, a different base commit, a different HEAD, or another inferred scope. If the diff, file list, base commit, HEAD ref, or packet hash is missing or inconsistent, return a fatal coverage error.
      - Coverage sentinel contract: the first output line must be either `COVERAGE_OK <specialist> $BASE_COMMIT...$HEAD_REF <packet_sha256>` or `FATAL_COVERAGE_ERROR <specialist>: <reason>`. Missing, malformed, or non-first-line sentinels are unusable output.
      - Review-only contract: do not edit files, create files, apply patches, run formatters that write files, or otherwise dirty the worktree. Return markdown findings or suggestions only.
+     - Finding quality contract: every finding must include `blocking: yes/no`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Use `blocking: yes` only for clear merge blockers in the committed diff. Machine-local or ignored state, local-only performance regressions, developer-workflow-only false-greens, advisory observability gaps, and assumption-dependent risks should be `blocking: no` unless the committed diff proves a wider blocker.
 
    Always spawn:
    - `code-reviewer`
@@ -129,6 +132,8 @@ After preconditions pass:
    - Apply `references/review-criteria.md` before trusting specialist labels. Specialist labels are useful signals, but final severity must still satisfy the bundled criteria.
    - Read `references/severity-rules.json` and classify each finding with its escalation table. The table is shared verbatim with the Claude-side `/pr-review` skill; when the escalation rules change, edit the table, not skill prose.
      - A finding is **Critical** when it matches any rule in the table's `critical.any_of` AND satisfies `critical.guard` (a concrete merge-blocking risk from the committed branch diff).
+       - Treat a specialist Critical label as a candidate, not final severity. Re-check `blocking`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`; do not keep Critical when the blocker depends on unverified assumptions.
+       - Downgrade local-only, ignored generated state, developer-workflow-only false-green, local-only performance, or advisory observability findings to Important or Suggestion unless the committed diff proves an authoritative gate or merge outcome will be wrong.
      - A finding that did not qualify as Critical is **Important** when it matches any rule in `important.any_of` AND satisfies `important.guard`.
      - Treat remaining advisory findings as Suggestions unless the specialist explicitly marks them as positive observations, per the table's `suggestion` rule.
    - Do not promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important.
@@ -149,7 +154,7 @@ After preconditions pass:
    - Run `git rev-parse HEAD` again and compare it with the recorded `$HEAD_REF`. If it differs, abort with:
      > "HEAD changed during review: started at `<old>`, now `<new>`. The completed specialist results do not cover the current commit. Re-run the review."
 
-7. **Aggregate** all specialist findings into the Output Format below. Preserve the originating specialist name in each bullet so the reader can trace lineage.
+7. **Aggregate** all specialist findings into the Output Format below. Preserve the originating specialist name in each bullet so the reader can trace lineage. Always include the stop condition in Recommended Action: `Critical 0 / Important 0` means stop; Suggestions alone do not justify another gate run. On the second and later pass, focus on prior Critical/Important resolution. On the third and later pass, if Critical/Important findings keep appearing or changing without stable blocker evidence, call out possible review churn and return the decision to a human maintainer.
 
 ## Output format
 
@@ -160,11 +165,16 @@ After preconditions pass:
 
 ## Critical Issues (X found)
 - [<specialist>]: <description> [<file>:<line>]
+  - Impact scope: ...
+  - Verified assumptions: ...
+  - Unverified assumptions: ...
   - Why it matters: ...
   - Suggested fix: ...
 
 ## Important Issues (X shown, top 5)
 - [<specialist>]: <description> [<file>:<line>]
+  - Impact scope: ...
+  - Missing verification: <if any>
 
 ## Suggestions (X shown, max 3)
 - [<specialist>]: <description> [<file>:<line>]
@@ -177,6 +187,8 @@ After preconditions pass:
 2. Address Important issues
 3. Consider Suggestions
 4. Re-run review after fixes to verify prior Critical/Important findings
+5. Stop when Critical 0 / Important 0; do not re-run for Suggestions only
+6. If this is the third or later pass and Critical/Important findings still churn, escalate to human judgment
 ```
 
 ## See also

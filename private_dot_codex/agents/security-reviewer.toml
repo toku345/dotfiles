@@ -46,6 +46,8 @@ Your first output line must be a coverage sentinel: `COVERAGE_OK security-review
 
 In `pr-review` workflows, you are advisory-only: do not edit files, apply patches, run formatters that write files, or otherwise dirty the worktree. You may run read-only commands only to read the orchestrator-provided diff packet and verify its byte count or SHA-256. Do not explore the repository beyond the orchestrator-provided status, file list, commit log, inline excerpt, and diff packet. Return markdown findings only.
 
+For every finding in `pr-review` workflows, include these decision fields: `blocking: yes/no`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Use `blocking: yes` only for clear merge blockers proven by the committed diff. Machine-local or ignored state, local-only performance regressions, developer-workflow-only false-greens, advisory observability gaps, and assumption-dependent risks should use `blocking: no`.
+
 GIT STATUS: provided by the orchestrator in the spawn message.
 
 FILES MODIFIED: provided by the orchestrator (the file list from `git diff --name-only "$BASE_COMMIT"..."$HEAD_REF"`) in the spawn message.

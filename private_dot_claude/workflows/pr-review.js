@@ -118,7 +118,7 @@ const SPECIALIST_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['label', 'file', 'why'],
+        required: ['label', 'file', 'why', 'blocking', 'impact_scope', 'verified_assumptions', 'unverified_assumptions'],
         additionalProperties: false,
         properties: {
           label: { type: 'string', description: "the specialist's native severity/category label (e.g. Critical, Important, High, Medium, CRITICAL, 'Critical Gap')" },
@@ -127,6 +127,10 @@ const SPECIALIST_SCHEMA = {
           line: { type: 'integer' },
           why: { type: 'string', description: 'concrete risk grounded in the committed diff: observed failure mode + user/operational impact' },
           fix: { type: 'string', description: 'smallest reasonable fix' },
+          blocking: { type: 'boolean', description: 'true only when the committed diff proves a merge blocker' },
+          impact_scope: { type: 'string', description: 'what would be affected if merged as-is, e.g. user-visible behavior, security, data integrity, deploy/apply gate, machine-local developer workflow' },
+          verified_assumptions: { type: 'array', items: { type: 'string' }, description: 'facts verified from the supplied committed diff, status, log, or packet' },
+          unverified_assumptions: { type: 'array', items: { type: 'string' }, description: 'assumptions still needed to make the blocker claim true; must be empty for Critical' },
         },
       },
     },
@@ -262,7 +266,7 @@ function specialistPrompt(name, ctx, extra) {
     'You are advisory-only: do not edit files, create files, apply patches, run formatters that write files, or otherwise dirty the worktree. Do not explore the repository beyond the provided status, file list, commit log, and diff packet.',
     `Set coverage.specialist to '${name}', coverage.scope to '${ctx.scope}', and coverage.packetSha to the SHA-256 you verified.`,
     SPECIALISTS[name].labelGuidance,
-    "Every finding must be grounded in the committed diff: name the file (and line where possible), the concrete failure mode and user/operational impact in `why`, and the smallest reasonable fix in `fix`. Do not emit nits, style preferences, or speculative rewrites. Put positive observations in `strengths`, not in findings.",
+    "Every finding must be grounded in the committed diff: name the file (and line where possible), the concrete failure mode and user/operational impact in `why`, and the smallest reasonable fix in `fix`. Include `blocking`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Set `blocking: true` only for clear merge blockers proven by the committed diff; machine-local or ignored state, local-only performance regressions, developer-workflow-only false-greens, advisory observability gaps, and assumption-dependent risks should use `blocking: false`. Do not emit nits, style preferences, or speculative rewrites. Put positive observations in `strengths`, not in findings.",
   ]
   if (extra) lines.push('', extra)
   return lines.join('\n')
@@ -277,6 +281,10 @@ function verifyPrompt(f, ctx) {
     `Finding by ${f.specialist} (normalized severity: ${f.severity}, native label: ${f.label}):`,
     `- file: ${f.file}${typeof f.line === 'number' ? `:${f.line}` : ''}`,
     `- claim: ${f.why}`,
+    `- blocking: ${f.blocking ? 'yes' : 'no'}`,
+    `- impact_scope: ${f.impact_scope || '(not stated)'}`,
+    `- verified_assumptions: ${(f.verified_assumptions || []).join('; ') || '(none)'}`,
+    `- unverified_assumptions: ${(f.unverified_assumptions || []).join('; ') || '(none)'}`,
     f.fix ? `- proposed fix: ${f.fix}` : null,
     '',
     "Verdict rules: return 'refuted' only with concrete evidence that the claim is wrong or not grounded in this diff; 'confirmed' when the failure mode is clearly grounded in the diff; otherwise 'needs-verification' with the specific missing check named in missingVerification. Severe-but-unproven risks are kept visible, never silently dropped.",
@@ -326,11 +334,24 @@ function matchesRule(rule, specialist, finding, framing) {
   }
 }
 
-// The `guard` fields in severity-rules.json are prose; they are enforced by the
-// specialist prompts (grounded-in-diff contract) and the Verify stage, not here.
+function criticalGuardSatisfied(finding) {
+  return finding.blocking === true
+    && typeof finding.impact_scope === 'string'
+    && finding.impact_scope.trim() !== ''
+    && Array.isArray(finding.verified_assumptions)
+    && finding.verified_assumptions.length > 0
+    && Array.isArray(finding.unverified_assumptions)
+    && finding.unverified_assumptions.length === 0
+}
+
+// The table's matcher identifies Critical candidates; this guard narrows final
+// Critical severity to proven merge blockers. Candidates that fail it remain
+// visible as Important instead of silently disappearing from the fix queue.
 function normalizeSeverity(specialist, finding, framing) {
   if ((finding.label || '').trim().toLowerCase() === 'nit') return 'nit'
-  if (rules.critical.any_of.some(r => matchesRule(r, specialist, finding, framing))) return 'critical'
+  if (rules.critical.any_of.some(r => matchesRule(r, specialist, finding, framing))) {
+    return criticalGuardSatisfied(finding) ? 'critical' : 'important'
+  }
   if (rules.important.any_of.some(r => matchesRule(r, specialist, finding, framing))) return 'important'
   return 'suggestion'
 }
@@ -508,4 +529,8 @@ return {
   strengths,
   refuted,
   stage2Ran,
+  stopCondition: critical.length === 0 && important.length === 0
+    ? 'Critical 0 / Important 0: stop the gate loop; Suggestions alone do not justify another run.'
+    : 'Re-run only after addressing Critical/Important findings, and focus the next pass on prior finding resolution.',
+  reviewChurnGuidance: 'On the third or later pass, if Critical/Important findings keep appearing or changing without stable blocker evidence, call out possible review churn and return the decision to a human maintainer.',
 }
