@@ -214,6 +214,11 @@ await expectThrow(makeArgs(), { badVerdictEcho: true }, /verdict rejected, fail 
 await expectThrow(makeArgs({ packetSha: 'nothex' }), {}, /packetSha/, 'S6: malformed packetSha rejected')
 await expectThrow(makeArgs({ criteria: 'missing sentinel' }), {}, /PR_REVIEW_CRITERIA_SHARED_V1/, 'S6: criteria sentinel enforced')
 await expectThrow(makeArgs({ severityRules: { ...rules, version: 2 } }), {}, /version 2 is not supported/, 'S6: unknown rules version rejected')
+{
+  const brokenDowngrade = JSON.parse(JSON.stringify(rules))
+  brokenDowngrade.critical.downgrade_to_important = { impact_scope_patterns: ['local-only'] }
+  await expectThrow(makeArgs({ severityRules: brokenDowngrade }), {}, /downgrade_to_important/, 'S6: malformed downgrade policy rejected')
+}
 await expectThrow(makeArgs({ changedFiles: [] }), {}, /changedFiles/, 'S6: empty changedFiles rejected')
 const noFiles = makeArgs(); delete noFiles.changedFiles
 await expectThrow(noFiles, {}, /changedFiles/, 'S6: missing changedFiles rejected')
@@ -266,6 +271,34 @@ assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
   const r7c = await run(makeArgs(), { criticalNeedsVerification: true })
   assert(r7c.critical.length === 3, `S7c: needs-verification Critical downgraded — Critical ${r7c.critical.length}`)
   assert(r7c.important.some(f => f.why.includes('command injection') && f.missingVerification), 'S7c: verifier-downgraded Critical remains visible as Important with missingVerification')
+}
+
+// S7d: Critical impact-scope downgrades are table-driven
+{
+  const savedCr = STAGE1_FINDINGS['code-reviewer']
+  const tableRules = JSON.parse(JSON.stringify(rules))
+  tableRules.critical.downgrade_to_important.impact_scope_patterns = ['fixture-local']
+  tableRules.critical.downgrade_to_important.override_patterns = ['fixture-authoritative']
+
+  STAGE1_FINDINGS['code-reviewer'] = [
+    finding(
+      { label: 'Critical', confidence: 99, file: 'src/table-driven-local.js', line: 1, why: 'table-driven local scope should downgrade', fix: 'tighten guard' },
+      { blocking: true, impact_scope: 'fixture-local workflow', verified_assumptions: ['grounded in fixture'], unverified_assumptions: [] },
+    ),
+  ]
+  const downgraded = await run(makeArgs({ severityRules: tableRules }))
+  assert(downgraded.critical.length === 3, `S7d: custom downgrade pattern applied — Critical ${downgraded.critical.length}`)
+  assert(downgraded.important.some(f => f.file === 'src/table-driven-local.js'), 'S7d: table-downgraded candidate remains visible as Important')
+
+  STAGE1_FINDINGS['code-reviewer'] = [
+    finding(
+      { label: 'Critical', confidence: 99, file: 'src/table-driven-authoritative.js', line: 1, why: 'override scope should remain Critical', fix: 'keep blocker visible' },
+      { blocking: true, impact_scope: 'fixture-local fixture-authoritative workflow', verified_assumptions: ['grounded in fixture'], unverified_assumptions: [] },
+    ),
+  ]
+  const preserved = await run(makeArgs({ severityRules: tableRules }))
+  assert(preserved.critical.some(f => f.file === 'src/table-driven-authoritative.js'), 'S7d: custom override pattern preserves Critical')
+  STAGE1_FINDINGS['code-reviewer'] = savedCr
 }
 
 // S8: categorizer packet-integrity gate fails closed on hash mismatch

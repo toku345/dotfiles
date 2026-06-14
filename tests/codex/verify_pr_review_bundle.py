@@ -349,7 +349,17 @@ def verify_severity_rules() -> None:
     require_contains(data["critical"]["guard"], "blocking=yes", f"{context}:critical.guard")
     require_contains(data["critical"]["guard"], "impact_scope", f"{context}:critical.guard")
     require_contains(data["critical"]["guard"], "unverified_assumptions", f"{context}:critical.guard")
-    require_contains(" ".join(data["critical"].get("downgrade_to_important", [])), "machine-local", f"{context}:critical.downgrade_to_important")
+    downgrade = data["critical"].get("downgrade_to_important")
+    if not isinstance(downgrade, dict):
+        fail(f"{context}:critical.downgrade_to_important must be an object")
+    impact_patterns = downgrade.get("impact_scope_patterns")
+    override_patterns = downgrade.get("override_patterns")
+    if not isinstance(impact_patterns, list) or not all(isinstance(p, str) and p.strip() for p in impact_patterns):
+        fail(f"{context}:critical.downgrade_to_important.impact_scope_patterns must be non-empty strings")
+    if not isinstance(override_patterns, list) or not all(isinstance(p, str) and p.strip() for p in override_patterns):
+        fail(f"{context}:critical.downgrade_to_important.override_patterns must be non-empty strings")
+    require_contains(" ".join(impact_patterns), "machine-local", f"{context}:critical.downgrade_to_important.impact_scope_patterns")
+    require_contains(" ".join(override_patterns), "authoritative", f"{context}:critical.downgrade_to_important.override_patterns")
     require_contains(data["important"]["guard"], "not a proven blocker", f"{context}:important.guard")
     require_contains(data.get("nit", {}).get("rule", ""), "nits do not enter the fix queue", f"{context}:nit.rule")
     require_contains(data.get("incomplete_evidence", ""), "do not silently drop it", f"{context}:incomplete_evidence")

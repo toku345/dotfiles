@@ -9,13 +9,22 @@
   "critical": {
     "$comment": "A finding is Critical when it matches ANY rule in any_of AND satisfies the guard.",
     "guard": "The finding explains a concrete merge-blocking risk grounded in the committed branch diff, sets blocking=yes, identifies impact_scope, and relies only on verified_assumptions with no unverified_assumptions needed for the blocker claim. Single-specialist Critical labels are candidates, not final severity.",
-    "downgrade_to_important": [
-      "machine-local or ignored generated state",
-      "local-only performance regression",
-      "developer-workflow-only false-green",
-      "advisory observability gap",
-      "Critical claim that depends on unverified assumptions"
-    ],
+    "downgrade_to_important": {
+      "$comment": "Machine-readable Critical downgrade policy. If impact_scope matches impact_scope_patterns, downgrade the Critical candidate unless an override pattern also matches. Assumption-dependent candidates are still rejected by critical.guard.",
+      "impact_scope_patterns": [
+        "machine-local",
+        "local-only",
+        "developer workflow",
+        "advisory",
+        "observability",
+        "ignored state",
+        "ignored generated"
+      ],
+      "override_patterns": [
+        "authoritative",
+        "merge-blocking"
+      ]
+    },
     "any_of": [
       {
         "kind": "explicit_label",

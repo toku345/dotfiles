@@ -74,6 +74,11 @@ if (!rules.important || !Array.isArray(rules.important.any_of)) fail('severityRu
 const caps = rules.output_caps || {}
 if (typeof caps.important !== 'number' || typeof caps.suggestion !== 'number')
   fail('severityRules.output_caps.{important,suggestion} must be numbers')
+const criticalDowngradePolicy = rules.critical.downgrade_to_important || {}
+if (!Array.isArray(criticalDowngradePolicy.impact_scope_patterns) || !Array.isArray(criticalDowngradePolicy.override_patterns))
+  fail('severityRules.critical.downgrade_to_important.{impact_scope_patterns,override_patterns} must be arrays')
+if ([...criticalDowngradePolicy.impact_scope_patterns, ...criticalDowngradePolicy.override_patterns].some(p => typeof p !== 'string' || p.trim() === ''))
+  fail('severityRules.critical.downgrade_to_important patterns must be non-empty strings')
 
 const scope = `${a.baseCommit}...${a.headRef}`
 
@@ -351,22 +356,18 @@ function nonBlankStringList(value) {
 }
 
 function downgradeScopeMatches(impactScope) {
-  const scope = impactScope.toLowerCase()
-  const localOrAdvisoryImpact = [
-    /\bmachine-local\b/,
-    /\blocal-only\b/,
-    /\bdeveloper workflow\b/,
-    /\badvisory\b/,
-    /\bobservability\b/,
-    /\bignored state\b/,
-    /\bignored generated\b/,
-  ].some(pattern => pattern.test(scope))
+  const localOrAdvisoryImpact = criticalDowngradePolicy.impact_scope_patterns
+    .some(pattern => policyPatternMatches(impactScope, pattern))
   if (!localOrAdvisoryImpact) return false
 
-  return ![
-    /\bauthoritative\b/,
-    /\bmerge-blocking\b/,
-  ].some(pattern => pattern.test(scope))
+  return !criticalDowngradePolicy.override_patterns
+    .some(pattern => policyPatternMatches(impactScope, pattern))
+}
+
+function policyPatternMatches(text, pattern) {
+  const escaped = pattern.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i')
+  return re.test(text)
 }
 
 // The table's matcher identifies Critical candidates; this guard narrows final
