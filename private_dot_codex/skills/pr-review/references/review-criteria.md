@@ -25,6 +25,8 @@ Every specialist finding must expose the decision fields the aggregator needs: `
 
 Machine-local or ignored state, local-only performance regressions, advisory observability gaps, and false-green concerns limited to a developer's local workflow are not Critical by default. Classify them as Important only when they are concrete enough to fix before merge; otherwise classify them as Suggestions. Do not promote a single specialist's Critical label unchanged: re-check the committed diff, `impact_scope`, and verified assumptions against the Critical definition.
 
+Post-verification, a Critical candidate whose verifier verdict is `needs-verification` or whose verifier supplies `missingVerification` is Important, not Critical. Keep the missing verification visible in the fix queue, but do not call the item a proven merge blocker until the missing proof exists.
+
 ## Re-review
 
 Re-review verifies prior Critical/Important findings. First confirm whether each prior high-priority finding was fixed, remains, or was intentionally rejected. Raise new findings only when they are clear merge blockers; do not extend the loop with new nits, style feedback, or optional refactors.

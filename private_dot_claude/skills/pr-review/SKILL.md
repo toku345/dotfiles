@@ -101,7 +101,7 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
   - Impact scope: <impact_scope>
   - Verified assumptions: <verified_assumptions>
   - Unverified assumptions: <unverified_assumptions; should be empty for Critical>
-  - Verdict: <verdict>(<verdictReasoning>; missing verification: <missingVerification> if present)
+  - Verdict: <verdict>(<verdictReasoning>)
   - Suggested fix: <fix>
 
 ## Important Issues (shown X of <importantTotal>, cap 5)
@@ -129,7 +129,7 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
 6. If this is the third or later pass and Critical/Important findings still churn, escalate to human judgment
 ```
 
-Omit empty sections (except render `## Critical Issues (0 found)` explicitly — the absence of Criticals is the gate's headline). Findings with `verdict: needs-verification` stay in the fix queue with their missing verification stated; never silently drop them.
+Omit empty sections (except render `## Critical Issues (0 found)` explicitly — the absence of Criticals is the gate's headline). Findings with `verdict: needs-verification` or `missingVerification` stay in the fix queue as Important with their missing verification stated; never silently drop them, but do not render them as Critical until the missing proof exists.
 
 ## Re-review
 

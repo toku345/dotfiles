@@ -20,6 +20,7 @@ Apply these high-level constraints throughout the Procedure:
 - If evidence is incomplete but the risk may be severe, state the missing verification explicitly instead of silently dropping the finding.
 - Re-review verifies prior Critical/Important findings and should not extend the loop with new nits, style feedback, or optional refactors.
 - Critical findings require `blocking: yes`, `impact_scope`, `verified_assumptions`, and no `unverified_assumptions` needed for the blocker claim.
+- Post-verification `needs-verification` or `missingVerification` downgrades a Critical candidate to Important; it remains visible, but not as a proven blocker.
 - Stop the review loop when Critical and Important are both 0; do not re-run only for Suggestions.
 
 ## Preconditions
@@ -138,6 +139,7 @@ After preconditions pass:
      - Treat remaining advisory findings as Suggestions unless the specialist explicitly marks them as positive observations, per the table's `suggestion` rule.
    - Do not promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important.
    - If evidence is incomplete but the risk may be severe, keep the item with the missing verification stated explicitly instead of silently dropping it.
+   - If post-verification produces `needs-verification` or `missingVerification` for a Critical candidate, downgrade it to Important before final aggregation. It remains in the fix queue with the missing verification stated, but it is not a proven Critical blocker.
 
 5. **Stage 2 — conditional `code-simplifier` pass**:
    - If Stage 1 surfaced **no** Critical findings, record `expected_stage2 = {code-simplifier}`, then spawn `code-simplifier` with the same target description, `$BASE_REF`, `$BASE_COMMIT`, `$HEAD_REF`, changed-file list, `git status --short`, `git log --no-decorate "$BASE_COMMIT..$HEAD_REF"`, diff packet path, byte count, SHA-256, Scope contract, Coverage sentinel contract, and review-only contract, plus a brief Stage 1 summary so it knows what's already flagged. Request advisory simplification findings only.

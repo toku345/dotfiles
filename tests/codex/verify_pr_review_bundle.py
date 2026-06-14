@@ -204,6 +204,8 @@ CRITICAL_NORMALIZATION_SNIPPETS = [
     "Treat a specialist Critical label as a candidate, not final severity.",
     "Re-check `blocking`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`",
     "Downgrade local-only, ignored generated state, developer-workflow-only false-green",
+    "post-verification produces `needs-verification` or `missingVerification`",
+    "downgrade it to Important before final aggregation",
 ]
 
 # The escalation semantics moved from SKILL.md prose into severity-rules.json
@@ -242,6 +244,7 @@ REQUIRED_REVIEW_CRITERIA_SNIPPETS = [
     "silent false-green",
     "`blocking: yes/no`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`",
     "Machine-local or ignored state",
+    "Post-verification, a Critical candidate whose verifier verdict is `needs-verification`",
     "Important findings are capped at 5",
     "Suggestions are capped at 3",
     "Nits do not enter the fix queue.",
