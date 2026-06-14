@@ -338,10 +338,35 @@ function criticalGuardSatisfied(finding) {
   return finding.blocking === true
     && typeof finding.impact_scope === 'string'
     && finding.impact_scope.trim() !== ''
-    && Array.isArray(finding.verified_assumptions)
-    && finding.verified_assumptions.length > 0
+    && !downgradeScopeMatches(finding.impact_scope)
+    && nonBlankStringList(finding.verified_assumptions)
     && Array.isArray(finding.unverified_assumptions)
     && finding.unverified_assumptions.length === 0
+}
+
+function nonBlankStringList(value) {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every(item => typeof item === 'string' && item.trim() !== '')
+}
+
+function downgradeScopeMatches(impactScope) {
+  const scope = impactScope.toLowerCase()
+  const localOrAdvisoryImpact = [
+    /\bmachine-local\b/,
+    /\blocal-only\b/,
+    /\bdeveloper workflow\b/,
+    /\badvisory\b/,
+    /\bobservability\b/,
+    /\bignored state\b/,
+    /\bignored generated\b/,
+  ].some(pattern => pattern.test(scope))
+  if (!localOrAdvisoryImpact) return false
+
+  return ![
+    /\bauthoritative\b/,
+    /\bmerge-blocking\b/,
+  ].some(pattern => pattern.test(scope))
 }
 
 // The table's matcher identifies Critical candidates; this guard narrows final
@@ -491,6 +516,10 @@ toVerify.forEach((f, i) => {
   f.verdict = v.verdict
   f.verdictReasoning = v.reasoning
   if (v.missingVerification) f.missingVerification = v.missingVerification
+  if (f.severity === 'critical' && (v.verdict === 'needs-verification' || v.missingVerification)) {
+    f.severity = 'important'
+    log(`verified downgrade: [${f.specialist}] ${f.file} moved Critical -> Important because verifier returned ${v.verdict}`)
+  }
 })
 
 // ---------------------------------------------------------------------------

@@ -103,6 +103,9 @@ async function agentStub(prompt, opts = {}) {
       ? { scope: SCOPE, packetSha: 'e'.repeat(64) }
       : { scope: SCOPE, packetSha: SHA }
     if (prompt.includes('path traversal possible')) return { verdict: 'refuted', reasoning: 'path is constant, not user input', ...echo }
+    if (scenario.criticalNeedsVerification && prompt.includes('command injection via unsanitized arg')) {
+      return { verdict: 'needs-verification', reasoning: 'exploitability depends on runtime argument source', missingVerification: 'trace runtime argument source', ...echo }
+    }
     if (prompt.includes('rollback leaves partial state')) return { verdict: 'needs-verification', reasoning: 'cannot reproduce locally', missingVerification: 'run migration rollback in staging', ...echo }
     return { verdict: 'confirmed', reasoning: 'grounded in diff', ...echo }
   }
@@ -166,12 +169,15 @@ assert(r1.categories.docsPaths.length === 1 && r1.categories.codePaths.length ==
 assert(r1.important.some(f => (f.label || '').toLowerCase() === 'critical gap'), 'S1: case-drifted pr-test-analyzer label still escalates to Important')
 assert(r1.importantOverflow.length === 0 && r1.suggestionsOverflow.length === 0, 'S1: no overflow under caps')
 assert(r1.suggestionsTotal === 1, `S1: Nit excluded from fix queue (only the code-reviewer Suggestion remains) — got ${r1.suggestionsTotal}`)
+assert(r1.stopCondition.includes('Re-run only after addressing Critical/Important'), 'S1: active blockers return re-run guidance')
 
 // S2: suggestions only — Stage2 runs and contributes
 const r2 = await run(makeArgs(), { suggestionsOnly: true })
 assert(r2.stage2Ran === true, 'S2: Stage2 ran when no Critical')
 assert(r2.critical.length === 0 && r2.importantTotal === 0, 'S2: no Critical/Important')
 assert(r2.suggestionsTotal === 2, `S2: stage1 + simplifier suggestions — got ${r2.suggestionsTotal}`)
+assert(r2.stopCondition.includes('Critical 0 / Important 0'), 'S2: suggestions-only result returns stop guidance')
+assert(r2.reviewChurnGuidance.includes('third or later pass'), 'S2: review churn guidance returned')
 
 // S3: cross-scale confidence ordering — security 9/10 must outrank code-reviewer 85/100
 {
@@ -219,21 +225,47 @@ assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
 // S7b: a Critical candidate with local-only impact or unverified assumptions is downgraded
 {
   const savedCr = STAGE1_FINDINGS['code-reviewer']
-  STAGE1_FINDINGS['code-reviewer'] = [
-    finding(
-      { label: 'Critical', confidence: 99, file: 'src/local-cache.js', line: 1, why: 'local cache may be stale on one workstation', fix: 'clear cache' },
-      {
-        blocking: false,
-        impact_scope: 'machine-local developer workflow',
-        verified_assumptions: ['cache path is ignored state'],
-        unverified_assumptions: ['the stale cache affects CI or a user-visible merge outcome'],
-      },
-    ),
+  const cases = [
+    {
+      name: 'blocking=false',
+      file: 'src/local-cache-blocking.js',
+      decision: { blocking: false, impact_scope: 'user-visible behavior', verified_assumptions: ['grounded in fixture'], unverified_assumptions: [] },
+    },
+    {
+      name: 'local-only impact',
+      file: 'src/local-cache-scope.js',
+      decision: { blocking: true, impact_scope: 'machine-local developer workflow; not CI or user-visible', verified_assumptions: ['cache path is ignored state'], unverified_assumptions: [] },
+    },
+    {
+      name: 'unverified assumptions',
+      file: 'src/local-cache-unverified.js',
+      decision: { blocking: true, impact_scope: 'user-visible behavior', verified_assumptions: ['cache path is ignored state'], unverified_assumptions: ['the stale cache affects CI or a user-visible merge outcome'] },
+    },
+    {
+      name: 'blank verified assumptions',
+      file: 'src/local-cache-blank.js',
+      decision: { blocking: true, impact_scope: 'user-visible behavior', verified_assumptions: ['   '], unverified_assumptions: [] },
+    },
   ]
-  const r7b = await run(makeArgs())
+  for (const c of cases) {
+    STAGE1_FINDINGS['code-reviewer'] = [
+      finding(
+        { label: 'Critical', confidence: 99, file: c.file, line: 1, why: `${c.name} should not remain Critical`, fix: 'tighten guard' },
+        c.decision,
+      ),
+    ]
+    const r7b = await run(makeArgs())
+    assert(r7b.critical.length === 3, `S7b: ${c.name} Critical candidate downgraded — Critical ${r7b.critical.length}`)
+    assert(r7b.important.some(f => f.file === c.file), `S7b: ${c.name} candidate remains visible as Important`)
+  }
   STAGE1_FINDINGS['code-reviewer'] = savedCr
-  assert(r7b.critical.length === 3, `S7b: local-only Critical candidate downgraded — Critical ${r7b.critical.length}`)
-  assert(r7b.important.some(f => f.file === 'src/local-cache.js'), 'S7b: downgraded candidate remains visible as Important')
+}
+
+// S7c: verifier-discovered missing proof downgrades Critical to Important
+{
+  const r7c = await run(makeArgs(), { criticalNeedsVerification: true })
+  assert(r7c.critical.length === 3, `S7c: needs-verification Critical downgraded — Critical ${r7c.critical.length}`)
+  assert(r7c.important.some(f => f.why.includes('command injection') && f.missingVerification), 'S7c: verifier-downgraded Critical remains visible as Important with missingVerification')
 }
 
 // S8: categorizer packet-integrity gate fails closed on hash mismatch
@@ -265,6 +297,16 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   for (const r of annotated) {
     const max = Number(r.scale.split('-')[1])
     assert(registry[r.specialist] === max, `S11: registry[${r.specialist}]=${registry[r.specialist]} matches table scale ${r.scale}`)
+  }
+}
+
+// S12: schema source pins the decision metadata contract directly
+{
+  const source = readFileSync(WORKFLOW_PATH, 'utf8')
+  const requiredMatch = source.match(/findings:\s*\{[\s\S]*?items:\s*\{[\s\S]*?required:\s*\[([^\]]+)\]/)
+  const requiredText = requiredMatch ? requiredMatch[1] : ''
+  for (const field of ['blocking', 'impact_scope', 'verified_assumptions', 'unverified_assumptions']) {
+    assert(requiredText.includes(`'${field}'`), `S12: SPECIALIST_SCHEMA requires ${field}`)
   }
 }
 
