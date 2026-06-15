@@ -106,6 +106,12 @@ async function agentStub(prompt, opts = {}) {
     if (scenario.criticalNeedsVerification && prompt.includes('command injection via unsanitized arg')) {
       return { verdict: 'needs-verification', reasoning: 'exploitability depends on runtime argument source', missingVerification: 'trace runtime argument source', ...echo }
     }
+    if (scenario.confirmedWithMissingVerification && prompt.includes('command injection via unsanitized arg')) {
+      return { verdict: 'confirmed', reasoning: 'confirmed blocker but stale missing proof leaked through', missingVerification: 'trace runtime argument source', ...echo }
+    }
+    if (scenario.needsVerificationWithoutMissing && prompt.includes('command injection via unsanitized arg')) {
+      return { verdict: 'needs-verification', reasoning: 'exploitability depends on runtime argument source', ...echo }
+    }
     if (prompt.includes('rollback leaves partial state')) return { verdict: 'needs-verification', reasoning: 'cannot reproduce locally', missingVerification: 'run migration rollback in staging', ...echo }
     return { verdict: 'confirmed', reasoning: 'grounded in diff', ...echo }
   }
@@ -209,6 +215,8 @@ await expectThrow(makeArgs(), { badCoverage: 'security-reviewer' }, /coverage ga
 
 // S5: verifier echo mismatch rejects the verdict (fail closed)
 await expectThrow(makeArgs(), { badVerdictEcho: true }, /verdict rejected, fail closed/, 'S5: verifier echo mismatch throws')
+await expectThrow(makeArgs(), { confirmedWithMissingVerification: true }, /returned confirmed with missingVerification/, 'S5: confirmed verdict with missingVerification throws')
+await expectThrow(makeArgs(), { needsVerificationWithoutMissing: true }, /needs-verification without missingVerification/, 'S5: needs-verification without missingVerification throws')
 
 // S6: args validation fails before any spawn
 await expectThrow(makeArgs({ packetSha: 'nothex' }), {}, /packetSha/, 'S6: malformed packetSha rejected')

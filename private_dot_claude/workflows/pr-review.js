@@ -514,10 +514,15 @@ toVerify.forEach((f, i) => {
   // coverage echo gate as the specialists that put it there
   if (v.scope !== scope || v.packetSha !== a.packetSha)
     fail(`verifier for [${f.specialist}] ${f.file} echoed scope='${v.scope}' packetSha='${v.packetSha}', expected scope='${scope}' packetSha='${a.packetSha}' — verdict rejected, fail closed`)
+  const missingVerification = typeof v.missingVerification === 'string' ? v.missingVerification.trim() : ''
+  if (v.verdict === 'needs-verification' && !missingVerification)
+    fail(`verifier for [${f.specialist}] ${f.file} returned needs-verification without missingVerification — fail closed`)
+  if (v.verdict !== 'needs-verification' && missingVerification)
+    fail(`verifier for [${f.specialist}] ${f.file} returned ${v.verdict} with missingVerification — fail closed`)
   f.verdict = v.verdict
   f.verdictReasoning = v.reasoning
-  if (v.missingVerification) f.missingVerification = v.missingVerification
-  if (f.severity === 'critical' && (v.verdict === 'needs-verification' || v.missingVerification)) {
+  if (missingVerification) f.missingVerification = missingVerification
+  if (f.severity === 'critical' && v.verdict === 'needs-verification') {
     f.severity = 'important'
     log(`verified downgrade: [${f.specialist}] ${f.file} moved Critical -> Important because verifier returned ${v.verdict}`)
   }
