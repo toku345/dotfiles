@@ -129,7 +129,7 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
 6. If this is the third or later pass and Critical/Important findings still churn, escalate to human judgment
 ```
 
-Omit empty sections (except render `## Critical Issues (0 found)` explicitly — the absence of Criticals is the gate's headline). Findings with `verdict: needs-verification` or `missingVerification` stay in the fix queue as Important with their missing verification stated; never silently drop them, but do not render them as Critical until the missing proof exists.
+Omit empty sections (except render `## Critical Issues (0 found)` explicitly — the absence of Criticals is the gate's headline). Findings with `verdict: needs-verification` and non-empty `missingVerification` stay in the fix queue as Important with their missing verification stated; never silently drop them, but do not render them as Critical until the missing proof exists. Other verdicts carrying `missingVerification`, or `needs-verification` without it, are invalid verifier outputs and must fail closed.
 
 ## Re-review
 
