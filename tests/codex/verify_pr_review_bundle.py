@@ -445,6 +445,7 @@ def verify_agent_toml() -> None:
         require_contains(data["developer_instructions"], "$BASE_COMMIT...$HEAD_REF", str(path))
         require_contains(data["developer_instructions"], "return a fatal coverage error", str(path))
         require_contains(data["developer_instructions"], "do not edit files", str(path))
+        require_contains(data["developer_instructions"], "blocking", str(path))
         require_contains(data["developer_instructions"], "impact_scope", str(path))
         require_contains(data["developer_instructions"], "verified_assumptions", str(path))
         require_contains(data["developer_instructions"], "unverified_assumptions", str(path))
