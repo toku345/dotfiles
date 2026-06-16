@@ -365,9 +365,16 @@ function downgradeScopeMatches(impactScope) {
 }
 
 function policyPatternMatches(text, pattern) {
-  const escaped = pattern.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const re = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i')
-  return re.test(text)
+  const parts = pattern.trim().split(/[\s_-]+/).filter(Boolean)
+  const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const re = new RegExp(`(^|[^a-z0-9])(${escaped.join('[\\s_-]+')})([^a-z0-9]|$)`, 'ig')
+  for (const match of text.matchAll(re)) {
+    const coreStart = (match.index || 0) + match[1].length
+    const prefix = text.slice(0, coreStart).toLowerCase()
+    if (/(^|[^a-z0-9])(?:non|not|no)(?:[\s_-]+an?)?[\s_-]*$/.test(prefix)) continue
+    return true
+  }
+  return false
 }
 
 // The table's matcher identifies Critical candidates; this guard narrows final

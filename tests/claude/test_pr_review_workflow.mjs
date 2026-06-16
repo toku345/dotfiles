@@ -293,8 +293,8 @@ assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
 {
   const savedCr = STAGE1_FINDINGS['code-reviewer']
   const tableRules = JSON.parse(JSON.stringify(rules))
-  tableRules.critical.downgrade_to_important.impact_scope_patterns = ['fixture-local']
-  tableRules.critical.downgrade_to_important.override_patterns = ['fixture-authoritative']
+  tableRules.critical.downgrade_to_important.impact_scope_patterns = ['fixture local']
+  tableRules.critical.downgrade_to_important.override_patterns = ['fixture authoritative']
 
   STAGE1_FINDINGS['code-reviewer'] = [
     finding(
@@ -308,12 +308,31 @@ assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
 
   STAGE1_FINDINGS['code-reviewer'] = [
     finding(
+      { label: 'Critical', confidence: 99, file: 'src/table-driven-negated-local.js', line: 1, why: 'negated local scope should not downgrade', fix: 'tighten guard' },
+      { blocking: true, impact_scope: 'not fixture-local user-visible behavior', verified_assumptions: ['grounded in fixture'], unverified_assumptions: [] },
+    ),
+  ]
+  const negatedDowngrade = await run(makeArgs({ severityRules: tableRules }))
+  assert(negatedDowngrade.critical.some(f => f.file === 'src/table-driven-negated-local.js'), 'S7d: negated downgrade pattern does not match')
+
+  STAGE1_FINDINGS['code-reviewer'] = [
+    finding(
       { label: 'Critical', confidence: 99, file: 'src/table-driven-authoritative.js', line: 1, why: 'override scope should remain Critical', fix: 'keep blocker visible' },
       { blocking: true, impact_scope: 'fixture-local fixture-authoritative workflow', verified_assumptions: ['grounded in fixture'], unverified_assumptions: [] },
     ),
   ]
   const preserved = await run(makeArgs({ severityRules: tableRules }))
   assert(preserved.critical.some(f => f.file === 'src/table-driven-authoritative.js'), 'S7d: custom override pattern preserves Critical')
+
+  STAGE1_FINDINGS['code-reviewer'] = [
+    finding(
+      { label: 'Critical', confidence: 99, file: 'src/table-driven-negated-authoritative.js', line: 1, why: 'negated override should still downgrade', fix: 'tighten guard' },
+      { blocking: true, impact_scope: 'fixture-local non-fixture-authoritative workflow', verified_assumptions: ['grounded in fixture'], unverified_assumptions: [] },
+    ),
+  ]
+  const negatedOverride = await run(makeArgs({ severityRules: tableRules }))
+  assert(negatedOverride.critical.length === 3, `S7d: negated override pattern ignored — Critical ${negatedOverride.critical.length}`)
+  assert(negatedOverride.important.some(f => f.file === 'src/table-driven-negated-authoritative.js'), 'S7d: negated override candidate remains visible as Important')
   STAGE1_FINDINGS['code-reviewer'] = savedCr
 }
 
