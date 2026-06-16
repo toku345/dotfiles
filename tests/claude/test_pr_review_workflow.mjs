@@ -112,6 +112,12 @@ async function agentStub(prompt, opts = {}) {
     if (scenario.needsVerificationWithoutMissing && prompt.includes('command injection via unsanitized arg')) {
       return { verdict: 'needs-verification', reasoning: 'exploitability depends on runtime argument source', ...echo }
     }
+    if (scenario.refutedWithMissingVerification && prompt.includes('command injection via unsanitized arg')) {
+      return { verdict: 'refuted', reasoning: 'not exploitable, but stale missing proof leaked through', missingVerification: 'trace runtime argument source', ...echo }
+    }
+    if (scenario.needsVerificationBlankMissing && prompt.includes('command injection via unsanitized arg')) {
+      return { verdict: 'needs-verification', reasoning: 'exploitability depends on runtime argument source', missingVerification: '   ', ...echo }
+    }
     if (prompt.includes('rollback leaves partial state')) return { verdict: 'needs-verification', reasoning: 'cannot reproduce locally', missingVerification: 'run migration rollback in staging', ...echo }
     return { verdict: 'confirmed', reasoning: 'grounded in diff', ...echo }
   }
@@ -217,6 +223,8 @@ await expectThrow(makeArgs(), { badCoverage: 'security-reviewer' }, /coverage ga
 await expectThrow(makeArgs(), { badVerdictEcho: true }, /verdict rejected, fail closed/, 'S5: verifier echo mismatch throws')
 await expectThrow(makeArgs(), { confirmedWithMissingVerification: true }, /returned confirmed with missingVerification/, 'S5: confirmed verdict with missingVerification throws')
 await expectThrow(makeArgs(), { needsVerificationWithoutMissing: true }, /needs-verification without missingVerification/, 'S5: needs-verification without missingVerification throws')
+await expectThrow(makeArgs(), { refutedWithMissingVerification: true }, /returned refuted with missingVerification/, 'S5: refuted verdict with missingVerification throws')
+await expectThrow(makeArgs(), { needsVerificationBlankMissing: true }, /needs-verification without missingVerification/, 'S5: needs-verification with blank missingVerification throws')
 
 // S6: args validation fails before any spawn
 await expectThrow(makeArgs({ packetSha: 'nothex' }), {}, /packetSha/, 'S6: malformed packetSha rejected')
