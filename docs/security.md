@@ -630,4 +630,5 @@ gitleaks git . --no-banner --redact      # full history
 - [Age encryption tool](https://age-encryption.org/)
 - [Chezmoi documentation](https://www.chezmoi.io/)
 - [Backup and Restore Guide](./backup-restore.md)
+- [GitHub Account Security Audit](./github-account-audit.md) - Account hardening + credential inventory runbook
 - [CLAUDE.md](../CLAUDE.md) - Repository overview
