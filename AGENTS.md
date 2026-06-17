@@ -63,6 +63,7 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 - `git gtr` flags are long-form only (`--delete-branch`, `--track none`); short flags like `-D` do not exist. Always verify with `git gtr help <cmd>` or the source at `/opt/homebrew/Cellar/git-gtr/*/lib/commands/`
 - `git gtr rm` returns exit 0 even when worktree removal fails (uses `continue` internally). Check worktree existence after removal to detect actual failure
 - `%(worktreepath)` in `git for-each-ref` is set for both main and linked worktrees. To target only linked worktrees, explicitly exclude the main worktree's branch
+- **git-gtr vs coreutils `gtr` collision**: both formulae ship a `gtr` binary (git-gtr's worktree shortcut vs coreutils' GNU `tr`). When coreutils relinks (`brew upgrade`/`reinstall coreutils`) it can grab `gtr` and unlink the **`git-gtr` binary too**, making `git gtr ...` fail with `'gtr' is not a git command` (git resolves subcommands via the `git-<name>` binary on PATH). Recover with `brew link --overwrite git-gtr` — we don't use GNU `tr`, so letting git-gtr own `gtr` is harmless
 
 ### cmux (Terminal Multiplexer)
 
