@@ -56,9 +56,13 @@ The main long-lived credential surface — review carefully.
 Run on the workstation. These results determine whether the npm-OIDC and cloud short-lived credential follow-ups apply:
 
 ```bash
-# npm publish / automation tokens
-# (run `npm whoami` first — an empty list while not logged in means
-#  "not checked", not "no tokens exist")
+# npm publish / automation tokens.
+# Run `npm whoami` first: an empty list while logged OUT means "not checked".
+# npm moved to session-based auth (classic/legacy tokens revoked Dec 2025); the
+# 2-hour session token never appears here, and `npm token list` now shows only
+# explicitly-created Granular access tokens (write tokens cap at 90 days). So an
+# empty list while logged IN means no long-lived automation tokens exist — the
+# #252 OIDC work then only concerns moving CI publishing to trusted publishing.
 npm whoami && npm token list
 
 # AWS static long-lived keys
