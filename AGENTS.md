@@ -63,6 +63,7 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 - `git gtr` flags are long-form only (`--delete-branch`, `--track none`); short flags like `-D` do not exist. Always verify with `git gtr help <cmd>` or the source at `/opt/homebrew/Cellar/git-gtr/*/lib/commands/`
 - `git gtr rm` returns exit 0 even when worktree removal fails (uses `continue` internally). Check worktree existence after removal to detect actual failure
 - `%(worktreepath)` in `git for-each-ref` is set for both main and linked worktrees. To target only linked worktrees, explicitly exclude the main worktree's branch
+- **git-gtr vs coreutils `gtr` collision**: both formulae ship a `gtr` binary (git-gtr's worktree shortcut vs coreutils' GNU `tr`). When coreutils relinks (`brew upgrade`/`reinstall coreutils`) it can grab `gtr` and unlink the **`git-gtr` binary too**, making `git gtr ...` fail with `'gtr' is not a git command` (git resolves subcommands via the `git-<name>` binary on PATH). Recover with `brew link --overwrite git-gtr` — we don't use GNU `tr`, so letting git-gtr own `gtr` is harmless
 
 ### cmux (Terminal Multiplexer)
 
@@ -176,15 +177,18 @@ end
 
 ### Docker での Ubuntu CI parity 検証
 
-push 前に CI (ubuntu-latest + `apt-get install bats`) と同等環境で実走:
+push 前に CI (ubuntu-latest + `apt-get install bats fish`) と同等環境で実走:
 
 ```bash
 docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
   apt-get update -qq >/dev/null
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats git procps >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    bats git procps fish jq shellcheck >/dev/null
   bats tests/bats/
 '
 ```
+
+`fish jq shellcheck` は省略不可: GitHub Actions の Bats job は `bats fish` を apt で入れ、`ubuntu-latest` runner 側の `jq` / `shellcheck` に暗黙依存している。素の `ubuntu:24.04` コンテナで欠けると hook 系テストが silent skip して parity gap を隠す (2026-06-11 実測)。新しい Bats テストが実行時依存を増やした場合は、この recipe と `private_dot_claude/agents/bats-docker-parity-runner.md` の baseline の両方を更新すること。
 
 ## Security
 
@@ -202,6 +206,7 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - `chezmoi apply` / `chezmoi diff` require `dangerouslyDisableSandbox` (needs `~/.config/chezmoi/chezmoistate.boltdb`)
 - `GODEBUG=x509usefallbackroots=1` is ineffective for `gh` — do not use
 - `git push` works within the sandbox (SSH agent via `allowAllUnixSockets`, `known_hosts` via `allowRead`/`allowWrite`)
+- 既存 remote branch へ push する前は `git fetch origin $(git branch --show-current)` → `git log --oneline --left-right --cherry-pick origin/$(git branch --show-current)...HEAD` で分岐を確認する。left (`<`) が出たら remote 側に未取り込み commit があるため、force せず rebase/cherry-pick 等で統合してから push する
 - `git push -u` で `could not write config file .git/config` エラーが出たら upstream 設定失敗を疑う。詳細: [`docs/adr/0001`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#resolved-limitations)
 - `denyOnly` bare globs (`*.key`, `.env.*`) only protect files within cwd — `sandbox-runtime` resolves them relative to cwd. Absolute-path entries (`~/.docker/config.json`) work system-wide. See [`docs/adr/0001-claude-code-sandbox-git-least-privilege.md`](docs/adr/0001-claude-code-sandbox-git-least-privilege.md#known-limitations). → User-side bare-name additions to `permissions.deny` (e.g. `Read(.env)`, `Read(id_ed25519)`) trigger `chezmoi apply` failures and `git status` ghost char-special pollution (Issue #212 / PR #216 removed our last batch). Anthropic baseline covers shell and tool configuration bare-names only (`.bashrc` / `.bash_profile` / `.gitconfig` / `.gitmodules` / `.idea` / `.mcp.json`); secret patterns (`.env` / `id_*` / `*.key`) are **not** baseline-covered — see ADR 0001 "Empirical baseline coverage snapshot" before adding new bare-name denies.
 - Anthropic baseline の bare-name `permissions.deny` カバレッジを empirical に確認する手順: chezmoi source root で `cd ~/.local/share/chezmoi && ls -la | grep '^c'`。`crw-rw-rw- nobody nogroup 1, 3` の ghost char-special entry が baseline カバー対象の bare-name に対応。user-side で bare-name deny を追加するかの判断前に必ず実行する。baseline 非カバーパターン (`.env` / `id_*` / `*.key` 等) を追加しても cwd-relative best-effort 保護しか得られず、Issue #212 の fallout (`chezmoi apply` 失敗 + `git status` ghost 汚染) を引き起こす。Empirical snapshot は [ADR 0001 "Empirical baseline coverage snapshot"](docs/adr/0001-claude-code-sandbox-git-least-privilege.md) を参照。
@@ -235,4 +240,3 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - `agentPushNotifEnabled` (公式 doc 未記載) — UI ラベル "Push when Claude decides"、default `true`。実モバイル push は Remote Control 有効時のみ発火 (changelog 2026-04-15)
 - `teammateMode` (documented, default `"auto"`) — agent team teammates 表示モード (`auto` / `in-process` / `tmux`)。明示値が default と同一なら settings 記載は redundant
 - `claude -p --settings '{"outputStyle":"X"}'` は X が live に未配備/壊れていても rc=0/stderr 空で default style にフォールバックする (claude 2.1.126 で実機確認)。output-style / 配備 asset 依存の automation は file 存在 check ではなく**埋め込み sentinel 文字列の grep 検証**を preflight に置く (例: `/pr-review` skill の `PR_REVIEW_CRITERIA_SHARED_V1` / `PR_REVIEW_SEVERITY_RULES_V1` 検証)
-

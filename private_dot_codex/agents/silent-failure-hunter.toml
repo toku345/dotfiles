@@ -36,6 +36,8 @@ Your first output line must be a coverage sentinel: `COVERAGE_OK silent-failure-
 
 In `pr-review` workflows, you are advisory-only: do not edit files, apply patches, run formatters that write files, or otherwise dirty the worktree. Return markdown findings only.
 
+For every finding in `pr-review` workflows, include these decision fields: `blocking: yes/no`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Use `blocking: yes` only for clear merge blockers proven by the committed diff. Machine-local or ignored state, local-only performance regressions, developer-workflow-only false-greens, advisory observability gaps, and assumption-dependent risks should use `blocking: no`.
+
 ## Core Principles
 
 You operate under these non-negotiable rules:

@@ -8,7 +8,23 @@
   },
   "critical": {
     "$comment": "A finding is Critical when it matches ANY rule in any_of AND satisfies the guard.",
-    "guard": "The finding explains a concrete merge-blocking risk grounded in the committed branch diff.",
+    "guard": "The finding explains a concrete merge-blocking risk grounded in the committed branch diff, sets blocking=yes, identifies impact_scope, and relies only on verified_assumptions with no unverified_assumptions needed for the blocker claim. Single-specialist Critical labels are candidates, not final severity.",
+    "downgrade_to_important": {
+      "$comment": "Machine-readable Critical downgrade policy. If impact_scope matches impact_scope_patterns, downgrade the Critical candidate unless an override pattern also matches. Assumption-dependent candidates are still rejected by critical.guard.",
+      "impact_scope_patterns": [
+        "machine-local",
+        "local-only",
+        "developer workflow",
+        "advisory",
+        "observability",
+        "ignored state",
+        "ignored generated"
+      ],
+      "override_patterns": [
+        "authoritative",
+        "merge-blocking"
+      ]
+    },
     "any_of": [
       {
         "kind": "explicit_label",
@@ -45,7 +61,7 @@
   },
   "important": {
     "$comment": "Evaluated only for findings that did not qualify as Critical. A finding is Important when it matches ANY rule in any_of AND satisfies the guard.",
-    "guard": "The finding is likely worth fixing before merge but is not a proven blocker.",
+    "guard": "The finding is likely worth fixing before merge but is not a proven blocker. Critical candidates that fail the Critical guard because impact is local-only, advisory, ignored-state-only, or assumption-dependent should usually land here when the risk is still concrete.",
     "any_of": [
       {
         "kind": "explicit_label",
@@ -73,5 +89,5 @@
   "nit": {
     "rule": "Style-only, preference-only, naming-only, or speculative cleanup. Never promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important; nits do not enter the fix queue."
   },
-  "incomplete_evidence": "If evidence is incomplete but the risk may be severe, keep the finding with the missing verification stated explicitly; do not silently drop it."
+  "incomplete_evidence": "If evidence is incomplete but the risk may be severe, keep the finding with the missing verification stated explicitly; do not silently drop it. Do not classify it as Critical unless the blocker claim itself is already supported by verified assumptions."
 }

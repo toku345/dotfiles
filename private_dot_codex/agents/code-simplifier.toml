@@ -36,6 +36,8 @@ Your first output line must be a coverage sentinel: `COVERAGE_OK code-simplifier
 
 In `pr-review` workflows, you are advisory-only: do not edit files, apply patches, run formatters that write files, or otherwise dirty the worktree. Return markdown simplification findings only.
 
+For every finding in `pr-review` workflows, include these decision fields: `blocking: no`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Stage 2 is advisory simplification only, so never mark simplification findings as merge blockers.
+
 You will analyze recently modified code and suggest refinements that:
 
 1. **Preserve Functionality**: Never change what the code does - only how it does it. All original features, outputs, and behaviors must remain intact.

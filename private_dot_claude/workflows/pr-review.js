@@ -74,6 +74,11 @@ if (!rules.important || !Array.isArray(rules.important.any_of)) fail('severityRu
 const caps = rules.output_caps || {}
 if (typeof caps.important !== 'number' || typeof caps.suggestion !== 'number')
   fail('severityRules.output_caps.{important,suggestion} must be numbers')
+const criticalDowngradePolicy = rules.critical.downgrade_to_important || {}
+if (!Array.isArray(criticalDowngradePolicy.impact_scope_patterns) || !Array.isArray(criticalDowngradePolicy.override_patterns))
+  fail('severityRules.critical.downgrade_to_important.{impact_scope_patterns,override_patterns} must be arrays')
+if ([...criticalDowngradePolicy.impact_scope_patterns, ...criticalDowngradePolicy.override_patterns].some(p => typeof p !== 'string' || p.trim() === ''))
+  fail('severityRules.critical.downgrade_to_important patterns must be non-empty strings')
 
 const scope = `${a.baseCommit}...${a.headRef}`
 
@@ -118,7 +123,7 @@ const SPECIALIST_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['label', 'file', 'why'],
+        required: ['label', 'file', 'why', 'blocking', 'impact_scope', 'verified_assumptions', 'unverified_assumptions'],
         additionalProperties: false,
         properties: {
           label: { type: 'string', description: "the specialist's native severity/category label (e.g. Critical, Important, High, Medium, CRITICAL, 'Critical Gap')" },
@@ -127,6 +132,10 @@ const SPECIALIST_SCHEMA = {
           line: { type: 'integer' },
           why: { type: 'string', description: 'concrete risk grounded in the committed diff: observed failure mode + user/operational impact' },
           fix: { type: 'string', description: 'smallest reasonable fix' },
+          blocking: { type: 'boolean', description: 'true only when the committed diff proves a merge blocker' },
+          impact_scope: { type: 'string', description: 'what would be affected if merged as-is, e.g. user-visible behavior, security, data integrity, deploy/apply gate, machine-local developer workflow' },
+          verified_assumptions: { type: 'array', items: { type: 'string' }, description: 'facts verified from the supplied committed diff, status, log, or packet' },
+          unverified_assumptions: { type: 'array', items: { type: 'string' }, description: 'assumptions still needed to make the blocker claim true; must be empty for Critical' },
         },
       },
     },
@@ -262,7 +271,7 @@ function specialistPrompt(name, ctx, extra) {
     'You are advisory-only: do not edit files, create files, apply patches, run formatters that write files, or otherwise dirty the worktree. Do not explore the repository beyond the provided status, file list, commit log, and diff packet.',
     `Set coverage.specialist to '${name}', coverage.scope to '${ctx.scope}', and coverage.packetSha to the SHA-256 you verified.`,
     SPECIALISTS[name].labelGuidance,
-    "Every finding must be grounded in the committed diff: name the file (and line where possible), the concrete failure mode and user/operational impact in `why`, and the smallest reasonable fix in `fix`. Do not emit nits, style preferences, or speculative rewrites. Put positive observations in `strengths`, not in findings.",
+    "Every finding must be grounded in the committed diff: name the file (and line where possible), the concrete failure mode and user/operational impact in `why`, and the smallest reasonable fix in `fix`. Include `blocking`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Set `blocking: true` only for clear merge blockers proven by the committed diff; machine-local or ignored state, local-only performance regressions, developer-workflow-only false-greens, advisory observability gaps, and assumption-dependent risks should use `blocking: false`. Do not emit nits, style preferences, or speculative rewrites. Put positive observations in `strengths`, not in findings.",
   ]
   if (extra) lines.push('', extra)
   return lines.join('\n')
@@ -277,6 +286,10 @@ function verifyPrompt(f, ctx) {
     `Finding by ${f.specialist} (normalized severity: ${f.severity}, native label: ${f.label}):`,
     `- file: ${f.file}${typeof f.line === 'number' ? `:${f.line}` : ''}`,
     `- claim: ${f.why}`,
+    `- blocking: ${f.blocking ? 'yes' : 'no'}`,
+    `- impact_scope: ${f.impact_scope || '(not stated)'}`,
+    `- verified_assumptions: ${(f.verified_assumptions || []).join('; ') || '(none)'}`,
+    `- unverified_assumptions: ${(f.unverified_assumptions || []).join('; ') || '(none)'}`,
     f.fix ? `- proposed fix: ${f.fix}` : null,
     '',
     "Verdict rules: return 'refuted' only with concrete evidence that the claim is wrong or not grounded in this diff; 'confirmed' when the failure mode is clearly grounded in the diff; otherwise 'needs-verification' with the specific missing check named in missingVerification. Severe-but-unproven risks are kept visible, never silently dropped.",
@@ -326,11 +339,52 @@ function matchesRule(rule, specialist, finding, framing) {
   }
 }
 
-// The `guard` fields in severity-rules.json are prose; they are enforced by the
-// specialist prompts (grounded-in-diff contract) and the Verify stage, not here.
+function criticalGuardSatisfied(finding) {
+  return finding.blocking === true
+    && typeof finding.impact_scope === 'string'
+    && finding.impact_scope.trim() !== ''
+    && !downgradeScopeMatches(finding.impact_scope)
+    && nonBlankStringList(finding.verified_assumptions)
+    && Array.isArray(finding.unverified_assumptions)
+    && finding.unverified_assumptions.length === 0
+}
+
+function nonBlankStringList(value) {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every(item => typeof item === 'string' && item.trim() !== '')
+}
+
+function downgradeScopeMatches(impactScope) {
+  const localOrAdvisoryImpact = criticalDowngradePolicy.impact_scope_patterns
+    .some(pattern => policyPatternMatches(impactScope, pattern))
+  if (!localOrAdvisoryImpact) return false
+
+  return !criticalDowngradePolicy.override_patterns
+    .some(pattern => policyPatternMatches(impactScope, pattern))
+}
+
+function policyPatternMatches(text, pattern) {
+  const parts = pattern.trim().split(/[\s_-]+/).filter(Boolean)
+  const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const re = new RegExp(`(^|[^a-z0-9])(${escaped.join('[\\s_-]+')})([^a-z0-9]|$)`, 'ig')
+  for (const match of text.matchAll(re)) {
+    const coreStart = (match.index || 0) + match[1].length
+    const prefix = text.slice(0, coreStart).toLowerCase()
+    if (/(^|[^a-z0-9])(?:non|not|no)(?:[\s_-]+an?)?[\s_-]*$/.test(prefix)) continue
+    return true
+  }
+  return false
+}
+
+// The table's matcher identifies Critical candidates; this guard narrows final
+// Critical severity to proven merge blockers. Candidates that fail it remain
+// visible as Important instead of silently disappearing from the fix queue.
 function normalizeSeverity(specialist, finding, framing) {
   if ((finding.label || '').trim().toLowerCase() === 'nit') return 'nit'
-  if (rules.critical.any_of.some(r => matchesRule(r, specialist, finding, framing))) return 'critical'
+  if (rules.critical.any_of.some(r => matchesRule(r, specialist, finding, framing))) {
+    return criticalGuardSatisfied(finding) ? 'critical' : 'important'
+  }
   if (rules.important.any_of.some(r => matchesRule(r, specialist, finding, framing))) return 'important'
   return 'suggestion'
 }
@@ -467,9 +521,18 @@ toVerify.forEach((f, i) => {
   // coverage echo gate as the specialists that put it there
   if (v.scope !== scope || v.packetSha !== a.packetSha)
     fail(`verifier for [${f.specialist}] ${f.file} echoed scope='${v.scope}' packetSha='${v.packetSha}', expected scope='${scope}' packetSha='${a.packetSha}' — verdict rejected, fail closed`)
+  const missingVerification = typeof v.missingVerification === 'string' ? v.missingVerification.trim() : ''
+  if (v.verdict === 'needs-verification' && !missingVerification)
+    fail(`verifier for [${f.specialist}] ${f.file} returned needs-verification without missingVerification — fail closed`)
+  if (v.verdict !== 'needs-verification' && missingVerification)
+    fail(`verifier for [${f.specialist}] ${f.file} returned ${v.verdict} with missingVerification — fail closed`)
   f.verdict = v.verdict
   f.verdictReasoning = v.reasoning
-  if (v.missingVerification) f.missingVerification = v.missingVerification
+  if (missingVerification) f.missingVerification = missingVerification
+  if (f.severity === 'critical' && v.verdict === 'needs-verification') {
+    f.severity = 'important'
+    log(`verified downgrade: [${f.specialist}] ${f.file} moved Critical -> Important because verifier returned ${v.verdict}`)
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -508,4 +571,8 @@ return {
   strengths,
   refuted,
   stage2Ran,
+  stopCondition: critical.length === 0 && important.length === 0
+    ? 'Critical 0 / Important 0: stop the gate loop; Suggestions alone do not justify another run.'
+    : 'Re-run only after addressing Critical/Important findings, and focus the next pass on prior finding resolution.',
+  reviewChurnGuidance: 'On the third or later pass, if Critical/Important findings keep appearing or changing without stable blocker evidence, call out possible review churn and return the decision to a human maintainer.',
 }
