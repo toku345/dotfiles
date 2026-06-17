@@ -12,12 +12,13 @@ Settings → Password and authentication (`https://github.com/settings/security`
 
 - [ ] Add a **Passkey / WebAuthn** authenticator (Touch ID, or a hardware security key). Passkeys resist phishing.
 - [ ] Prefer passkey / security key over TOTP; **remove SMS** as a 2FA method (SIM-swap risk).
-- [ ] Regenerate **recovery codes** (`https://github.com/settings/auth/recovery-codes`); store them in the password manager and print one copy. Confirm they are current.
+- [ ] Regenerate **recovery codes** (`https://github.com/settings/auth/recovery-codes`); store them in the password manager (and optionally a printed copy in a secure offline location). Confirm they are current.
 
-## 2. Sessions and audit log
+## 2. Sessions, email, and audit log
 
 - [ ] `https://github.com/settings/sessions` — revoke any web session on an unrecognized or retired device.
-- [ ] `https://github.com/settings/security-log` — scan recent events (logins, key/secret additions) for anything unexpected.
+- [ ] `https://github.com/settings/emails` — confirm there are no unexpected addresses, and that the backup email is one you control and have secured. Email is a common account-takeover pivot (attackers add an address, then trigger a reset).
+- [ ] `https://github.com/settings/security-log` — scan recent events (logins, key/secret additions, email/2FA changes) for anything unexpected.
 
 ## 3. Personal access tokens
 
@@ -56,7 +57,9 @@ Run on the workstation. These results determine whether the npm-OIDC and cloud s
 
 ```bash
 # npm publish / automation tokens
-npm token list
+# (run `npm whoami` first — an empty list while not logged in means
+#  "not checked", not "no tokens exist")
+npm whoami && npm token list
 
 # AWS static long-lived keys
 test -e ~/.aws/credentials && grep -c 'aws_access_key_id' ~/.aws/credentials
