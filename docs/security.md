@@ -631,4 +631,5 @@ gitleaks git . --no-banner --redact      # full history
 - [Chezmoi documentation](https://www.chezmoi.io/)
 - [Backup and Restore Guide](./backup-restore.md)
 - [GitHub Account Security Audit](./github-account-audit.md) - Account hardening + credential inventory runbook
+- [AWS Credential Hardening](./aws-credential-hardening.md) - Remove static keys, migrate to short-lived (aws-vault / IAM Identity Center)
 - [CLAUDE.md](../CLAUDE.md) - Repository overview
