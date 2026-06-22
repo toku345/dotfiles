@@ -54,7 +54,7 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 ### ADR ドキュメントスタイル
 
-`docs/adr/*.md` の段落は **hard wrap しない** — 段落ごとに 1 logical line (Markdown は viewer の viewport 幅で自動 reflow)。Tables / code blocks / list items / block quotes は通常の multi-line 構造を維持する。新規 ADR はこの style に従う。Legacy ADR (0001 以外) は incremental cleanup 待ちで wrap が残る可能性あり。
+`docs/adr/**` 編集時の hard-wrap しないルールは path-scoped rule [.claude/rules/adr-style.md](.claude/rules/adr-style.md) に移設（該当ファイル参照時に自動ロード）。
 
 ## Key Configuration Files
 
@@ -108,87 +108,19 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 ## Fish Shell Gotchas
 
-- `test -n (command substitution)` with empty output becomes `test -n` (no args), which returns **true** in fish. Always capture into a variable first: `set -l val (cmd); test -n "$val"`
-- `$pipestatus` is available after command substitution (`set x (a | b)` still exposes `$pipestatus[1..N]`). Branch on individual pipe stages instead of a single `$status` to avoid misclassifying left-side failures as right-side cancellations.
-- `ls` is an embedded fish function that adds `--color=auto`/`-F`. In pipelines whose consumer needs raw filenames (e.g. fzf input), use `command ls -1 --` to bypass the function and any future user override (eza/lsd/icon wrappers).
-- `return ""` (empty arg from an unset variable) fails with `invalid integer` and exits 2. Guard with `test -n "$v"; and return $v; or return 1`.
-- fzf exit codes: `0`=selection, `1`=no match, `2`=error, `126`/`127`=become-action errors, `130`=Ctrl-C/Esc. Treat `1` and `130` as user cancel; everything else fail-loud.
-- `fish -c` subprocesses source `config.fish` by default. If the parent prepended a dir to `PATH`, `fish_add_path` inside `config.fish` may reorder via `fish_user_paths` and push the new dir behind system binaries. Use `fish --no-config -c` whenever a test stub or PATH-override must win in the child.
-- `set -l out (cmd)` splits multi-line stdout into a fish list, one element per line. Passing a bare `$out` as an argument then expands to that many positional args. Capture with `| string collect` (trims trailing newlines, preserves internal ones) or explicitly join before passing.
-- In `set -l x (cmd | string collect)`, `$status` reflects `string collect`'s exit (1 if no input, 0 otherwise), not `cmd`'s. Use `$pipestatus[1]` immediately on the next line before any other command resets it.
-- `fish_add_path` (フラグなし) は **prepend** で BSD `date`/`sed`/`cp` 等を GNU 版で shadow する罠あり。gap-fill だけ欲しい場合は `-a` (append) を使う。例: macOS で GNU `timeout` が必要な場合 `fish_add_path -a /opt/homebrew/opt/coreutils/libexec/gnubin` (`brew install coreutils` 後でも unprefixed binary は PATH 未登録、`brew link coreutils` も g-prefix 版のみ生成)。`fish_user_paths` universal var の更新は新規 fish session のみ反映、現在実行中の Claude Code subprocess には Claude 再起動まで届かない
-
-### OS Detection in Config Files
-
-`config.fish` 等 shell config では runtime OS 判定を使う。fish 公式仕様に従い `switch (uname)` が canonical:
-
-```fish
-switch (uname)
-    case Darwin
-        # macOS
-    case Linux
-        # Linux
-end
-```
-
-### Shell config の OS 別 deploy（非対称）
-
-上記 `switch (uname)` は config **内容**の runtime 判定。deploy **時**の取捨は別レイヤーで、`.chezmoiignore` が **Linux で `.config/fish/**` を除外・macOS で `.bashrc`/`.bash_profile` を除外**する。つまり Linux 機の shell 配線 (PATH / `SSH_AUTH_SOCK` 等) は chezmoi 管理の `dot_bashrc` に置く（fish 設定は Linux 非管理）、macOS は fish 側。Linux box で「fish に書く」と deploy されず無効になる罠。
+Fish / シェル設定固有の罠（`$pipestatus`・`ls` 関数・`fish_add_path` の prepend・`switch (uname)` での OS 判定・OS 別 deploy の非対称性 等）は path-scoped rule [.claude/rules/fish-gotchas.md](.claude/rules/fish-gotchas.md) に移設（`*.fish` / fish config 編集時に自動ロード）。
 
 ## Bash Script Gotchas
 
-- **`shopt -s execfail` + `set -Eeuo pipefail` で `||` fallback が dead code**: `set -e` が exec 失敗時に `||` 分岐より先に shell を終了させる。fallback を実働させるには `set +e` / `set -e` で exec を括る (bash 5.3 実機検証済)
-- **ShellCheck SC2093 false positive on execfail sites**: execfail 併用時の exec 後続コードは意図通り。該当行に `# shellcheck disable=SC2093` + 理由コメントを添える (file 全体 disable は避ける)
-- **外部 wrapper 経由の self-exec で `execve($0)` は git 上 0644 の `executable_*` で rc=126**: `exec "${wrapper[@]}" "${BASH:-bash}" "${BASH_SOURCE[0]}" "$@"` と書いて bash interpreter 経由で再入する。mode に依存しない (caffeinate/systemd-inhibit/setsid 等すべて該当)
-- **Deploy skew defense**: chezmoi で deploy される asset (output-styles / themes / 辞書 等) に依存する script は、asset 内に sentinel コメント (例: `<!-- COMPONENT_VX -->`) を埋め込み、script 側 preflight で grep verify する。file 存在のみの check は corrupt / truncated / 古い asset を通してしまう。err 文には `chezmoi apply -v` 復旧手順を併記する
-- **Bash tool の cwd は call 間で persist し、失敗した `cd` は `set -e` を確実には trip しない**: cd target が書き込み不可 (例: sandbox write-allowlist 外の `$HOME` 配下) で、その後に `for` 等の structured command が続く場合、subsequent file ops は **前の cwd** で実行される。`cd; touch` で test file を作る verification script は post-cd で `pwd` を verify するか、`touch` に絶対パスを使うかして、前 cwd (例: chezmoi source root) への file leak を防ぐ。PR #216 verification 2026-05-19 でこの罠により `.env` / `id_ed25519` / `foo.key` / `control.txt` が `~/.local/share/chezmoi/` に leak した。
+`execfail` + `set -e` での `||` fallback dead code、wrapper 経由 self-exec の rc=126、deploy skew defense、Bash tool cwd persist による file leak 等は path-scoped rule [.claude/rules/shell-scripts.md](.claude/rules/shell-scripts.md) に移設（`*.sh` / `executable_*` / `.chezmoiscripts/` 編集時に自動ロード）。
 
 ## Go Template Usage Policy
 
-### Principles
-
-- Go Templates は chezmoi 設定ファイル (`.chezmoi.toml.tmpl`) のみで使う
-- shell scripts (`.chezmoiscripts/`) や config ファイルでは環境変数 / runtime 判定を使う
-
-理由: ShellCheck / エディタ拡張との互換性、`.tmpl` 拡張子を避けることでシンタックスハイライトが保たれる。
-
-### CI での chezmoi テンプレート検証
-
-- `promptBoolOnce` 等の init 専用関数は `chezmoi execute-template` 単体では未定義エラーになる。`--init` フラグで有効化する
-- テンプレートで chezmoi data を参照する際、CI 等データ未定義環境では `.key` が失敗する。`index . "key"` を使えばキー未定義時に nil を返しエラーにならない
-
-### Environment Variables (chezmoi 自動提供)
-
-`.chezmoiscripts/` 配下のスクリプトに自動付与される: `$CHEZMOI` (=`1`), `$CHEZMOI_OS`, `$CHEZMOI_ARCH`, `$CHEZMOI_SOURCE_DIR`。`scriptEnv` で独自変数を追加可だが、上記の自動提供変数は上書きしないこと（警告が出る）。
+Go Template の使用範囲（`.chezmoi.toml.tmpl` のみ）、CI での template 検証、chezmoi 自動提供環境変数は path-scoped rule [.claude/rules/go-templates.md](.claude/rules/go-templates.md) に移設（`*.tmpl` / `.chezmoiscripts/` 編集時に自動ロード）。
 
 ## Bats Testing (tests/bats/)
 
-- **`executable_*` は git で mode 0644** (chezmoi apply 時に 0755): PATH 経由で直接実行するテストは `ln -sf` ではなく exec wrapper (`exec bash "$SRC" "$@"`) を使う
-- **Source-guard パターン**: `if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi` を末尾に置くと bats で `source` して関数単体テスト可能
-- **`run bash -c "source '$SRC'; func args"` 形式**: スクリプトの `set -Eeuo pipefail` を bats 本体に漏らさない
-- **`run --separate-stderr`**: stderr 単独アサーションに使用。bats 1.5+ (`bats_require_minimum_version 1.5.0` 宣言必須)
-- **async プロセステスト**: 固定 `sleep` より polling ループ (`for ((i=0; i<30; i++)); do cond && break; sleep 0.1; done`) が CI (Ubuntu runner) で flakiness を回避
-- **PATH-override スタブ内の `command date` は PATH を再参照**: スタブ自身を再帰呼び出して fork 爆発する。`/bin/date` 等の絶対パスを使う
-- **macOS ローカル pass の落とし穴**: `~/.local/bin/*` にある chezmoi apply 済みスクリプトが PATH shadow でテスト stub を隠蔽しバグを温存する。Docker Ubuntu で cross-check する
-- **OS-specific path の skip パターン**: `[[ "$(uname)" == "Linux" ]] || skip "<production-code-path reason>"`。reason は production gating を引用する (例: "gated by `case Linux)` in `select_sleep_inhibitor_cmd`")。「環境に X が無いから」ではなく「production もそこを通らないから」と書くことで coverage claim の正直さを保つ
-- **BW01 警告 + exit 127** in `run` 出力 = `command not found`。診断: PATH-override stub が subshell に伝わっていない、または被テスト関数が呼ぶ transitive dep (例: `timeout`) が host に不在で stub 対象外
-- **silent-pass トラップ**: `[ "$status" -ne 0 ]` は real failure (timeout 124, signal 128+N) と command-not-found (127) を**両方とも満たす**。timeout-bounded / signal-bounded 検証では `-eq 124` 等の具体的 exit code を使う (`-ne 0` ではなく) — host に dep が無い時に偽陽 pass しないようにする
-- **fixture content-presence check**: `## Section` heading 存在の grep だけだと、heading はあるが body が空の fixture が silently pass する。section ごとに `awk '$0==sec {f=1; next} f && /^## / {f=0} f {print}' file` で切り出し → `grep -qE '^[[:space:]]*-[[:space:]]+\S'` で少なくとも 1 bullet 存在を別 case で gate する (実例: `tests/bats/test_brainstorming_skill.bats`)
-
-### Docker での Ubuntu CI parity 検証
-
-push 前に CI (ubuntu-latest + `apt-get install bats fish`) と同等環境で実走:
-
-```bash
-docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
-  apt-get update -qq >/dev/null
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    bats git procps fish jq shellcheck >/dev/null
-  bats tests/bats/
-'
-```
-
-`fish jq shellcheck` は省略不可: GitHub Actions の Bats job は `bats fish` を apt で入れ、`ubuntu-latest` runner 側の `jq` / `shellcheck` に暗黙依存している。素の `ubuntu:24.04` コンテナで欠けると hook 系テストが silent skip して parity gap を隠す (2026-06-11 実測)。新しい Bats テストが実行時依存を増やした場合は、この recipe と `private_dot_claude/agents/bats-docker-parity-runner.md` の baseline の両方を更新すること。
+bats テストの罠（`executable_*` の mode 0644、source-guard パターン、silent-pass トラップ、OS-specific skip、Docker Ubuntu 24.04 CI parity recipe 等）は path-scoped rule [.claude/rules/bats-testing.md](.claude/rules/bats-testing.md) に移設（`tests/bats/**` 編集時に自動ロード）。
 
 ## Security
 
