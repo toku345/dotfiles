@@ -43,6 +43,7 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 - `private_dot_claude/` → `~/.claude/`（Claude Code 設定）
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
+- `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`hooks/`、`settings.local.json` は machine-local・gitignore
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
 - `.github/`, `docs/`, `images/`, `key.txt.age`（age 暗号鍵）
 

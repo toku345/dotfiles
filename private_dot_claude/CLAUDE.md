@@ -127,6 +127,7 @@ AI レビューは「日常の床 / 厚い変更の gate」に分ける。軽く
 - `~/.claude/skills/**/SKILL.md` および各 repo の `.claude/skills/**/SKILL.md` (スキル定義)
 - `~/.claude/output-styles/**.md` (システムプロンプトを直接置換、headless `claude -p` にも適用)
 - `~/.claude/settings.json` (user-global) および各 repo の `.claude/settings.json` (project-shared)。`*.local.json` は per-machine 限定のため除外
+- `~/.claude/rules/**/*.md` (user-global path-scoped rules) および各 repo の `.claude/rules/**/*.md` (project path-scoped rules、agent 指示)
 - `docs/adr/**` (architecture decision records)
 
 ## 検証ループ (Verification Loop)
