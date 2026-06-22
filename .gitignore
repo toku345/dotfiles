@@ -6,6 +6,7 @@
 .claude/plans/
 .claude/todos/
 .claude/projects/
+.codex/.stop-hook-block-count
 
 # Plaintext age private key — only key.txt.age belongs in the repo.
 key.txt

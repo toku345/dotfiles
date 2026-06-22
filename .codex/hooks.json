@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/fish-syntax-check.sh\"",
+            "timeout": 15,
+            "statusMessage": "fish -n syntax check"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/verify-on-stop.sh\"",
+            "timeout": 300,
+            "statusMessage": "Verifying changed shell/bats/fish files"
+          }
+        ]
+      }
+    ]
+  }
+}
