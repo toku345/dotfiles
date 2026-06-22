@@ -39,12 +39,30 @@ Keeps the IAM user but moves the key off plaintext disk into the OS keychain (ma
 brew install --cask aws-vault
 aws-vault add <profile>                                   # store the key in the keychain (paste once)
 aws-vault exec <profile> -- aws sts get-caller-identity   # verify it vends STS creds
-aws-vault rotate <profile>                                # create a new key, store it, delete the old one (atomic)
+aws-vault rotate --no-session <profile>                   # create a new key, store it, delete the old one (atomic)
 # remove the aws_access_key_id / aws_secret_access_key lines for <profile> from
 # ~/.aws/credentials (keep ~/.aws/config). Going forward: aws-vault exec <profile> -- <cmd>
 ```
 
-`aws-vault rotate` matters: the old key sat in plaintext on disk, so treat it as exposed and rotate it as part of the migration.
+`aws-vault rotate --no-session` matters: the old key sat in plaintext on disk, so treat it as exposed and rotate it as part of the migration. `--no-session` makes the IAM access-key rotation call with the stored master credentials rather than a temporary STS session, which avoids session-token failures on some IAM management calls.
+
+On macOS, prefer a dedicated aws-vault Keychain instead of storing the long-lived key in the login Keychain. The default dedicated Keychain name is `aws-vault`, so the end state should not need `AWS_VAULT_KEYCHAIN_NAME` in shell startup files.
+
+If a key was first added to the login Keychain and must be copied into the dedicated Keychain without printing the secret, run the copy from a normal user terminal:
+
+```bash
+aws-vault exec <profile> --no-session -- env AWS_VAULT_KEYCHAIN_NAME=aws-vault aws-vault add <profile> --env
+aws-vault exec <profile> -- aws sts get-caller-identity
+```
+
+After verifying the dedicated Keychain path, remove any leftover login-Keychain copy as hygiene. These commands do not print the secret:
+
+```bash
+security find-generic-password -s aws-vault -a <profile> ~/Library/Keychains/login.keychain-db
+security delete-generic-password -s aws-vault -a <profile> ~/Library/Keychains/login.keychain-db
+```
+
+If `security` reports that the item could not be found, the login Keychain is already clean. Keychain and `aws-vault exec` checks can fail from sandboxed or headless automation sessions even when they work from the user's terminal, so run these commands in an interactive terminal tied to the user's Keychain session.
 
 ### Option B — IAM Identity Center (SSO; full end state)
 
@@ -58,7 +76,7 @@ No IAM-user access keys at all — a browser SSO login vends short-lived credent
 ## Harden and verify
 
 - Enable MFA on any IAM user that remains.
-- Scope each policy to least privilege.
+- Scope each policy to least privilege. For a human admin identity, prefer moving toward IAM Identity Center plus assumable roles; if an IAM user remains temporarily, keep MFA enabled and use IAM Access Analyzer or last-accessed data to reduce broad managed policies.
 - Verify no static keys remain on disk:
 
   ```bash
