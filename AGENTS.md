@@ -109,7 +109,7 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 ## Fish Shell Gotchas
 
-Fish / シェル設定固有の罠（`$pipestatus`・`ls` 関数・`fish_add_path` の prepend・`switch (uname)` での OS 判定・OS 別 deploy の非対称性 等）は path-scoped rule [.claude/rules/fish-gotchas.md](.claude/rules/fish-gotchas.md) に移設（`*.fish` / fish config 編集時に自動ロード）。
+Fish / シェル設定固有の罠（`$pipestatus`・`ls` 関数・`fish_add_path` の prepend・`switch (uname)` での OS 判定 等）は path-scoped rule [.claude/rules/fish-gotchas.md](.claude/rules/fish-gotchas.md) に移設（`*.fish` / fish config 編集時に自動ロード）。shell config の OS 別 deploy 非対称性（`.chezmoiignore` による fish/bash の deploy 取捨）は [.claude/rules/shell-deploy.md](.claude/rules/shell-deploy.md) に分離（`*.fish` / `dot_bash*` 編集時に自動ロード）。
 
 ## Bash Script Gotchas
 

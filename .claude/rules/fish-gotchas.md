@@ -2,8 +2,6 @@
 paths:
   - "**/*.fish"
   - "private_dot_config/fish/**"
-  - "dot_bashrc"
-  - "dot_bash_profile"
 ---
 
 # Fish Shell Gotchas
@@ -31,6 +29,4 @@ switch (uname)
 end
 ```
 
-## Shell config の OS 別 deploy（非対称）
-
-上記 `switch (uname)` は config **内容**の runtime 判定。deploy **時**の取捨は別レイヤーで、`.chezmoiignore` が **Linux で `.config/fish/**` を除外・macOS で `.bashrc`/`.bash_profile` を除外**する。つまり Linux 機の shell 配線 (PATH / `SSH_AUTH_SOCK` 等) は chezmoi 管理の `dot_bashrc` に置く（fish 設定は Linux 非管理）、macOS は fish 側。Linux box で「fish に書く」と deploy されず無効になる罠。
+deploy **時**の OS 別取捨（`.chezmoiignore` による非対称 deploy）は config 内容とは別レイヤー。[shell-deploy.md](shell-deploy.md) を参照（`*.fish` / `dot_bash*` 編集時に自動ロード）。
