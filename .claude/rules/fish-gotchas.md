@@ -1,7 +1,7 @@
 ---
 paths:
   - "**/*.fish"
-  - "private_dot_config/fish/**"
+  - "private_dot_config/private_fish/**"
 ---
 
 # Fish Shell Gotchas
