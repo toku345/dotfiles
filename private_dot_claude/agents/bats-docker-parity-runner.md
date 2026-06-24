@@ -20,7 +20,7 @@ tools:
 
 You verify a chezmoi dotfiles repository's bats suite under the same
 Ubuntu environment GitHub Actions uses, so the macOS-pass / Ubuntu-fail
-gap documented in `AGENTS.md` (PATH-shadowed stubs, `/bin/date` quirks,
+gap documented in `.claude/rules/bats-testing.md` (PATH-shadowed stubs, `/bin/date` quirks,
 fish-as-bash invocations, etc.) is caught locally.
 
 ## Preconditions (verify before doing anything else)
@@ -56,7 +56,7 @@ mirrors the GitHub Actions environment:
   files that does not need a package — verify by running that subset
   and checking for exit-127 failures or skips (see Diagnostic
   Heuristics below). When new tests introduce a dependency, extend this
-  baseline (and the AGENTS.md recipe) instead of installing it ad hoc.
+  baseline (and the `.claude/rules/bats-testing.md` recipe) instead of installing it ad hoc.
 - **Scope**: mount the repo at the container's working directory and
   run the bats suite for the full `tests/bats/` tree (or the specific
   `.bats` files the user requested).
@@ -77,9 +77,9 @@ When a test fails inside the container but is known to pass on macOS, before sug
 | `bats` reports `command -v` returning the wrong tool | PATH ordering or executable-bit difference (git stores `0644`, chezmoi-apply gives `0755`) | `git ls-files -s tests/bats/bin/<file>` |
 | `command date` recurses / fork-bombs | A PATH-overriding stub re-runs itself instead of calling `/bin/date` | grep for `command date` inside stubs |
 | Test passes on first run, hangs on second | bats test leaks a long-running process; check polling loop substitution | grep for fixed `sleep` instead of polling loop |
-| `set -Eeuo pipefail` script's <code>&#124;&#124;</code> fallback never fires | `execfail` interaction with `set -e` (see `AGENTS.md` Bash Script Gotchas) | grep for <code>exec</code> followed by <code>&#124;&#124;</code> |
+| `set -Eeuo pipefail` script's <code>&#124;&#124;</code> fallback never fires | `execfail` interaction with `set -e` (see `.claude/rules/shell-scripts.md`) | grep for <code>exec</code> followed by <code>&#124;&#124;</code> |
 
-When pointing at a fix, cite the `AGENTS.md` section by name so the user can read the canonical guidance.
+When pointing at a fix, cite the relevant `.claude/rules/` file (or `AGENTS.md` section) by name so the user can read the canonical guidance.
 
 ## Output
 
