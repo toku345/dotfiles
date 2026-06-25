@@ -25,10 +25,11 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["git", "commit", "-m"],
+    pattern = ["git", "commit"],
     decision = "prompt",
-    justification = "Committing creates history and may bypass required message trailers; require approval.",
+    justification = "Committing creates history and may bypass required message trailers; prompt on every git commit prefix form (-m, -F, --amend, editor). Note: prefix matching cannot catch forms where flags precede the subcommand, e.g. git -C <path> commit.",
     match = [
         "git commit -m update-docs",
+        "git commit --amend",
     ],
 )
