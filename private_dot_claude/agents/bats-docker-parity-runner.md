@@ -57,6 +57,10 @@ mirrors the GitHub Actions environment:
   and checking for exit-127 failures or skips (see Diagnostic
   Heuristics below). When new tests introduce a dependency, extend this
   baseline (and the `.claude/rules/bats-testing.md` recipe) instead of installing it ad hoc.
+  Do not add non-apt, host-authenticated tools such as `codex` to this
+  package baseline; tests that exercise those tools should keep explicit
+  `command -v` skip guards, and this runner should report those skips as
+  expected rather than as an Ubuntu parity gap.
 - **Scope**: mount the repo at the container's working directory and
   run the bats suite for the full `tests/bats/` tree (or the specific
   `.bats` files the user requested).
@@ -77,6 +81,7 @@ When a test fails inside the container but is known to pass on macOS, before sug
 | `bats` reports `command -v` returning the wrong tool | PATH ordering or executable-bit difference (git stores `0644`, chezmoi-apply gives `0755`) | `git ls-files -s tests/bats/bin/<file>` |
 | `command date` recurses / fork-bombs | A PATH-overriding stub re-runs itself instead of calling `/bin/date` | grep for `command date` inside stubs |
 | Test passes on first run, hangs on second | bats test leaks a long-running process; check polling loop substitution | grep for fixed `sleep` instead of polling loop |
+| `codex managed.rules prompts only the managed command prefixes` skips with `codex/jq not installed` | Expected in a bare Ubuntu parity container unless the host Codex CLI is deliberately mounted; `codex` is a host-authenticated tool, not an apt baseline package | `tests/bats/test_codex_hooks.bats` and `private_dot_codex/rules/managed.rules` |
 | `set -Eeuo pipefail` script's <code>&#124;&#124;</code> fallback never fires | `execfail` interaction with `set -e` (see `.claude/rules/shell-scripts.md`) | grep for <code>exec</code> followed by <code>&#124;&#124;</code> |
 
 When pointing at a fix, cite the relevant `.claude/rules/` file (or `AGENTS.md` section) by name so the user can read the canonical guidance.
