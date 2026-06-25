@@ -146,19 +146,21 @@ Recovery needs 3 things: GitHub access, 1Password access, `key.txt.age` password
 - fish シェル経由の Bash ヒアドキュメントで `!` が `\!` にエスケープされることがある。`!` を含むファイルは `Write` ツールで直接書き込む
 - secret-like file 名 (`id_ed25519` / `id_rsa` / `.env*` 等) の **存在判定**で `ls -la` を使うと permission gate に弾かれる。代替: `test -e <path> && echo exists || echo not present` または `find <dir> -maxdepth 1 -name <basename> -print` — 中身を読まないことが明確になり permission を通せる
 
-## Claude Code Hooks
+## Agent Hooks
 
-検証ループ用 hook スクリプトが `.claude/hooks/` に配置されている (本体はコミット対象、配線は `.claude/settings.local.json` で local 限定)。
+Codex project-local hooks are checked in under `.codex/hooks/` and wired by `.codex/hooks.json`. Codex requires hook trust review when hook definitions change, so inspect `/hooks` after pulling hook changes.
 
-提供 hook (配線 JSON 例・配置原則・詳細は [docs/claude-code-hooks.md](docs/claude-code-hooks.md)):
+提供 Codex hook:
 
-- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`*.fish` 変更時のみ bats / shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`.claude/.stop-hook-block-count`) で自動許可
+- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`.codex/hooks/*.sh`・`*.fish` 変更時のみ bats / shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`.codex/.stop-hook-block-count`) で自動許可
 - **`fish-syntax-check.sh`** — PostToolUse `Edit|Write`。`*.fish` 編集時に `fish -n` で構文チェック、エラー時 `decision: block` JSON
+
+Claude Code の machine-local hook 配線は `.claude/settings.local.json` 側で扱う。詳細は [docs/claude-code-hooks.md](docs/claude-code-hooks.md)。
 
 一行 gotcha:
 
 - macOS で pass / Ubuntu CI で fail する場合は `bats-docker-parity-runner` subagent で Docker Ubuntu 24.04 再走
-- Stop hook 無限ループ時は `rm .claude/.stop-hook-block-count`
+- Stop hook 無限ループ時は該当 runtime の block-count file (`.codex/.stop-hook-block-count` または `.claude/.stop-hook-block-count`) を削除する
 
 ## Claude Code Configuration Quirks
 

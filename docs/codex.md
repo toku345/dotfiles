@@ -8,6 +8,7 @@
 
 - `private_dot_codex/AGENTS.md` -> `~/.codex/AGENTS.md`
 - `private_dot_codex/private_config.chezmoi.toml` -> `~/.codex/config.chezmoi.toml`
+- `private_dot_codex/rules/managed.rules` -> `~/.codex/rules/managed.rules`
 - `.chezmoiscripts/run_after_check-codex-config.sh`
 
 ## 管理しないもの
@@ -18,7 +19,7 @@
 - `~/.codex/state_*.sqlite`
 - `~/.codex/logs_*.sqlite*`
 - `~/.codex/cache/`
-- `~/.codex/rules/default.rules`
+- `~/.codex/rules/default.rules` (Codex UI が更新する user-local allow rules)
 - `~/.codex/.baseline-hash` (chezmoi script が生成する hash state)
 
 ## 運用
@@ -33,8 +34,21 @@
 - `[projects."..."]`
 - `[mcp_servers.*]`
 - `[notice.*]`
+- `[plugins.*]`
+- `[marketplaces.*]`
+- `[desktop]`
 
 必要に応じて、ローカル provider や一時的な実験設定も `~/.codex/config.toml` 側にのみ置く。
+
+## rules
+
+`~/.codex/rules/default.rules` は Codex の承認 UI が書き換えるため chezmoi 管理しない。安全側の上書きが必要なものだけ `~/.codex/rules/managed.rules` で管理する。Codex は複数 rule を merge し最も制限的な decision を採用するため、`default.rules` に広い `allow` が追加されても `managed.rules` の `prompt` で外部副作用や履歴作成を再確認できる。この most-restrictive-wins は Codex CLI 0.142.0 で確認済み（`requirements.toml` に `allow` を書くと "Codex merges these rules with other config and uses the most restrictive result (use 'prompt' or 'forbidden')" で拒否される）。再検証は `strings (command -v codex) | grep 'most restrictive result'`。
+
+現在 `managed.rules` では以下を prompt に戻す。
+
+- `gh api graphql`: query と mutation を prefix rule だけでは区別できないため
+- `git add`: secret や無関係ファイルの staging を避けるため
+- `git commit`: 履歴作成と commit trailer の確認を挟むため（prefix match のため `-m` / `-F` / `--amend` / editor 形を一律 prompt。ただし `git -C <path> commit` のように subcommand 前に flag が入る形は prefix 不一致で対象外）
 
 ## status line
 

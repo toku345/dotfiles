@@ -1,0 +1,35 @@
+# Managed Codex safety prompts for this machine.
+#
+# Codex may append broad allow rules to ~/.codex/rules/default.rules from the
+# approval UI. Keep this file more restrictive for commands whose risk depends
+# on arguments that a simple prefix allow cannot inspect.
+
+prefix_rule(
+    pattern = ["gh", "api", "graphql"],
+    decision = "prompt",
+    justification = "GraphQL can run mutations as well as read-only queries; require per-call approval.",
+    match = [
+        "gh api graphql -f query='query { viewer { login } }'",
+        "gh api graphql -f query='mutation { addComment(input: {}) { clientMutationId } }'",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "add"],
+    decision = "prompt",
+    justification = "Staging controls what enters history; require approval so secrets or unrelated files are not staged silently.",
+    match = [
+        "git add AGENTS.md",
+        "git add key.txt.age",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "commit"],
+    decision = "prompt",
+    justification = "Committing creates history and may bypass required message trailers; prompt on every git commit prefix form (-m, -F, --amend, editor). Note: prefix matching cannot catch forms where flags precede the subcommand, e.g. git -C <path> commit.",
+    match = [
+        "git commit -m update-docs",
+        "git commit --amend",
+    ],
+)
