@@ -170,6 +170,8 @@ Playwright / Puppeteer の E2E、または Chrome 拡張で視覚検証ループ
 
 Codex (コードレビュー / 調査委譲 / 別案試行) の運用詳細は skill `codex-usage` を参照する。
 
+agmsg が導入済みで同一 team に参加済みなら、Claude Code / Codex / 別セッション間の依頼・結果共有には agmsg を使ってよい。agmsg は transport であり、`$pr-review` / `/pr-review` の base pinning や fail-closed gate を置き換えない。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/` 配下の artifact path を送り、secret・credential・長大 diff 本文は送らない。
+
 「厚く理解する対象」に該当する変更で `codex` 利用可能なときのみ、プラン完成後に自動レビューを実施する。
 
 Codex 自動レビューはプラン段階の in-session 補助、PR 作成直前の `$pr-review` (または Claude `/pr-review`) は最終 gate。両者は別フェーズで動き、重複しない。

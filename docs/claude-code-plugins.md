@@ -1,8 +1,60 @@
-# Claude Code プラグインセットアップ
+# Claude Code プラグイン / agent messaging セットアップ
 
 `chezmoi apply` では Claude Code のプラグインは自動インストールされません。新しいマシンや環境では手動セットアップが必要です。
 
 `chezmoi apply` 実行時にプラグインが未インストールの場合、注意メッセージが表示されます。
+
+## agmsg
+
+Claude Code / Codex / 別セッション間の handoff transport。
+`chezmoi apply` の `.chezmoiscripts/run_after_setup-agmsg.sh` が
+`~/.agents/skills/agmsg/` に pin 済み commit の agmsg を導入・更新する。
+
+### 用途
+
+- Claude Code から Codex へレビュー・調査依頼を送る
+- Codex から Claude Code へ follow-up や review 結果を返す
+- 別セッションへの handoff prompt を手動 copy & paste せず共有する
+
+agmsg はレビュー gate そのものではない。`$pr-review` / `/pr-review`
+の base pinning / fail-closed aggregation は既存 gate 側で維持する。
+
+### 初回 smoke
+
+Claude Code 側:
+
+```text
+/agmsg
+/agmsg mode monitor
+```
+
+team は `chezmoi-review`、role は `cc-lead` を使う。
+
+Codex 側:
+
+```text
+$agmsg
+$agmsg mode turn
+```
+
+team は `chezmoi-review`、role は `codex-reviewer` を使う。
+最後に `cc-lead` から `codex-reviewer` へ短い message を送り、
+Codex 側で `$agmsg` または次 turn で受信できることを確認する。
+
+### 運用ルール
+
+- 長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md`
+  / `result.md` に置き、agmsg では path を送る
+- secret、credential、長大 diff 本文は agmsg に送らない
+- 依頼文には「1 回実行して DONE/blocked を返す」を入れ、自動往復ループを作らない
+- Codex monitor beta / PATH shim は v1 では使わない。Codex は `turn` mode に留める
+
+### 更新
+
+agmsg は automatic latest 追従しない。更新時は
+`.chezmoiscripts/run_after_setup-agmsg.sh` の `AGMSG_REF` をレビュー付きで
+新しい full commit SHA に bump し、`chezmoi apply -v` で installer の
+`--update` path を走らせる。
 
 ## codex-plugin-cc
 
