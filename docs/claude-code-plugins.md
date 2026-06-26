@@ -53,6 +53,50 @@ repo ごとの runtime state で、`~/.agents/skills/agmsg/teams/<team>/config.j
 message 本体は `~/.agents/skills/agmsg/db/messages.db` に保存される。どちらも
 chezmoi 管理対象ではなく、agmsg installer/runtime が管理する local state として扱う。
 
+### 使い方例
+
+agmsg を使う前に、依頼元・依頼先の両方のセッションで同じ repo 用 team に
+join しておく。この repo では `dotfiles` team を使う。別 repo では、その repo
+専用の team を作る。
+
+Claude Code から Codex に軽いレビューを依頼する例:
+
+```text
+/agmsg send codex-reviewer "repo: /Users/toku345/.local/share/chezmoi
+branch: feat/agmsg-handoff-setup
+base: origin/main
+目的: docs/claude-code-plugins.md の agmsg 使い方追記をレビューしてください。
+非対象: 実装修正、PR 操作、agmsg installer の変更。
+確認: typo、手順の不足、repo ごとに team が必要な旨が伝わるか。
+1 回実行して、DONE または blocked を返してください。"
+```
+
+Codex から Claude Code に結果だけ返す例:
+
+```text
+$agmsg send cc-lead "DONE: docs の使い方例を確認しました。
+気になる点: 長文依頼は agmsg 本文ではなく /tmp 配下の request.md を渡す運用が
+もう少し目立つとよさそうです。
+追加変更はしていません。"
+```
+
+長い handoff は本文を直接送らず、ファイルに置いて path を送る:
+
+```sh
+mkdir -p /tmp/agmsg-handoff-dotfiles-docs
+$EDITOR /tmp/agmsg-handoff-dotfiles-docs/request.md
+```
+
+```text
+/agmsg send codex-reviewer "handoff request:
+/tmp/agmsg-handoff-dotfiles-docs/request.md
+
+repo: /Users/toku345/.local/share/chezmoi
+team: dotfiles
+1 回実行して、result を /tmp/agmsg-handoff-dotfiles-docs/result.md に書き、
+DONE または blocked を返してください。"
+```
+
 ### 運用ルール
 
 - 長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md`
