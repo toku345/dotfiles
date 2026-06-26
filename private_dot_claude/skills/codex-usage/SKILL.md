@@ -53,7 +53,7 @@ agmsg が導入済みで同一 team に参加済みなら、Claude Code 内に C
 
 ### agmsg handoff が使える場合
 
-agmsg が導入済みで、送信元・受信先が同じ team に参加している場合は、長時間調査や別セッションレビューを agmsg で依頼してよい。依頼文は短くし、repo path、branch/base、目的、非対象、検証コマンド、artifact path を含める。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md` / `result.md` に置き、message では path だけを送る。secret、credential、長大 diff 本文は送らない。
+agmsg が導入済みで、送信元・受信先が同じ team に参加している場合は、長時間調査や別セッションレビューを agmsg で依頼してよい。team は repo ごとに分ける。依頼文は短くし、repo path、branch/base、目的、非対象、検証コマンド、artifact path を含める。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md` / `result.md` に置き、message では path だけを送る。secret、credential、長大 diff 本文は送らない。
 
 依頼文には「1 回実行して DONE/blocked を返す」を含め、自動往復ループを作らない。agmsg が未導入、未 join、または受信側が不明な場合は従来どおり `codex exec` / `/codex:*` を使う。
 

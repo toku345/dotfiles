@@ -21,6 +21,9 @@ agmsg はレビュー gate そのものではない。`$pr-review` / `/pr-review
 
 ### 初回 smoke
 
+agmsg の team はリポジトリごとに分ける。別 repo の依頼や履歴と混ざるのを
+避けるため、この repo では team 名を `dotfiles` にする。
+
 Claude Code 側:
 
 ```text
@@ -28,7 +31,7 @@ Claude Code 側:
 /agmsg mode monitor
 ```
 
-team は `chezmoi-review`、role は `cc-lead` を使う。
+team は `dotfiles`、role は `cc-lead` を使う。
 
 Codex 側:
 
@@ -37,9 +40,18 @@ $agmsg
 $agmsg mode turn
 ```
 
-team は `chezmoi-review`、role は `codex-reviewer` を使う。
+team は `dotfiles`、role は `codex-reviewer` を使う。
 最後に `cc-lead` から `codex-reviewer` へ短い message を送り、
 Codex 側で `$agmsg` または次 turn で受信できることを確認する。
+
+### 設定の保存先
+
+agmsg の install 本体は `~/.agents/skills/agmsg/` に置かれる。team 登録は
+repo ごとの runtime state で、`~/.agents/skills/agmsg/teams/<team>/config.json`
+に保存される。このファイルには agent 名、agent type、project path が入る。
+
+message 本体は `~/.agents/skills/agmsg/db/messages.db` に保存される。どちらも
+chezmoi 管理対象ではなく、agmsg installer/runtime が管理する local state として扱う。
 
 ### 運用ルール
 
