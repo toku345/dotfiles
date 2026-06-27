@@ -144,3 +144,27 @@ run_setup_script() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"missing one or more required agmsg writable_roots"* ]]
 }
+
+@test "setup: pinned install fast path fails loud when roots are only comments" {
+  write_installed_agmsg_home
+  {
+    printf '%s\n' '[sandbox_workspace_write]'
+    printf '# writable_roots = ["%s/db", "%s/teams", "%s/run"]\n' \
+      "$TEST_SKILL_DIR" "$TEST_SKILL_DIR" "$TEST_SKILL_DIR"
+  } > "$TEST_CODEX_CONFIG"
+  run_setup_script
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"missing one or more required agmsg writable_roots"* ]]
+}
+
+@test "setup: pinned install fast path fails loud when roots are in the wrong table" {
+  write_installed_agmsg_home
+  {
+    printf '%s\n' '[sandbox_workspace_write_disabled]'
+    printf 'writable_roots = ["%s/db", "%s/teams", "%s/run"]\n' \
+      "$TEST_SKILL_DIR" "$TEST_SKILL_DIR" "$TEST_SKILL_DIR"
+  } > "$TEST_CODEX_CONFIG"
+  run_setup_script
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"missing one or more required agmsg writable_roots"* ]]
+}

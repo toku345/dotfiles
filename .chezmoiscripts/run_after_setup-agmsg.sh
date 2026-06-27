@@ -65,17 +65,34 @@ classify_codex_config_drift() {
 
 # codex_config_has_agmsg_roots <config> <skill_dir>
 # Return 0 only when the live Codex config still contains all three agmsg
-# runtime writable roots. The idempotent fast path uses this to avoid reporting
-# success after a manual or tool-driven config cleanup removed the access needed
-# by agmsg runtime state.
+# runtime writable roots in the effective [sandbox_workspace_write] section.
+# The idempotent fast path uses this to avoid reporting success after a manual
+# or tool-driven config cleanup removed the access needed by agmsg runtime state.
 codex_config_has_agmsg_roots() {
     _config=$1
     _sdir=$2
 
     [ -f "$_config" ] || return 1
-    grep -F "\"$_sdir/db\"" "$_config" >/dev/null 2>&1 || return 1
-    grep -F "\"$_sdir/teams\"" "$_config" >/dev/null 2>&1 || return 1
-    grep -F "\"$_sdir/run\"" "$_config" >/dev/null 2>&1 || return 1
+    awk \
+        -v _db="\"$_sdir/db\"" \
+        -v _teams="\"$_sdir/teams\"" \
+        -v _run="\"$_sdir/run\"" '
+        /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+        /^[[:space:]]*\[sandbox_workspace_write\][[:space:]]*$/ {
+            in_section = 1
+            next
+        }
+        /^[[:space:]]*\[/ {
+            in_section = 0
+            next
+        }
+        in_section && /^[[:space:]]*writable_roots[[:space:]]*=/ {
+            if (index($0, _db) && index($0, _teams) && index($0, _run)) {
+                found = 1
+            }
+        }
+        END { exit found ? 0 : 1 }
+    ' "$_config"
 }
 
 # assert_no_codex_config_drift <before> <after> <skill_dir>
