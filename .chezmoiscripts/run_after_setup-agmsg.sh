@@ -215,6 +215,20 @@ fi
 
 assert_no_codex_config_drift "$before_config" "$after_config" "$skill_dir"
 
+if ! codex_config_has_agmsg_roots "$codex_config" "$skill_dir"; then
+    cat >&2 <<'MSG'
+error: agmsg installer completed, but ~/.codex/config.toml is missing one or
+more required agmsg writable_roots:
+  ~/.agents/skills/agmsg/db
+  ~/.agents/skills/agmsg/teams
+  ~/.agents/skills/agmsg/run
+
+Review the agmsg installer output and ~/.codex/config.toml before re-running
+chezmoi apply.
+MSG
+    exit 1
+fi
+
 mkdir -p "$skill_dir"
 printf '%s\n' "$AGMSG_REF" > "$state_file"
 chmod 600 "$state_file"

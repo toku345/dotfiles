@@ -69,6 +69,39 @@ run_setup_script() {
   run env HOME="$TEST_HOME" sh "$SCRIPT"
 }
 
+write_git_stub_for_install() {
+  STUB_BIN="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$STUB_BIN"
+  cat > "$STUB_BIN/git" <<'STUB'
+#!/bin/sh
+if [ "$1" = "clone" ]; then
+  clone_dir=$4
+  mkdir -p "$clone_dir"
+  cat > "$clone_dir/install.sh" <<'INSTALL'
+#!/bin/sh
+exit 0
+INSTALL
+  chmod +x "$clone_dir/install.sh"
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "checkout" ]; then
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "rev-parse" ]; then
+  printf '%s\n' "$AGMSG_REF"
+  exit 0
+fi
+printf '%s\n' "unexpected git stub invocation: $*" >&2
+exit 1
+STUB
+  chmod +x "$STUB_BIN/git"
+  export STUB_BIN
+}
+
+run_setup_script_with_stubbed_git() {
+  run env HOME="$TEST_HOME" PATH="$STUB_BIN:$PATH" AGMSG_REF="$AGMSG_REF" sh "$SCRIPT"
+}
+
 @test "classify: only the three agmsg writable_roots added -> no unexpected lines" {
   write_allowed_after
   run_guard classify_codex_config_drift "$BEFORE" "$AFTER" "$SKILL_DIR"
@@ -179,4 +212,15 @@ run_setup_script() {
   run_setup_script
   [ "$status" -eq 1 ]
   [[ "$output" == *"missing one or more required agmsg writable_roots"* ]]
+}
+
+@test "setup: install path fails loud when installer omits Codex roots" {
+  write_installed_agmsg_home
+  rm -f "$TEST_SKILL_DIR/.agmsg" "$TEST_SKILL_DIR/.dotfiles-agmsg-ref"
+  : > "$TEST_CODEX_CONFIG"
+  write_git_stub_for_install
+  run_setup_script_with_stubbed_git
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"installer completed, but ~/.codex/config.toml is missing"* ]]
+  [ ! -f "$TEST_SKILL_DIR/.dotfiles-agmsg-ref" ]
 }
