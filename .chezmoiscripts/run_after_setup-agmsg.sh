@@ -87,7 +87,9 @@ codex_config_has_agmsg_roots() {
             next
         }
         in_section && /^[[:space:]]*writable_roots[[:space:]]*=/ {
-            if (index($0, _db) && index($0, _teams) && index($0, _run)) {
+            line = $0
+            sub(/[[:space:]]+#.*/, "", line)
+            if (index(line, _db) && index(line, _teams) && index(line, _run)) {
                 found = 1
             }
         }
