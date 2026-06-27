@@ -17,6 +17,69 @@ require_command() {
     fi
 }
 
+codex_config_writable_roots_delta_allowed() {
+    _before=$1
+    _after=$2
+    _sdir=$3
+
+    awk -v _sdir="$_sdir" '
+        function collect(file, label, line, root) {
+            in_section = 0
+            while ((getline line < file) > 0) {
+                if (line ~ /^[[:space:]]*#/ || line ~ /^[[:space:]]*$/) {
+                    continue
+                }
+                if (line ~ /^[[:space:]]*\[sandbox_workspace_write\][[:space:]]*$/) {
+                    in_section = 1
+                    continue
+                }
+                if (line ~ /^[[:space:]]*\[/) {
+                    in_section = 0
+                    continue
+                }
+                if (in_section && line ~ /^[[:space:]]*writable_roots[[:space:]]*=/) {
+                    sub(/[[:space:]]+#.*/, "", line)
+                    while (match(line, /"[^"]*"/)) {
+                        root = substr(line, RSTART + 1, RLENGTH - 2)
+                        if (label == "before") {
+                            before_roots[root] = 1
+                        } else {
+                            after_roots[root] = 1
+                        }
+                        line = substr(line, RSTART + RLENGTH)
+                    }
+                }
+            }
+            close(file)
+        }
+        BEGIN {
+            expected[_sdir "/db"] = 1
+            expected[_sdir "/teams"] = 1
+            expected[_sdir "/run"] = 1
+            collect(ARGV[1], "before")
+            collect(ARGV[2], "after")
+            ARGV[1] = ""
+            ARGV[2] = ""
+
+            for (root in before_roots) {
+                if (!(root in after_roots)) {
+                    exit 1
+                }
+            }
+            for (root in after_roots) {
+                if (!(root in before_roots) && !(root in expected)) {
+                    exit 1
+                }
+            }
+            for (root in expected) {
+                if (!(root in after_roots)) {
+                    exit 1
+                }
+            }
+        }
+    ' "$_before" "$_after"
+}
+
 # classify_codex_config_drift <before> <after> <skill_dir>
 # Compare two ~/.codex/config.toml snapshots and print every diff line that is
 # NOT an allowed agmsg writable_roots addition. The installer may only add the
@@ -33,7 +96,6 @@ classify_codex_config_drift() {
     _before=$1
     _after=$2
     _sdir=$3
-    _expected_roots=$(printf 'writable_roots = ["%s/db", "%s/teams", "%s/run"]' "$_sdir" "$_sdir" "$_sdir")
 
     if _diff_out=$(diff -u "$_before" "$_after"); then
         return 0
@@ -51,16 +113,42 @@ classify_codex_config_drift() {
                 ;;
             +*)
                 _content=${_line#+}
-                if [ "$_content" = "[sandbox_workspace_write]" ] || [ "$_content" = "$_expected_roots" ]; then
+                if [ "$_content" = "[sandbox_workspace_write]" ]; then
                     continue
                 fi
+                case "$_content" in
+                    writable_roots*|[[:space:]]writable_roots*)
+                    continue
+                    ;;
+                esac
                 printf '%s\n' "$_line"
                 ;;
             -*)
+                _content=${_line#-}
+                case "$_content" in
+                    writable_roots*|[[:space:]]writable_roots*)
+                        continue
+                        ;;
+                esac
                 printf '%s\n' "$_line"
                 ;;
         esac
     done
+    if printf '%s\n' "$_diff_out" | grep -E '^[+-][[:space:]]*writable_roots[[:space:]]*=' >/dev/null 2>&1 &&
+        ! codex_config_writable_roots_delta_allowed "$_before" "$_after" "$_sdir"; then
+        printf '%s\n' "$_diff_out" | while IFS= read -r _line; do
+            case "$_line" in
+                [-+]*)
+                    _content=${_line#?}
+                    case "$_content" in
+                        writable_roots*|[[:space:]]writable_roots*)
+                            printf '%s\n' "$_line"
+                            ;;
+                    esac
+                    ;;
+            esac
+        done
+    fi
 }
 
 # codex_config_has_agmsg_roots <config> <skill_dir>

@@ -109,6 +109,21 @@ run_setup_script_with_stubbed_git() {
   [ -z "$output" ]
 }
 
+@test "classify: existing writable_root preserved while agmsg roots are added -> no unexpected lines" {
+  {
+    printf '%s\n' '[sandbox_workspace_write]'
+    printf '%s\n' 'writable_roots = ["/existing"]'
+  } > "$BEFORE"
+  {
+    printf '%s\n' '[sandbox_workspace_write]'
+    printf 'writable_roots = ["/existing", "%s/db", "%s/teams", "%s/run"]\n' \
+      "$SKILL_DIR" "$SKILL_DIR" "$SKILL_DIR"
+  } > "$AFTER"
+  run_guard classify_codex_config_drift "$BEFORE" "$AFTER" "$SKILL_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "classify: a foreign config change -> reported as an unexpected line" {
   write_allowed_after
   printf 'disable_network = false\n' >> "$AFTER"
@@ -131,6 +146,22 @@ run_setup_script_with_stubbed_git() {
   run_guard classify_codex_config_drift "$BEFORE" "$AFTER" "$SKILL_DIR"
   [ "$status" -eq 0 ]
   [[ "$output" == *"writable_roots"* ]]
+}
+
+@test "classify: removing an existing writable_root -> reported as unexpected" {
+  {
+    printf '%s\n' '[sandbox_workspace_write]'
+    printf 'writable_roots = ["/existing", "%s/db", "%s/teams", "%s/run"]\n' \
+      "$SKILL_DIR" "$SKILL_DIR" "$SKILL_DIR"
+  } > "$BEFORE"
+  {
+    printf '%s\n' '[sandbox_workspace_write]'
+    printf 'writable_roots = ["%s/db", "%s/teams", "%s/run"]\n' \
+      "$SKILL_DIR" "$SKILL_DIR" "$SKILL_DIR"
+  } > "$AFTER"
+  run_guard classify_codex_config_drift "$BEFORE" "$AFTER" "$SKILL_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/existing"* ]]
 }
 
 @test "classify: an unreadable snapshot (diff trouble) -> return code 2" {
