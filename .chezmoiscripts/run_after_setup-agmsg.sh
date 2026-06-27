@@ -17,6 +17,104 @@ require_command() {
     fi
 }
 
+# classify_codex_config_drift <before> <after> <skill_dir>
+# Compare two ~/.codex/config.toml snapshots and print every diff line that is
+# NOT an allowed agmsg writable_roots addition. The installer may only add the
+# [sandbox_workspace_write] header and writable_roots entries for
+# <skill_dir>/{db,teams,run}; anything else is unexpected and is echoed so the
+# caller can report it.
+# Return codes:
+#   0 - comparison ran; caller inspects stdout (empty = no drift to report,
+#       non-empty = the unexpected lines)
+#   2 - the comparison itself failed (diff trouble: unreadable input, I/O
+#       error). The caller MUST fail loud rather than treat a broken comparison
+#       as "no drift".
+classify_codex_config_drift() {
+    _before=$1
+    _after=$2
+    _sdir=$3
+
+    if _diff_out=$(diff -u "$_before" "$_after"); then
+        return 0
+    else
+        _rc=$?
+    fi
+    if [ "$_rc" -ge 2 ]; then
+        return 2
+    fi
+
+    printf '%s\n' "$_diff_out" | while IFS= read -r _line; do
+        case "$_line" in
+            ---*|+++*|@@*)
+                continue
+                ;;
+            [-+]*)
+                _content=${_line#?}
+                case "$_content" in
+                    ""|"[sandbox_workspace_write]"|writable_roots*|*"$_sdir/db"*|*"$_sdir/teams"*|*"$_sdir/run"*)
+                        ;;
+                    *)
+                        printf '%s\n' "$_line"
+                        ;;
+                esac
+                ;;
+        esac
+    done
+}
+
+# assert_no_codex_config_drift <before> <after> <skill_dir>
+# Fail loud (exit 1) if the agmsg installer changed ~/.codex/config.toml beyond
+# the allowed writable_roots additions, or if the before/after comparison could
+# not be performed at all. Returns 0 only when the delta is exactly the expected
+# agmsg additions (or empty).
+assert_no_codex_config_drift() {
+    _before=$1
+    _after=$2
+    _sdir=$3
+
+    _unexpected=""
+    if _unexpected=$(classify_codex_config_drift "$_before" "$_after" "$_sdir"); then
+        :
+    else
+        _status=$?
+        if [ "$_status" -ge 2 ]; then
+            printf '%s\n' "error: failed to compare ~/.codex/config.toml before and after agmsg setup; aborting" >&2
+            exit 1
+        fi
+    fi
+
+    if [ -n "$_unexpected" ]; then
+        cat >&2 <<'MSG'
+
+========================================
+ agmsg setup changed ~/.codex/config.toml unexpectedly
+========================================
+
+The agmsg installer is allowed to add Codex writable_roots for:
+  ~/.agents/skills/agmsg/db
+  ~/.agents/skills/agmsg/teams
+  ~/.agents/skills/agmsg/run
+
+It made additional changes. Review ~/.codex/config.toml and restore or accept
+them manually before re-running chezmoi apply.
+
+Unexpected diff lines:
+MSG
+        printf '%s\n' "$_unexpected" >&2
+        printf '%s\n' "========================================" >&2
+        exit 1
+    fi
+}
+
+# Allow tests to source this script (AGMSG_SETUP_SOURCE_ONLY=1) and unit-test the
+# functions above without running the network install flow.
+if [ "${AGMSG_SETUP_SOURCE_ONLY:-0}" = "1" ]; then
+    # `return` succeeds when sourced (tests); when run directly it fails and the
+    # `exit 0` fallback runs — reachable, but static analysis cannot see it.
+    # shellcheck disable=SC2317
+    return 0 2>/dev/null || exit 0
+fi
+
 current_ref=""
 if [ -f "$state_file" ]; then
     current_ref=$(cat "$state_file")
@@ -38,7 +136,6 @@ trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
 
 before_config="$tmpdir/codex-config.before"
 after_config="$tmpdir/codex-config.after"
-diff_file="$tmpdir/codex-config.diff"
 
 if [ -f "$codex_config" ]; then
     cp "$codex_config" "$before_config"
@@ -68,49 +165,7 @@ else
     : > "$after_config"
 fi
 
-if ! diff -u "$before_config" "$after_config" > "$diff_file"; then
-    bad_lines="$tmpdir/codex-config.bad"
-    : > "$bad_lines"
-    while IFS= read -r line; do
-        case "$line" in
-            ---*|+++*|@@*)
-                continue
-                ;;
-            [-+]*)
-                content=${line#?}
-                case "$content" in
-                    ""|"[sandbox_workspace_write]"|writable_roots*|*"$skill_dir/db"*|*"$skill_dir/teams"*|*"$skill_dir/run"*)
-                        ;;
-                    *)
-                        printf '%s\n' "$line" >> "$bad_lines"
-                        ;;
-                esac
-                ;;
-        esac
-    done < "$diff_file"
-
-    if [ -s "$bad_lines" ]; then
-        cat >&2 <<'MSG'
-
-========================================
- agmsg setup changed ~/.codex/config.toml unexpectedly
-========================================
-
-The agmsg installer is allowed to add Codex writable_roots for:
-  ~/.agents/skills/agmsg/db
-  ~/.agents/skills/agmsg/teams
-  ~/.agents/skills/agmsg/run
-
-It made additional changes. Review ~/.codex/config.toml and restore or accept
-them manually before re-running chezmoi apply.
-
-Unexpected diff lines:
-MSG
-        cat "$bad_lines" >&2
-        printf '%s\n' "========================================" >&2
-        exit 1
-    fi
-fi
+assert_no_codex_config_drift "$before_config" "$after_config" "$skill_dir"
 
 mkdir -p "$skill_dir"
 printf '%s\n' "$AGMSG_REF" > "$state_file"
