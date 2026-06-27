@@ -33,6 +33,7 @@ classify_codex_config_drift() {
     _before=$1
     _after=$2
     _sdir=$3
+    _expected_roots=$(printf 'writable_roots = ["%s/db", "%s/teams", "%s/run"]' "$_sdir" "$_sdir" "$_sdir")
 
     if _diff_out=$(diff -u "$_before" "$_after"); then
         return 0
@@ -48,18 +49,33 @@ classify_codex_config_drift() {
             ---*|+++*|@@*)
                 continue
                 ;;
-            [-+]*)
-                _content=${_line#?}
-                case "$_content" in
-                    ""|"[sandbox_workspace_write]"|writable_roots*|*"$_sdir/db"*|*"$_sdir/teams"*|*"$_sdir/run"*)
-                        ;;
-                    *)
-                        printf '%s\n' "$_line"
-                        ;;
-                esac
+            +*)
+                _content=${_line#+}
+                if [ "$_content" = "[sandbox_workspace_write]" ] || [ "$_content" = "$_expected_roots" ]; then
+                    continue
+                fi
+                printf '%s\n' "$_line"
+                ;;
+            -*)
+                printf '%s\n' "$_line"
                 ;;
         esac
     done
+}
+
+# codex_config_has_agmsg_roots <config> <skill_dir>
+# Return 0 only when the live Codex config still contains all three agmsg
+# runtime writable roots. The idempotent fast path uses this to avoid reporting
+# success after a manual or tool-driven config cleanup removed the access needed
+# by agmsg runtime state.
+codex_config_has_agmsg_roots() {
+    _config=$1
+    _sdir=$2
+
+    [ -f "$_config" ] || return 1
+    grep -F "\"$_sdir/db\"" "$_config" >/dev/null 2>&1 || return 1
+    grep -F "\"$_sdir/teams\"" "$_config" >/dev/null 2>&1 || return 1
+    grep -F "\"$_sdir/run\"" "$_config" >/dev/null 2>&1 || return 1
 }
 
 # assert_no_codex_config_drift <before> <after> <skill_dir>
@@ -121,6 +137,19 @@ if [ -f "$state_file" ]; then
 fi
 
 if [ -f "$skill_dir/.agmsg" ] && [ "$current_ref" = "$AGMSG_REF" ]; then
+    if ! codex_config_has_agmsg_roots "$codex_config" "$skill_dir"; then
+        cat >&2 <<'MSG'
+error: agmsg is installed at the pinned ref, but ~/.codex/config.toml is
+missing one or more required agmsg writable_roots:
+  ~/.agents/skills/agmsg/db
+  ~/.agents/skills/agmsg/teams
+  ~/.agents/skills/agmsg/run
+
+Repair ~/.codex/config.toml or remove the agmsg ref marker so setup can
+reinstall/update agmsg.
+MSG
+        exit 1
+    fi
     exit 0
 fi
 
