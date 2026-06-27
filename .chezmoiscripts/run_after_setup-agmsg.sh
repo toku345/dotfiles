@@ -289,10 +289,19 @@ if [ "$actual_ref" != "$AGMSG_REF" ]; then
     exit 1
 fi
 
+install_status=0
 if [ -f "$skill_dir/.agmsg" ]; then
-    bash "$clone_dir/install.sh" --update --cmd "$AGMSG_CMD"
+    if bash "$clone_dir/install.sh" --update --cmd "$AGMSG_CMD"; then
+        :
+    else
+        install_status=$?
+    fi
 else
-    bash "$clone_dir/install.sh" --cmd "$AGMSG_CMD"
+    if bash "$clone_dir/install.sh" --cmd "$AGMSG_CMD"; then
+        :
+    else
+        install_status=$?
+    fi
 fi
 
 if [ -f "$codex_config" ]; then
@@ -302,6 +311,11 @@ else
 fi
 
 assert_no_codex_config_drift "$before_config" "$after_config" "$skill_dir"
+
+if [ "$install_status" -ne 0 ]; then
+    printf '%s\n' "error: agmsg installer failed; aborting" >&2
+    exit "$install_status"
+fi
 
 if ! codex_config_has_agmsg_roots "$codex_config" "$skill_dir"; then
     cat >&2 <<'MSG'

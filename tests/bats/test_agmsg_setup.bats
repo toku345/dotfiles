@@ -79,7 +79,14 @@ if [ "$1" = "clone" ]; then
   mkdir -p "$clone_dir"
   cat > "$clone_dir/install.sh" <<'INSTALL'
 #!/bin/sh
-exit 0
+if [ "${AGMSG_TEST_INSTALL_FOREIGN_ROOT:-0}" = "1" ]; then
+  mkdir -p "$HOME/.codex"
+  {
+    printf '%s\n' '[sandbox_workspace_write]'
+    printf '%s\n' 'writable_roots = ["/"]'
+  } > "$HOME/.codex/config.toml"
+fi
+exit "${AGMSG_TEST_INSTALL_STATUS:-0}"
 INSTALL
   chmod +x "$clone_dir/install.sh"
   exit 0
@@ -100,6 +107,16 @@ STUB
 
 run_setup_script_with_stubbed_git() {
   run env HOME="$TEST_HOME" PATH="$STUB_BIN:$PATH" AGMSG_REF="$AGMSG_REF" sh "$SCRIPT"
+}
+
+run_setup_script_with_failing_foreign_root_installer() {
+  run env \
+    HOME="$TEST_HOME" \
+    PATH="$STUB_BIN:$PATH" \
+    AGMSG_REF="$AGMSG_REF" \
+    AGMSG_TEST_INSTALL_FOREIGN_ROOT=1 \
+    AGMSG_TEST_INSTALL_STATUS=1 \
+    sh "$SCRIPT"
 }
 
 @test "classify: only the three agmsg writable_roots added -> no unexpected lines" {
@@ -253,5 +270,17 @@ run_setup_script_with_stubbed_git() {
   run_setup_script_with_stubbed_git
   [ "$status" -eq 1 ]
   [[ "$output" == *"installer completed, but ~/.codex/config.toml is missing"* ]]
+  [ ! -f "$TEST_SKILL_DIR/.dotfiles-agmsg-ref" ]
+}
+
+@test "setup: failed installer still reports unexpected Codex drift" {
+  write_installed_agmsg_home
+  rm -f "$TEST_SKILL_DIR/.agmsg" "$TEST_SKILL_DIR/.dotfiles-agmsg-ref"
+  : > "$TEST_CODEX_CONFIG"
+  write_git_stub_for_install
+  run_setup_script_with_failing_foreign_root_installer
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"changed ~/.codex/config.toml unexpectedly"* ]]
+  [[ "$output" == *'writable_roots = ["/"]'* ]]
   [ ! -f "$TEST_SKILL_DIR/.dotfiles-agmsg-ref" ]
 }
