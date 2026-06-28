@@ -10,6 +10,7 @@
 - `private_dot_codex/private_config.chezmoi.toml` -> `~/.codex/config.chezmoi.toml`
 - `private_dot_codex/rules/managed.rules` -> `~/.codex/rules/managed.rules`
 - `.chezmoiscripts/run_after_check-codex-config.sh`
+- `.chezmoiscripts/run_after_setup-agmsg.sh`
 
 ## 管理しないもの
 
@@ -39,6 +40,24 @@
 - `[desktop]`
 
 必要に応じて、ローカル provider や一時的な実験設定も `~/.codex/config.toml` 側にのみ置く。
+
+## agmsg writable roots
+
+agmsg installer は Codex bridge / monitor beta 用に、`~/.codex/config.toml`
+の `[sandbox_workspace_write].writable_roots` へ以下の絶対パスを追加する:
+
+- `~/.agents/skills/agmsg/db`
+- `~/.agents/skills/agmsg/teams`
+- `~/.agents/skills/agmsg/run`
+
+この repo では Codex monitor beta は v1 非対象だが、agmsg runtime state の
+書き込み先として同じ3ディレクトリを許可する。これらは
+`~/.codex/config.chezmoi.toml` ではなく installer-managed local entry として
+live config に保持する。baseline 更新時は他の local-only section と同様に残す。
+
+`.chezmoiscripts/run_after_setup-agmsg.sh` は install/update 前後の
+`~/.codex/config.toml` diff を確認し、この3ディレクトリの writable roots 追加
+以外の変更が入った場合は fail loud する。
 
 ## rules
 

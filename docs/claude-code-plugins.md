@@ -1,8 +1,131 @@
-# Claude Code プラグインセットアップ
+# Claude Code プラグイン / agent messaging セットアップ
 
 `chezmoi apply` では Claude Code のプラグインは自動インストールされません。新しいマシンや環境では手動セットアップが必要です。
 
 `chezmoi apply` 実行時にプラグインが未インストールの場合、注意メッセージが表示されます。
+
+## agmsg
+
+Claude Code / Codex / 別セッション間の handoff transport。
+`chezmoi apply` の `.chezmoiscripts/run_after_setup-agmsg.sh` が
+`~/.agents/skills/agmsg/` に pin 済み commit の agmsg を導入・更新する。
+
+### 用途
+
+- Claude Code から Codex へレビュー・調査依頼を送る
+- Codex から Claude Code へ follow-up や review 結果を返す
+- 別セッションへの handoff prompt を手動 copy & paste せず共有する
+
+agmsg はレビュー gate そのものではない。`$pr-review` / `/pr-review`
+の base pinning / fail-closed aggregation は既存 gate 側で維持する。
+
+### 初回 smoke
+
+agmsg の team はリポジトリごとに分ける。別 repo の依頼や履歴と混ざるのを
+避けるため、この repo では team 名を `dotfiles` にする。
+agent 名は通常 `cc` / `codex` にする。Codex はレビュー専用ではなく
+メイン作業セッションにもなるため、`codex-reviewer` のような固定責務名は
+必要になった時だけ一時 role として使う。
+
+配信 mode は repo の Codex hook 管理方針で分ける:
+
+- この dotfiles repo、または `.codex/hooks.json` を Git 管理している repo:
+  Codex は `off` にして手動受信 (`$agmsg`) にする。`turn` は Codex hook
+  設定を書き換えるため、作業ツリーを汚す可能性がある
+- `.codex/hooks.json` を Git 管理していない repo:
+  Codex は `turn` にする。Codex は `both` をサポートしないため使わない
+- Codex `monitor` は beta / PATH shim 依存なので通常は使わない
+- Claude Code 側は `turn` か `both` を使う。`both` は monitor push と
+  turn pull の両経路で同一 message が見えることがある
+
+Claude Code 側:
+
+```text
+/agmsg
+/agmsg mode both
+```
+
+team は `dotfiles`、role は `cc` を使う。
+
+Codex 側:
+
+```text
+$agmsg
+$agmsg mode off
+```
+
+team は `dotfiles`、role は `codex` を使う。
+最後に `cc` から `codex` へ短い message を送り、Codex 側で `$agmsg`
+を実行して受信できることを確認する。その後 `codex` から `cc` へ返信し、
+Claude Code 側で自動受信できることを確認する。
+
+### 設定の保存先
+
+agmsg の install 本体は `~/.agents/skills/agmsg/` に置かれる。team 登録は
+repo ごとの runtime state で、`~/.agents/skills/agmsg/teams/<team>/config.json`
+に保存される。このファイルには agent 名、agent type、project path が入る。
+
+message 本体は `~/.agents/skills/agmsg/db/messages.db` に保存される。どちらも
+chezmoi 管理対象ではなく、agmsg installer/runtime が管理する local state として扱う。
+
+### 使い方例
+
+agmsg を使う前に、依頼元・依頼先の両方のセッションで同じ repo 用 team に
+join しておく。この repo では `dotfiles` team を使う。別 repo では、その repo
+専用の team を作る。
+
+Claude Code から Codex に軽いレビューを依頼する例:
+
+```text
+/agmsg send codex "repo: /Users/toku345/.local/share/chezmoi
+branch: feat/agmsg-handoff-setup
+base: origin/main
+目的: docs/claude-code-plugins.md の agmsg 使い方追記をレビューしてください。
+非対象: 実装修正、PR 操作、agmsg installer の変更。
+確認: typo、手順の不足、repo ごとに team が必要な旨が伝わるか。
+1 回実行して、DONE または blocked を返してください。"
+```
+
+Codex から Claude Code に結果だけ返す例:
+
+```text
+$agmsg send cc "DONE: docs の使い方例を確認しました。
+気になる点: 長文依頼は agmsg 本文ではなく /tmp 配下の request.md を渡す運用が
+もう少し目立つとよさそうです。
+追加変更はしていません。"
+```
+
+長い handoff は本文を直接送らず、ファイルに置いて path を送る:
+
+```sh
+mkdir -p /tmp/agmsg-handoff-dotfiles-docs
+$EDITOR /tmp/agmsg-handoff-dotfiles-docs/request.md
+```
+
+```text
+/agmsg send codex "handoff request:
+/tmp/agmsg-handoff-dotfiles-docs/request.md
+
+repo: /Users/toku345/.local/share/chezmoi
+team: dotfiles
+1 回実行して、result を /tmp/agmsg-handoff-dotfiles-docs/result.md に書き、
+DONE または blocked を返してください。"
+```
+
+### 運用ルール
+
+- 長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md`
+  / `result.md` に置き、agmsg では path を送る
+- secret、credential、長大 diff 本文は agmsg に送らない
+- 依頼文には「1 回実行して DONE/blocked を返す」を入れ、自動往復ループを作らない
+- Codex monitor beta / PATH shim は通常使わない
+
+### 更新
+
+agmsg は automatic latest 追従しない。更新時は
+`.chezmoiscripts/run_after_setup-agmsg.sh` の `AGMSG_REF` をレビュー付きで
+新しい full commit SHA に bump し、`chezmoi apply -v` で installer の
+`--update` path を走らせる。
 
 ## codex-plugin-cc
 

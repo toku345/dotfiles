@@ -169,6 +169,9 @@
       "allowWrite": [
         "/tmp",
         "~/.claude/plugins/data/codex-openai-codex",
+        "~/.agents/skills/agmsg/db",
+        "~/.agents/skills/agmsg/teams",
+        "~/.agents/skills/agmsg/run",
         "~/.ssh/known_hosts"
       ],
       "allowRead": [

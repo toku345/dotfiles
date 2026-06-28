@@ -20,7 +20,7 @@ if [ "$CHEZMOI_OS" = "darwin" ]; then
 elif [ "$CHEZMOI_OS" = "linux" ]; then
     # ==== Linux: apt (OS prereqs) + Linuxbrew (apps) ====
     sudo apt-get update
-    sudo apt-get install -y build-essential curl file git procps
+    sudo apt-get install -y build-essential curl file git procps sqlite3
 
     if [ ! -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
         echo "Error: Linuxbrew not found or not executable at /home/linuxbrew/.linuxbrew. See docs/linux-setup.md" >&2
