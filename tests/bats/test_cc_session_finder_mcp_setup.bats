@@ -14,7 +14,7 @@ setup() {
 }
 
 run_setup() {
-  run env HOME="$TEST_HOME" PATH="$STUB_BIN:/usr/bin:/bin" sh "$SCRIPT"
+  run env -u CARGO_HOME HOME="$TEST_HOME" PATH="$STUB_BIN:/usr/bin:/bin" sh "$SCRIPT"
 }
 
 write_cc_session_finder_stub() {

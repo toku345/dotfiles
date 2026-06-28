@@ -80,6 +80,7 @@ mcp_entry_matches() {
     binary=$1
     entry=$2
 
+    # Claude Code does not expose JSON for `mcp get`; keep this parser narrow.
     printf '%s\n' "$entry" | grep -F "Scope: User config" >/dev/null 2>&1 || return 1
     printf '%s\n' "$entry" | grep -F "Command: $binary" >/dev/null 2>&1 || return 1
     printf '%s\n' "$entry" | grep -F "Args: mcp" >/dev/null 2>&1 || return 1
