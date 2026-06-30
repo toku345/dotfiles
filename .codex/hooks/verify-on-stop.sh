@@ -8,13 +8,31 @@
 set -Eeuo pipefail
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-readonly STATE_FILE="$repo_root/.codex/.stop-hook-block-count"
 readonly MAX_BLOCKS=3
+
+state_file_for_project() {
+  local app="$1"
+  local project_path state_home repo_key
+
+  project_path=$(pwd -P)
+  if [[ "${XDG_STATE_HOME:-}" = /* ]]; then
+    state_home="$XDG_STATE_HOME"
+  elif [[ "${HOME:-}" = /* ]]; then
+    state_home="$HOME/.local/state"
+  else
+    state_home="/tmp/${app}-hooks-state"
+  fi
+  repo_key=$(printf '%s' "$project_path" | cksum | awk '{print $1}')
+  printf '%s/%s/project-hooks/stop-hook-block-count.%s\n' \
+    "$state_home" "$app" "$repo_key"
+}
 
 if ! cd "$repo_root"; then
   echo "verify-on-stop: cannot cd to project dir; allowing stop." >&2
   exit 0
 fi
+STATE_FILE=$(state_file_for_project codex)
+readonly STATE_FILE
 
 # Drain stdin so the upstream pipe never blocks. We don't use the payload.
 cat >/dev/null
@@ -60,12 +78,20 @@ if [ ${#bats_changed[@]} -eq 0 ] \
 fi
 
 count=0
-if [ -f "$STATE_FILE" ]; then
-  raw=$(cat "$STATE_FILE")
-  if [[ "$raw" =~ ^[0-9]+$ ]]; then
-    count="$raw"
+if [ -L "$STATE_FILE" ]; then
+  echo "verify-on-stop: state file is a symlink; resetting." >&2
+  rm -f "$STATE_FILE"
+elif [ -f "$STATE_FILE" ]; then
+  raw=""
+  if IFS= read -r raw < "$STATE_FILE" || [ -n "$raw" ]; then
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+      count="$raw"
+    else
+      echo "verify-on-stop: state file corrupted; resetting." >&2
+      rm -f "$STATE_FILE"
+    fi
   else
-    echo "verify-on-stop: state file corrupted ($STATE_FILE='$raw'); resetting." >&2
+    echo "verify-on-stop: state file corrupted; resetting." >&2
     rm -f "$STATE_FILE"
   fi
 fi
