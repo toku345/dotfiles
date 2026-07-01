@@ -115,6 +115,36 @@ MSG
     claude mcp add --scope user "$CC_SESSION_FINDER_MCP_NAME" -- "$binary" mcp >/dev/null
 }
 
+codex_mcp_entry_matches() {
+    binary=$1
+    entry=$2
+
+    # Codex does not expose JSON for `mcp get`; keep this parser narrow.
+    printf '%s\n' "$entry" | grep -F "transport: stdio" >/dev/null 2>&1 || return 1
+    printf '%s\n' "$entry" | grep -F "command: $binary" >/dev/null 2>&1 || return 1
+    printf '%s\n' "$entry" | grep -F "args: mcp" >/dev/null 2>&1 || return 1
+}
+
+ensure_codex_mcp() {
+    binary=$1
+
+    if ! command -v codex >/dev/null 2>&1; then
+        info "cc-session-finder installed at $binary, but codex is not available; skipping MCP registration"
+        return 0
+    fi
+
+    entry=""
+    if entry=$(codex mcp get "$CC_SESSION_FINDER_MCP_NAME" 2>/dev/null); then
+        if codex_mcp_entry_matches "$binary" "$entry"; then
+            return 0
+        fi
+
+        codex mcp remove "$CC_SESSION_FINDER_MCP_NAME" >/dev/null
+    fi
+
+    codex mcp add "$CC_SESSION_FINDER_MCP_NAME" -- "$binary" mcp >/dev/null
+}
+
 main() {
     if binary=$(ensure_cc_session_finder); then
         :
@@ -131,6 +161,7 @@ main() {
     fi
 
     ensure_claude_mcp "$binary"
+    ensure_codex_mcp "$binary"
 }
 
 if [ "${CC_SESSION_FINDER_SETUP_SOURCE_ONLY:-0}" != "1" ]; then

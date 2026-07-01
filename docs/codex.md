@@ -11,6 +11,7 @@
 - `private_dot_codex/rules/managed.rules` -> `~/.codex/rules/managed.rules`
 - `.chezmoiscripts/run_after_check-codex-config.sh`
 - `.chezmoiscripts/run_after_setup-agmsg.sh`
+- `.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh`
 
 ## 管理しないもの
 
@@ -58,6 +59,23 @@ live config に保持する。baseline 更新時は他の local-only section と
 `.chezmoiscripts/run_after_setup-agmsg.sh` は install/update 前後の
 `~/.codex/config.toml` diff を確認し、この3ディレクトリの writable roots 追加
 以外の変更が入った場合は fail loud する。
+
+## cc-session-finder MCP
+
+`.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh` は
+`cc-session-finder` を pinned revision で install し、Claude Code と Codex の
+両方に user-local MCP server として登録する。Codex 側は
+`~/.codex/config.toml` の `[mcp_servers.cc-session-finder]` に以下を保持する:
+
+```toml
+[mcp_servers.cc-session-finder]
+command = "/absolute/path/to/cc-session-finder"
+args = ["mcp"]
+```
+
+この section は `~/.codex/config.chezmoi.toml` ではなく installer-managed
+local entry として live config に保持する。baseline 更新時は他の
+local-only section と同様に残す。
 
 ## rules
 
