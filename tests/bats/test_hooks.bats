@@ -18,8 +18,19 @@ setup() {
   # Per-test scratch project. CLAUDE_PROJECT_DIR isolates the hook from the
   # real chezmoi worktree so tests never touch repo-level state.
   PROJECT_DIR="$BATS_TEST_TMPDIR/project"
+  CLAUDE_LEGACY_STATE_FILE="$PROJECT_DIR/.claude/.stop-hook-block-count"
+  CLAUDE_STATE_HOME="$BATS_TEST_TMPDIR/state"
   mkdir -p "$PROJECT_DIR"
   export CLAUDE_PROJECT_DIR="$PROJECT_DIR"
+  export CLAUDE_LEGACY_STATE_FILE
+  export XDG_STATE_HOME="$CLAUDE_STATE_HOME"
+}
+
+claude_state_file() {
+  local repo_key
+  repo_key=$(printf '%s' "$(cd "$PROJECT_DIR" && pwd -P)" | cksum | awk '{print $1}')
+  printf '%s/claude/project-hooks/stop-hook-block-count.%s\n' \
+    "$CLAUDE_STATE_HOME" "$repo_key"
 }
 
 # init_repo_with_relevant_file <path> [<content>]
@@ -71,11 +82,11 @@ init_repo_with_relevant_file() {
 }
 
 # -----------------------------------------------------------------------------
-# State file recovery: non-numeric content must reset the counter and warn,
-# never crash the hook (the regex guard exists for exactly this).
+# State file recovery: non-numeric content must reset the counter and warn
+# without echoing the raw payload.
 # -----------------------------------------------------------------------------
 
-@test "state-file: non-numeric content is reset with warning" {
+@test "state-file: non-numeric external content is reset without leaking content" {
   if ! command -v fish >/dev/null 2>&1; then
     skip "fish not installed; cannot exercise the gate path"
   fi
@@ -87,13 +98,18 @@ init_repo_with_relevant_file() {
   # state file forces the parser warning + reset path.
   init_repo_with_relevant_file "scratch.fish" "# valid fish\n"
 
-  mkdir -p "$PROJECT_DIR/.claude"
-  printf 'garbage' > "$PROJECT_DIR/.claude/.stop-hook-block-count"
+  local state_file
+  state_file="$(claude_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  printf 'NONSECRET_MARKER=claude_state_leak\n' > "$state_file"
 
   run --separate-stderr "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"state file corrupted"* ]]
-  [ ! -e "$PROJECT_DIR/.claude/.stop-hook-block-count" ]
+  [[ "$stderr" != *"NONSECRET_MARKER"* ]]
+  [[ "$output" != *"NONSECRET_MARKER"* ]]
+  [ ! -e "$state_file" ]
+  [ ! -e "$CLAUDE_LEGACY_STATE_FILE" ]
 }
 
 # -----------------------------------------------------------------------------
@@ -121,17 +137,85 @@ STUB
 
   init_repo_with_relevant_file "broken.fish" "function foo\n"
 
-  mkdir -p "$PROJECT_DIR/.claude"
-  printf '3' > "$PROJECT_DIR/.claude/.stop-hook-block-count"
+  local state_file
+  state_file="$(claude_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  printf '3' > "$state_file"
 
   PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"blocked 3 times consecutively"* ]]
-  [ ! -e "$PROJECT_DIR/.claude/.stop-hook-block-count" ]
+  [ ! -e "$state_file" ]
   # Critical: the fish gate must not have been invoked. If this assertion
   # fails, the auto-allow check has been moved or otherwise no longer
   # fires before the gates.
   [ ! -e "$marker" ]
+}
+
+@test "state-file: legacy worktree symlink is ignored without leaking target" {
+  if ! command -v fish >/dev/null 2>&1; then
+    skip "fish not installed; cannot exercise the gate path"
+  fi
+
+  local secret_file="$BATS_TEST_TMPDIR/local-secret.txt"
+  init_repo_with_relevant_file "scratch.fish" "# valid fish\n"
+
+  printf 'NONSECRET_MARKER=legacy_claude_symlink\n' > "$secret_file"
+  mkdir -p "$(dirname "$CLAUDE_LEGACY_STATE_FILE")"
+  ln -s "$secret_file" "$CLAUDE_LEGACY_STATE_FILE"
+
+  run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"NONSECRET_MARKER"* ]]
+  [[ "$output" != *"NONSECRET_MARKER"* ]]
+}
+
+@test "state-file: external symlink is reset without leaking target" {
+  if ! command -v fish >/dev/null 2>&1; then
+    skip "fish not installed; cannot exercise the gate path"
+  fi
+
+  local secret_file="$BATS_TEST_TMPDIR/local-secret.txt"
+  local state_file
+  init_repo_with_relevant_file "scratch.fish" "# valid fish\n"
+
+  state_file="$(claude_state_file)"
+  printf 'NONSECRET_MARKER=external_claude_symlink\n' > "$secret_file"
+  mkdir -p "$(dirname "$state_file")"
+  ln -s "$secret_file" "$state_file"
+
+  run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"state file is a symlink"* ]]
+  [[ "$stderr" != *"NONSECRET_MARKER"* ]]
+  [[ "$output" != *"NONSECRET_MARKER"* ]]
+  [ ! -e "$state_file" ]
+}
+
+@test "state-file: relative XDG_STATE_HOME does not create worktree state" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local home_dir="$BATS_TEST_TMPDIR/home"
+  local repo_key expected_state
+  mkdir -p "$stub_dir" "$home_dir"
+  cat > "$stub_dir/fish" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/fish"
+
+  init_repo_with_relevant_file "broken.fish" "function foo\n"
+
+  repo_key=$(printf '%s' "$(cd "$PROJECT_DIR" && pwd -P)" | cksum | awk '{print $1}')
+  expected_state="$home_dir/.local/state/claude/project-hooks/stop-hook-block-count.$repo_key"
+
+  run --separate-stderr env \
+    HOME="$home_dir" \
+    XDG_STATE_HOME=relative-state \
+    PATH="$stub_dir:$PATH" \
+    "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ -e "$expected_state" ]
+  [ ! -e "$PROJECT_DIR/relative-state" ]
 }
 
 # -----------------------------------------------------------------------------

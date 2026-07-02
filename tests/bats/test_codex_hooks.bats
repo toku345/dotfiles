@@ -8,7 +8,7 @@
 #   1. repo_root is derived from `git rev-parse --show-toplevel` (the .claude
 #      copy uses ${CLAUDE_PROJECT_DIR:-$PWD}), so the hook must operate on the
 #      git toplevel of the cwd.
-#   2. the loop-guard state file lives at .codex/.stop-hook-block-count.
+#   2. the loop-guard state file lives outside the worktree.
 #   3. .codex/hooks/*.sh is a gate-relevant path in both the enumeration loop
 #      and the shellcheck always-include bypass.
 # A regression in any of these would silently break the Codex stop-gate while
@@ -30,9 +30,18 @@ setup() {
   # `git rev-parse --show-toplevel` from the cwd, so tests cd into here
   # before invoking the hook; this isolates it from the real worktree.
   PROJECT_DIR="$BATS_TEST_TMPDIR/project"
-  CODEX_STATE_FILE="$PROJECT_DIR/.codex/.stop-hook-block-count"
-  export PROJECT_DIR CODEX_STATE_FILE
+  CODEX_LEGACY_STATE_FILE="$PROJECT_DIR/.codex/.stop-hook-block-count"
+  CODEX_STATE_HOME="$BATS_TEST_TMPDIR/state"
+  export PROJECT_DIR CODEX_LEGACY_STATE_FILE
+  export XDG_STATE_HOME="$CODEX_STATE_HOME"
   mkdir -p "$PROJECT_DIR"
+}
+
+codex_state_file() {
+  local repo_key
+  repo_key=$(printf '%s' "$(cd "$PROJECT_DIR" && pwd -P)" | cksum | awk '{print $1}')
+  printf '%s/codex/project-hooks/stop-hook-block-count.%s\n' \
+    "$CODEX_STATE_HOME" "$repo_key"
 }
 
 # init_codex_repo <path> [<content>]
@@ -101,11 +110,11 @@ some_unused_var=42
 }
 
 # -----------------------------------------------------------------------------
-# Loop-guard state lives at .codex/.stop-hook-block-count (not .claude/...).
-# Corrupted content must reset + warn, then the passing gate removes it.
+# Loop-guard state lives outside the worktree. Corrupted content must reset +
+# warn without echoing the raw state payload.
 # -----------------------------------------------------------------------------
 
-@test "codex: corrupted .codex state file is reset with warning" {
+@test "codex: corrupted external state file is reset without leaking content" {
   # A clean shell file plus a stubbed successful shellcheck makes this test
   # exercise the relevant gate path even on hosts without shellcheck.
   local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
@@ -123,22 +132,28 @@ STUB
 echo ok
 '
 
-  mkdir -p "$PROJECT_DIR/.codex"
-  printf 'garbage' > "$CODEX_STATE_FILE"
+  local state_file
+  state_file="$(codex_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  printf 'NONSECRET_MARKER=codex_state_leak\n' > "$state_file"
 
   PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"state file corrupted"* ]]
+  [[ "$stderr" != *"NONSECRET_MARKER"* ]]
+  [[ "$output" != *"NONSECRET_MARKER"* ]]
   [ -e "$marker" ]
-  [ ! -e "$CODEX_STATE_FILE" ]
+  [ ! -e "$state_file" ]
+  [ ! -e "$CODEX_LEGACY_STATE_FILE" ]
 }
 
 # -----------------------------------------------------------------------------
-# MAX_BLOCKS auto-allow must fire from the .codex state path BEFORE gates run,
-# or a persistently failing gate could trap the turn in an infinite stop loop.
+# MAX_BLOCKS auto-allow must fire from the external state path BEFORE gates
+# run, or a persistently failing gate could trap the turn in an infinite stop
+# loop.
 # -----------------------------------------------------------------------------
 
-@test "codex: MAX_BLOCKS auto-allows from .codex state before gates run" {
+@test "codex: MAX_BLOCKS auto-allows from external state before gates run" {
   # Stub shellcheck to mark invocation. If the auto-allow check moved below
   # the gates, the failing gate would run and touch the marker.
   local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
@@ -156,14 +171,99 @@ STUB
 some_unused_var=42
 '
 
-  mkdir -p "$PROJECT_DIR/.codex"
-  printf '3' > "$CODEX_STATE_FILE"
+  local state_file
+  state_file="$(codex_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  printf '3' > "$state_file"
 
   PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"blocked 3 times consecutively"* ]]
-  [ ! -e "$CODEX_STATE_FILE" ]
+  [ ! -e "$state_file" ]
   [ ! -e "$marker" ]
+}
+
+@test "codex: legacy worktree state symlink is ignored without leaking target" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local secret_file="$BATS_TEST_TMPDIR/local-secret.txt"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/shellcheck" <<STUB
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/shellcheck"
+
+  init_codex_repo ".codex/hooks/ok.sh" \
+'#!/usr/bin/env bash
+echo ok
+'
+
+  printf 'NONSECRET_MARKER=legacy_codex_symlink\n' > "$secret_file"
+  mkdir -p "$(dirname "$CODEX_LEGACY_STATE_FILE")"
+  ln -s "$secret_file" "$CODEX_LEGACY_STATE_FILE"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"NONSECRET_MARKER"* ]]
+  [[ "$output" != *"NONSECRET_MARKER"* ]]
+}
+
+@test "codex: external state symlink is reset without leaking target" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local secret_file="$BATS_TEST_TMPDIR/local-secret.txt"
+  local state_file
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/shellcheck" <<STUB
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/shellcheck"
+
+  init_codex_repo ".codex/hooks/ok.sh" \
+'#!/usr/bin/env bash
+echo ok
+'
+
+  state_file="$(codex_state_file)"
+  printf 'NONSECRET_MARKER=external_codex_symlink\n' > "$secret_file"
+  mkdir -p "$(dirname "$state_file")"
+  ln -s "$secret_file" "$state_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"state file is a symlink"* ]]
+  [[ "$stderr" != *"NONSECRET_MARKER"* ]]
+  [[ "$output" != *"NONSECRET_MARKER"* ]]
+  [ ! -e "$state_file" ]
+}
+
+@test "codex: relative XDG_STATE_HOME does not create worktree state" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local home_dir="$BATS_TEST_TMPDIR/home"
+  local repo_key expected_state
+  mkdir -p "$stub_dir" "$home_dir"
+  cat > "$stub_dir/shellcheck" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/shellcheck"
+
+  init_codex_repo ".codex/hooks/bad.sh" \
+'#!/usr/bin/env bash
+some_unused_var=42
+'
+
+  repo_key=$(printf '%s' "$(pwd -P)" | cksum | awk '{print $1}')
+  expected_state="$home_dir/.local/state/codex/project-hooks/stop-hook-block-count.$repo_key"
+
+  run --separate-stderr env \
+    HOME="$home_dir" \
+    XDG_STATE_HOME=relative-state \
+    PATH="$stub_dir:$PATH" \
+    bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ -e "$expected_state" ]
+  [ ! -e "$PROJECT_DIR/relative-state" ]
 }
 
 # -----------------------------------------------------------------------------
