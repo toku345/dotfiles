@@ -119,10 +119,16 @@ codex_mcp_entry_matches() {
     binary=$1
     entry=$2
 
-    # Codex does not expose JSON for `mcp get`; keep this parser narrow.
-    printf '%s\n' "$entry" | grep -F "transport: stdio" >/dev/null 2>&1 || return 1
-    printf '%s\n' "$entry" | grep -F "command: $binary" >/dev/null 2>&1 || return 1
-    printf '%s\n' "$entry" | grep -F "args: mcp" >/dev/null 2>&1 || return 1
+    # Keep text matching exact so prefix-shaped stale entries are replaced.
+    printf '%s\n' "$entry" | grep -Fx "  transport: stdio" >/dev/null 2>&1 || return 1
+    printf '%s\n' "$entry" | grep -Fx "  command: $binary" >/dev/null 2>&1 || return 1
+    printf '%s\n' "$entry" | grep -Fx "  args: mcp" >/dev/null 2>&1 || return 1
+}
+
+codex_mcp_get_missing_error() {
+    err_file=$1
+
+    grep -F "No MCP server named '$CC_SESSION_FINDER_MCP_NAME' found." "$err_file" >/dev/null 2>&1
 }
 
 ensure_codex_mcp() {
@@ -134,12 +140,24 @@ ensure_codex_mcp() {
     fi
 
     entry=""
-    if entry=$(codex mcp get "$CC_SESSION_FINDER_MCP_NAME" 2>/dev/null); then
+    get_err=$(mktemp "${TMPDIR:-/tmp}/cc-session-finder-codex-mcp.XXXXXX") || return 1
+    if entry=$(codex mcp get "$CC_SESSION_FINDER_MCP_NAME" 2>"$get_err"); then
         if codex_mcp_entry_matches "$binary" "$entry"; then
+            rm -f "$get_err"
             return 0
         fi
 
+        rm -f "$get_err"
         codex mcp remove "$CC_SESSION_FINDER_MCP_NAME" >/dev/null
+    else
+        rc=$?
+        if ! codex_mcp_get_missing_error "$get_err"; then
+            printf 'error: failed to inspect Codex MCP server "%s":\n' "$CC_SESSION_FINDER_MCP_NAME" >&2
+            cat "$get_err" >&2
+            rm -f "$get_err"
+            return "$rc"
+        fi
+        rm -f "$get_err"
     fi
 
     codex mcp add "$CC_SESSION_FINDER_MCP_NAME" -- "$binary" mcp >/dev/null
