@@ -147,6 +147,57 @@ echo ok
   [ ! -e "$CODEX_LEGACY_STATE_FILE" ]
 }
 
+@test "codex: empty external state file is reset without leaking content" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/shellcheck" <<STUB
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/shellcheck"
+
+  init_codex_repo ".codex/hooks/ok.sh" \
+'#!/usr/bin/env bash
+echo ok
+'
+
+  local state_file
+  state_file="$(codex_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  : > "$state_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"state file corrupted"* ]]
+  [ ! -e "$state_file" ]
+}
+
+@test "codex: cleanup failure is best effort when no relevant files changed" {
+  if [ "$(id -u)" -eq 0 ]; then
+    skip "root ignores directory permissions; cannot simulate an unwritable state directory"
+  fi
+
+  git init -q "$PROJECT_DIR"
+  git -C "$PROJECT_DIR" config core.hooksPath /dev/null
+  git -C "$PROJECT_DIR" -c user.email=t@t -c user.name=t \
+    commit --allow-empty -q -m init
+  cd "$PROJECT_DIR"
+
+  local state_file state_dir
+  state_file="$(codex_state_file)"
+  state_dir="$(dirname "$state_file")"
+  mkdir -p "$state_dir"
+  printf '1\n' > "$state_file"
+  chmod 500 "$state_dir"
+
+  run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  chmod 700 "$state_dir"
+
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"cannot remove loop-guard state"* ]]
+  [ -e "$state_file" ]
+}
+
 # -----------------------------------------------------------------------------
 # MAX_BLOCKS auto-allow must fire from the external state path BEFORE gates
 # run, or a persistently failing gate could trap the turn in an infinite stop
@@ -301,6 +352,8 @@ some_unused_var=42
     bash "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"cannot persist loop-guard state"* ]]
+  [[ "$stderr" == *"verification failures were not enforced"* ]]
+  [[ "$stderr" == *"shellcheck failed"* ]]
   [[ "$stderr" == *"allowing stop"* ]]
 }
 

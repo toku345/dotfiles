@@ -32,6 +32,11 @@ state_file_for_project() {
     "$state_home" "$app" "$repo_key"
 }
 
+remove_state_file() {
+  rm -f "$STATE_FILE" 2>/dev/null \
+    || echo "verify-on-stop: cannot remove loop-guard state ($STATE_FILE); continuing." >&2
+}
+
 if ! cd "${CLAUDE_PROJECT_DIR:-$PWD}"; then
   echo "verify-on-stop: cannot cd to project dir; allowing stop." >&2
   exit 0
@@ -97,14 +102,14 @@ done
 if [ ${#bats_changed[@]} -eq 0 ] \
    && [ ${#shell_changed[@]} -eq 0 ] \
    && [ ${#fish_changed[@]} -eq 0 ]; then
-  rm -f "$STATE_FILE"
+  remove_state_file
   exit 0
 fi
 
 count=0
 if [ -L "$STATE_FILE" ]; then
   echo "verify-on-stop: state file is a symlink; resetting." >&2
-  rm -f "$STATE_FILE"
+  remove_state_file
 elif [ -f "$STATE_FILE" ]; then
   raw=""
   if IFS= read -r raw < "$STATE_FILE" || [ -n "$raw" ]; then
@@ -112,15 +117,15 @@ elif [ -f "$STATE_FILE" ]; then
       count="$raw"
     else
       echo "verify-on-stop: state file corrupted; resetting." >&2
-      rm -f "$STATE_FILE"
+      remove_state_file
     fi
   else
     echo "verify-on-stop: state file corrupted; resetting." >&2
-    rm -f "$STATE_FILE"
+    remove_state_file
   fi
 fi
 if [ "$count" -ge "$MAX_BLOCKS" ]; then
-  rm -f "$STATE_FILE"
+  remove_state_file
   echo "verify-on-stop: blocked $count times consecutively, allowing stop." >&2
   exit 0
 fi
@@ -184,7 +189,7 @@ if [ ${#fish_changed[@]} -gt 0 ]; then
 fi
 
 if [ ${#errors[@]} -eq 0 ]; then
-  rm -f "$STATE_FILE"
+  remove_state_file
   exit 0
 fi
 
@@ -198,7 +203,11 @@ if ! { mkdir -p "$(dirname "$STATE_FILE")" \
        && echo $((count + 1)) > "$tmp" \
        && mv "$tmp" "$STATE_FILE"; } 2>/dev/null; then
   rm -f "$tmp" 2>/dev/null || true
-  echo "verify-on-stop: cannot persist loop-guard state ($STATE_FILE); allowing stop." >&2
+  {
+    echo "verify-on-stop: cannot persist loop-guard state ($STATE_FILE); allowing stop."
+    echo "verify-on-stop: verification failures were not enforced:"
+    printf '%s\n\n' "${errors[@]}"
+  } >&2
   exit 0
 fi
 {

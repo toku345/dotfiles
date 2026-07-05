@@ -112,6 +112,52 @@ init_repo_with_relevant_file() {
   [ ! -e "$CLAUDE_LEGACY_STATE_FILE" ]
 }
 
+@test "state-file: empty external content is reset without leaking content" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/fish" <<STUB
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/fish"
+
+  init_repo_with_relevant_file "scratch.fish" "# valid fish\n"
+
+  local state_file
+  state_file="$(claude_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  : > "$state_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"state file corrupted"* ]]
+  [ ! -e "$state_file" ]
+}
+
+@test "state-file: cleanup failure is best effort when no relevant files changed" {
+  if [ "$(id -u)" -eq 0 ]; then
+    skip "root ignores directory permissions; cannot simulate an unwritable state directory"
+  fi
+
+  git init -q "$PROJECT_DIR"
+  git -C "$PROJECT_DIR" -c user.email=t@t -c user.name=t \
+    commit --allow-empty -q -m init
+
+  local state_file state_dir
+  state_file="$(claude_state_file)"
+  state_dir="$(dirname "$state_file")"
+  mkdir -p "$state_dir"
+  printf '1\n' > "$state_file"
+  chmod 500 "$state_dir"
+
+  run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  chmod 700 "$state_dir"
+
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"cannot remove loop-guard state"* ]]
+  [ -e "$state_file" ]
+}
+
 # -----------------------------------------------------------------------------
 # MAX_BLOCKS auto-allow: after MAX_BLOCKS consecutive blocks the hook must
 # release the stop and clear the counter, otherwise a persistently broken
@@ -257,6 +303,8 @@ STUB
     "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"cannot persist loop-guard state"* ]]
+  [[ "$stderr" == *"verification failures were not enforced"* ]]
+  [[ "$stderr" == *"fish -n broken.fish"* ]]
   [[ "$stderr" == *"allowing stop"* ]]
 }
 
