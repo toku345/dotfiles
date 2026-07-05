@@ -112,7 +112,7 @@ if [ -L "$STATE_FILE" ]; then
   remove_state_file
 elif [ -f "$STATE_FILE" ]; then
   raw=""
-  if IFS= read -r raw < "$STATE_FILE" || [ -n "$raw" ]; then
+  if raw=$(<"$STATE_FILE"); then
     if [[ "$raw" =~ ^[0-9]+$ ]]; then
       count="$raw"
     else

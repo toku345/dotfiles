@@ -134,6 +134,30 @@ STUB
   [ ! -e "$state_file" ]
 }
 
+@test "state-file: numeric prefix with trailing payload is corrupted, not auto-allowed" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/fish" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/fish"
+
+  init_repo_with_relevant_file "broken.fish" "function foo\n"
+
+  local state_file
+  state_file="$(claude_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  printf '3\nNONSECRET_MARKER=claude_trailing_payload\n' > "$state_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"state file corrupted"* ]]
+  [[ "$stderr" != *"NONSECRET_MARKER"* ]]
+  [[ "$output" != *"NONSECRET_MARKER"* ]]
+  [ "$(cat "$state_file")" = "1" ]
+}
+
 @test "state-file: cleanup failure is best effort when no relevant files changed" {
   if [ "$(id -u)" -eq 0 ]; then
     skip "root ignores directory permissions; cannot simulate an unwritable state directory"

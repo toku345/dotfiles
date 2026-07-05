@@ -172,6 +172,33 @@ echo ok
   [ ! -e "$state_file" ]
 }
 
+@test "codex: numeric prefix with trailing payload is corrupted, not auto-allowed" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/shellcheck" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/shellcheck"
+
+  init_codex_repo ".codex/hooks/bad.sh" \
+'#!/usr/bin/env bash
+some_unused_var=42
+'
+
+  local state_file
+  state_file="$(codex_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  printf '3\nNONSECRET_MARKER=codex_trailing_payload\n' > "$state_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"state file corrupted"* ]]
+  [[ "$stderr" != *"NONSECRET_MARKER"* ]]
+  [[ "$output" != *"NONSECRET_MARKER"* ]]
+  [ "$(cat "$state_file")" = "1" ]
+}
+
 @test "codex: cleanup failure is best effort when no relevant files changed" {
   if [ "$(id -u)" -eq 0 ]; then
     skip "root ignores directory permissions; cannot simulate an unwritable state directory"
