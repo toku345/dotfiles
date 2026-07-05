@@ -132,6 +132,21 @@ AGENTS.md の「Docker での Ubuntu CI parity 検証」節も併せて参照し
 
 `chezmoi init --apply` の install script がこのエラーで停止する場合、Step 2 の Linuxbrew インストールが失敗しているか、非標準のプレフィックスにインストールされています。`/home/linuxbrew/.linuxbrew` 固定が前提です。
 
+### `Error: Refusing to write insecure trust store`
+
+Linuxbrew が trust store の書き込みを拒否して `chezmoi apply -v` が停止する場合、エラーに表示された trust store directory が group/world writable になっている可能性があります。
+
+```text
+Error: Refusing to write insecure trust store: trust store directory /home/toku345/.homebrew is group or world writable.
+```
+
+対象ディレクトリの group/world write を外してから、`chezmoi apply -v` を再実行してください。
+
+```bash
+chmod go-w ~/.homebrew
+chezmoi apply -v
+```
+
 ### `chsh: PAM authentication failed`
 
 DGX OS などの管理下ホストで `chsh` が拒否される場合は、既定シェルの変更を諦め、SSH 接続時に `bash -l` を明示的に起動するか、ssh config の `RemoteCommand` で bash を起動してください。
