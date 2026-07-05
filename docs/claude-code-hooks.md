@@ -17,7 +17,7 @@
 Stop event hook。`git diff HEAD` と untracked を走査し、`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`*.fish` のいずれかが変更されている時のみ対応する gate (bats / shellcheck / `fish -n`) を実行する。
 
 - 失敗時は exit 2 + stderr で Claude に feedback を返す
-- 連続ブロック上限は 3 回 (`.claude/.stop-hook-block-count`) で、超えたら自動許可しユーザーが復旧できるようにする
+- 連続ブロック上限は 3 回 (`${XDG_STATE_HOME:-$HOME/.local/state}/claude/project-hooks/stop-hook-block-count.<repo-key>`) で、超えたら自動許可しユーザーが復旧できるようにする
 
 ### `.claude/hooks/fish-syntax-check.sh`
 
@@ -59,6 +59,6 @@ PostToolUse `Edit|Write` hook。編集対象が `*.fish` の時だけ `fish -n` 
 
 ## トラブルシューティング
 
-- **Stop hook で意図せず無限ループに陥った**: `rm .claude/.stop-hook-block-count` で counter をリセット
+- **Stop hook で意図せず無限ループに陥った**: repo root で `repo_key=$(printf '%s' "$(pwd -P)" | cksum | awk '{print $1}')` を実行し、`rm "${XDG_STATE_HOME:-$HOME/.local/state}/claude/project-hooks/stop-hook-block-count.$repo_key"` で counter をリセット
 - **hook が動かない**: Claude Code 起動後 `/hooks` で読み込み状態を確認
 - **bats が macOS で pass / Ubuntu CI で fail する**: `bats-docker-parity-runner` subagent を呼び出して Docker Ubuntu 24.04 で再走させる
