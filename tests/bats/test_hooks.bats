@@ -261,6 +261,52 @@ STUB
 }
 
 # -----------------------------------------------------------------------------
+# Counter round-trip: the single-invocation tests above never exercise the hook
+# reading its OWN newline-terminated output and incrementing a non-zero value.
+# Drive a persistently failing gate across four invocations so the counter goes
+# 0 -> 1 -> 2 -> 3 -> MAX_BLOCKS auto-allow, proving the read-of-own-"N\n",
+# increment-from-nonzero, and auto-allow paths that the loop guard depends on.
+# -----------------------------------------------------------------------------
+
+@test "state-file: counter round-trip increments across invocations and auto-allows at MAX_BLOCKS" {
+  # A gate stub (not host fish) makes this independent of whether fish is
+  # installed, while still driving the failing-gate write path each run.
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/fish" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/fish"
+
+  init_repo_with_relevant_file "broken.fish" "function foo\n"
+
+  local state_file
+  state_file="$(claude_state_file)"
+
+  # 1st block: count 0 -> writes newline-terminated "1", exit 2.
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ "$(cat "$state_file")" = "1" ]
+
+  # 2nd block: reads its own "1\n" and increments a non-zero value -> "2".
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ "$(cat "$state_file")" = "2" ]
+
+  # 3rd block: "2" -> "3".
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ "$(cat "$state_file")" = "3" ]
+
+  # 4th invocation: count 3 >= MAX_BLOCKS -> auto-allow, remove counter, exit 0.
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"blocked 3 times consecutively"* ]]
+  [ ! -e "$state_file" ]
+}
+
+# -----------------------------------------------------------------------------
 # L1 regression: any tests/bats/*.bash file (not just test_helper*) is bats
 # helper code that gets sourced — these have no shebang by convention but
 # still need shellcheck. The earlier matcher widening (commit 4987af5)

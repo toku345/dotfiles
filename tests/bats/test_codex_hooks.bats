@@ -305,6 +305,53 @@ some_unused_var=42
 }
 
 # -----------------------------------------------------------------------------
+# Counter round-trip (Codex twin): drive a persistently failing gate across
+# four invocations so the counter goes 0 -> 1 -> 2 -> 3 -> MAX_BLOCKS
+# auto-allow, proving the hook reads its OWN newline-terminated output,
+# increments a non-zero value, and auto-allows — none of which the
+# single-invocation tests above exercise.
+# -----------------------------------------------------------------------------
+
+@test "codex: counter round-trip increments across invocations and auto-allows at MAX_BLOCKS" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/shellcheck" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/shellcheck"
+
+  init_codex_repo ".codex/hooks/bad.sh" \
+'#!/usr/bin/env bash
+some_unused_var=42
+'
+
+  local state_file
+  state_file="$(codex_state_file)"
+
+  # 1st block: count 0 -> writes newline-terminated "1", exit 2.
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ "$(cat "$state_file")" = "1" ]
+
+  # 2nd block: reads its own "1\n" and increments a non-zero value -> "2".
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ "$(cat "$state_file")" = "2" ]
+
+  # 3rd block: "2" -> "3".
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ "$(cat "$state_file")" = "3" ]
+
+  # 4th invocation: count 3 >= MAX_BLOCKS -> auto-allow, remove counter, exit 0.
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"blocked 3 times consecutively"* ]]
+  [ ! -e "$state_file" ]
+}
+
+# -----------------------------------------------------------------------------
 # .codex/hooks.json is the only project-local wiring that makes the tested hook
 # scripts run. Keep a thin schema-independent assertion around the event names,
 # matcher, and command targets so script tests cannot pass while wiring drifts.
