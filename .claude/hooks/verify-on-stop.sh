@@ -10,13 +10,39 @@
 
 set -Eeuo pipefail
 
-readonly STATE_FILE="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/.stop-hook-block-count"
 readonly MAX_BLOCKS=3
+
+state_file_for_project() {
+  local app="$1"
+  local project_path state_home repo_key
+
+  project_path=$(pwd -P)
+  # Only honor an absolute XDG_STATE_HOME. This runs after we cd into the
+  # project dir, so a relative value would resolve the loop-guard counter
+  # inside the worktree — reintroducing the pollution this indirection avoids.
+  if [[ "${XDG_STATE_HOME:-}" = /* ]]; then
+    state_home="$XDG_STATE_HOME"
+  elif [[ "${HOME:-}" = /* ]]; then
+    state_home="$HOME/.local/state"
+  else
+    state_home="/tmp/${app}-hooks-state"
+  fi
+  repo_key=$(printf '%s' "$project_path" | cksum | awk '{print $1}')
+  printf '%s/%s/project-hooks/stop-hook-block-count.%s\n' \
+    "$state_home" "$app" "$repo_key"
+}
+
+remove_state_file() {
+  rm -f "$STATE_FILE" 2>/dev/null \
+    || echo "verify-on-stop: cannot remove loop-guard state ($STATE_FILE); continuing." >&2
+}
 
 if ! cd "${CLAUDE_PROJECT_DIR:-$PWD}"; then
   echo "verify-on-stop: cannot cd to project dir; allowing stop." >&2
   exit 0
 fi
+STATE_FILE=$(state_file_for_project claude)
+readonly STATE_FILE
 
 # Drain stdin so the upstream pipe never blocks. We don't use the payload.
 cat >/dev/null
@@ -76,22 +102,30 @@ done
 if [ ${#bats_changed[@]} -eq 0 ] \
    && [ ${#shell_changed[@]} -eq 0 ] \
    && [ ${#fish_changed[@]} -eq 0 ]; then
-  rm -f "$STATE_FILE"
+  remove_state_file
   exit 0
 fi
 
 count=0
-if [ -f "$STATE_FILE" ]; then
-  raw=$(cat "$STATE_FILE")
-  if [[ "$raw" =~ ^[0-9]+$ ]]; then
-    count="$raw"
+if [ -L "$STATE_FILE" ]; then
+  echo "verify-on-stop: state file is a symlink; resetting." >&2
+  remove_state_file
+elif [ -f "$STATE_FILE" ]; then
+  raw=""
+  if raw=$(<"$STATE_FILE"); then
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+      count="$raw"
+    else
+      echo "verify-on-stop: state file corrupted; resetting." >&2
+      remove_state_file
+    fi
   else
-    echo "verify-on-stop: state file corrupted ($STATE_FILE='$raw'); resetting." >&2
-    rm -f "$STATE_FILE"
+    echo "verify-on-stop: state file corrupted; resetting." >&2
+    remove_state_file
   fi
 fi
 if [ "$count" -ge "$MAX_BLOCKS" ]; then
-  rm -f "$STATE_FILE"
+  remove_state_file
   echo "verify-on-stop: blocked $count times consecutively, allowing stop." >&2
   exit 0
 fi
@@ -155,15 +189,27 @@ if [ ${#fish_changed[@]} -gt 0 ]; then
 fi
 
 if [ ${#errors[@]} -eq 0 ]; then
-  rm -f "$STATE_FILE"
+  remove_state_file
   exit 0
 fi
 
-mkdir -p "$(dirname "$STATE_FILE")"
-# Atomic write so a concurrent Stop hook cannot read a half-written count.
+# Persist the incremented counter outside the worktree, atomically so a
+# concurrent Stop hook never reads a half-written count. If the state home is
+# unwritable (e.g. an absolute but read-only XDG_STATE_HOME), fail loud AND
+# open: a counter we cannot advance would defeat the MAX_BLOCKS auto-allow and
+# could trap the turn in a stop loop.
 tmp="$STATE_FILE.tmp.$$"
-echo $((count + 1)) > "$tmp"
-mv "$tmp" "$STATE_FILE"
+if ! { mkdir -p "$(dirname "$STATE_FILE")" \
+       && echo $((count + 1)) > "$tmp" \
+       && mv "$tmp" "$STATE_FILE"; } 2>/dev/null; then
+  rm -f "$tmp" 2>/dev/null || true
+  {
+    echo "verify-on-stop: cannot persist loop-guard state ($STATE_FILE); allowing stop."
+    echo "verify-on-stop: verification failures were not enforced:"
+    printf '%s\n\n' "${errors[@]}"
+  } >&2
+  exit 0
+fi
 {
   echo "verify-on-stop blocked stop ($((count + 1))/$MAX_BLOCKS):"
   printf '%s\n\n' "${errors[@]}"

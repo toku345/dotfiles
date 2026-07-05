@@ -26,3 +26,5 @@ id_rsa
 id_rsa.*
 *.key
 *.pem
+
+**/.claude/.cc-writes/
