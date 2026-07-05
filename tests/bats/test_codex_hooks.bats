@@ -267,6 +267,44 @@ some_unused_var=42
 }
 
 # -----------------------------------------------------------------------------
+# Fail-open on an unwritable state home (Codex twin): a non-writable
+# XDG_STATE_HOME must not leave the counter stuck and trap the turn in a loop.
+# -----------------------------------------------------------------------------
+
+@test "codex: unwritable state home fails open (allows stop, no loop trap)" {
+  if [ "$(id -u)" -eq 0 ]; then
+    skip "root ignores directory permissions; cannot simulate an unwritable state home"
+  fi
+
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local ro_home="$BATS_TEST_TMPDIR/ro-state"
+  mkdir -p "$stub_dir" "$ro_home"
+  cat > "$stub_dir/shellcheck" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/shellcheck"
+
+  init_codex_repo ".codex/hooks/bad.sh" \
+'#!/usr/bin/env bash
+some_unused_var=42
+'
+
+  # Absolute but read-only XDG_STATE_HOME: the counter write must fail and the
+  # hook must exit 0 with a loud diagnostic, never a non-zero exit that leaves
+  # the counter stuck.
+  chmod 500 "$ro_home"
+
+  run --separate-stderr env \
+    XDG_STATE_HOME="$ro_home" \
+    PATH="$stub_dir:$PATH" \
+    bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"cannot persist loop-guard state"* ]]
+  [[ "$stderr" == *"allowing stop"* ]]
+}
+
+# -----------------------------------------------------------------------------
 # .codex/hooks.json is the only project-local wiring that makes the tested hook
 # scripts run. Keep a thin schema-independent assertion around the event names,
 # matcher, and command targets so script tests cannot pass while wiring drifts.

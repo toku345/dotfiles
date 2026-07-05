@@ -219,6 +219,48 @@ STUB
 }
 
 # -----------------------------------------------------------------------------
+# Fail-open on an unwritable state home: relocating the counter outside the
+# worktree means the write can now hit a non-writable XDG_STATE_HOME. If that
+# write failed silently under set -e, the counter would never advance and a
+# persistently failing gate would trap the turn — so the hook must fail loud
+# AND allow the stop.
+# -----------------------------------------------------------------------------
+
+@test "state-file: unwritable state home fails open (allows stop, no loop trap)" {
+  if [ "$(id -u)" -eq 0 ]; then
+    skip "root ignores directory permissions; cannot simulate an unwritable state home"
+  fi
+  if ! command -v fish >/dev/null 2>&1; then
+    skip "fish not installed; cannot exercise the gate path"
+  fi
+
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local ro_home="$BATS_TEST_TMPDIR/ro-state"
+  mkdir -p "$stub_dir" "$ro_home"
+  cat > "$stub_dir/fish" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/fish"
+
+  init_repo_with_relevant_file "broken.fish" "function foo\n"
+
+  # Absolute but read-only XDG_STATE_HOME: the failing fish gate would normally
+  # block (exit 2) and bump the counter, but the counter write cannot succeed.
+  # The hook must exit 0 with a loud diagnostic rather than a non-zero exit that
+  # leaves the counter stuck.
+  chmod 500 "$ro_home"
+
+  run --separate-stderr env \
+    XDG_STATE_HOME="$ro_home" \
+    PATH="$stub_dir:$PATH" \
+    "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"cannot persist loop-guard state"* ]]
+  [[ "$stderr" == *"allowing stop"* ]]
+}
+
+# -----------------------------------------------------------------------------
 # L1 regression: any tests/bats/*.bash file (not just test_helper*) is bats
 # helper code that gets sourced — these have no shebang by convention but
 # still need shellcheck. The earlier matcher widening (commit 4987af5)

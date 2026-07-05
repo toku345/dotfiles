@@ -15,6 +15,9 @@ state_file_for_project() {
   local project_path state_home repo_key
 
   project_path=$(pwd -P)
+  # Only honor an absolute XDG_STATE_HOME. This runs after we cd into the
+  # project dir, so a relative value would resolve the loop-guard counter
+  # inside the worktree — reintroducing the pollution this indirection avoids.
   if [[ "${XDG_STATE_HOME:-}" = /* ]]; then
     state_home="$XDG_STATE_HOME"
   elif [[ "${HOME:-}" = /* ]]; then
@@ -159,10 +162,19 @@ if [ ${#errors[@]} -eq 0 ]; then
   exit 0
 fi
 
-mkdir -p "$(dirname "$STATE_FILE")"
+# Persist the incremented counter outside the worktree, atomically so a
+# concurrent Stop hook never reads a half-written count. If the state home is
+# unwritable (e.g. an absolute but read-only XDG_STATE_HOME), fail loud AND
+# open: a counter we cannot advance would defeat the MAX_BLOCKS auto-allow and
+# could trap the turn in a stop loop.
 tmp="$STATE_FILE.tmp.$$"
-echo $((count + 1)) > "$tmp"
-mv "$tmp" "$STATE_FILE"
+if ! { mkdir -p "$(dirname "$STATE_FILE")" \
+       && echo $((count + 1)) > "$tmp" \
+       && mv "$tmp" "$STATE_FILE"; } 2>/dev/null; then
+  rm -f "$tmp" 2>/dev/null || true
+  echo "verify-on-stop: cannot persist loop-guard state ($STATE_FILE); allowing stop." >&2
+  exit 0
+fi
 {
   echo "verify-on-stop blocked stop ($((count + 1))/$MAX_BLOCKS):"
   printf '%s\n\n' "${errors[@]}"
