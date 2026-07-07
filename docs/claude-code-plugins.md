@@ -159,3 +159,57 @@ Claude Code 内で以下を実行:
 ### 既知の問題
 
 - `/codex:setup` の内部で実行される認証チェック（`codex-companion.mjs setup`）が Claude Code の sandbox 内で失敗する（macOS `system-configuration` へのアクセス制限）。`codex` は `settings.json` の `excludedCommands` に含まれているが、`excludedCommands` では Mach service 制限を回避できないため、`dangerouslyDisableSandbox: true` が必要となる。AI が sandbox 回避を自動判断するため、ユーザー側の追加操作は不要だが、権限確認のプロンプトが表示される場合がある。
+
+## 定期更新チェックリスト
+
+agmsg / cc-session-finder / Claude Code plugins は自動更新しない
+(`DISABLE_AUTOUPDATER=1` と marketplace の `autoUpdate=false` は維持)。
+四半期に 1 回を下限として、3 コンポーネントまとめて 1 つの reviewed bump PR
+で追従する。レビュー窓は [docs/security.md の high-privilege CLI 四半期 pin
+レビュー](security.md#high-privilege-clis-and-casks) に相乗りする。
+upstream の動きが速くなったら月次に短縮してよい。
+
+### agmsg
+
+[§更新](#更新) の手順に従う (upstream diff レビュー → `AGMSG_REF` bump →
+`chezmoi apply -v` → `/agmsg version` で反映確認)。
+
+### cc-session-finder
+
+1. upstream diff をレビュー:
+   `https://github.com/jugyo/cc-session-finder/compare/<現行 SHA>...main`
+2. `.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh` の
+   `CC_SESSION_FINDER_REF` を新しい full commit SHA に bump する
+3. `chezmoi apply -v` を実行する。script が state file
+   (`~/.local/state/dotfiles/cc-session-finder.ref`) と pinned rev の不一致を
+   検出し、`cargo install --force` で自動再インストールする
+4. 反映確認は state file が正: `cat ~/.local/state/dotfiles/cc-session-finder.ref`
+   が新 SHA と一致すること。`cc-session-finder --version` は semver しか出さず
+   rev を特定できないため smoke test 用途のみ
+5. MCP 登録確認: `claude mcp get cc-session-finder` /
+   `codex mcp get cc-session-finder`
+6. 稼働中の MCP server プロセスは旧バイナリのまま動き続けるため、Claude Code /
+   Codex のセッションを再起動して新バイナリに切り替える
+
+セットアップの全体像 (MCP 登録の仕組み) は
+[docs/codex.md の cc-session-finder MCP](codex.md#cc-session-finder-mcp) を参照。
+
+### Claude Code plugins
+
+policy と詳細 runbook は [docs/security.md の Claude Code and Codex
+セクション](security.md#claude-code-and-codex-ai-coding-tools) が正。要点のみ:
+
+- before: `claude plugin list --json` で現行 version / SHA を記録する
+- 対象 plugin の release notes / source diff をレビューする
+- `claude plugin marketplace update <marketplace>` →
+  `claude plugin update <plugin>@<marketplace>` (反映は Claude Code 再起動後)
+- after: `claude plugin list --json` を再取得して差分を記録する
+- 対象 plugin 固有の smoke test を実施する (例: `pr-review-toolkit` 更新時は
+  trivial branch で小さく `/pr-review` を回す)
+
+### bump PR の検証
+
+- `sh -n` + `shellcheck` (変更した `.chezmoiscripts/*.sh`)
+- `bats tests/bats/test_agmsg_setup.bats tests/bats/test_cc_session_finder_mcp_setup.bats`
+- `chezmoi apply -v` がエラーなく完了する
+- `claude mcp get cc-session-finder` / `codex mcp get cc-session-finder`

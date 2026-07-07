@@ -9,21 +9,33 @@ setup() {
   PINNED_REF="$(sed -n 's/^CC_SESSION_FINDER_REF="\([^"]*\)"/\1/p' "$SCRIPT")"
   TEST_HOME="$BATS_TEST_TMPDIR/home"
   STUB_BIN="$BATS_TEST_TMPDIR/bin"
+  STATE_FILE="$TEST_HOME/.local/state/dotfiles/cc-session-finder.ref"
   mkdir -p "$TEST_HOME" "$STUB_BIN"
-  export REPO_ROOT SCRIPT PINNED_REF TEST_HOME STUB_BIN
+  export REPO_ROOT SCRIPT PINNED_REF TEST_HOME STUB_BIN STATE_FILE
 }
 
 run_setup() {
-  run env -u CARGO_HOME HOME="$TEST_HOME" PATH="$STUB_BIN:/usr/bin:/bin" sh "$SCRIPT"
+  run env -u CARGO_HOME -u CARGO_INSTALL_ROOT -u XDG_STATE_HOME HOME="$TEST_HOME" PATH="$STUB_BIN:/usr/bin:/bin" sh "$SCRIPT"
 }
 
-write_cc_session_finder_stub() {
+write_managed_binary() {
   mkdir -p "$TEST_HOME/.cargo/bin"
   cat > "$TEST_HOME/.cargo/bin/cc-session-finder" <<'STUB'
 #!/bin/sh
 exit 0
 STUB
   chmod +x "$TEST_HOME/.cargo/bin/cc-session-finder"
+}
+
+write_state() {
+  mkdir -p "$(dirname "$STATE_FILE")"
+  printf '%s\n' "$1" > "$STATE_FILE"
+}
+
+write_cc_session_finder_stub() {
+  # Managed install already at the pinned rev: binary plus matching state marker.
+  write_managed_binary
+  write_state "$PINNED_REF"
 }
 
 write_claude_stub_current() {
@@ -92,7 +104,8 @@ STUB
 }
 
 write_cargo_stub_installing_binary() {
-  cat > "$STUB_BIN/cargo" <<'STUB'
+  _cargo_path="${1:-$STUB_BIN/cargo}"
+  cat > "$_cargo_path" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$*" > "$HOME/cargo.args"
 mkdir -p "$HOME/.cargo/bin"
@@ -101,6 +114,15 @@ cat > "$HOME/.cargo/bin/cc-session-finder" <<'BIN'
 exit 0
 BIN
 chmod +x "$HOME/.cargo/bin/cc-session-finder"
+STUB
+  chmod +x "$_cargo_path"
+}
+
+write_cargo_stub_failing() {
+  cat > "$STUB_BIN/cargo" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" > "$HOME/cargo.args"
+exit 101
 STUB
   chmod +x "$STUB_BIN/cargo"
 }
@@ -310,4 +332,115 @@ STUB
   [ "$status" -eq 2 ]
   [[ "$output" == *"failed to inspect Codex MCP server \"cc-session-finder\""* ]]
   [[ "$output" == *"failed to parse config"* ]]
+}
+
+@test "managed binary with stale state and cargo -> reinstall pinned revision" {
+  write_managed_binary
+  write_state "0000000000000000000000000000000000000000"
+  write_cargo_stub_installing_binary
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--force"* ]]
+  [ "$(cat "$STATE_FILE")" = "$PINNED_REF" ]
+}
+
+@test "managed binary with matching state -> no cargo invocation" {
+  write_cc_session_finder_stub
+  write_cargo_stub_installing_binary
+  write_claude_stub_current
+
+  run_setup
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$TEST_HOME/cargo.args" ]
+}
+
+@test "managed binary with stale state and no cargo -> fail loud" {
+  write_managed_binary
+  write_state "0000000000000000000000000000000000000000"
+
+  run_setup
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cargo is unavailable to reinstall"* ]]
+}
+
+@test "managed binary without state -> reinstall pinned revision and write state" {
+  write_managed_binary
+  write_cargo_stub_installing_binary
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
+  [ "$(cat "$STATE_FILE")" = "$PINNED_REF" ]
+}
+
+@test "matching state but managed binary missing -> reinstall" {
+  write_state "$PINNED_REF"
+  write_cargo_stub_installing_binary
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
+}
+
+@test "cargo install failure -> fail loud and keep previous state" {
+  write_managed_binary
+  write_state "0000000000000000000000000000000000000000"
+  write_cargo_stub_failing
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cargo install failed"* ]]
+  [ "$(cat "$STATE_FILE")" = "0000000000000000000000000000000000000000" ]
+  [ ! -e "$TEST_HOME/claude.log" ]
+}
+
+@test "state without managed binary and no cargo -> fail loud" {
+  write_state "$PINNED_REF"
+
+  run_setup
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cargo is unavailable to reinstall"* ]]
+}
+
+@test "cargo only in CARGO_HOME/bin (not on PATH) -> still reinstalls" {
+  write_managed_binary
+  write_state "0000000000000000000000000000000000000000"
+  write_cargo_stub_installing_binary "$TEST_HOME/.cargo/bin/cargo"
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
+  [ "$(cat "$STATE_FILE")" = "$PINNED_REF" ]
+}
+
+@test "PATH binary outside CARGO_HOME never satisfies the pinned fast path" {
+  cat > "$STUB_BIN/cc-session-finder" <<'STUB'
+#!/bin/sh
+exit 0
+STUB
+  chmod +x "$STUB_BIN/cc-session-finder"
+  write_state "$PINNED_REF"
+  write_cargo_stub_installing_binary
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
+  [[ "$(cat "$TEST_HOME/claude.log")" == *"-- $TEST_HOME/.cargo/bin/cc-session-finder mcp"* ]]
 }
