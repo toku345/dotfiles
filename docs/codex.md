@@ -72,7 +72,7 @@ args = ["mcp"]
 
 この section は `~/.codex/config.chezmoi.toml` ではなく installer-managed local entry として live config に保持する。baseline 更新時は他の local-only section と同様に残す。
 
-managed install は `$CARGO_HOME/bin/cc-session-finder` に限定され、インストール済み rev は state file (`~/.local/state/dotfiles/cc-session-finder.ref`) に記録される。`CC_SESSION_FINDER_REF` の bump 手順は [docs/claude-code-plugins.md の定期更新チェックリスト](claude-code-plugins.md#定期更新チェックリスト) を参照。
+managed install は `${CARGO_INSTALL_ROOT:-$CARGO_HOME}/bin/cc-session-finder` に限定され、インストール済み rev は state file (`~/.local/state/dotfiles/cc-session-finder.ref`) に記録される。`CC_SESSION_FINDER_REF` の bump 手順は [docs/claude-code-plugins.md の定期更新チェックリスト](claude-code-plugins.md#定期更新チェックリスト) を参照。
 
 ## rules
 

@@ -7,15 +7,20 @@ setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   SCRIPT="$REPO_ROOT/.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh"
   PINNED_REF="$(sed -n 's/^CC_SESSION_FINDER_REF="\([^"]*\)"/\1/p' "$SCRIPT")"
+  STALE_REF="0000000000000000000000000000000000000000"
   TEST_HOME="$BATS_TEST_TMPDIR/home"
   STUB_BIN="$BATS_TEST_TMPDIR/bin"
   STATE_FILE="$TEST_HOME/.local/state/dotfiles/cc-session-finder.ref"
   mkdir -p "$TEST_HOME" "$STUB_BIN"
-  export REPO_ROOT SCRIPT PINNED_REF TEST_HOME STUB_BIN STATE_FILE
+  export REPO_ROOT SCRIPT PINNED_REF STALE_REF TEST_HOME STUB_BIN STATE_FILE
 }
 
 run_setup() {
   run env -u CARGO_HOME -u CARGO_INSTALL_ROOT -u XDG_STATE_HOME HOME="$TEST_HOME" PATH="$STUB_BIN:/usr/bin:/bin" sh "$SCRIPT"
+}
+
+run_setup_with_cargo_install_root() {
+  run env -u CARGO_HOME -u XDG_STATE_HOME CARGO_INSTALL_ROOT="$1" HOME="$TEST_HOME" PATH="$STUB_BIN:/usr/bin:/bin" sh "$SCRIPT"
 }
 
 write_managed_binary() {
@@ -108,14 +113,32 @@ write_cargo_stub_installing_binary() {
   cat > "$_cargo_path" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$*" > "$HOME/cargo.args"
-mkdir -p "$HOME/.cargo/bin"
-cat > "$HOME/.cargo/bin/cc-session-finder" <<'BIN'
+install_root="$HOME/.cargo"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--root" ]; then
+    shift
+    install_root=$1
+    break
+  fi
+  shift
+done
+mkdir -p "$install_root/bin"
+cat > "$install_root/bin/cc-session-finder" <<'BIN'
 #!/bin/sh
 exit 0
 BIN
-chmod +x "$HOME/.cargo/bin/cc-session-finder"
+chmod +x "$install_root/bin/cc-session-finder"
 STUB
   chmod +x "$_cargo_path"
+}
+
+write_cargo_stub_success_without_binary() {
+  cat > "$STUB_BIN/cargo" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" > "$HOME/cargo.args"
+exit 0
+STUB
+  chmod +x "$STUB_BIN/cargo"
 }
 
 write_cargo_stub_failing() {
@@ -267,7 +290,25 @@ STUB
 
   [ "$status" -eq 0 ]
   [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--root $TEST_HOME/.cargo"* ]]
   [[ "$(cat "$TEST_HOME/claude.log")" == *"mcp add --scope user cc-session-finder -- $TEST_HOME/.cargo/bin/cc-session-finder mcp"* ]]
+}
+
+@test "custom CARGO_INSTALL_ROOT -> install and register custom managed path" {
+  custom_root="$TEST_HOME/custom-cargo"
+  custom_state="$TEST_HOME/.local/state/dotfiles/cc-session-finder.ref"
+  write_cargo_stub_installing_binary
+  write_claude_stub_missing
+  write_codex_stub_missing
+
+  run_setup_with_cargo_install_root "$custom_root"
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--root $custom_root"* ]]
+  [ -x "$custom_root/bin/cc-session-finder" ]
+  [ "$(cat "$custom_state")" = "$PINNED_REF" ]
+  [[ "$(cat "$TEST_HOME/claude.log")" == *"mcp add --scope user cc-session-finder -- $custom_root/bin/cc-session-finder mcp"* ]]
+  [[ "$(cat "$TEST_HOME/codex.log")" == *"mcp add cc-session-finder -- $custom_root/bin/cc-session-finder mcp"* ]]
 }
 
 @test "wrong user-scope MCP entry -> replace with pinned binary path" {
@@ -336,7 +377,7 @@ STUB
 
 @test "managed binary with stale state and cargo -> reinstall pinned revision" {
   write_managed_binary
-  write_state "0000000000000000000000000000000000000000"
+  write_state "$STALE_REF"
   write_cargo_stub_installing_binary
   write_claude_stub_missing
 
@@ -361,7 +402,7 @@ STUB
 
 @test "managed binary with stale state and no cargo -> fail loud" {
   write_managed_binary
-  write_state "0000000000000000000000000000000000000000"
+  write_state "$STALE_REF"
 
   run_setup
 
@@ -394,7 +435,7 @@ STUB
 
 @test "cargo install failure -> fail loud and keep previous state" {
   write_managed_binary
-  write_state "0000000000000000000000000000000000000000"
+  write_state "$STALE_REF"
   write_cargo_stub_failing
   write_claude_stub_missing
 
@@ -402,7 +443,22 @@ STUB
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"cargo install failed"* ]]
-  [ "$(cat "$STATE_FILE")" = "0000000000000000000000000000000000000000" ]
+  [ "$(cat "$STATE_FILE")" = "$STALE_REF" ]
+  [ ! -e "$TEST_HOME/claude.log" ]
+}
+
+@test "cargo install succeeds without managed binary -> fail loud and keep previous state" {
+  write_managed_binary
+  write_state "$STALE_REF"
+  rm "$TEST_HOME/.cargo/bin/cc-session-finder"
+  write_cargo_stub_success_without_binary
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cargo install succeeded but $TEST_HOME/.cargo/bin/cc-session-finder is not executable"* ]]
+  [ "$(cat "$STATE_FILE")" = "$STALE_REF" ]
   [ ! -e "$TEST_HOME/claude.log" ]
 }
 
@@ -417,7 +473,7 @@ STUB
 
 @test "cargo only in CARGO_HOME/bin (not on PATH) -> still reinstalls" {
   write_managed_binary
-  write_state "0000000000000000000000000000000000000000"
+  write_state "$STALE_REF"
   write_cargo_stub_installing_binary "$TEST_HOME/.cargo/bin/cargo"
   write_claude_stub_missing
 

@@ -96,6 +96,7 @@ install_cc_session_finder() {
         --git "$CC_SESSION_FINDER_REPO" \
         --rev "$CC_SESSION_FINDER_REF" \
         --locked \
+        --root "$install_root" \
         --force \
         --bin cc-session-finder; then
         printf '%s\n' "error: cargo install failed for rev $CC_SESSION_FINDER_REF; keeping previous state" >&2
@@ -103,7 +104,7 @@ install_cc_session_finder() {
     fi
 
     if [ ! -x "$managed_binary" ]; then
-        printf '%s\n' "error: cargo install succeeded but $managed_binary is not executable. If cargo's install.root (~/.cargo/config.toml) points elsewhere, unset it or set CARGO_INSTALL_ROOT to match" >&2
+        printf '%s\n' "error: cargo install succeeded but $managed_binary is not executable; expected cargo --root $install_root to create it" >&2
         return 1
     fi
 
