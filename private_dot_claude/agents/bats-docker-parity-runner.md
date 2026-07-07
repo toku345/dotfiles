@@ -48,11 +48,14 @@ mirrors the GitHub Actions environment:
 - **Image**: `ubuntu:24.04` (close enough to `ubuntu-latest` for
   parity work; adjust only if the real CI runner image changes).
 - **Packages**: for a full `tests/bats/` run the baseline is `bats git
-  procps fish jq shellcheck` — the GitHub Actions Bats job installs
+  procps fish jq shellcheck sqlite3` — the GitHub Actions Bats job installs
   `bats fish` and implicitly relies on the `ubuntu-latest` runner's
-  `jq` / `shellcheck`. A bare container without those runner-provided
+  `jq` / `shellcheck` / `sqlite3`. A bare container without those runner-provided
   tools can silently `skip` hook tests, hiding the parity gap you were
-  looking for. Trim the list only when running a subset of `.bats`
+  looking for. Missing `sqlite3` fails differently: the agmsg installer's
+  `require_command sqlite3` exits 1 with its own message, so the two
+  installer-path cases in `test_agmsg_setup.bats` fail only on the message
+  assertion while the exit-code assertion passes by coincidence. Trim the list only when running a subset of `.bats`
   files that does not need a package — verify by running that subset
   and checking for exit-127 failures or skips (see Diagnostic
   Heuristics below). When new tests introduce a dependency, extend this
