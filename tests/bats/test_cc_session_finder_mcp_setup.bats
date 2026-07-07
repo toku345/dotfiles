@@ -37,10 +37,24 @@ write_state() {
   printf '%s\n' "$1" > "$STATE_FILE"
 }
 
+binary_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+# Current state marker: rev on line 1, sha256 of the managed binary on line 2.
+write_state_current() {
+  mkdir -p "$(dirname "$STATE_FILE")"
+  printf '%s\n%s\n' "$PINNED_REF" "$(binary_sha256 "$TEST_HOME/.cargo/bin/cc-session-finder")" > "$STATE_FILE"
+}
+
 write_cc_session_finder_stub() {
   # Managed install already at the pinned rev: binary plus matching state marker.
   write_managed_binary
-  write_state "$PINNED_REF"
+  write_state_current
 }
 
 write_claude_stub_current() {
@@ -306,7 +320,8 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$(cat "$TEST_HOME/cargo.args")" == *"--root $custom_root"* ]]
   [ -x "$custom_root/bin/cc-session-finder" ]
-  [ "$(cat "$custom_state")" = "$PINNED_REF" ]
+  [ "$(sed -n '1p' "$custom_state")" = "$PINNED_REF" ]
+  [ "$(sed -n '2p' "$custom_state")" = "$(binary_sha256 "$custom_root/bin/cc-session-finder")" ]
   [[ "$(cat "$TEST_HOME/claude.log")" == *"mcp add --scope user cc-session-finder -- $custom_root/bin/cc-session-finder mcp"* ]]
   [[ "$(cat "$TEST_HOME/codex.log")" == *"mcp add cc-session-finder -- $custom_root/bin/cc-session-finder mcp"* ]]
 }
@@ -386,7 +401,8 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
   [[ "$(cat "$TEST_HOME/cargo.args")" == *"--force"* ]]
-  [ "$(cat "$STATE_FILE")" = "$PINNED_REF" ]
+  [ "$(sed -n '1p' "$STATE_FILE")" = "$PINNED_REF" ]
+  [ "$(sed -n '2p' "$STATE_FILE")" = "$(binary_sha256 "$TEST_HOME/.cargo/bin/cc-session-finder")" ]
 }
 
 @test "managed binary with matching state -> no cargo invocation" {
@@ -419,7 +435,8 @@ STUB
 
   [ "$status" -eq 0 ]
   [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
-  [ "$(cat "$STATE_FILE")" = "$PINNED_REF" ]
+  [ "$(sed -n '1p' "$STATE_FILE")" = "$PINNED_REF" ]
+  [ "$(sed -n '2p' "$STATE_FILE")" = "$(binary_sha256 "$TEST_HOME/.cargo/bin/cc-session-finder")" ]
 }
 
 @test "matching state but managed binary missing -> reinstall" {
@@ -481,7 +498,7 @@ STUB
 
   [ "$status" -eq 0 ]
   [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
-  [ "$(cat "$STATE_FILE")" = "$PINNED_REF" ]
+  [ "$(sed -n '1p' "$STATE_FILE")" = "$PINNED_REF" ]
 }
 
 @test "PATH binary outside CARGO_HOME never satisfies the pinned fast path" {
@@ -499,4 +516,39 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
   [[ "$(cat "$TEST_HOME/claude.log")" == *"-- $TEST_HOME/.cargo/bin/cc-session-finder mcp"* ]]
+}
+
+@test "managed binary overwritten out-of-band with matching rev state -> reinstall" {
+  write_cc_session_finder_stub
+  # Simulate an out-of-band overwrite after the state was recorded: the rev in
+  # the state file still matches, but the artifact no longer does.
+  cat > "$TEST_HOME/.cargo/bin/cc-session-finder" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+  chmod +x "$TEST_HOME/.cargo/bin/cc-session-finder"
+  write_cargo_stub_installing_binary
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--force"* ]]
+  [ "$(sed -n '1p' "$STATE_FILE")" = "$PINNED_REF" ]
+  [ "$(sed -n '2p' "$STATE_FILE")" = "$(binary_sha256 "$TEST_HOME/.cargo/bin/cc-session-finder")" ]
+}
+
+@test "legacy single-line state with matching rev -> reinstall and record fingerprint" {
+  write_managed_binary
+  write_state "$PINNED_REF"
+  write_cargo_stub_installing_binary
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
+  [ "$(sed -n '1p' "$STATE_FILE")" = "$PINNED_REF" ]
+  [ "$(sed -n '2p' "$STATE_FILE")" = "$(binary_sha256 "$TEST_HOME/.cargo/bin/cc-session-finder")" ]
 }

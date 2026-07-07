@@ -181,11 +181,14 @@ upstream の動きが速くなったら月次に短縮してよい。
 2. `.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh` の
    `CC_SESSION_FINDER_REF` を新しい full commit SHA に bump する
 3. `chezmoi apply -v` を実行する。script が state file
-   (`~/.local/state/dotfiles/cc-session-finder.ref`) と pinned rev の不一致を
-   検出し、`cargo install --force` で自動再インストールする
-4. 反映確認は state file が正: `cat ~/.local/state/dotfiles/cc-session-finder.ref`
-   が新 SHA と一致すること。`cc-session-finder --version` は semver しか出さず
-   rev を特定できないため smoke test 用途のみ
+   (`${XDG_STATE_HOME:-~/.local/state}/dotfiles/cc-session-finder.ref`) と
+   pinned rev / binary fingerprint の不一致を検出し、`cargo install --force`
+   で自動再インストールする
+4. 反映確認は state file が正:
+   `head -n1 "${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/cc-session-finder.ref"`
+   が新 SHA と一致すること (2 行目は binary の sha256 fingerprint で、
+   out-of-band 上書き検出に使われる)。`cc-session-finder --version` は
+   semver しか出さず rev を特定できないため smoke test 用途のみ
 5. MCP 登録確認: `claude mcp get cc-session-finder` /
    `codex mcp get cc-session-finder`
 6. 稼働中の MCP server プロセスは旧バイナリのまま動き続けるため、Claude Code /
