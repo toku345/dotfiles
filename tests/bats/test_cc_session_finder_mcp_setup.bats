@@ -144,6 +144,15 @@ STUB
   chmod +x "$STUB_BIN/cargo"
 }
 
+write_cargo_stub_failure() {
+  cat > "$STUB_BIN/cargo" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" > "$HOME/cargo.args"
+exit 1
+STUB
+  chmod +x "$STUB_BIN/cargo"
+}
+
 write_codex_stub_current() {
   cat > "$STUB_BIN/codex" <<'STUB'
 #!/bin/sh
@@ -445,6 +454,20 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$(cat "$TEST_HOME/cargo.args")" == *"--rev $PINNED_REF"* ]]
   [[ "$(cat "$TEST_HOME/claude.log")" == *"-- $TEST_HOME/.cargo/bin/cc-session-finder mcp"* ]]
+}
+
+@test "cargo install fails -> fail loud and keep previous state" {
+  write_managed_binary
+  write_state "$STALE_REF"
+  write_cargo_stub_failure
+  write_claude_stub_missing
+
+  run_setup
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cargo install failed for rev $PINNED_REF"* ]]
+  [ "$(cat "$STATE_FILE")" = "$STALE_REF" ]
+  [ ! -e "$TEST_HOME/claude.log" ]
 }
 
 @test "cargo install succeeds without managed binary -> fail loud and keep previous state" {
