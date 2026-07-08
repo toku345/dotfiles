@@ -488,6 +488,18 @@ STUB
   [[ "$output" == *"cargo is unavailable to reinstall"* ]]
 }
 
+@test "managed binary without state and no cargo -> fail loud" {
+  # Pins the binary-only arm of the evidence guard: narrowing it to the state
+  # file alone would silently demote this case to the first-install rc=2 skip.
+  write_managed_binary
+
+  run_setup
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cargo is unavailable to reinstall"* ]]
+  [[ "$output" == *"recorded rev: (none)"* ]]
+}
+
 @test "cargo only in CARGO_HOME/bin (not on PATH) -> still reinstalls" {
   write_managed_binary
   write_state "$STALE_REF"
