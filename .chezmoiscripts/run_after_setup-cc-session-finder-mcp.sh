@@ -5,6 +5,12 @@ CC_SESSION_FINDER_REPO="https://github.com/jugyo/cc-session-finder.git"
 CC_SESSION_FINDER_REF="68fcd96659af648dbf4204791b9bffddca249e72"
 CC_SESSION_FINDER_MCP_NAME="cc-session-finder"
 
+cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
+install_root=${CARGO_INSTALL_ROOT:-"$cargo_home"}
+managed_binary="$install_root/bin/cc-session-finder"
+state_dir="${XDG_STATE_HOME:-"$HOME/.local/state"}/dotfiles"
+state_file="$state_dir/cc-session-finder.ref"
+
 info() {
     printf '%s\n' "$*" >&2
 }
@@ -30,50 +36,91 @@ This setup will install cc-session-finder from:
 MSG
 }
 
-find_cc_session_finder() {
-    if command -v cc-session-finder >/dev/null 2>&1; then
-        command -v cc-session-finder
+managed_install_current() {
+    [ -x "$managed_binary" ] || return 1
+    [ -f "$state_file" ] || return 1
+    [ "$(sed -n '1p' "$state_file")" = "$CC_SESSION_FINDER_REF" ]
+}
+
+find_cargo() {
+    if command -v cargo >/dev/null 2>&1; then
+        command -v cargo
         return 0
     fi
 
-    cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
-    binary="$cargo_home/bin/cc-session-finder"
-    if [ -x "$binary" ]; then
-        printf '%s\n' "$binary"
+    if [ -x "$cargo_home/bin/cargo" ]; then
+        printf '%s\n' "$cargo_home/bin/cargo"
         return 0
     fi
 
     return 1
+}
+
+record_installed_ref() {
+    if ! mkdir -p "$state_dir"; then
+        printf '%s\n' "error: failed to create $state_dir; keeping previous state" >&2
+        return 1
+    fi
+
+    tmp=$(mktemp "$state_dir/.cc-session-finder.ref.XXXXXX") || return 1
+    if ! printf '%s\n' "$CC_SESSION_FINDER_REF" > "$tmp"; then
+        printf '%s\n' "error: failed to write $tmp; keeping previous state" >&2
+        rm -f "$tmp"
+        return 1
+    fi
+
+    if ! mv "$tmp" "$state_file"; then
+        rm -f "$tmp"
+        return 1
+    fi
 }
 
 install_cc_session_finder() {
-    if ! command -v cargo >/dev/null 2>&1; then
-        show_prereq_message
-        return 2
-    fi
+    cargo_bin=$1
 
     info "Installing cc-session-finder at pinned rev $CC_SESSION_FINDER_REF"
-    cargo install \
+    if ! "$cargo_bin" install \
         --git "$CC_SESSION_FINDER_REPO" \
         --rev "$CC_SESSION_FINDER_REF" \
         --locked \
-        --bin cc-session-finder
+        --root "$install_root" \
+        --force \
+        --bin cc-session-finder; then
+        printf '%s\n' "error: cargo install failed for rev $CC_SESSION_FINDER_REF; keeping previous state" >&2
+        return 1
+    fi
+
+    if [ ! -x "$managed_binary" ]; then
+        printf '%s\n' "error: cargo install succeeded but $managed_binary is not executable; expected cargo --root $install_root to create it" >&2
+        return 1
+    fi
+
+    record_installed_ref
 }
 
 ensure_cc_session_finder() {
-    if binary=$(find_cc_session_finder); then
-        printf '%s\n' "$binary"
+    if managed_install_current; then
+        printf '%s\n' "$managed_binary"
         return 0
     fi
 
-    install_cc_session_finder || return $?
-
-    if binary=$(find_cc_session_finder); then
-        printf '%s\n' "$binary"
+    if cargo_path=$(find_cargo); then
+        install_cc_session_finder "$cargo_path" || return $?
+        printf '%s\n' "$managed_binary"
         return 0
     fi
 
-    return 1
+    if [ -x "$managed_binary" ] || [ -f "$state_file" ]; then
+        current_state="(none)"
+        if [ -f "$state_file" ]; then
+            current_state=$(sed -n '1p' "$state_file")
+        fi
+        printf '%s\n' "error: managed cc-session-finder install is out of sync with pinned rev $CC_SESSION_FINDER_REF ($managed_binary executable: $([ -x "$managed_binary" ] && echo yes || echo no), recorded rev: $current_state) and cargo is unavailable to reinstall. Install Rust with rustup, then re-run: chezmoi apply" >&2
+        return 1
+    fi
+
+    show_prereq_message
+    return 2
 }
 
 mcp_entry_matches() {
