@@ -127,7 +127,6 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5",
   "statusLine": {
     "type": "command",
     "command": "$HOME/.claude/statusline-command.sh"
@@ -189,7 +188,8 @@
     ]
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
+  "advisorModel": "fable",
   "autoUpdatesChannel": "stable",
   "tui": "fullscreen",
   "skipWorkflowUsageWarning": true,
