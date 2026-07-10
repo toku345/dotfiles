@@ -144,9 +144,6 @@
     "skill-creator@claude-plugins-official": false,
     "codex@openai-codex": true
   },
-  "skillOverrides": {
-    "chezmoi-target-resolver": "off"
-  },
   "extraKnownMarketplaces": {
     "openai-codex": {
       "source": {
