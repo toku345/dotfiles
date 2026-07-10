@@ -188,7 +188,7 @@
     ]
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
   "advisorModel": "fable",
   "autoUpdatesChannel": "stable",
   "tui": "fullscreen",
