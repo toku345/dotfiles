@@ -3,3 +3,5 @@
 .local/bin/triple-review
 .local/bin/triple-review-broker-cleanup.mjs
 .claude/output-styles/triple-review.md
+.claude/skills/chezmoi-target-resolver/SKILL.md
+.claude/skills/chezmoi-target-resolver
