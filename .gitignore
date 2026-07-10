@@ -34,3 +34,18 @@ key.txt
 /.claude/settings.json
 /.claude/skills
 /.claude/workflows
+
+# Keep same-named placeholder files ignored, but surface real project
+# directories and their contents.
+!/.idea/
+!/.idea/**
+!/.claude/agents/
+!/.claude/agents/**
+!/.claude/commands/
+!/.claude/commands/**
+!/.claude/routines/
+!/.claude/routines/**
+!/.claude/skills/
+!/.claude/skills/**
+!/.claude/workflows/
+!/.claude/workflows/**
