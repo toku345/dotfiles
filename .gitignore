@@ -10,3 +10,27 @@
 
 # Plaintext age private key — only key.txt.age belongs in the repo.
 key.txt
+
+# Claude Code sandbox deny-path placeholders (Issue #286): the Linux
+# sandbox bind-mounts read-only guards over these paths on every Bash
+# call, pre-creating 0-byte mount-point files that persist after the
+# sandbox exits. Anchored to the repo root; drop a line here if the
+# path ever becomes a real checked-in file.
+/.bash_profile
+/.bashrc
+/.gitconfig
+/.gitmodules
+/.idea
+/.mcp.json
+/.profile
+/.ripgreprc
+/.zprofile
+/.zshrc
+/.claude/agents
+/.claude/commands
+/.claude/launch.json
+/.claude/routines
+/.claude/scheduled_tasks.json
+/.claude/settings.json
+/.claude/skills
+/.claude/workflows
