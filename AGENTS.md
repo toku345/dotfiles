@@ -7,10 +7,6 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 - `AGENTS.md` is the canonical file.
 - Root `CLAUDE.md` is a symlink to this file for backward compatibility.
 
-## Repository Overview
-
-This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a tool for managing personal configuration files across multiple machines. The repository contains configuration files for various development tools and environments.
-
 ## Common Commands
 
 ### Chezmoi Operations
@@ -18,8 +14,6 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 **Worktree gotcha**: `chezmoi diff` / `chezmoi apply` always reads from the main source directory (`~/.local/share/chezmoi/`), not the current git worktree. Do not run `chezmoi apply` from a worktree — changes must be merged to main first.
 
 **Source-path gotcha**: `chezmoi apply <source-path>` errors with `not managed`. chezmoi accepts only target paths (e.g. `~/.config/...`) as arguments. Run `chezmoi apply` without args to apply all managed files, or resolve with `chezmoi target-path <source-file>` first.
-
-よく使うコマンド: `chezmoi apply` / `chezmoi diff` / `chezmoi edit <file>` / `chezmoi add <file>` / `chezmoi update` (= git pull + apply)
 
 ### Encrypted Files
 
@@ -38,14 +32,12 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 
 主要なツリー（自明なサブディレクトリは省略）:
 
-- `private_dot_config/` → `~/.config/`（fish, ghostty, starship, tmux, karabiner 等）
 - `private_dot_ssh/` → `~/.ssh/`（`config.tmpl` 1行目で machine-local `~/.ssh/config.local` を Include。host 固有・per-machine な SSH 設定はそこに置く＝chezmoi 非管理で `apply` 時に消えない）
 - `private_dot_claude/` → `~/.claude/`（Claude Code 設定）
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
 - `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`hooks/`、`settings.local.json` は machine-local・gitignore
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
-- `.github/`, `docs/`, `images/`, `key.txt.age`（age 暗号鍵）
 
 ### chezmoi 命名規則の project 固有用法
 
@@ -69,14 +61,6 @@ This is a dotfiles repository managed by [chezmoi](https://www.chezmoi.io/), a t
 ### Ghostty
 
 Ghostty 設定の gotchas（config 直接編集・ホットリロード挙動）は path-scoped rule [.claude/rules/ghostty-config.md](.claude/rules/ghostty-config.md) に移設（`private_dot_config/ghostty/**` 編集時に自動ロード）。
-
-### Fish Shell (`config.fish`)
-
-メインの shell 設定。具体内容は `private_dot_config/fish/config.fish` を参照。
-
-### Development Environment
-
-- **git-gtr**: Git worktree runner (`git gtr new/go/list`)。`gw`/`gb`/`gbd` の内部実装。track mode 挙動は `/opt/homebrew/Cellar/git-gtr/*/lib/core.sh` で確認可能
 
 ## Definition of Done（chezmoi 固有）
 
