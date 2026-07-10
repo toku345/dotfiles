@@ -131,10 +131,11 @@ agmsg は automatic latest 追従しない。更新時は
 
 agmsg / cc-session-finder / Claude Code plugins は自動更新しない
 (`DISABLE_AUTOUPDATER=1` と marketplace の `autoUpdate=false` は維持)。
-四半期に 1 回を下限として、3 コンポーネントまとめて 1 つの reviewed bump PR
-で追従する。レビュー窓は [docs/security.md の high-privilege CLI 四半期 pin
-レビュー](security.md#high-privilege-clis-and-casks) に相乗りする。
-upstream の動きが速くなったら月次に短縮してよい。
+四半期に 1 回を下限として、同じレビュー窓で更新有無を確認する。変更と
+rollback を分離するため、実際の bump はコンポーネントごとに reviewed PR を
+作る。レビュー窓は [docs/security.md の high-privilege CLI 四半期 pin
+レビュー](security.md#high-privilege-clis-and-casks) に相乗りし、upstream の
+動きが速くなったら月次に短縮してよい。
 
 ### agmsg
 
@@ -143,22 +144,52 @@ upstream の動きが速くなったら月次に短縮してよい。
 
 ### cc-session-finder
 
-1. upstream diff をレビュー:
-   `https://github.com/jugyo/cc-session-finder/compare/<現行 SHA>...main`
+1. candidate の full commit SHA を先に確定し、現行 pin との差分をレビュー:
+   `https://github.com/jugyo/cc-session-finder/compare/<現行 SHA>...<candidate SHA>`
 2. `.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh` の
-   `CC_SESSION_FINDER_REF` を新しい full commit SHA に bump する
-3. `chezmoi apply -v` を実行する。script が managed binary
+   `CC_SESSION_FINDER_REF` を、レビューした同じ candidate SHA に bump する
+3. merge 前に、一時 install root で candidate が実際に build・起動できることを
+   確認する (`<candidate SHA>` は手順 1 と同じ値):
+
+   ```sh
+   candidate=FULL_40_CHARACTER_SHA
+   tmpdir=$(mktemp -d)
+   trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+   cargo install --git https://github.com/jugyo/cc-session-finder.git \
+     --rev "$candidate" --locked --root "$tmpdir" --bin cc-session-finder
+   "$tmpdir/bin/cc-session-finder" --version
+   ```
+
+4. PR をレビュー・merge した後、main source directory を merged main へ同期する。
+   `<candidate SHA>` を手順 1 と同じ値にして、local source の pin も確認する:
+
+   ```sh
+   cd ~/.local/share/chezmoi
+   git switch main
+   git pull --ff-only
+   candidate=FULL_40_CHARACTER_SHA
+   actual=$(sed -n 's/^CC_SESSION_FINDER_REF="\([^"]*\)"/\1/p' \
+     .chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh)
+   test "$actual" = "$candidate"
+   ```
+
+5. main source directory で明示的に再導入する:
+   `CC_SESSION_FINDER_REINSTALL=1 chezmoi apply -v`。このときだけ managed binary
    (`${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-session-finder`)
-   と state file
-   (`${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/cc-session-finder.ref`)
-   の不一致を検出し、`cargo install --force` で自動再インストールする
-4. 反映確認は state file が正:
-   `head -n1 "${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/cc-session-finder.ref"`
-   が新 SHA と一致すること。`cc-session-finder --version` は semver しか
-   出さず rev を特定できないため smoke test 用途のみ
-5. MCP 登録確認: `claude mcp get cc-session-finder` /
+   へ `cargo install --force --locked --rev <REF>` する。通常の
+   `chezmoi apply` は既存 binary の revision を判定せず、自動更新しない
+6. install 成功ログを確認し、実際に登録する managed binary を smoke test する:
+
+   ```sh
+   managed_binary="${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-session-finder"
+   "$managed_binary" --version
+   ```
+
+   version 出力は semver のみで commit SHA を証明しない
+7. MCP 登録確認: `claude mcp get cc-session-finder` /
    `codex mcp get cc-session-finder`
-6. 稼働中の MCP server プロセスは旧バイナリのまま動き続けるため、Claude Code /
+   (command path が `$managed_binary` と一致することも確認)
+8. 稼働中の MCP server プロセスは旧バイナリのまま動き続けるため、Claude Code /
    Codex のセッションを再起動して新バイナリに切り替える
 
 セットアップの全体像 (MCP 登録の仕組み) は
@@ -181,8 +212,12 @@ policy と詳細 runbook は [docs/security.md の Claude Code and Codex
 
 - `sh -n` + `shellcheck` (変更した `.chezmoiscripts/*.sh`)
 - `bats tests/bats/test_agmsg_setup.bats tests/bats/test_cc_session_finder_mcp_setup.bats`
-- `chezmoi apply -v` がエラーなく完了する
-- `claude mcp get cc-session-finder` / `codex mcp get cc-session-finder`
+- cc-session-finder bump の merge 前は、一時 install root で candidate SHA の
+  `cargo install --locked` と managed binary の smoke test が成功する
+- cc-session-finder bump の merge 後は
+  `CC_SESSION_FINDER_REINSTALL=1 chezmoi apply -v` がエラーなく完了する
+- `claude mcp get cc-session-finder` / `codex mcp get cc-session-finder` で
+  managed binary が登録されている
 
 ## codex-plugin-cc
 
