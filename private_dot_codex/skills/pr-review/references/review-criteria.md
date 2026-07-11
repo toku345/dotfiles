@@ -4,7 +4,7 @@ This file is the skill-bundled detailed gate policy for `$pr-review`. Global `AG
 
 ## Review Modes
 
-- **Quick review**: use built-in or local review for typo-level, mechanical, or low-risk changes. Do not run this skill only to maximize findings.
+- **Quick review**: use built-in or local review for typo-level, mechanical, or low-risk changes. When Codex is available, use `codex review --uncommitted` for staged, unstaged, and untracked changes, or `codex review --base <branch>` for a low-risk committed branch diff. Quick review is a preflight and everyday floor, not a substitute when Gate review applies. Do not run this skill only to maximize findings.
 - **Gate review**: use `$pr-review` for high-risk changes, broad diffs, pre-merge confidence, or changes touching authorization, security, data integrity, deployment, review/runtime automation, or other operational control planes. Optimize for merge decisions, not finding count.
 - **Audit review**: use additional security or release-specific review when the change crosses trust boundaries, production rollout behavior, or irreversible data paths. Keep the final fix queue limited to blockers and the most useful non-blockers.
 
