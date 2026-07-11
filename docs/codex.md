@@ -51,8 +51,9 @@ agmsg installer は Codex bridge / monitor beta 用に、`~/.codex/config.toml`
 - `~/.agents/skills/agmsg/teams`
 - `~/.agents/skills/agmsg/run`
 
-この repo では Codex monitor beta は v1 非対象だが、agmsg runtime state の
-書き込み先として同じ3ディレクトリを許可する。これらは
+この repo では Codex monitor beta を通常運用の対象外とし、Codex delivery
+mode は `off` で使うが、agmsg runtime state の書き込み先として同じ
+3ディレクトリを許可する。これらは
 `~/.codex/config.chezmoi.toml` ではなく installer-managed local entry として
 live config に保持する。baseline 更新時は他の local-only section と同様に残す。
 
