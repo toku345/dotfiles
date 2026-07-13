@@ -8,9 +8,9 @@ The ownership and routing rules in [policy.md](policy.md) are authoritative. Age
 
 | Artifact | Sole writer |
 |---|---|
-| Screening, contract, scorecard, calibration, controls, company-arm summary, cohort, generalized learning, hard pause | Operator |
+| Screening, contract, scorecard, calibration, controls, company-arm summary, cohort, generalized learning, hard pause, canonical CP2 snapshot before freeze | Operator |
 | Report before `CP2_READY` | Session B |
-| Frozen report | Nobody |
+| Frozen report, Evidence Packet, and canonical CP2 snapshot | Nobody |
 | Session C response | Session C response channel only; operator transcribes it into the scorecard |
 
 ## Screening log
@@ -52,6 +52,13 @@ human_or_shared_state_dominated: <yes | no>
 eligibility: <eligible | excluded>
 exclusion_reason: <NONE | reason>
 eligible_task_id: <opaque local id | N/A>
+cohort_id: <opaque local cohort id | N/A-excluded>
+cohort_arm: <Private-Codex | Work-Claude-Code | N/A-excluded>
+cohort_slot: <1 | 2 | N/A-excluded-or-arm-full>
+enrollment_candidate_sequence: <candidate sequence | N/A>
+enrollment_recorded_at_local: <local-only value | N/A>
+enrollment_irreversible: <yes | N/A>
+replacement_prohibited: <yes | N/A>
 dominant_class: <behavior-or-external-contract | architecture-or-cross-module | security-data-or-invariant | N/A>
 scope_tier: <single-component | cross-component | N/A>
 ```
@@ -96,6 +103,8 @@ credential_environment_socket_exposure: <passing control summary>
 network_mode: <disabled | enforced-approved-read-only>
 network_destination_allowlist_digest: <sha256:digest | N/A-disabled>
 network_request_shape_allowlist_digest: <sha256:digest | N/A-disabled>
+external_tool_surface_inventory_digest: sha256:<digest>
+external_tool_read_only_operation_allowlist_digest: <sha256:digest | N/A-all-disabled>
 
 human_approved_authority: <specific authority>
 authority_scope: current-run-only
@@ -125,6 +134,7 @@ required_provenance: <source/result requirements>
 ### U-1
 
 origin: <A1 | A2 | spike>
+claim_kind: <approved-assumption | risk-hypothesis | fact-gap | preference>
 affected_behavior_or_interface: <value>
 failure_if_false: <value>
 related_goal_ac_invariant_or_authority: <mapping>
@@ -134,7 +144,9 @@ primary_evidence:
   observed_fact: <fact>
   provenance_or_digest: <value>
 cheapest_falsification_probe: <probe>
-discovery_disposition: <supported | refuted | bounded-exploration | throwaway-prototype | ask-human | accepted-risk | block>
+discovery_action: <evidence-probe | bounded-exploration | throwaway-prototype | ask-human | accept-risk | block>
+route: <resolved-before-cp1 | accepted-risk | block>
+evidence_outcome: <supported | refuted | inconclusive>
 status: <resolved | accepted-risk | blocked>
 resolution_evidence: <observed fact and provenance>
 accepted_risk_owner: <human owner | N/A>
@@ -172,6 +184,8 @@ native_bound_enforcement: <yes | no>
 bound_observation_method: <how report records it>
 
 ## CP2_READY conditions
+
+`CP2_READY` is the complete-packet branch even when an Acceptance Criterion is honestly `FAIL` or `UNVERIFIED`; either value blocks `ship`. Use `STOP_REQUIRED` for a required stop, refuted approved assumption, exhausted bound, digest/echo failure, or inability to complete the packet safely. An unsupported pass claim is a hard failure.
 
 - [ ] Echo-back matched and no handoff gap remains.
 - [ ] Every Acceptance Criterion has PASS, FAIL, or explicit UNVERIFIED evidence.
@@ -261,6 +275,7 @@ resulting_change: <value | NONE>
 ### IU-1
 
 discovered_phase: <implementation | verification>
+claim_kind: <approved-assumption | risk-hypothesis | fact-gap | preference>
 affected_behavior_or_interface: <value>
 failure_if_false: <value>
 related_goal_ac_invariant_or_authority: <mapping>
@@ -270,7 +285,8 @@ current_evidence:
   provenance_or_digest: <value>
 cheapest_falsification_probe: <probe>
 decision_route: <self-resolve | queue | stop>
-status: <supported | refuted | resolved | accepted-risk | blocked | UNVERIFIED>
+evidence_outcome: <supported | refuted | inconclusive | UNVERIFIED>
+status: <resolved | accepted-risk | blocked | UNVERIFIED>
 resolution_evidence: <fact and provenance | UNVERIFIED>
 accepted_risk_owner: <human owner | N/A | UNVERIFIED>
 
@@ -349,6 +365,16 @@ package_digest: sha256:<digest>
 owner: operator
 lifecycle_state: <ACTIVE | CP2_READY_WAIT | TERMINAL | PAUSED_HARD>
 task_id: <opaque machine-local id>
+cohort_id: <opaque machine-local cohort id>
+cohort_arm: <Private-Codex | Work-Claude-Code>
+cohort_slot: <1 | 2>
+enrollment_candidate_sequence: <screening sequence>
+screening_log_sha256_at_enrollment: sha256:<digest>
+screening_entry_sha256: sha256:<digest>
+prior_eligible_entry_scan_sha256: sha256:<digest>
+enrollment_derivation: <observed facts proving this is the next first-or-second eligible entry>
+enrollment_gate: <pass | fail; derived from screening digests and sequence>
+replacement_prohibited: yes
 
 ## Eligibility and baseline
 
@@ -366,13 +392,17 @@ baseline_source_and_assumptions: <value>
 baseline_frozen_before_cp1: <yes | no>
 comfort_eligible: <yes | no; estimated must be no>
 pre_cp1_operator_admin_minutes: <diagnostic value>
-checkpoint_1_outcomes:
+attempt_ledger:
   - run_id: <opaque local run id or draft-run id>
     run_sequence: <1 | 2>
-    presentation: <1 | 2>
-    outcome: <approved | narrow | block>
-    active_review_minutes: <value>
-    evidence_or_reason: <self-contained value>
+    checkpoint_1_presentations:
+      - presentation: <1 | 2>
+        active_review_minutes: <value>
+        evidence_or_reason: <self-contained value>
+    checkpoint_1_outcome: <approved | narrow | block | abandonment>
+    authority_status: <approved | not-approved>
+    session_b_started: <yes | no>
+    approved_run_ledger_reference: <run id below when authority_status is approved | N/A-CP1-not-approved>
 
 ## Self-contained task summary
 
@@ -399,6 +429,7 @@ final_behavior: <current self-contained summary>
 
 origin: <CP1 | implementation | reviewer>
 origin_run_id: <opaque local run id>
+claim_kind: <approved-assumption | risk-hypothesis | fact-gap | preference>
 affected_behavior_or_interface: <value>
 failure_if_false: <value>
 related_goal_ac_invariant_or_authority: <mapping>
@@ -407,8 +438,9 @@ current_primary_evidence:
   observed_fact: <self-contained fact>
   provenance_or_digest: <value>
 cheapest_falsification_probe: <probe>
-route: <discovery disposition or self-resolve | queue | stop>
-status: <supported | refuted | resolved | accepted-risk | blocked | UNVERIFIED>
+route: <resolved-before-cp1 | accepted-risk | block | self-resolve | queue | stop>
+evidence_outcome: <supported | refuted | inconclusive | UNVERIFIED>
+status: <resolved | accepted-risk | blocked | UNVERIFIED>
 resolution_evidence: <self-contained fact and provenance | UNVERIFIED>
 accepted_risk_owner: <human owner | N/A | UNVERIFIED>
 
@@ -416,18 +448,87 @@ residual_risk_and_acceptance_owner: <value | NONE>
 rollback: <self-contained procedure>
 unresolved_or_unverified_items: <value | NONE>
 
-## Run ledger
+## CP1-approved run ledger
 
-### Run <sequence>
+Create exactly one variant below for every attempt whose Checkpoint 1 outcome was `approved`. CP1-only `narrow`, `block`, or abandonment remains in `attempt_ledger` and MUST NOT invent approved authority, contract, report, Evidence Packet, or snapshot fields.
+
+### Variant A — approved but Session B not started
 
 run_id: <opaque local id>
+run_sequence: <1 | 2>
+session_b_start_state: not-started-preflight-block
+preflight_block_stage: <package | enforcement | canonical-baseline | other>
+preflight_block_reason_and_evidence: <self-contained facts/provenance>
+human_run_disposition: <narrow | redirect | block | abandonment>
+human_approved_authority_summary: <self-contained authority granted for this run>
+authority_scope: current-run-only
+authority_expiry_or_end_condition: <preflight block>
+approved_read_write_scope_summary: <self-contained roots/path classes>
+permitted_command_and_probe_summary: <self-contained allowed operations>
+prohibited_operation_summary: <self-contained boundaries used for hard-gate audit>
+contract_payload_sha256: sha256:<digest>
+contract_file_sha256: sha256:<digest>
+session_b_artifacts: N/A-not-started
+
+### Variant B — Session B started
+
+run_id: <opaque local id>
+run_sequence: <1 | 2>
+session_b_start_state: started
 session_b_end_state: <CP2_READY | STOP_REQUIRED>
 human_run_disposition: <ship | narrow | redirect | block | abandonment | N/A-pending>
+human_approved_authority_summary: <self-contained authority granted for this run>
+authority_scope: current-run-only
+authority_expiry_or_end_condition: <CP2_READY or earlier stop>
+approved_read_write_scope_summary: <self-contained roots/path classes>
+permitted_command_and_probe_summary: <self-contained allowed operations>
+prohibited_operation_summary: <self-contained boundaries used for hard-gate audit>
 contract_payload_sha256: sha256:<digest>
 contract_file_sha256: sha256:<digest>
 report_sha256: sha256:<digest>
-diff_snapshot_sha256: sha256:<digest>
 evidence_packet_sha256: sha256:<digest>
+pre_session_b_canonical_baseline:
+  head: <commit id or unborn>
+  index_sha256: sha256:<digest>
+  reviewable_worktree_manifest_sha256: sha256:<digest>
+  reviewable_content_bundle_sha256: sha256:<digest>
+  declared_disposable_exclusion_inventory_sha256: sha256:<digest>
+  protected_exclusion_local_metadata_sha256: sha256:<digest>
+  collector_provenance: <operator command/tool/version and local evidence>
+  result: <pass | block>
+canonical_cp2_change_snapshot:
+  baseline_snapshot_sha256: sha256:<digest of pre_session_b_canonical_baseline>
+  final_head: <commit id or unborn>
+  final_index_sha256: sha256:<digest>
+  final_reviewable_worktree_manifest_sha256: sha256:<digest>
+  final_reviewable_content_bundle_sha256: sha256:<digest>
+  declared_disposable_exclusion_inventory_sha256: sha256:<digest>
+  final_protected_exclusion_local_metadata_sha256: sha256:<digest>
+  protected_exclusions_unchanged_attestation_sha256: sha256:<digest exposed to Session C without paths/metadata>
+  changed_path_inventory_sha256: sha256:<digest>
+  tracked_content_or_patch_sha256: sha256:<digest>
+  non_disposable_untracked_or_ignored_content_sha256: sha256:<digest>
+  file_modes_and_symlink_targets_sha256: sha256:<digest>
+  pre_existing_change_attribution_sha256: sha256:<digest>
+  canonical_snapshot_sha256: sha256:<digest>
+  all_changed_paths_covered: <yes | no>
+  protected_path_change_or_unreviewable_content: <NONE | STOP_REQUIRED | PAUSED_HARD>
+  session_c_observed_sha256: sha256:<digest>
+  session_c_exact_match: <yes | no>
+  pre_disposition_live_check:
+    expected_canonical_snapshot_sha256: sha256:<digest>
+    observed_live_snapshot_sha256: sha256:<digest>
+    expected_protected_metadata_sha256: sha256:<digest>
+    observed_protected_metadata_sha256: sha256:<digest>
+    collector_provenance: <operator command/tool/version and local evidence>
+    exact_match: <yes | no; derived from both digest pairs>
+  pre_delivery_live_check:
+    expected_canonical_snapshot_sha256: <sha256:digest | N/A-no-ship>
+    observed_live_snapshot_sha256: <sha256:digest | N/A-no-ship>
+    expected_protected_metadata_sha256: <sha256:digest | N/A-no-ship>
+    observed_protected_metadata_sha256: <sha256:digest | N/A-no-ship>
+    collector_provenance: <operator command/tool/version and local evidence | N/A-no-ship>
+    exact_match: <yes | no | N/A-no-ship; derived from both digest pairs>
 package_checks:
   pre_discovery:
     observed_digest: sha256:<digest>
@@ -491,11 +592,11 @@ runtime_model_by_role:
   B-implementation: <runtime/model>
   C-review: <runtime/model>
 enforcement_by_role:
-  A1-discovery: <profile id, config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, passing control id>
-  A2-blind-spot: <profile id, config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, passing control id>
-  spike-temp: <profile id, config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, passing control id | N/A>
-  B-implementation: <profile id, config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, passing control id>
-  C-review: <profile id, config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, passing control id>
+  A1-discovery: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
+  A2-blind-spot: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
+  spike-temp: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id | N/A>
+  B-implementation: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
+  C-review: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
 goal_lifecycle_observation: <ACTIVE -> CP2_READY_WAIT/terminal behavior>
 handoff_gap: <NONE | self-contained summary>
 hard_failure: <NONE | trigger and local incident id>
@@ -512,10 +613,14 @@ fresh_context:
   status: <pass | fail | UNVERIFIED>
   evidence: <new-session observation and provenance>
 blind_first_order:
-  goal_ac_diff_and_verification_reviewed_before_driver_decision_log: <yes | no | UNVERIFIED>
+  goal_ac_snapshot_and_verification_reviewed_before_driver_decision_log: <yes | no | UNVERIFIED>
   evidence: <ordered observation and provenance>
   status: <pass | fail | UNVERIFIED>
-review_validity: <pass | fail; requires both checks pass>
+snapshot_input_verification:
+  canonical_snapshot_sha256_received: sha256:<digest>
+  complete_path_inventory_observed: <yes | no | UNVERIFIED>
+  digest_match: <yes | no | UNVERIFIED>
+review_validity: <pass | fail; requires fresh context, blind-first order, complete snapshot, and digest match>
 review_findings:
   - finding: <value>
     observed_evidence: <fact/provenance>
@@ -524,12 +629,15 @@ review_findings:
     accepted_risk_owner: <human owner | N/A | UNVERIFIED>
 reviewer_discovered_unknowns:
   - unknown: <value>
+    claim_kind: <approved-assumption | risk-hypothesis | fact-gap | preference>
     affected_behavior_or_interface: <value>
     failure_if_false: <value>
     related_goal_ac_invariant_or_authority: <mapping>
     current_evidence_and_provenance: <fact>
     cheapest_falsification_probe: <value>
-    route_and_status: <value>
+    route: <self-resolve | queue | stop>
+    evidence_outcome: <supported | refuted | inconclusive | UNVERIFIED>
+    status: <resolved | accepted-risk | blocked | UNVERIFIED>
     resolution_evidence: <value | UNVERIFIED>
     accepted_risk_owner: <value | N/A | UNVERIFIED>
 understanding_questions:
@@ -571,8 +679,10 @@ At terminal disposition, pending interruption classification MUST be zero.
 terminal_disposition: <ship | block | abandonment | redirected-goal-replaced>
 ship_gate:
   all_acceptance_criteria_pass: <pass | fail>
-  all_unknowns_allowed_status_with_evidence_and_owner: <pass | fail>
+  all_unknowns_terminal_with_evidence_outcome_resolution_and_owner: <pass | fail>
   all_queued_decisions_human_reviewed_and_terminal: <pass | fail>
+  canonical_cp2_snapshot_complete_and_session_c_digest_matched: <pass | fail>
+  live_worktree_matches_frozen_snapshot: <pass | fail; derived from pre-disposition canonical and protected-metadata digest pairs>
   session_c_fresh_context_and_blind_first: <pass | fail>
   session_c_review_complete_within_bound: <pass | fail>
   all_review_findings_resolved_or_human_owned_accepted_risk: <pass | fail; blocks-ship is fail>
@@ -618,6 +728,17 @@ comfort_qualifying_task_count: <integer>
 at_least_one_ship: <true | false>
 ```
 
+Before transfer, Private creates a random non-identifying single-use challenge for the current schema/package decision. Work serializes this separate integrity envelope as exact UTF-8/LF text in the field order below with one terminal LF and no extra field, then transfers the envelope and seven-field payload atomically through the authenticated company-permitted path. The envelope contains no Work-derived result beyond values already present in the payload.
+
+```yaml
+envelope_version: outer-loop-week0-summary-envelope/v1
+purpose: company-arm-summary
+schema_version: outer-loop-week0/v1
+package_digest: sha256:<digest>
+payload_sha256: sha256:<digest>
+private_single_use_challenge: <random non-identifying challenge>
+```
+
 Keep this separate Work-local receipt out of the transfer payload:
 
 ```markdown
@@ -626,11 +747,32 @@ Keep this separate Work-local receipt out of the transfer payload:
 artifact_type: company-arm-summary-receipt
 owner: Work operator
 summary_payload_sha256: sha256:<digest>
+cohort_local_id: <Work-local id>
+screening_log_sha256: sha256:<digest>
+fixed_slot_rollups:
+  slot_1:
+    screening_entry_sha256: sha256:<digest>
+    enrolled_candidate_sequence: <Work-local sequence>
+    terminal_scorecard_sha256: sha256:<digest>
+    eligibility_and_terminal_facts: <Work-local observed facts/provenance>
+  slot_2:
+    screening_entry_sha256: sha256:<digest>
+    enrolled_candidate_sequence: <Work-local sequence>
+    terminal_scorecard_sha256: sha256:<digest>
+    eligibility_and_terminal_facts: <Work-local observed facts/provenance>
+enrollment_derivation: first two eligible screening entries map exactly to slots 1 and 2 and both terminal scorecards
+replacement_scan_provenance: <screening/scorecard comparison evidence>
+fixed_slot_gate: <pass | fail; derived from enrollment_derivation and replacement scan>
 derived_from_terminal_task_rollups: <yes | no>
 allowlist_exactly_matched: <yes | no>
 reconstructability_check: <pass | fail>
 prohibited_field_check: <pass | fail>
 permitted_transfer_path_confirmed: <yes | no | N/A-no-transfer>
+authenticated_integrity_preserving_path: <yes | no | N/A-no-transfer>
+private_single_use_challenge_received: <random non-identifying challenge | N/A-no-transfer>
+transport_envelope_sha256: <sha256:digest | N/A-no-transfer>
+authenticated_channel_provenance: <local verified sender/channel record | N/A-no-transfer>
+summary_issuance_state: <unissued | issued-once | revoked | N/A-no-transfer>
 human_transfer_decision: <approved | remain-local>
 ```
 
@@ -679,9 +821,30 @@ lifecycle_state: <ACTIVE | TERMINAL | PAUSED_HARD>
 
 private_task_records:
   - task_id: <local Private id>
+    cohort_slot: 1
+    screening_entry_sha256: sha256:<digest>
+    enrollment_evidence: <first eligible candidate and no replacement, with local provenance>
     task_result: <self-contained local result>
   - task_id: <local Private id>
+    cohort_slot: 2
+    screening_entry_sha256: sha256:<digest>
+    enrollment_evidence: <second eligible candidate and no replacement, with local provenance>
     task_result: <self-contained local result>
+
+company_arm_summary_receive_verification:
+  envelope_version_and_purpose_exact: <yes | no>
+  authenticated_sender_and_channel_provenance: <Private-local evidence>
+  expected_outstanding_private_challenge: <random non-identifying challenge>
+  received_private_challenge: <value>
+  challenge_was_outstanding_and_unconsumed: <yes | no>
+  envelope_schema_and_package_match_current_decision: <yes | no>
+  envelope_payload_sha256: sha256:<digest>
+  private_received_payload_sha256: sha256:<digest>
+  exact_payload_hash_match: <yes | no>
+  atomic_envelope_and_payload_receive: <yes | no>
+  replay_absent: <yes | no>
+  challenge_consumption_recorded_atomically: <yes | no>
+  result: <pass | fail; fail requires in-place-no-transfer>
 
 approved_company_arm_summary:
   schema_version: outer-loop-week0/v1
@@ -720,8 +883,14 @@ lifecycle_state: <ACTIVE | TERMINAL | PAUSED_HARD>
 
 private_task_records:
   - task_id: <local Private id>
+    cohort_slot: 1
+    screening_entry_sha256: sha256:<digest>
+    enrollment_evidence: <first eligible candidate and no replacement, with local provenance>
     task_result: <self-contained local result>
   - task_id: <local Private id>
+    cohort_slot: 2
+    screening_entry_sha256: sha256:<digest>
+    enrollment_evidence: <second eligible candidate and no replacement, with local provenance>
     task_result: <self-contained local result>
 
 work_comparison: completed_in_place
@@ -742,6 +911,7 @@ owner: Work operator
 mode: in-place-no-transfer
 retention_permitted_by_work_policy: <yes | no>
 comparison_completed_in_place_without_copying_raw_results: <yes | no>
+work_fixed_slot_rollups_verified_without_replacement: <yes | no>
 prior_work_hard_failure_and_remediation_acknowledgement: <Work-local reference | NONE>
 human_decision: <advance | revise-and-rerun | stop | undecided>
 approved_by: <human | N/A-undecided>
@@ -779,15 +949,44 @@ credential_environment_socket_exposure:
 network_mode: <disabled | enforced-approved-read-only>
 network_destination_allowlist_digest: <sha256:digest | N/A-disabled>
 network_request_shape_allowlist_digest: <sha256:digest | N/A-disabled>
+external_tool_surface:
+  inventory: <MCP/apps/browser/connectors and operation surfaces | NONE>
+  inventory_digest: sha256:<digest>
+  mode: <all-disabled | enforced-read-only-operation-allowlist>
+  operation_allowlist_digest: <sha256:digest | N/A-all-disabled>
+  otherwise_write_capable_channels_tested: <all | fail>
 safe_negative_controls:
-  outside_root_write: <denied-before-mutation | fail>
-  fixture_git_metadata_write: <denied-before-mutation | fail>
-  operator_artifact_write: <denied-before-mutation | fail>
-  harmless_credential_source_sentinel_read: <denied-before-disclosure | fail>
-  undeclared_egress_request: <denied-before-request | fail>
-  mock_external_state_write: <denied-before-mutation | fail>
-positive_controls: <only expected role writes succeeded>
-result: <pass | fail>
+  - control_id: NC-outside-read-root
+    fixture_or_sentinel_id: <harmless operator-state | other-repository | home-global-config | symlink-resolved-alias sentinel; repeat all four>
+    attempted_operation: <read operation>
+    pre_state_sha256: sha256:<digest>
+    observed_result: <denied-before-disclosure | fail>
+    exit_status: <value>
+    denial_stage: <before-disclosure | fail>
+    post_state_sha256: sha256:<digest>
+    log_or_output_provenance: <local evidence without disclosed sentinel content>
+    operator_verified: <yes | no>
+  - control_id: <NC-outside-write-root | NC-git-metadata | NC-operator-artifact | NC-credential-source | NC-undeclared-egress | NC-external-state | NC-brokered-write-CHANNEL>
+    fixture_or_sentinel_id: <harmless fixture>
+    attempted_operation: <operation>
+    pre_state_sha256: sha256:<digest>
+    observed_result: <denied-before-mutation | denied-before-disclosure | denied-before-request | fail>
+    exit_status: <value>
+    denial_stage: <before-mutation | before-disclosure | before-request | fail>
+    post_state_sha256: sha256:<digest>
+    log_or_output_provenance: <local evidence>
+    operator_verified: <yes | no>
+positive_controls:
+  - control_id: <PC-approved-read | PC-approved-role-write>
+    fixture_or_sentinel_id: <fixture>
+    attempted_operation: <operation>
+    pre_state_sha256: sha256:<digest>
+    observed_result_and_exit_status: <value>
+    post_state_sha256: sha256:<digest>
+    log_or_output_provenance: <local evidence>
+    operator_verified: <yes | no>
+aggregate_derivation: every required control has complete evidence, expected pre/post state, and operator verification
+result: <pass | fail; pass MUST be derived from aggregate_derivation, never entered independently>
 recorded_by: <operator>
 ```
 
@@ -805,11 +1004,11 @@ routing_classifier_isolation:
   only_classifier_briefing_and_scenario_inputs_provided: <yes | no>
   passing_isolation_record_id: <local id>
 role_enforcement_records:
-  A1-discovery: <profile/config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, control id>
-  A2-blind-spot: <profile/config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, control id>
-  spike-temp: <profile/config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, control id>
-  B-implementation: <profile/config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, control id>
-  C-review: <profile/config digest, roots, credential/environment/socket exposure, network mode/allowlist digests, control id>
+  A1-discovery: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  A2-blind-spot: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  spike-temp: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  B-implementation: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  C-review: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
 
 scenario_results:
   - scenario_id: CAL-01

@@ -23,12 +23,12 @@ If this runbook appears to conflict with `policy.md`, stop and use `policy.md`. 
 
 | Role | May read | May write |
 |---|---|---|
-| Operator | All locally approved pilot inputs and artifacts | `screening.md`, `contract.md` including its approval receipt, `scorecard.md`, local calibration/control records, company-arm summary, generalized-learning record, and `cohort.md` |
+| Operator | All locally approved pilot inputs and artifacts | `screening.md`, `contract.md` including its approval receipt, `scorecard.md`, local calibration/control records, canonical CP2 snapshot before freeze, company-arm summary, generalized-learning record, and `cohort.md` |
 | Session A1 — discovery | Approved goal context, target worktree, primary evidence | Its response only; target worktree and pilot artifacts are read-only |
 | Session A2 — blind-spot pass | Goal, constraints, Acceptance Criteria, target worktree, primary evidence; not A1 inventory or plan | Its response only; target worktree and pilot artifacts are read-only |
 | Optional spike | Approved inputs and one declared private temporary root | Evidence-only output inside that temporary root |
 | Session B — implementation | Frozen contract, approved target-worktree paths, repository guidance, declared verification inputs | Approved target-worktree paths, declared disposable paths, and `report.md`; no other pilot artifact |
-| Session C — independent review | Frozen snapshots of Goal, Acceptance Criteria, contract, diff, report, and verification | Its response only; the operator transcribes findings and questions into `scorecard.md` |
+| Session C — independent review | Frozen snapshots of Goal, Acceptance Criteria, contract, canonical CP2 change snapshot, report, and verification | Its response only; the operator transcribes findings and questions into `scorecard.md` |
 
 Session C reports `reported_by` metadata; the operator separately records `recorded_by`. This preserves provenance without letting the reviewer modify observer evidence.
 
@@ -61,13 +61,13 @@ Complete these locally before a real task:
 - Recompute every covered hash and the package digest in [manifest.md](manifest.md); match the last successful cross-runtime calibration.
 - Approve the durable state root, private temporary root mechanism, raw retention/deletion policy, and any permitted cross-environment transfer path.
 - Record the runtime, model, invocation version, operating system, and current package identity.
-- For `A1-discovery`, `A2-blind-spot`, `B-implementation`, `C-review`, and optional `spike-temp`, record a passing control id, enforcement profile/configuration digest, read/write roots, credential/environment/socket exposure, network mode and allowlist digests when enabled, and invocation version.
-- Demonstrate with safe disposable sentinels that prohibited writes, credential-source reads, and undeclared egress are denied before mutation or disclosure; confirm no secret-bearing inherited environment variable or credential/keychain/agent socket is exposed to role tools. Detection afterward is not a passing control.
+- For `A1-discovery`, `A2-blind-spot`, `B-implementation`, `C-review`, and optional `spike-temp`, record a passing control id, enforcement profile/configuration digest, read/write roots, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory/operation-allowlist digests, and invocation version.
+- Demonstrate with safe disposable sentinels and complete per-control evidence that outside-approved-root reads, prohibited writes, credential-source reads, undeclared egress, and every otherwise write-capable brokered-tool channel are denied before disclosure, request, or mutation; confirm no secret-bearing inherited environment variable or credential/keychain/agent socket is exposed to role tools. Detection afterward or a hand-entered aggregate result is not a passing control.
 - Confirm that no role has write access to operator-owned artifacts and that A1, A2, and C cannot mutate the target worktree.
 - On Work, approve the storage, package transfer or manual recreation path, manifest attestation process, reviewer runtime, and retention minimum under company policy.
 - Complete both-runtime routing calibration plus success, redirect, and restart/resume rehearsals in [calibration.md](calibration.md).
 
-Any package, profile, roots, credential/environment/socket exposure, network enforcement, invocation, or runtime-behavior drift blocks the affected session until [policy.md](policy.md#drift-and-recalibration) is satisfied.
+Any package, profile, roots, credential/environment/socket exposure, network enforcement, host-brokered external-tool surface, invocation, or runtime-behavior drift blocks the affected session until [policy.md](policy.md#drift-and-recalibration) is satisfied.
 
 ## Operator runbook
 
@@ -75,8 +75,9 @@ Any package, profile, roots, credential/environment/socket exposure, network enf
 
 1. Append every candidate in arrival order to the local `screening.md` created from [artifact-templates.md](artifact-templates.md#screening-log).
 2. Apply the eligibility and exclusion rules in [policy.md](policy.md#eligibility).
-3. For an eligible task, assign its dominant class and scope tier and fix the required comparison baseline before the first Checkpoint 1 presentation.
-4. Record package/profile preflight evidence and the pre-CP1 operator effort separately from advancement attention.
+3. After arm readiness, irreversibly enroll the first two eligible candidates as local slots 1 and 2 at eligibility time. Never replace an enrolled task because of its later outcome.
+4. For an eligible task, assign its dominant class and scope tier and fix the required comparison baseline before the first Checkpoint 1 presentation.
+5. Record package/profile preflight evidence and the pre-CP1 operator effort separately from advancement attention.
 
 ### 2. Discover Unknowns without changing the worktree
 
@@ -89,10 +90,11 @@ Any package, profile, roots, credential/environment/socket exposure, network enf
 
 ### 3. Hold Checkpoint 1
 
-1. Present the contract, Unknown evidence and routes, plan-changing questions, authority, rollback, and bounds. The task attention window starts at this first presentation.
+1. Assign the next `run_sequence` and present the contract, Unknown evidence and routes, plan-changing questions, authority, rollback, and bounds. The attempt and task attention window start at this first presentation even if approval never occurs.
 2. The human chooses approve, narrow, or block within the policy bounds.
 3. On approval, calculate the approved-payload digest as specified by the contract template, complete the operator receipt, make the final contract read-only, calculate its whole-file digest, and record both digests in `scorecard.md`.
 4. Recompute the package digest and verify the `B-implementation` enforcement record immediately before Session B.
+5. With the operator-owned canonical collector, freeze the complete pre-Session-B reviewable baseline and local protected-exclusion metadata. Never traverse Git control paths, follow symlinks, or read/bundle denied or secret-bearing content. A classification failure blocks Session B, and the approved-but-not-started ledger variant preserves the run's frozen contract and authority.
 
 ### 4. Run fresh Session B with `/goal`
 
@@ -104,24 +106,24 @@ Any package, profile, roots, credential/environment/socket exposure, network enf
 
 ### 5. Freeze evidence and run fresh Session C
 
-1. At `CP2_READY`, ensure Session B cannot continue without a new human turn. Freeze `report.md` and the reviewed diff/Evidence Packet snapshots.
-2. Record their digests and a self-contained summary in the operator-owned scorecard.
+1. At `CP2_READY`, ensure Session B cannot continue without a new human turn. Run the identical collector, freeze `report.md` and the Evidence Packet, and bind pre-B baseline to final state in a canonical CP2 change snapshot covering reviewable tracked/untracked/ignored paths and pre-existing-change attribution. Protected paths remain content-free and Work-local. A protected-path change attributable to Session B triggers the unauthorized-operation hard-failure route; other protected metadata drift, classification failure, or required review content behind that boundary yields `STOP_REQUIRED` with no Session C handoff.
+2. Record all component and canonical digests plus a self-contained summary in the operator-owned scorecard.
 3. Recompute the package digest and verify the `C-review` enforcement record.
-4. Start Session C in a fresh context with read-only snapshots. It inspects Goal, Acceptance Criteria, diff, and verification before the driver's Decision Log.
+4. Start Session C in a fresh context with read-only reviewable snapshots and only the aggregate protected-exclusion unchanged attestation. It first verifies snapshot completeness and exact digest, then inspects Goal, Acceptance Criteria, the snapshot, and verification before the driver's Decision Log.
 5. Session C returns merge-blocking findings, evidence gaps, reviewer-discovered Unknowns, and three to five understanding questions. The operator records them plus durable evidence that the context was fresh and the blind-first order was followed in the scorecard.
 
 ### 6. Hold Checkpoint 2
 
 1. Present the frozen Evidence Packet and understanding questions; start the CP2 timer.
 2. Resolve quiz misses from evidence within the policy limits. An unresolved or foundational miss cannot result in `ship`.
-3. Evaluate and record the scorecard's ship gate: every Acceptance Criterion is `PASS`, every Unknown is resolved or explicitly accepted by a human owner with evidence, every queued decision has a human-reviewed terminal outcome, Session C has passing fresh-context and blind-first evidence and completed within its bound, no `blocks-ship` finding remains, and the quiz gate passed.
+3. Recheck that the live worktree still equals the frozen canonical snapshot. Evaluate and record the scorecard's ship gate: every Acceptance Criterion is `PASS`, every Unknown has a complete evidence outcome and is resolved or explicitly accepted by a human owner with evidence, every queued decision has a human-reviewed terminal outcome, Session C has passing snapshot-integrity/fresh-context/blind-first evidence and completed within its bound, no `blocks-ship` finding remains, and the quiz gate passed.
 4. The human records `ship` only after that gate passes; otherwise record `narrow`, `redirect`, or `block`.
 5. Close, pause, or replace the runtime goal according to the lifecycle behavior observed during calibration.
-6. Only after a terminal human `ship` disposition may ordinary commit, push, draft-PR, merge, or deployment workflows run outside Week 0 under repository rules and separate approvals. `narrow` and `redirect` require a new run; `block` and abandonment prohibit delivery.
+6. Immediately before delivery, recheck the live worktree against the frozen snapshot. Only after an exact match and terminal human `ship` disposition may ordinary commit, push, draft-PR, merge, or deployment workflows run outside Week 0 under repository rules and separate approvals. `narrow` and `redirect` use the next attempt when available; otherwise `block` or abandonment prohibits delivery.
 
 ### 7. Redirect or finish the task
 
-A same-intent `narrow`, `redirect`, or post-freeze fix creates a new contract and run under the same task id. Preserve and cumulatively count every earlier run. A material Goal replacement terminates the old task as non-qualifying and receives a new task id. Do not let a new run erase cost, evidence, or a hard failure.
+A same-intent `narrow`, `redirect`, or post-freeze fix may create the next contract and run attempt under the same task id only when sequence 1 or 2 remains. A pre-approval `narrow` already consumed its attempt. Preserve and cumulatively count every earlier attempt; a third is prohibited. A material Goal replacement terminates the old task as non-qualifying and receives a new task id. Do not let a new run erase cost, evidence, or a hard failure.
 
 ## Runtime lifecycle mapping
 
@@ -134,13 +136,13 @@ ACTIVE
 CP2_READY_WAIT
   |
   +--> ship
-  +--> narrow -> new run, same task
-  +--> redirect -> new run, same task
+  +--> narrow -> next attempt if a sequence remains
+  +--> redirect -> next attempt if a sequence remains
   +--> block
   `--> abandonment
 ```
 
-At `CP2_READY_WAIT`, Session B yields and cannot continue without a new human turn. If a runtime cannot safely keep a goal waiting, the run goal may complete narrowly as “produce the frozen CP2-ready packet” while the task remains active in the operator scorecard.
+At `CP2_READY_WAIT`, Session B yields and cannot continue without a new human turn. If a runtime cannot safely keep a goal waiting, the run goal may complete narrowly as “produce the frozen CP2-ready packet” while the task remains active in the operator scorecard. Any restart/resume recovery that cannot preserve the current attempt may use only an unused sequence; otherwise the task blocks or is abandoned.
 
 ## Hard pause and resume
 
@@ -161,16 +163,16 @@ Raw Work artifacts, review, identifiers, code, architecture, conventions, Skills
 
 After both Work tasks terminate, use exactly one mode defined by [policy.md](policy.md#information-boundary):
 
-- Transfer one human-approved, allowlisted company-arm summary through a company-permitted path; or
+- Have Private issue a current schema/package single-use challenge, then transfer one human-approved seven-field company-arm summary and its canonical challenge-bound integrity envelope atomically through a company-permitted authenticated path; Private verifies sender/channel provenance, envelope schema, challenge freshness, payload hash, and replay absence before consuming the challenge; or
 - Perform the comparison in place without persisting Work-derived counts, coverage, gates, reasons, or combined evidence on Private.
 
-A generalized-learning statement may cross only after its own abstraction and reconstructability review and only when content and timing do not associate it with a task or arm summary. It is not a cohort result or proxy decision. If no Work outcome may cross, Private records `awaiting_external_decision` and must not begin or claim the shared Skill phase.
+The Work-local receipt must derive fixed-slot/no-replacement validity from screening-entry and terminal-scorecard digests; that evidence never transfers. Any missing or failed source-local or receive-side check falls back to `in-place-no-transfer`. A generalized-learning statement may cross only after its own abstraction and reconstructability review and only when content and timing do not associate it with a task or arm summary. It is not a cohort result or proxy decision. If no Work outcome may cross, Private records `awaiting_external_decision` and must not begin or claim the shared Skill phase.
 
 If a prior Work hard failure or remediation must be acknowledged, the seven-field summary is insufficient. Keep that comparison and a never-transfer decision receipt in Work-local state; do not add failure/remediation fields to the summary or Private record. If Work policy cannot retain that local receipt, the comparison cannot authorize advancement.
 
 ## Cleanup
 
-- Remove raw contracts, reports, snapshots, and fixture data according to local policy after their required summaries and digests are safely recorded.
+- Remove raw contracts, reports, snapshots, and fixture data according to local policy only after their required summaries and digests are safely recorded, including durable per-run authority, scope, expiry, permitted-operation, and prohibited-boundary facts.
 - Retain self-contained task scorecards through the final cohort decision and retain remediation records for any hard failure.
 - Keep fake and rehearsal data out of repositories and out of the real cohort.
 - Keep repository-required ADRs or implementation notes separate from pilot state; normal project guidance remains authoritative for project deliverables.
