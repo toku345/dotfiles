@@ -126,6 +126,34 @@ def main() -> None:
             'print "inlined-weakened-table"',
             "severity-rules.json.tmpl",
         ),
+        (
+            "review profile enables multi-agent V2",
+            "private_dot_codex/private_review.config.toml",
+            "multi_agent_v2 = false",
+            "multi_agent_v2 = true",
+            "features.multi_agent_v2 must be false",
+        ),
+        (
+            "V1 runtime gate sentinel removal",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "PR_REVIEW_RUNTIME_CONTRACT_V1",
+            "PR_REVIEW_RUNTIME_CONTRACT_REMOVED",
+            "PR_REVIEW_RUNTIME_CONTRACT_V1",
+        ),
+        (
+            "review-profile retry guidance removal",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "codex exec --profile review -C '<repo-root>' '$pr-review --base <same-base>'",
+            "retry with a review profile",
+            "both V1 runtime failure branches must contain the review-profile retry command",
+        ),
+        (
+            "unresolved-tools fail-closed branch removal",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "ERROR: $pr-review could not resolve the required Codex multi-agent V1 tools after tool discovery.",
+            "ERROR: multi-agent tools unavailable.",
+            "could not resolve the required Codex multi-agent V1 tools",
+        ),
     ]
 
     with tempfile.TemporaryDirectory(prefix="pr-review-verifier-negative-") as tmp:
@@ -144,6 +172,27 @@ def main() -> None:
             repo = copy_fixture_repo(root / f"case-{index}")
             replace_once(repo / rel_path, old, new)
             assert_fails_closed(name, repo, expected)
+
+        missing_profile_repo = copy_fixture_repo(root / "missing-review-profile")
+        (missing_profile_repo / "private_dot_codex/private_review.config.toml").unlink()
+        assert_fails_closed(
+            "missing review profile",
+            missing_profile_repo,
+            "missing Codex review profile",
+        )
+
+        hidden_metadata_repo = copy_fixture_repo(root / "hidden-spawn-metadata")
+        agent_path = hidden_metadata_repo / "private_dot_codex/agents/code-reviewer.toml"
+        agent_path.write_text(
+            agent_path.read_text(encoding="utf-8")
+            + "\n[features.multi_agent_v2]\nhide_spawn_agent_metadata = false\n",
+            encoding="utf-8",
+        )
+        assert_fails_closed(
+            "hide_spawn_agent_metadata setting added",
+            hidden_metadata_repo,
+            "hide_spawn_agent_metadata must not be configured",
+        )
 
     print("OK: pr-review verifier negative tests passed")
 

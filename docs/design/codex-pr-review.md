@@ -1,7 +1,8 @@
 # Codex PR Review Migration — Design Doc
 
 Parent tracking: [Issue #206](https://github.com/toku345/dotfiles/issues/206)
-Status: Draft (2026-05-18, rev.8 — authoritative diff packet + coverage-failure hardening)
+Current compatibility work: [Issue #295](https://github.com/toku345/dotfiles/issues/295)
+Status: Draft (2026-07-13, rev.9 — Codex multi-agent V1 runtime gate)
 
 ## Context
 
@@ -31,6 +32,7 @@ Additionally:
 - DGX Spark + OpenCode local-LLM fallback — separate Issue, separate timeline
 - Activation of the `code-review` plugin from `anthropics/claude-plugins-official` (distinct from `pr-review-toolkit`) — out of scope
 - Running `codex exec` (with this skill) from within an enclosing Claude Code session — nested-bwrap "Permission denied" infinite spawn-retry incident verified in `~/.codex/history.jsonl` (2026-03). Same constraint as the legacy `triple-review` per `private_dot_claude/CLAUDE.md` `Git / PR 規約`.
+- A Codex multi-agent V2 adapter — separated into [Issue #297](https://github.com/toku345/dotfiles/issues/297); this design keeps the active `$pr-review` path V1-only.
 
 ## Alternatives considered
 
@@ -68,6 +70,7 @@ The following corrections were applied during the brainstorming session that pro
 9. **Runtime smoke + prompt cleanup (rev.6)**: After `chezmoi apply`, `codex exec '$pr-review --base main'` (session `019e399e-81aa-7ea2-9ec5-3764a0cf4726`) loaded the installed skill, honored explicit-base `gh` bypass, spawned custom agents with `agent_type`, handled the 6-thread limit by closing completed agents before starting the deferred specialist, skipped Stage 2 after Critical findings, and completed the final dirty-worktree guard. Follow-up fixes normalized `security-reviewer` severities for Stage-2 gating, made worktree-guard command failures fatal, removed Claude-specific active description examples, and weakened an overbroad memory-safety false-positive exclusion.
 10. **HEAD drift + case normalization hardening (rev.7)**: A follow-up `$pr-review --base main` found that a clean final worktree does not prove the reviewed commit is still `HEAD`, and that title-case-only `Severity: High` matching can miss the security prompt's uppercase `HIGH` / `MEDIUM` convention. Corrected: the skill records `git rev-parse HEAD` before diff collection, passes that `HEAD_REF` to specialists, checks it again before aggregation, treats security severity case-insensitively, records diff packet hash/byte-count expectations for large or truncated diffs, and extends the bundle verifier so every agent scope contract requires `HEAD_REF`, packet-hash, and fatal-on-missing-context language.
 11. **Authoritative packet + coverage-failure hardening (rev.8)**: A second follow-up `$pr-review --base main` found that rev.7 still used symbolic `HEAD` in collection commands, made diff packets conditional, and did not explicitly abort when a specialist returned a fatal coverage error. Corrected: all collection commands bind to `$HEAD_REF`, every review always gets an authoritative diff packet with byte count and SHA-256, specialist coverage failures fail closed before Stage 2 or aggregation, explicit branch bases are fetch-backed and pinned to `$BASE_COMMIT`, and security-reviewer now allows read-only packet/hash inspection while still forbidding exploit reproduction and writes.
+12. **Multi-agent V1/V2 compatibility investigation (rev.9)**: Draft [PR #296](https://github.com/toku345/dotfiles/pull/296) tried a dual V1/V2 adapter on Codex CLI 0.144.1. Exposing V2 spawn metadata with `[features.multi_agent_v2] hide_spawn_agent_metadata = false` conflicted with the reserved collaboration schema under `gpt-5.6-sol` and caused HTTP 400 before skill execution. Inspection of Codex 0.144.1, 0.144.2, and 0.144.3 found the relevant selection and schema-generation logic unchanged: `model_info.multi_agent_version` takes precedence over feature fallback, and the selected version is fixed for the session. The model catalog selects V2 for `gpt-5.6-sol`; `gpt-5.5` has no model-level selector and reaches V1 through the review profile's `multi_agent = true` / `multi_agent_v2 = false`. PR #296 was closed without merge. The replacement scope keeps a pure V1 orchestrator, refuses other schemas before repository access or specialist spawn, and tracks V2 support separately in [Issue #297](https://github.com/toku345/dotfiles/issues/297).
 
 ## Selected approach: (α) Pure Codex Skill
 
@@ -96,11 +99,19 @@ Source tree (chezmoi): `private_dot_codex/skills/pr-review/` and `private_dot_co
 ### Invocation
 
 ```bash
-# Verified on Codex CLI 0.130.0:
-codex exec '$pr-review review the current branch against its base ref'
+# Current V1-only invocation. Start a new process; do not reuse a V2 session.
+codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'
 ```
 
-The non-interactive `$pr-review` argv mention has been verified locally on Codex CLI 0.130.0. The original `codex exec /pr-review` draft (slash-command-style) is **not correct** — slash commands are an interactive-only surface.
+The non-interactive `$pr-review` argv mention was originally verified locally on Codex CLI 0.130.0. That historical PoC remains valid for skill loading, but the current runtime contract also requires the `review` profile so that `gpt-5.5` selects multi-agent V1. The original `codex exec /pr-review` draft (slash-command-style) is **not correct** — slash commands are an interactive-only surface.
+
+**Multi-agent runtime contract**:
+
+- Normal Codex sessions remain on `gpt-5.6-sol`, whose model metadata selects V2 in the Codex 0.144.1–0.144.3 catalog. Feature flags do not override that model-level selection.
+- `$pr-review` starts in a new `codex exec --profile review` process. The review profile selects `gpt-5.5` and enables `multi_agent` while disabling `multi_agent_v2`, producing the V1 tool family in the currently verified catalog.
+- The selected multi-agent version is fixed for the session and inherited by child agents. Switching models inside an existing V2 session is not a supported path back to V1.
+- Before any Git or shell command and before specialist spawn, the skill resolves deferred tool definitions if necessary and accepts only the V1 schema shape: `spawn_agent(agent_type, message)` returning `agent_id`, `wait_agent(targets)`, and `close_agent`. V2, mixed, unknown, incomplete, and unavailable schemas all fail closed without a probe spawn.
+- Do not configure `hide_spawn_agent_metadata = false`, and do not fall back to generic/default agents when the named V1 roles are unavailable. V2 adapter work belongs to [Issue #297](https://github.com/toku345/dotfiles/issues/297).
 
 **Preconditions** (skill aborts with actionable error message if any fails):
 
@@ -260,8 +271,10 @@ Version note: the initial design and Phase 3 PoC references intentionally retain
 - [ ] **gh-auth precondition verified**: smoke test on a system with stale `gh` auth aborts early with a recovery hint, not a silent silent-fail downstream
 - [ ] **Sandbox-blocked-`gh` precondition verified**: smoke test invoking the skill under an inadequate `--sandbox` mode (whichever Phase 3 determined insufficient) aborts early with a recovery hint specifying the correct `--sandbox` flag (and mentions the `--base <branch>` escape hatch), rather than failing mid-flow on the gh shell-out
 - [ ] `codex exec` on a tiny test PR completes end-to-end (smoke test)
+- [x] **V1 review-profile runtime smoke verified for Issue #295**: Codex CLI 0.144.2 loaded the candidate `review.config.toml`, selected `gpt-5.5`, exposed the V1 `spawn_agent(agent_type, message)` / `wait_agent(targets)` / `close_agent` family, spawned the complete specialist set plus Stage 2 against immutable base `7bcac805c99c70e0a9f7bdc3dd82657ed6b19b72`, and passed the final clean-worktree / unchanged-HEAD guards (session `019f5aa4-c5ce-77d0-9d65-67b739a99c90`). The smoke command was `CODEX_HOME=<isolated-candidate-home> codex exec --ephemeral --profile review -C <repo-root> '$pr-review --base <immutable-base>'`.
+- [x] **V2 and missing-profile runtime failures verified for Issue #295**: overriding the candidate review process to `gpt-5.6-sol`, and separately omitting `review.config.toml` so profile lookup silently fell back to the `gpt-5.6-sol` baseline, both reached the V2/mixed/unknown fail-closed message before Git inspection or specialist spawn.
 
-Current verification boundary: CI currently checks bundle integrity and static contract drift via `tests/codex/verify_pr_review_bundle.py`, and `tests/codex/test_verify_pr_review_bundle_negative.py` proves selected high-risk verifier regressions fail closed. It does **not** run a live `codex exec` review. Static checks now cover severity normalization, fatal-on-missing-context wording, `$HEAD_REF`-bound collection, authoritative diff-packet hash requirements, coverage-failure abort wording, and negative mutations for sentinel / license / fatal-coverage / packet-authority drift. One live happy-path review has completed on PR #215, but the negative runtime smoke cases remain manual. Until Phase 5 compares the new skill against legacy `triple-review` on historical PRs, legacy `triple-review` remains the fallback / authoritative gate for cutover decisions.
+Current verification boundary: CI checks bundle integrity and static contract drift via `tests/codex/verify_pr_review_bundle.py`, and `tests/codex/test_verify_pr_review_bundle_negative.py` proves selected high-risk verifier regressions fail closed. Static checks now cover review-profile structure and model selection, rejection of legacy profile tables and `hide_spawn_agent_metadata`, the V1 runtime sentinel/schema/retry contract, severity normalization, fatal-on-missing-context wording, `$HEAD_REF`-bound collection, authoritative diff-packet hash requirements, and negative mutations for high-risk drift. CI does **not** run live `codex exec` requests because they depend on credentials, network access, and the current server-side model catalog; the Issue #295 V1 and fail-closed cases above are a manual compatibility smoke to repeat after relevant Codex upgrades. Until Phase 5 compares the new skill against legacy `triple-review` on historical PRs, legacy `triple-review` remains the fallback / authoritative gate for cutover decisions.
 
 **Phase 5 (T9)**:
 - [ ] 3 historical PRs reviewed by both old `triple-review` and new Codex skill
@@ -288,8 +301,8 @@ Current verification boundary: CI currently checks bundle integrity and static c
 |---|---|---|
 | Codex-routed specialist quality < Claude-routed equivalent | Medium | E2E test (Phase 5) on 3 historical PRs catalogues deltas. If material gaps appear, fix by per-specialist `model` field or by language-specific specialists |
 | **Same-model adversarial review weakened** — `adversarial-reviewer.toml` was originally meant to bring Codex's "outside perspective" into Claude Code's flow. Running Codex inside Codex may dilute the cross-model property | **Medium** | Phase 5 explicitly catalogues legacy-ADV-vs-new-ADV finding diversity. If degradation is material, options: (a) keep a single Claude leg for ADV only (partial Hybrid), (b) pin a distinct Codex model for `adversarial-reviewer.toml` via `model` field, (c) accept and document the trade-off |
-| `features.multi_agent` is stable on `codex-cli 0.130.0` but `multi_agent_v2` is `under development` — `agents.*` configuration semantics or the spawn-await primitive name may shift on v2 migration | Low–Medium | Verified `multi_agent stable true` via `codex features list` on `codex-cli 0.130.0`. ADR records the verified version. When `multi_agent_v2` materialises, re-verify `agents.max_threads` / `agents.job_max_runtime_seconds` / the await primitive determined in Phase 3 against the v2 schema before upgrading. Conversion stays mechanical so re-transcription from upstream is straightforward if breakage occurs |
-| **Codex non-interactive invocation syntax may drift** — `codex exec '$pr-review --base main'` is verified on Codex CLI 0.130.0, but the syntax is still a CLI behavior dependency | Low | Session `019e399e-81aa-7ea2-9ec5-3764a0cf4726` verified `$pr-review` argv mention loading from `~/.codex/skills/`. Re-run the smoke after Codex CLI upgrades or before final cutover |
+| **Model-selected multi-agent version or schema may drift** — Codex 0.144.1–0.144.3 selects V2 for normal `gpt-5.6-sol` sessions while the `gpt-5.5` review profile reaches V1 through feature fallback | Low–Medium | The verifier pins the independent review profiles and V1 schema contract, the skill rejects non-V1 exposure before repository inspection or spawn, and the manual live smoke is repeated after relevant Codex/model-catalog upgrades. V2 adapter work remains isolated in Issue #297 |
+| **Codex non-interactive invocation or profile loading may drift** — `codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'` and `~/.codex/review.config.toml` are CLI behavior dependencies | Low | Session `019f5aa4-c5ce-77d0-9d65-67b739a99c90` verified candidate profile loading, V1 tool exposure, and end-to-end specialist execution on Codex CLI 0.144.2. Re-run the recorded smoke after Codex CLI upgrades or before final cutover |
 | **`gh` execution blocked under Codex sandbox** — `codex exec --sandbox read-only` (or default) may restrict `gh`'s TLS path (analogous to Claude Code's macOS Seatbelt restriction documented in AGENTS.md `Sandbox Gotchas`; Codex subagents inherit the parent sandbox per docs). Skill cannot then resolve PR base ref | Medium | Phase 3 PoC verifies `gh` runnability under each sandbox mode per OS. Invocation documents both possibilities (read-only or workspace-write). Skill preflight detects sandbox-blocked `gh` and aborts with recovery hint specifying the correct `--sandbox` flag. Escape hatches: explicit `--base <branch>` or `--allow-no-pr` / `ALLOW_NO_PR=1` bypass `gh` entirely |
 | License attribution gap (header missing in some `.toml`; NOTICE preservation overlooked) | Low | CI runs `tests/codex/verify_pr_review_bundle.py`: per-file header presence, expected source commit/copyright/license, bundled LICENSE/NOTICE SHA-256 pins, and `codex-plugin-cc` NOTICE reference are mechanically verified |
 | 30-min+ reviews emerge → sleep timer fires mid-review | Low | Empirical: previous "long" runs were stuck, not running. If real long-compute emerges, add a thin `caffeinate` wrapper at that point (YAGNI now) |
@@ -299,6 +312,11 @@ Current verification boundary: CI currently checks bundle integrity and static c
 
 ## References
 
+- [Issue #295](https://github.com/toku345/dotfiles/issues/295) — current V1-only compatibility work
+- [Closed PR #296](https://github.com/toku345/dotfiles/pull/296) — abandoned V1/V2 dual-adapter investigation
+- [Issue #297](https://github.com/toku345/dotfiles/issues/297) — separate multi-agent V2 adapter work
+- [Codex 0.144.3 session selector](https://github.com/openai/codex/blob/rust-v0.144.3/codex-rs/core/src/session/mod.rs#L3109-L3122) — model metadata precedence and session-fixed version selection
+- [Codex 0.144.3 feature fallback](https://github.com/openai/codex/blob/rust-v0.144.3/codex-rs/core/src/config/mod.rs#L1410-L1417) — V2/V1 feature fallback when model metadata is absent
 - [Issue #206](https://github.com/toku345/dotfiles/issues/206) — parent tracking Issue
 - [ADR 0012 (triple-review-bash-script)](../adr/0012-triple-review-bash-script.md) — current `triple-review` design (to be marked superseded by ADR 0023)
 - [ADR 0017 (triple-review-headless-output-style)](../adr/0017-triple-review-headless-output-style.md) — output-style persona suppression (background for `claude_p_neutral`)
