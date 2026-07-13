@@ -2,9 +2,9 @@
 
 Schema: `outer-loop-week0/v1`
 
-Package digest: `sha256:96f90b45cefa6921ede3afb50bb202133722591d27bb316dcbdbac05b6ec8a57`
+Package digest: `sha256:1fa0b4138d35c9797566e1f27138bd2a893bc5931530309cb7de12774a7e0658`
 
-Source revision at generation: `outer-loop-week0/v1-content-12` (informational and excluded from package identity)
+Source revision at generation: `outer-loop-week0/v1-content-13` (informational and excluded from package identity)
 
 Generated on: `2026-07-13` (informational and excluded from package identity)
 
@@ -13,12 +13,12 @@ Generated on: `2026-07-13` (informational and excluded from package identity)
 `manifest.md` excludes itself. Each record is the lowercase SHA-256 of the covered file's exact bytes, two ASCII spaces, its package-root-relative path, and LF. Records are sorted by relative path using C-locale byte order. The package digest is the SHA-256 of the resulting six records, including each terminal LF.
 
 ```text
-218e4d7864abc4e9f00d47016136c0f7fafeed3008299d818cffb0f9cef66bb5  README.md
-7deb167eb1c8b356d5bb798d42a4931d662625a0cd542270337f94a4d054fc6a  artifact-templates.md
-e98e2927415d512bcb78a0f6727baac8c943da2384dac1002defce9f43a6b273  calibration.md
+9370078317930ea01da77af914e94ea28b3bb68cc62b729eee43949d4fb7191b  README.md
+ae70b8ac0ba9ced74c072302511bba9f2b034ffb38594666fac5ba524931ac2f  artifact-templates.md
+f93ffbdcbaf1f27e57b6319f0516702f45f06729338286703f0941e069a892ce  calibration.md
 07f6b7c2c3214fda34239fdd51e1749dbbeab2893820857138cd300a70dda859  claude-invocation.md
 4ea813c3cad193f82e7aadcf62db655c130334dc07176aa543683e02b9df612d  codex-invocation.md
-b7a88bf0903b0f526d3e6806041cc279b5ded5716b77766e8204e78c36604904  policy.md
+c2f3014aafa9ed7338429a0d6a9a8e36cd071f34461c8531afce5afb25d1b46a  policy.md
 ```
 
 ## Reproduce on macOS
@@ -35,7 +35,7 @@ done | LC_ALL=C sort -k2,2 | shasum -a 256
 Expected digest:
 
 ```text
-96f90b45cefa6921ede3afb50bb202133722591d27bb316dcbdbac05b6ec8a57
+1fa0b4138d35c9797566e1f27138bd2a893bc5931530309cb7de12774a7e0658
 ```
 
 ## Reproduce on Linux

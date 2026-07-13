@@ -177,6 +177,8 @@ If a prior Work hard failure or remediation must be acknowledged, the seven-fiel
 
 In `approved-summary` mode, the Private advancement gate derives whether any prior Private hard failure exists from a complete provenance-bound Private-local history scan and requires its verified remediation acknowledgement before `advance`. A prior Work hard failure or incomplete Work-local history evidence makes the Work summary issuance gate fail and forces `in-place-no-transfer`; neither condition can be overridden by entering a passing aggregate or human approval.
 
+In `in-place-no-transfer` mode, the Work-local decision receipt requires complete provenance-bound history checks for both originating environments and each applicable originating-environment remediation acknowledgement. Private evidence is checked in place without copying incident detail into the Work receipt. Missing or incomplete history in either environment blocks `advance`; fallback from an ineligible approved summary does not clear that prerequisite.
+
 ## Cleanup
 
 - Remove raw contracts, reports, snapshots, and fixture data according to local policy only after their required summaries and digests are safely recorded, including durable per-run authority, scope, expiry, permitted-operation, and prohibited-boundary facts.

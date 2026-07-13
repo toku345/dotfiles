@@ -857,7 +857,7 @@ replacement_scan_provenance: <screening/scorecard comparison evidence>
 fixed_slot_gate: <pass | fail; derived from enrollment_derivation and replacement scan>
 prior_work_hard_failure_history_provenance: <complete Work-local immutable history scan and digest>
 prior_work_hard_failure_history_complete: <pass | fail>
-prior_work_hard_failure_present: <yes | no; derived from Work-local pilot history>
+prior_work_hard_failure_present: <yes | no | UNVERIFIED; derived from Work-local pilot history>
 approved_summary_mode_eligibility: <pass iff history completeness passes and prior_work_hard_failure_present is no | fail-requires-in-place-no-transfer>
 summary_derivation:
   completed_task_count: <0 | 1 | 2; count of terminal fixed slots>
@@ -1058,13 +1058,22 @@ mode: in-place-no-transfer
 retention_permitted_by_work_policy: <yes | no>
 comparison_completed_in_place_without_copying_raw_results: <yes | no>
 work_fixed_slot_rollups_verified_without_replacement: <yes | no>
+prior_work_hard_failure_history_provenance: <complete Work-local immutable history scan and digest | UNVERIFIED>
+prior_work_hard_failure_history_complete: <pass | fail | UNVERIFIED>
 prior_work_hard_failure_present: <yes | no; derived from Work-local pilot history>
-prior_work_hard_failure_and_remediation_acknowledgement: <verified Work-local reference | N/A-no-prior-hard-failure>
+prior_work_hard_failure_and_remediation_acknowledgement: <verified Work-local reference | N/A-no-prior-hard-failure | UNVERIFIED>
+private_prior_hard_failure_history_verification_provenance: <operator verification of the complete Private-local immutable history and its origin-local receipt SHA-256, without copied incident detail | UNVERIFIED>
+private_prior_hard_failure_history_complete: <pass | fail | UNVERIFIED>
+private_prior_hard_failure_present: <yes | no | UNVERIFIED; verified in place against Private-local pilot history>
+private_prior_hard_failure_and_remediation_acknowledgement: <origin-local verified reference checked in place | N/A-no-prior-hard-failure | UNVERIFIED>
 advancement_gate_derivation:
   retention_permitted: <pass iff retention_permitted_by_work_policy is yes | fail>
   comparison_completed_without_copying_raw_results: <pass iff comparison_completed_in_place_without_copying_raw_results is yes | fail>
   fixed_slots_and_no_replacement: <pass iff work_fixed_slot_rollups_verified_without_replacement is yes | fail>
-  prior_hard_failure_acknowledgement_satisfied: <pass iff prior present yes has a verified acknowledgement, or prior present no has N/A-no-prior-hard-failure | fail>
+  work_prior_hard_failure_history_complete: <pass iff prior_work_hard_failure_history_complete is pass and provenance is verified | fail | UNVERIFIED>
+  work_prior_hard_failure_acknowledgement_satisfied: <pass iff Work history completeness passes and either prior present yes has a verified acknowledgement or prior present no has N/A-no-prior-hard-failure | fail | UNVERIFIED>
+  private_prior_hard_failure_history_complete: <pass iff private_prior_hard_failure_history_complete is pass and verification provenance is verified | fail | UNVERIFIED>
+  private_prior_hard_failure_acknowledgement_satisfied: <pass iff Private history completeness passes and either prior present yes has an origin-local verified acknowledgement checked in place or prior present no has N/A-no-prior-hard-failure | fail | UNVERIFIED>
   exactly_four_terminal_fixed_slots: <pass | fail | UNVERIFIED>
   all_four_hard_gates_clear: <pass | fail | UNVERIFIED>
   at_least_three_derived_comfort_qualifying: <pass | fail | UNVERIFIED>
@@ -1082,7 +1091,7 @@ private_shared_skill_phase_authorized: false
 
 If Work policy does not permit retaining this receipt, use `human_decision: undecided` only in transient review and treat the pilot as stopped or undecided; it cannot authorize advancement.
 
-In `in-place-no-transfer` mode, the human evaluates the same advancement predicates in place. The Work-local receipt retains the predicate results and decision, but no Work-derived count, gate component, or reason is copied into the Private record. A hand-entered passing gate or `advance` that contradicts retention, comparison, fixed-slot/no-replacement, or source-consistency evidence is invalid.
+In `in-place-no-transfer` mode, the human evaluates the same advancement predicates in place. Both originating environments' prior-hard-failure history scans must be complete, and any prior failure must have its originating environment's verified remediation acknowledgement; a Private acknowledgement is checked in place without copying incident detail into the Work receipt. The Work-local receipt retains the predicate results and decision, but no Work-derived count, gate component, or reason is copied into the Private record. A hand-entered passing gate or `advance` that contradicts retention, comparison, either history-completeness or acknowledgement predicate, fixed-slot/no-replacement, or source-consistency evidence is invalid.
 
 ## Arm setup overhead record
 
