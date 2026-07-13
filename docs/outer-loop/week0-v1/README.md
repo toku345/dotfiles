@@ -1,0 +1,206 @@
+# Outer Loop Week 0 v1
+
+Schema: `outer-loop-week0/v1`
+
+This directory is the manual, zero-build pilot package selected by [ADR 0030](../../adr/0030-codex-claude-outer-loop-pilot.md). It is used for two Private tasks driven by Codex and two Work tasks driven by Claude Code before any reusable Skill, hook, Dynamic Workflow, runner, or persistent adapter is built.
+
+The package contains generalized policy and blank templates only. Never store a real contract, report, scorecard, calibration result, task identifier, repository detail, or Work-derived observation in this directory or another repository.
+
+## Package map
+
+| File | Audience | Purpose |
+|---|---|---|
+| [policy.md](policy.md) | Operator and all session roles | Sole normative source for runtime-neutral Week 0 rules |
+| [artifact-templates.md](artifact-templates.md) | Operator; approved contract/report excerpts go to agents | Blank local artifact templates and ownership rules |
+| [codex-invocation.md](codex-invocation.md) | Private operator and Session B | Thin Codex `/goal` handoff |
+| [claude-invocation.md](claude-invocation.md) | Work operator and Session B | Thin Claude Code `/goal` handoff |
+| [calibration.md](calibration.md) | Operator | Six generalized routing cases and end-to-end rehearsal sheets |
+| [manifest.md](manifest.md) | Operator | Covered-file hashes and canonical package digest |
+
+If this runbook appears to conflict with `policy.md`, stop and use `policy.md`. If the package conflicts with ADR 0030 before a real task, block the arm and revise through the package-change/drift path. During an active pilot, enter `PAUSED_HARD` only when the conflict produces a policy-defined hard-failure trigger.
+
+## Roles and ownership
+
+| Role | May read | May write |
+|---|---|---|
+| Operator | All locally approved pilot inputs and artifacts | `screening.md`, `contract.md` including its approval receipt, `scorecard.md`, local calibration/control records, company-arm summary, generalized-learning record, and `cohort.md` |
+| Session A1 — discovery | Approved goal context, target worktree, primary evidence | Its response only; target worktree and pilot artifacts are read-only |
+| Session A2 — blind-spot pass | Goal, constraints, Acceptance Criteria, target worktree, primary evidence; not A1 inventory or plan | Its response only; target worktree and pilot artifacts are read-only |
+| Optional spike | Approved inputs and one declared private temporary root | Evidence-only output inside that temporary root |
+| Session B — implementation | Frozen contract, approved target-worktree paths, repository guidance, declared verification inputs | Approved target-worktree paths, declared disposable paths, and `report.md`; no other pilot artifact |
+| Session C — independent review | Frozen snapshots of Goal, Acceptance Criteria, contract, diff, report, and verification | Its response only; the operator transcribes findings and questions into `scorecard.md` |
+
+Session C reports `reported_by` metadata; the operator separately records `recorded_by`. This preserves provenance without letting the reviewer modify observer evidence.
+
+## Local state
+
+Choose environment-local paths before starting an arm:
+
+```text
+<durable-local-state>/
+├── screening.md
+├── cohort.md
+├── calibration/
+├── controls/
+├── hard-pauses/
+└── tasks/<task-id>/scorecard.md
+
+<os-private-temp>/<task-id>/<run-id>/
+├── input/contract.md
+└── output/report.md
+```
+
+Both roots must be outside repositories and synchronized or shared folders. Directories use protection equivalent to `0700`; files use protection equivalent to `0600`. These modes protect against other OS users but do not constrain an agent running as the operator. The role-specific default-deny runtime or OS profile required by [policy.md](policy.md#enforcement-boundary) is the agent boundary.
+
+Task and run identifiers are opaque and machine-local. A Work identifier never crosses to Private. Keep every task scorecard through the final four-task cohort decision and make it independently understandable after raw run artifacts are deleted. If local policy cannot permit this minimum, do not start that environment's arm.
+
+## Arm prerequisites
+
+Complete these locally before a real task:
+
+- Recompute every covered hash and the package digest in [manifest.md](manifest.md); match the last successful cross-runtime calibration.
+- Approve the durable state root, private temporary root mechanism, raw retention/deletion policy, and any permitted cross-environment transfer path.
+- Record the runtime, model, invocation version, operating system, and current package identity.
+- For `A1-discovery`, `A2-blind-spot`, `B-implementation`, `C-review`, and optional `spike-temp`, record a passing control id, enforcement profile/configuration digest, read/write roots, credential/environment/socket exposure, network mode and allowlist digests when enabled, and invocation version.
+- Demonstrate with safe disposable sentinels that prohibited writes, credential-source reads, and undeclared egress are denied before mutation or disclosure; confirm no secret-bearing inherited environment variable or credential/keychain/agent socket is exposed to role tools. Detection afterward is not a passing control.
+- Confirm that no role has write access to operator-owned artifacts and that A1, A2, and C cannot mutate the target worktree.
+- On Work, approve the storage, package transfer or manual recreation path, manifest attestation process, reviewer runtime, and retention minimum under company policy.
+- Complete both-runtime routing calibration plus success, redirect, and restart/resume rehearsals in [calibration.md](calibration.md).
+
+Any package, profile, roots, credential/environment/socket exposure, network enforcement, invocation, or runtime-behavior drift blocks the affected session until [policy.md](policy.md#drift-and-recalibration) is satisfied.
+
+## Operator runbook
+
+### 1. Screen and establish the baseline
+
+1. Append every candidate in arrival order to the local `screening.md` created from [artifact-templates.md](artifact-templates.md#screening-log).
+2. Apply the eligibility and exclusion rules in [policy.md](policy.md#eligibility).
+3. For an eligible task, assign its dominant class and scope tier and fix the required comparison baseline before the first Checkpoint 1 presentation.
+4. Record package/profile preflight evidence and the pre-CP1 operator effort separately from advancement attention.
+
+### 2. Discover Unknowns without changing the worktree
+
+1. Record the target worktree's HEAD, status, index state, and diff digest.
+2. Run bounded, read-only Session A1.
+3. Run fresh, read-only Session A2 without the A1 inventory or plan.
+4. If the policy requires risk reduction, narrow the scope or run one evidence-only spike in a declared private temporary root.
+5. Reconcile candidates into the contract template. Route every retained candidate; do not treat agent agreement as evidence.
+6. Recheck HEAD, status, index state, and diff digest. Any unexpected mutation blocks Checkpoint 1.
+
+### 3. Hold Checkpoint 1
+
+1. Present the contract, Unknown evidence and routes, plan-changing questions, authority, rollback, and bounds. The task attention window starts at this first presentation.
+2. The human chooses approve, narrow, or block within the policy bounds.
+3. On approval, calculate the approved-payload digest as specified by the contract template, complete the operator receipt, make the final contract read-only, calculate its whole-file digest, and record both digests in `scorecard.md`.
+4. Recompute the package digest and verify the `B-implementation` enforcement record immediately before Session B.
+
+### 4. Run fresh Session B with `/goal`
+
+1. Start a fresh runtime session using only repository/global safety guidance and the frozen contract as task-specific instruction.
+2. Use the appropriate thin adapter: [Codex](codex-invocation.md) or [Claude Code](claude-invocation.md).
+3. Require the contract echo-back before any edit. A handoff gap stops the run.
+4. Let Session B implement, verify, maintain `report.md`, and route decisions under `policy.md`.
+5. Session B ends at `CP2_READY` or an earlier required stop. It never performs delivery operations.
+
+### 5. Freeze evidence and run fresh Session C
+
+1. At `CP2_READY`, ensure Session B cannot continue without a new human turn. Freeze `report.md` and the reviewed diff/Evidence Packet snapshots.
+2. Record their digests and a self-contained summary in the operator-owned scorecard.
+3. Recompute the package digest and verify the `C-review` enforcement record.
+4. Start Session C in a fresh context with read-only snapshots. It inspects Goal, Acceptance Criteria, diff, and verification before the driver's Decision Log.
+5. Session C returns merge-blocking findings, evidence gaps, reviewer-discovered Unknowns, and three to five understanding questions. The operator records them plus durable evidence that the context was fresh and the blind-first order was followed in the scorecard.
+
+### 6. Hold Checkpoint 2
+
+1. Present the frozen Evidence Packet and understanding questions; start the CP2 timer.
+2. Resolve quiz misses from evidence within the policy limits. An unresolved or foundational miss cannot result in `ship`.
+3. Evaluate and record the scorecard's ship gate: every Acceptance Criterion is `PASS`, every Unknown is resolved or explicitly accepted by a human owner with evidence, every queued decision has a human-reviewed terminal outcome, Session C has passing fresh-context and blind-first evidence and completed within its bound, no `blocks-ship` finding remains, and the quiz gate passed.
+4. The human records `ship` only after that gate passes; otherwise record `narrow`, `redirect`, or `block`.
+5. Close, pause, or replace the runtime goal according to the lifecycle behavior observed during calibration.
+6. Only after a terminal human `ship` disposition may ordinary commit, push, draft-PR, merge, or deployment workflows run outside Week 0 under repository rules and separate approvals. `narrow` and `redirect` require a new run; `block` and abandonment prohibit delivery.
+
+### 7. Redirect or finish the task
+
+A same-intent `narrow`, `redirect`, or post-freeze fix creates a new contract and run under the same task id. Preserve and cumulatively count every earlier run. A material Goal replacement terminates the old task as non-qualifying and receives a new task id. Do not let a new run erase cost, evidence, or a hard failure.
+
+## Runtime lifecycle mapping
+
+Each environment records the observed mapping rather than assuming identical product semantics:
+
+```text
+ACTIVE
+  |
+  v
+CP2_READY_WAIT
+  |
+  +--> ship
+  +--> narrow -> new run, same task
+  +--> redirect -> new run, same task
+  +--> block
+  `--> abandonment
+```
+
+At `CP2_READY_WAIT`, Session B yields and cannot continue without a new human turn. If a runtime cannot safely keep a goal waiting, the run goal may complete narrowly as “produce the frozen CP2-ready packet” while the task remains active in the operator scorecard.
+
+## Hard pause and resume
+
+On any hard-failure trigger in [policy.md](policy.md#hard-failure-and-resume), immediately:
+
+1. Freeze and digest local evidence.
+2. Set the pilot state to `PAUSED_HARD`; stop the cohort and all pilot-derived transfers.
+3. Diagnose and record the cause and affected controls in the originating environment.
+4. Choose `STOPPED` or revise the policy/package.
+5. After a revision, rerun affected controls and end-to-end rehearsal, recalibrate both runtimes, and obtain explicit human resume approval.
+6. Start a new cohort. Keep the prior failure in pilot history; a new cohort does not clear it.
+
+Information-boundary incidents follow the originating environment's security process. Do not transfer incident details merely to justify resumption.
+
+## Work boundary and aggregation
+
+Raw Work artifacts, review, identifiers, code, architecture, conventions, Skills/prompts, paths, logs, tickets, exact timing, and identifiable metric combinations stay on Work. `agmsg` is not an automatic cross-machine or cross-environment transport.
+
+After both Work tasks terminate, use exactly one mode defined by [policy.md](policy.md#information-boundary):
+
+- Transfer one human-approved, allowlisted company-arm summary through a company-permitted path; or
+- Perform the comparison in place without persisting Work-derived counts, coverage, gates, reasons, or combined evidence on Private.
+
+A generalized-learning statement may cross only after its own abstraction and reconstructability review and only when content and timing do not associate it with a task or arm summary. It is not a cohort result or proxy decision. If no Work outcome may cross, Private records `awaiting_external_decision` and must not begin or claim the shared Skill phase.
+
+If a prior Work hard failure or remediation must be acknowledged, the seven-field summary is insufficient. Keep that comparison and a never-transfer decision receipt in Work-local state; do not add failure/remediation fields to the summary or Private record. If Work policy cannot retain that local receipt, the comparison cannot authorize advancement.
+
+## Cleanup
+
+- Remove raw contracts, reports, snapshots, and fixture data according to local policy after their required summaries and digests are safely recorded.
+- Retain self-contained task scorecards through the final cohort decision and retain remediation records for any hard failure.
+- Keep fake and rehearsal data out of repositories and out of the real cohort.
+- Keep repository-required ADRs or implementation notes separate from pilot state; normal project guidance remains authoritative for project deliverables.
+
+## Package change procedure
+
+Do not edit this version in place after calibration or a cohort task begins. Create a new versioned directory, recompute its manifest, rerun affected role controls and end-to-end rehearsals, calibrate both runtimes, and begin a new advancement cohort. Preserve older observations without pooling identities.
+
+## ADR traceability
+
+| ADR 0030 requirement | Authoritative package location |
+|---|---|
+| Eligibility and four-task cohort | [Policy: Eligibility](policy.md#eligibility), [Policy: Advancement decision](policy.md#advancement-decision) |
+| Shared contract, task/run identity, provenance | [Policy: Identity and provenance](policy.md#identity-and-provenance), [Contract template](artifact-templates.md#run-contract) |
+| Checkpoints, session separation, blind-first review, quiz | [Policy: Checkpoints and evidence gate](policy.md#checkpoints-and-evidence-gate), [Operator runbook](#operator-runbook) |
+| Artifact ownership, retention, and self-contained scorecard | [Policy: Artifact ownership](policy.md#artifact-ownership), [Artifact templates](artifact-templates.md) |
+| Unknown discovery and implementation/reviewer deltas | [Policy: Unknown discovery and routing](policy.md#unknown-discovery-and-routing) |
+| Decision routing and interruption policy | [Policy: Decision routes](policy.md#decision-routes) |
+| Week 0 authority boundary | [Policy: Enforcement boundary](policy.md#enforcement-boundary) |
+| Private/Work separation and transfer allowlists | [Policy: Information boundary](policy.md#information-boundary), [Company-arm template](artifact-templates.md#company-arm-summary) |
+| Measurement and comparison baseline | [Policy: Measurement](policy.md#measurement) |
+| Task/checkpoint bounds and goal lifecycle | [Policy: Bounds and lifecycle](policy.md#bounds-and-lifecycle), runtime invocation documents |
+| Hard-failure pause and resume | [Policy: Hard failure and resume](policy.md#hard-failure-and-resume), [Hard-pause template](artifact-templates.md#hard-pause-and-remediation-record) |
+| Cross-runtime calibration and drift | [Policy: Drift and recalibration](policy.md#drift-and-recalibration), [Calibration](calibration.md) |
+| Package identity and mismatch behavior | [Policy: Package identity](policy.md#package-identity), [Manifest](manifest.md) |
+| Post-pilot Skill authority constraints | [Policy: Deferred Skill constraint](policy.md#deferred-skill-constraint); not implemented during Week 0 |
+
+## References
+
+- [ADR 0030](../../adr/0030-codex-claude-outer-loop-pilot.md)
+- [Design and implementation plan](../../design/codex-claude-outer-loop-pilot.md)
+- [Codex: Follow a goal](https://learn.chatgpt.com/use-cases/follow-goals)
+- [Claude Code: Keep Claude working toward a goal](https://code.claude.com/docs/en/goal)
