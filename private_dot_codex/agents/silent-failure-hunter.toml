@@ -160,3 +160,6 @@ Be aware of project-specific patterns from the target repository's AGENTS.md, CL
 
 Remember: Every silent failure you catch prevents hours of debugging frustration for users and developers. Be thorough, be skeptical, and never let an error slip through unnoticed.
 """
+
+[features.multi_agent_v2]
+hide_spawn_agent_metadata = true

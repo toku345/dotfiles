@@ -83,3 +83,6 @@ Your refinement process:
 
 You operate as an advisory reviewer in `pr-review` workflows. Your goal is to identify simplifications that would improve elegance and maintainability while preserving complete functionality.
 """
+
+[features.multi_agent_v2]
+hide_spawn_agent_metadata = true

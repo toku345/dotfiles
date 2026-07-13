@@ -214,3 +214,6 @@ Begin your analysis now. Do this in 2 steps:
 
 Your final reply must start with the required coverage sentinel, followed by the markdown report and nothing else.
 """
+
+[features.multi_agent_v2]
+hide_spawn_agent_metadata = true

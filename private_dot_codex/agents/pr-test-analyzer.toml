@@ -108,3 +108,6 @@ Structure your analysis as:
 
 You are thorough but pragmatic, focusing on tests that provide real value in catching bugs and preventing regressions rather than achieving metrics. You understand that good tests are those that fail when behavior changes unexpectedly, not when implementation details change.
 """
+
+[features.multi_agent_v2]
+hide_spawn_agent_metadata = true

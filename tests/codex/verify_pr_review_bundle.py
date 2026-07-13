@@ -19,6 +19,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 AGENTS_DIR = REPO_ROOT / "private_dot_codex" / "agents"
 SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
+CONFIG_BASELINE = REPO_ROOT / "private_dot_codex" / "private_config.chezmoi.toml"
 REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
 SEVERITY_RULES = SKILL_DIR / "references" / "severity-rules.json"
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
@@ -152,8 +153,22 @@ REQUIRED_SKILL_SNIPPETS = [
     "Scope contract: review only the orchestrator-provided `$BASE_COMMIT...$HEAD_REF` committed branch diff.",
     "Coverage sentinel contract",
     "Review-only contract: do not edit files",
-    "`wait_agent` with multiple targets returns when a target reaches a final status",
-    "timeout_ms` of 600000",
+    "Prefer V2 only when `spawn_agent` exposes required `task_name` plus `fork_turns`",
+    "Fail closed before spawning on a mixed or unknown shape.",
+    "never fall back to the generic/default role",
+    "V1 spawn arguments are `agent_type` and `message`",
+    "V2 spawn arguments are `agent_type`, `task_name`, `message`, and `fork_turns = \"none\"`",
+    "Do not pass `model`, `reasoning_effort`, or `service_tier`; inherit the parent settings.",
+    "reviewer children do not spawn descendants; re-hiding metadata there keeps their reserved tool schema compatible",
+    "normalize the **entire task name**, not only the run token",
+    "replace every character outside `[a-z0-9_]` with `_`",
+    "`prr_ab12cd_s1_code_reviewer_a1`",
+    "allow at most 3 running specialists because the default four-thread session limit includes the root",
+    "harvest-before-spawn order is mandatory",
+    "Only after this harvest may the next pending specialist be spawned.",
+    "Do not retry a task that disappeared from `list_agents` and do not aggregate partial results.",
+    "V2 has no `close_agent`",
+    "Stage 1 wall-clock budget of 30 minutes",
     "Final worktree guard",
     "git status --porcelain --untracked-files=normal",
     "If `gh pr view` returned `baseRefOid`, keep `$BASE_REF=FETCH_HEAD` after the verified fetch/OID comparison",
@@ -172,7 +187,7 @@ PROCEDURE_SKILL_SNIPPETS = [
     "do not use a suffixed template such as `pr-review-diff.XXXXXX.diff`",
     "Abort if `mktemp`, diff writing, byte counting, or hashing fails.",
     "The diff packet is authoritative",
-    "Current Codex 0.130.0 contract: `agent_type` selects the custom role",
+    "Both adapters require `agent_type` to be visible",
     "The recorded `$BASE_COMMIT`",
     "The recorded `$HEAD_REF`",
     "review only the orchestrator-provided `$BASE_COMMIT...$HEAD_REF` committed branch diff",
@@ -183,14 +198,19 @@ PROCEDURE_SKILL_SNIPPETS = [
     "Fail closed before Stage 2 or aggregation if any specialist output reports a fatal coverage error",
     "unable to verify the packet",
     "Review-only contract: do not edit files",
-    "`wait_agent` with multiple targets returns when a target reaches a final status",
-    "Spawn Stage 1 with a bounded fanout",
-    "Start at most 6 Stage 1 specialists at a time",
+    "V1: `wait_agent` with multiple targets returns when a target reaches a final status",
+    "V2: `wait_agent(timeout_ms = 600000)` is mailbox polling only",
+    "its return value contains no specialist result",
+    "immediately record and validate the non-empty message from **every** `Completed` task before spawning anything else",
+    "`list_agents` silently omits unloaded threads",
+    "If any already-spawned, not-yet-harvested task disappears from `list_agents`, fail closed",
+    "pending tasks are not subject to this presence check until their spawn succeeds",
+    "external capacity conflict",
     "Never drop a scheduled specialist because of the thread limit",
-    "close every remaining running Stage 1 agent",
+    "interrupt every running task owned by this run",
     "same target description, `$BASE_REF`, `$BASE_COMMIT`, `$HEAD_REF`",
     "Apply the same first-line `COVERAGE_OK ...` / `FATAL_COVERAGE_ERROR ...` sentinel validation",
-    "close the running Stage 2 agent if it exists",
+    "clean it up with V1 `close_agent` or V2 `interrupt_agent` when still running",
 ]
 
 CRITICAL_NORMALIZATION_SNIPPETS = [
@@ -306,6 +326,22 @@ def verify_license_files() -> None:
             fail(f"{rel}: sha256 mismatch: expected {expected_hash}, got {actual_hash}")
 
 
+def verify_managed_config() -> None:
+    context = str(CONFIG_BASELINE)
+    try:
+        data = tomllib.loads(CONFIG_BASELINE.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        fail(f"{context}: invalid TOML: {exc}")
+
+    multi_agent_v2 = data.get("features", {}).get("multi_agent_v2")
+    expected = {"hide_spawn_agent_metadata": False}
+    if multi_agent_v2 != expected:
+        fail(
+            f"{context}: features.multi_agent_v2 must configure metadata visibility only: "
+            f"expected {expected}, got {multi_agent_v2!r}"
+        )
+
+
 def verify_review_criteria() -> None:
     if not REVIEW_CRITERIA.is_file():
         fail(f"missing bundled review criteria: {REVIEW_CRITERIA.relative_to(REPO_ROOT)}")
@@ -418,6 +454,14 @@ def verify_agent_toml() -> None:
         if path.stem != expected_name:
             fail(f"{path}: filename stem does not match agent name {expected_name!r}")
 
+        child_v2 = data.get("features", {}).get("multi_agent_v2")
+        expected_child_v2 = {"hide_spawn_agent_metadata": True}
+        if child_v2 != expected_child_v2:
+            fail(
+                f"{path}: child role must re-hide V2 spawn metadata: "
+                f"expected {expected_child_v2}, got {child_v2!r}"
+            )
+
         for needle in (
             f"Source:        {meta['source']}",
             f"Source commit: {meta['commit']}",
@@ -520,6 +564,7 @@ def verify_skill_contract() -> None:
 
 def main() -> None:
     verify_license_files()
+    verify_managed_config()
     verify_review_criteria()
     verify_severity_rules()
     verify_claude_share_templates()

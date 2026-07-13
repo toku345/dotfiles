@@ -120,3 +120,6 @@ Before finalizing, check that each finding is:
 The orchestrator provides the diff and repository context in the spawn message.
 </repository_context>
 """
+
+[features.multi_agent_v2]
+hide_spawn_agent_metadata = true

@@ -86,3 +86,6 @@ If no high-confidence issues exist, confirm the code meets standards with a brie
 
 Be thorough but filter aggressively - quality over quantity. Focus on issues that truly matter.
 """
+
+[features.multi_agent_v2]
+hide_spawn_agent_metadata = true
