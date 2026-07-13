@@ -29,6 +29,46 @@ Apply these high-level constraints throughout the Procedure:
 
 Run these checks in order. If any fails, abort with the indicated actionable error and do not proceed to the Procedure section.
 
+0. **V1 runtime contract** — Before running any shell or Git command and before invoking any multi-agent tool, inspect the tool definitions exposed to this session. Runtime contract sentinel: `PR_REVIEW_RUNTIME_CONTRACT_V1`.
+   - If the multi-agent tools are deferred, use the runtime's tool-discovery mechanism to resolve and inspect their definitions. Tool discovery is allowed here; a probe spawn is not. Do not infer the contract from the configured feature flags, model name, tool namespace, or a prior session.
+   - Proceed only when one coherent tool family unambiguously has the V1 shape:
+     - `spawn_agent` accepts `agent_type` and `message`, does not accept V2 fields `task_name` or `fork_turns`, and its successful result supplies an `agent_id`
+     - `wait_agent` accepts `targets`
+     - `close_agent` is available for an `agent_id`
+   - If tool discovery cannot resolve the required multi-agent definitions, or no multi-agent tools are available, do not run repository inspection or spawn a specialist. Abort with this exact message:
+
+     ```text
+     ERROR: $pr-review could not resolve the required Codex multi-agent V1 tools after tool discovery.
+
+     No specialist was spawned and no review was performed. Tool exposure is fixed for the lifetime of this session.
+
+     Start a new Codex process from the repository under review:
+
+       codex exec --profile review -C '<repo-root>' '$pr-review --base <same-base>'
+
+     If the review-profile command still does not expose the exact V1 tools, stop and report compatibility drift. Do not fall back to default agents.
+     ```
+
+   - If definitions are available but have a V2, mixed, incomplete, or unknown shape, do not run repository inspection, spawn a specialist, or fall back to a generic/default agent. Abort with this exact global-safe message; the caller substitutes the two angle-bracket placeholders when starting the new process:
+
+     ```text
+     ERROR: $pr-review requires the Codex multi-agent V1 schema, but this session exposes V2 or a mixed or unknown collaboration schema.
+
+     No specialist was spawned and no review was performed. The multi-agent version is fixed for the lifetime of this session.
+
+     Start a new Codex process from the repository under review:
+
+       codex exec --profile review -C '<repo-root>' '$pr-review --base <same-base>'
+
+     Do not set:
+       [features.multi_agent_v2]
+       hide_spawn_agent_metadata = false
+
+     If the review-profile command still does not expose the exact V1 schema, stop and report compatibility drift. Do not fall back to default agents.
+
+     V2 support is tracked in: https://github.com/toku345/dotfiles/issues/297
+     ```
+
 1. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with the command output and do not review an unknown worktree state. If output is non-empty (uncommitted tracked changes or untracked-non-ignored files), abort with:
    > "Worktree has uncommitted changes: \<list\>. The review covers committed branch diff only; uncommitted changes would be silently excluded. To inspect staged, unstaged, and untracked changes first, run `codex review --uncommitted`. Commit or stash all listed changes, then retry `$pr-review`. (See ADR 0020.)"
 
@@ -89,7 +129,7 @@ After preconditions pass:
    When in doubt, include the specialist (over-coverage is cheaper than missed findings).
 
 2. **Build the Stage 1 specialist set and spawn it in parallel** via `spawn_agent`.
-   - Current Codex 0.130.0 contract: `agent_type` selects the custom role; if omitted, Codex uses role `default`. Therefore every specialist spawn **must** set `agent_type = "<specialist-name>"`.
+   - The V1 schema admitted by Precondition 0 uses `agent_type` to select the custom role. Every specialist spawn **must** set `agent_type = "<specialist-name>"`; omission and generic/default role fallback are forbidden.
    - Do not set `model` or `reasoning_effort` unless intentionally overriding the parent's selection; those inherit from the parent when omitted.
    - Record the complete `expected_stage1` set before spawning so completeness can be checked before aggregation.
    - Spawn Stage 1 with a bounded fanout: keep `pending_stage1` in deterministic specialist order, `running_stage1` as active `agent_id`s, and `completed_stage1` as final usable outputs. Start at most 6 Stage 1 specialists at a time. If more specialists are pending, wait for a running specialist to reach final usable status, close that completed agent, then spawn the next pending specialist. Never drop a scheduled specialist because of the thread limit; if a pending specialist cannot be spawned after capacity is freed, fail closed before aggregation.

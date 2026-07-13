@@ -8,6 +8,9 @@
 
 - `private_dot_codex/AGENTS.md` -> `~/.codex/AGENTS.md`
 - `private_dot_codex/private_config.chezmoi.toml` -> `~/.codex/config.chezmoi.toml`
+- `private_dot_codex/private_review.config.toml` -> `~/.codex/review.config.toml`
+- `private_dot_codex/private_review_deep.config.toml` -> `~/.codex/review_deep.config.toml`
+- `private_dot_codex/private_review_audit.config.toml` -> `~/.codex/review_audit.config.toml`
 - `private_dot_codex/rules/managed.rules` -> `~/.codex/rules/managed.rules`
 - `.chezmoiscripts/run_after_check-codex-config.sh`
 - `.chezmoiscripts/run_after_setup-agmsg.sh`
@@ -100,7 +103,21 @@ Codex CLI の TUI footer は baseline で最小限の常時表示にする。
 
 ## review profile
 
-`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。baseline では `high` を default とし、用途別 profile で明示的に切り替える。
+通常の Codex session は baseline の `gpt-5.6-sol` を使う。`$pr-review` は multi-agent V1 を必要とするため、直接 chezmoi 管理する独立 profile で `gpt-5.5` を選択する。
+
+- `review.config.toml`: `gpt-5.5` / `medium`
+- `review_deep.config.toml`: `gpt-5.5` / `high`
+- `review_audit.config.toml`: `gpt-5.5` / `xhigh`
+
+これらの profile は `~/.codex/config.toml` の local-only section を持たず、`~/.codex/<profile>.config.toml` として直接管理する。したがって profile の更新は `config.chezmoi.toml` の hash gate 対象ではない。通常 session の baseline と `run_after_check-codex-config.sh` による live config 保護は従来どおり維持する。
+
+multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。
+
+```bash
+codex exec --profile review -C <repo> '$pr-review --base <base>'
+```
+
+`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常 session の baseline は `high` とし、review用途では profile を明示的に切り替える。
 
 - `review`: 通常レビュー・dogfood iteration 用
 - `review_deep`: 複雑な PR や main pre-merge review 用
