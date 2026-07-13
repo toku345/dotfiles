@@ -31,6 +31,16 @@
 3. 以後 `~/.codex/config.toml` は live file として残し、Codex が書いた local-only section を保持する
 4. baseline を更新したら、`chezmoi apply` が baseline の hash 変化を検出して exit 1 で停止する。`diff -u ~/.codex/config.toml ~/.codex/config.chezmoi.toml` で baseline 更新分を確認し、local-only section を保ったまま live に取り込む。merge 後、新 baseline を ACK するため `hash=$(sha256sum ~/.codex/config.chezmoi.toml 2>/dev/null || shasum -a 256 ~/.codex/config.chezmoi.toml) && printf '%s\n' "${hash%% *}" > ~/.codex/.baseline-hash && chmod 600 ~/.codex/.baseline-hash` を実行し、再 `chezmoi apply` する。無関係な dotfile を急ぎ apply したい場合は `chezmoi apply <target>` で個別指定すればこの script は trigger されない
 
+## multi-agent V1/V2 compatibility
+
+managed baseline の `[features.multi_agent_v2] hide_spawn_agent_metadata = false` は、runtime policy により V2 が選択された root セッションでも custom `agent_type` を spawn schema に公開するための互換設定である。各 managed specialist TOML は子 role layer で同じ値を `true` に戻す。reviewer 子セッションは descendants を spawn しないため metadata は不要であり、再び隠すことで reserved tool schema との不一致を防ぐ。`enabled` と `max_concurrent_threads_per_session` は baseline に固定せず、V2 を強制有効化したり上流 default の concurrency を上書きしたりしない。
+
+Codex CLI 0.144.1 では V1 は `agent_type` + `agent_id` + target 指定の `wait_agent` + `close_agent`、V2 は `agent_type` + `task_name` + `fork_turns` + target 非指定の `wait_agent` + `list_agents` + `interrupt_agent` を使う。`$pr-review` は実際に公開された tool schema を実行前に判別し、未知・混在 schema や非公開の `agent_type` では generic role に縮退せず fail closed する。
+
+root-visible / child-hidden schema は baseline model `gpt-5.5` で V1/V2 smoke 済み。予約 tool schema は model/provider 側の契約でもあるため、default model を変更する場合は metadata 公開状態で root request と custom subagent request の両方を再 smoke する。
+
+baseline 更新を main へ反映した後は上記の運用手順どおり live config へ section を merge し、ADR 0024 の hash ACK 後に再度 `chezmoi apply` する。linked worktree から `chezmoi apply` してはならない。
+
 ## local-only とする section
 
 - `[projects."..."]`
