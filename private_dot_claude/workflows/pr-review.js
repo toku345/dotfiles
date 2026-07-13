@@ -15,6 +15,8 @@
  *     packetBytes:   diff packet byte count,
  *     packetSha:     64-hex SHA-256 of the diff packet,
  *     changedFiles:  git diff --name-only BASE...HEAD list (authoritative, main-session-computed),
+ *     commentChanges: boolean, main-session deterministic grep floor for comment-line changes,
+ *     typeChanges:   boolean, main-session deterministic grep floor for type-definition changes,
  *     criteria:      contents of references/review-criteria.md (deployed copy, with sentinel),
  *     severityRules: parsed references/severity-rules.json (shared escalation table),
  *   }
@@ -24,7 +26,7 @@
 export const meta = {
   name: 'pr-review',
   description: 'Pre-PR gate: fan out review specialists over a pinned diff packet, fail closed on coverage, verify Critical/Important findings only',
-  whenToUse: 'Launched by the pr-review skill with a full args packet (base/baseCommit/headRef/packetPath/packetBytes/packetSha/changedFiles/criteria/severityRules). Do not launch bare.',
+  whenToUse: 'Launched by the pr-review skill with a full args packet (base/baseCommit/headRef/packetPath/packetBytes/packetSha/changedFiles/commentChanges/typeChanges/criteria/severityRules). Do not launch bare.',
   phases: [
     { title: 'Categorize', detail: 'packet integrity + changed-file list + content flags' },
     { title: 'Stage1', detail: 'parallel specialist reviews (barrier, coverage fail-closed)' },
@@ -61,6 +63,8 @@ if (typeof a.packetBytes !== 'number' || a.packetBytes <= 0) fail('args.packetBy
 if (!HEX64.test(a.packetSha || '')) fail(`args.packetSha must be a 64-hex SHA-256, got '${a.packetSha}'`)
 if (!Array.isArray(a.changedFiles) || a.changedFiles.length === 0 || a.changedFiles.some(f => typeof f !== 'string' || f === ''))
   fail('args.changedFiles must be the non-empty `git diff --name-only BASE...HEAD` list from the main session (authoritative — the workflow must not re-derive it from an unverified agent echo)')
+if (typeof a.commentChanges !== 'boolean' || typeof a.typeChanges !== 'boolean')
+  fail('args.commentChanges and args.typeChanges must be booleans from the main-session grep floor (SKILL.md Collect step) — specialist routing must not depend solely on an unverified agent echo. Stale SKILL.md deployed? run `chezmoi apply -v` and retry')
 if (typeof a.criteria !== 'string' || !a.criteria.includes('PR_REVIEW_CRITERIA_SHARED_V1'))
   fail('args.criteria must be the deployed ~/.claude/skills/pr-review/references/review-criteria.md (sentinel PR_REVIEW_CRITERIA_SHARED_V1 missing — deploy skew? run `chezmoi apply -v` and retry)')
 
@@ -123,7 +127,7 @@ const SPECIALIST_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['label', 'file', 'why', 'blocking', 'impact_scope', 'verified_assumptions', 'unverified_assumptions'],
+        required: ['label', 'confidence', 'file', 'why', 'blocking', 'impact_scope', 'verified_assumptions', 'unverified_assumptions'],
         additionalProperties: false,
         properties: {
           label: { type: 'string', description: "the specialist's native severity/category label (e.g. Critical, Important, High, Medium, CRITICAL, 'Critical Gap')" },
@@ -404,13 +408,15 @@ function byConfidenceDesc(x, y) {
 // ---------------------------------------------------------------------------
 
 phase('Categorize')
+// effort low: mechanical verification — the deterministic routing floor now
+// arrives via args, and a SHA mismatch still fails loud below
 const cat = await agent([
   'You are the diff categorizer for the pr-review gate. Work read-only; do not modify any file. Do not review the changes — only verify and categorize.',
   '',
   `1. Verify the diff packet at ${a.packetPath}: compute its SHA-256 (sha256sum or shasum -a 256) and byte count (wc -c). Expected: SHA-256 ${a.packetSha}, ${a.packetBytes} bytes. Return the observed SHA-256 verbatim in packetShaObserved; if the file is missing or unreadable, return 'UNREADABLE'.`,
   `2. Run: git status --short — return verbatim in statusShort. Run: git log --no-decorate ${a.baseCommit}..${a.headRef} — return verbatim in commitLog.`,
   '3. Inspect the diff packet hunks and set two flags: commentChanges = any added or removed comment line in source files (including mixed code+comment hunks); typeChanges = any hunk introducing or modifying class / interface / type / struct / enum / trait / dataclass / schema definitions.',
-].join('\n'), { label: 'categorize', phase: 'Categorize', schema: CATEGORIZE_SCHEMA })
+].join('\n'), { label: 'categorize', phase: 'Categorize', schema: CATEGORIZE_SCHEMA, effort: 'low' })
 
 if (!cat) fail('categorizer returned no usable output — fail closed')
 if (cat.packetShaObserved !== a.packetSha)
@@ -420,11 +426,17 @@ if (cat.packetShaObserved !== a.packetSha)
 // agent echo — a truncated echo would silently narrow the specialist fan-out
 const categories = categorizePaths(a.changedFiles)
 
+// content flags OR-compose: the main-session grep floor (args) is the
+// deterministic baseline; the categorizer's semantic judgment can only widen
+// the fan-out, never narrow it — same principle as changedFiles
+const commentChanges = a.commentChanges || cat.commentChanges
+const typeChanges = a.typeChanges || cat.typeChanges
+
 const applicable = ALWAYS.slice()
 if (categories.codePaths.length > 0) applicable.push('pr-test-analyzer')
-if (categories.docsPaths.length > 0 || cat.commentChanges) applicable.push('comment-analyzer')
+if (categories.docsPaths.length > 0 || commentChanges) applicable.push('comment-analyzer')
 if (categories.codePaths.length > 0) applicable.push('silent-failure-hunter')
-if (cat.typeChanges) applicable.push('type-design-analyzer')
+if (typeChanges) applicable.push('type-design-analyzer')
 
 log(`Categorized ${a.changedFiles.length} changed files (code=${categories.codePaths.length}, docs=${categories.docsPaths.length}, tests=${categories.testPaths.length}, operational=${categories.operationalPaths.length}); Stage 1 specialists: ${applicable.join(', ')}`)
 
@@ -507,11 +519,14 @@ phase('Verify')
 const toVerify = findings.filter(f => f.severity === 'critical' || f.severity === 'important')
 log(`Verifying ${toVerify.length} Critical/Important findings (Suggestions are not verified — token gate)`)
 
+// effort high: a verdict can remove a Critical from the fix queue — worth the
+// spend even though verify fans out per finding (toVerify is pre-cap)
 const verdicts = await parallel(toVerify.map((f, i) => () =>
   agent(verifyPrompt(f, ctx), {
     label: `verify:${f.specialist}:${f.file}`,
     phase: 'Verify',
     schema: VERDICT_SCHEMA,
+    effort: 'high',
   })))
 
 toVerify.forEach((f, i) => {
@@ -554,13 +569,17 @@ log(`pr-review gate result: ${critical.length} Critical, ${important.length} Imp
 // tail is still returned — content must never be silently unrecoverable
 return {
   scope,
+  // reverse deploy-skew guard: SKILL.md's render step requires this exact value,
+  // so a stale deployed workflow that silently ignored the args-based routing
+  // flags cannot pass its result off as a fresh-contract run
+  argsContract: 'PR_REVIEW_ARGS_V2',
   base: a.base,
   headRef: a.headRef,
   packetSha: a.packetSha,
   specialists: applicable.concat(stage2Ran ? ['code-simplifier'] : []),
   categories,
-  commentChanges: cat.commentChanges,
-  typeChanges: cat.typeChanges,
+  commentChanges,
+  typeChanges,
   critical,
   important: important.slice(0, caps.important),
   importantOverflow: important.slice(caps.important),
