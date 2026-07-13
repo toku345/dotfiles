@@ -175,6 +175,8 @@ Each task result is `qualifying` if and only if it is comfort-eligible, all hard
 
 If a prior Work hard failure or remediation must be acknowledged, the seven-field summary is insufficient. Keep that comparison and a never-transfer decision receipt in Work-local state; do not add failure/remediation fields to the summary or Private record. If Work policy cannot retain that local receipt, the comparison cannot authorize advancement.
 
+In `approved-summary` mode, the Private advancement gate derives whether any prior Private hard failure exists from a complete provenance-bound Private-local history scan and requires its verified remediation acknowledgement before `advance`. A prior Work hard failure or incomplete Work-local history evidence makes the Work summary issuance gate fail and forces `in-place-no-transfer`; neither condition can be overridden by entering a passing aggregate or human approval.
+
 ## Cleanup
 
 - Remove raw contracts, reports, snapshots, and fixture data according to local policy only after their required summaries and digests are safely recorded, including durable per-run authority, scope, expiry, permitted-operation, and prohibited-boundary facts.

@@ -855,6 +855,10 @@ fixed_slot_rollups:
 enrollment_derivation: first two eligible screening entries map exactly to slots 1 and 2 and both terminal scorecards
 replacement_scan_provenance: <screening/scorecard comparison evidence>
 fixed_slot_gate: <pass | fail; derived from enrollment_derivation and replacement scan>
+prior_work_hard_failure_history_provenance: <complete Work-local immutable history scan and digest>
+prior_work_hard_failure_history_complete: <pass | fail>
+prior_work_hard_failure_present: <yes | no; derived from Work-local pilot history>
+approved_summary_mode_eligibility: <pass iff history completeness passes and prior_work_hard_failure_present is no | fail-requires-in-place-no-transfer>
 summary_derivation:
   completed_task_count: <0 | 1 | 2; count of terminal fixed slots>
   all_hard_gates_clear: <true iff both slot hard-gate values are yes>
@@ -865,6 +869,7 @@ summary_derivation_gate: <pass | fail; fail prohibits issuance, approval, or tra
 allowlist_exactly_matched: <yes | no>
 reconstructability_check: <pass | fail>
 prohibited_field_check: <pass | fail>
+summary_issuance_gate: <pass iff fixed_slot_gate, approved_summary_mode_eligibility, summary_derivation_gate, allowlist, reconstructability, and prohibited-field checks all pass | fail>
 permitted_transfer_path_confirmed: <yes | no | N/A-no-transfer>
 authenticated_integrity_preserving_path: <yes | no | N/A-no-transfer>
 private_single_use_challenge_received: <random non-identifying challenge | N/A-no-transfer>
@@ -874,7 +879,7 @@ summary_issuance_state: <unissued | issued-once | revoked | N/A-no-transfer>
 human_transfer_decision: <approved | remain-local>
 ```
 
-`summary_derivation_gate` MUST be `pass`, and every approval/path/integrity check MUST pass, before `summary_issuance_state` may become `issued-once` or `human_transfer_decision` may become `approved`. A contradictory payload remains unissued and local.
+`summary_issuance_gate` MUST be `pass`, and every path/integrity check MUST pass, before `summary_issuance_state` may become `issued-once` or `human_transfer_decision` may become `approved`. Any prior Work hard failure makes approved-summary mode ineligible because the required acknowledgement cannot cross in the seven-field payload; the comparison MUST use `in-place-no-transfer`. A contradictory or ineligible payload remains unissued and local.
 
 ## Generalized-learning statement
 
@@ -976,7 +981,12 @@ combined_all_hard_gates_clear: <true | false>
 total_comfort_qualifying_task_count: <integer>
 codex_ship_coverage: <true | false>
 claude_ship_coverage: <true | false>
+private_local_prior_hard_failure_history_provenance: <complete Private-local immutable history scan and digest>
+private_local_prior_hard_failure_history_complete: <pass | fail>
+private_local_prior_hard_failure_present: <yes | no; derived from Private-local pilot history>
+private_local_prior_hard_failure_and_remediation_acknowledgement: <verified Private-local reference | N/A-no-prior-hard-failure>
 advancement_gate:
+  private_prior_hard_failure_acknowledgement_satisfied: <pass iff history completeness passes and prior present yes has a verified acknowledgement, or history completeness passes and prior present no has N/A-no-prior-hard-failure | fail>
   exactly_four_terminal_fixed_slots: <pass | fail; private and received Work completed counts must both be 2>
   all_four_hard_gates_clear: <pass | fail; derived from both arm values>
   at_least_three_comfort_qualifying: <pass | fail; derived total must be at least 3>
@@ -985,14 +995,13 @@ advancement_gate:
   source_values_and_aggregates_consistent: <pass | fail>
   result: <pass | fail; conjunction of every predicate>
 private_local_prior_cohort_observations: <Private-local references | NONE>
-private_local_prior_hard_failure_and_remediation_acknowledgement: <Private-local value | NONE>
 human_decision: <advance only when advancement_gate.result is pass | revise-and-rerun | stop>
 approved_by: <human>
 ```
 
-All arm rollups and the `advancement_gate` are derived from the source fields shown. `human_decision: advance` with a failed derivation, inconsistent source value, or failed gate is invalid even if a human entered it.
+All arm rollups and the `advancement_gate` are derived from the source fields shown. `human_decision: advance` with a missing required Private acknowledgement, failed derivation, inconsistent source value, or failed gate is invalid even if a human entered it.
 
-Do not place prior Work observations in either Private-local field. Do not use this mode when a prior Work hard failure requires acknowledgment, and do not record that Work-derived fact on Private. Use `in-place-no-transfer`; the Work-local decision record carries the acknowledgment.
+Do not place prior Work observations in any Private-local prior-history field. Do not use this mode when a prior Work hard failure requires acknowledgment, and do not record that Work-derived fact on Private. Use `in-place-no-transfer`; the Work-local decision record carries the acknowledgment.
 
 ### Mode: in-place-no-transfer
 
