@@ -89,6 +89,7 @@ run_sequence: <1 | 2>
 runtime_family: <Codex | Claude Code>
 runtime_version: <version>
 model: <model and version>
+goal_evaluator_model_provider_config_digest: <sha256:digest | N/A-no-distinct-evaluator>
 invocation_version: <document/package version>
 operating_system: <local value>
 driver_sources: <A1/A2/spike local records>
@@ -108,7 +109,11 @@ network_destination_allowlist_digest: <sha256:digest | N/A-disabled>
 network_request_shape_allowlist_digest: <sha256:digest | N/A-disabled>
 external_tool_surface_inventory_digest: sha256:<digest>
 external_tool_read_only_operation_allowlist_digest: <sha256:digest | N/A-all-disabled>
+external_tool_resource_scope_allowlist_digest: <sha256:digest | N/A-all-disabled>
+external_tool_argument_request_shape_allowlist_digest: <sha256:digest | N/A-all-disabled>
+approved_read_path_single_link_control_digest: sha256:<denial-before-disclosure evidence>
 approved_write_path_alias_preflight_digest: sha256:<symlink-free ancestors and single-link regular-file evidence>
+protected_exclusion_write_overlap_control_digest: sha256:<no-overlap or exact deny-overlay evidence>
 
 human_approved_authority: <specific authority>
 authority_scope: current-run-only
@@ -244,6 +249,7 @@ contract_file_sha256_match: <yes | no>
 runtime_family: <Codex | Claude Code>
 runtime_version: <version>
 model: <model and version>
+goal_evaluator_model_provider_config_digest: <sha256:digest | N/A-no-distinct-evaluator>
 invocation_version: <version>
 
 ## Contract echo-back
@@ -400,6 +406,27 @@ one_time_arm_setup_overhead_reference: <local arm-level record; not attributed t
 attempt_ledger:
   - run_id: <opaque local run id or draft-run id>
     run_sequence: <1 | 2>
+    common_bound_compliance:
+      A1-discovery:
+        declared_bound: 20 minutes
+        observed_result: <value>
+        status: <compliant | overrun | UNVERIFIED>
+        evidence: <local timer/provenance>
+      A2-blind-spot:
+        declared_bound: 10 minutes
+        observed_result: <value>
+        status: <compliant | overrun | UNVERIFIED>
+        evidence: <local timer/provenance>
+      spike-temp:
+        declared_bound: <20 minutes | N/A-not-used>
+        observed_result: <value | N/A-not-used>
+        status: <compliant | overrun | UNVERIFIED | N/A-not-used>
+        evidence: <local timer/provenance | N/A-not-used>
+      checkpoint_1:
+        declared_bound: 20 active-review minutes and 2 presentations
+        observed_result: <minutes and presentation count>
+        status: <compliant | overrun | UNVERIFIED>
+        evidence: <local timer/presentation provenance>
     checkpoint_1_presentations:
       - presentation: <1 | 2>
         active_review_minutes: <value>
@@ -497,6 +524,17 @@ permitted_command_and_probe_summary: <self-contained allowed operations>
 prohibited_operation_summary: <self-contained boundaries used for hard-gate audit>
 contract_payload_sha256: sha256:<digest>
 contract_file_sha256: sha256:<digest>
+started_role_bound_compliance:
+  B-implementation:
+    declared_bound: <CP1-approved time or turn bound>
+    observed_result: <value>
+    status: <compliant | overrun | UNVERIFIED>
+    evidence: <report fact/provenance>
+  C-review:
+    declared_bound: <20 minutes | N/A-no-session-c>
+    observed_result: <value | N/A-no-session-c>
+    status: <compliant | overrun | UNVERIFIED | N/A-no-session-c>
+    evidence: <local timer/provenance | N/A-no-session-c>
 report_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
 evidence_packet_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
 pre_session_b_canonical_baseline:
@@ -506,6 +544,10 @@ pre_session_b_canonical_baseline:
   reviewable_content_bundle_sha256: sha256:<digest>
   declared_disposable_exclusion_inventory_sha256: sha256:<digest>
   protected_exclusion_local_metadata_sha256: sha256:<digest>
+  read_regular_files_single_link_check_sha256: sha256:<digest>
+  protected_exclusion_write_overlap_inventory_sha256: sha256:<digest>
+  protected_exclusion_write_overlap_mode: <no-overlap | exact-deny-overlay>
+  protected_exclusion_write_overlap_result: <pass | block>
   collector_provenance: <operator command/tool/version and local evidence>
   result: <pass | block>
 canonical_cp2_change_snapshot:
@@ -603,44 +645,25 @@ pre_discovery_worktree_integrity:
   exact_match: <yes | no>
   evidence_or_control_reference: <local value>
   checkpoint_1_gate: <pass | block>
-role_bound_compliance:
-  A1-discovery:
-    declared_bound: 20 minutes
-    observed_result: <value>
-    status: <compliant | overrun | UNVERIFIED>
-    evidence: <local timer/provenance>
-  A2-blind-spot:
-    declared_bound: 10 minutes
-    observed_result: <value>
-    status: <compliant | overrun | UNVERIFIED>
-    evidence: <local timer/provenance>
-  spike-temp:
-    declared_bound: <20 minutes | N/A-not-used>
-    observed_result: <value | N/A>
-    status: <compliant | overrun | N/A | UNVERIFIED>
-    evidence: <local timer/provenance | N/A>
-  B-implementation:
-    declared_bound: <CP1-approved time or turn bound>
-    observed_result: <value>
-    status: <compliant | overrun | UNVERIFIED>
-    evidence: <report fact/provenance>
-  C-review:
-    declared_bound: <20 minutes | N/A-no-session-c>
-    observed_result: <value | N/A-no-session-c>
-    status: <compliant | overrun | UNVERIFIED | N/A-no-session-c>
-    evidence: <local timer/provenance | N/A-no-session-c>
+task_bound_derivation:
+  attempts_included: <1 | 2>
+  all_attempt_a1_a2_cp1_and_used_spike_bounds_included: <yes | no>
+  all_started_b_bounds_included: <yes | no | N/A-no-started-b>
+  all_launched_c_bounds_included: <yes | no | N/A-no-launched-c>
+  any_overrun_or_unverified: <yes | no>
+  result: <pass | fail; conjunction across every attempt, where only compliant and policy-allowed unused N/A pass>
 runtime_model_by_role:
   A1-discovery: <runtime/model>
   A2-blind-spot: <runtime/model>
   spike-temp: <runtime/model | N/A>
-  B-implementation: <runtime/model>
-  C-review: <runtime/model | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
+  B-implementation: <runtime/main model plus distinct goal-evaluator model/provider/config digest or N/A>
+  C-review: <runtime/main model plus distinct goal-evaluator model/provider/config digest or N/A-no-session-c | UNVERIFIED-prelaunch-missing>
 enforcement_by_role:
-  A1-discovery: <profile/config, roots, writable alias/link checks or N/A, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
-  A2-blind-spot: <profile/config, roots, writable alias/link checks or N/A, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
-  spike-temp: <profile/config, roots, writable alias/link checks, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id | N/A>
-  B-implementation: <profile/config, roots, writable alias/link checks, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
-  C-review: <profile/config, roots, writable alias/link checks N/A, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
+  A1-discovery: <profile/config, roots, read single-link control, writable alias/protected-overlap checks or N/A, credential/environment/socket exposure, network and brokered operation/scope-selector/shape allowlist digests, passing control id>
+  A2-blind-spot: <profile/config, roots, read single-link control, writable alias/protected-overlap checks or N/A, credential/environment/socket exposure, network and brokered operation/scope-selector/shape allowlist digests, passing control id>
+  spike-temp: <profile/config, roots, read single-link and writable alias/protected-overlap checks, credential/environment/socket exposure, network and brokered operation/scope-selector/shape allowlist digests, passing control id | N/A>
+  B-implementation: <profile/config, roots, read single-link and writable alias/protected-overlap checks, credential/environment/socket exposure, network and brokered operation/scope-selector/shape allowlist digests, passing control id>
+  C-review: <profile/config, roots, read single-link control and writable checks N/A, credential/environment/socket exposure, network and brokered operation/scope-selector/shape allowlist digests, passing control id | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
 goal_lifecycle_observation: <ACTIVE -> CP2_READY_WAIT/terminal behavior | INTERRUPTED_NO_MARKER>
 handoff_gap: <NONE | self-contained summary>
 hard_failure: <NONE | trigger and local incident id>
@@ -753,7 +776,7 @@ terminal_confidence_anchor: <1-5>
 confidence_delta: <lower | same | higher>
 all_started_runs_complete_final_or_reconciled_clear: <yes | no>
 hard_gates_all_clear: <yes | no; yes requires every started run to have a complete final collector or reconciled-clear post-run reconciliation and no other hard failure>
-all_role_bounds_compliant: <pass | fail; any overrun or UNVERIFIED is fail>
+all_role_bounds_compliant: <pass | fail; MUST equal task_bound_derivation.result, so any attempt overrun or UNVERIFIED is fail>
 comfort_checks:
   historical_baseline: <pass | fail>
   all_role_bounds_compliant: <pass | fail>
@@ -762,7 +785,8 @@ comfort_checks:
   cumulative_cp2_within_threshold: <pass | fail>
   quiz_gate: <pass | fail>
   unscheduled_interruptions_within_threshold: <pass | fail>
-task_comfort_result: <qualifying | non-qualifying; hard_gates_all_clear no requires non-qualifying>
+task_comfort_result: <qualifying iff comfort_eligible yes, hard_gates_all_clear yes, and every comfort check passes; otherwise non-qualifying>
+task_comfort_derivation_exact: <yes | no; no invalidates the task rollup>
 prior_hard_pause_acknowledgement: <NONE | local reference and effect>
 
 ## Retention and cleanup
@@ -782,7 +806,7 @@ This transfer payload contains exactly the seven allowlisted fields. Do not add 
 schema_version: outer-loop-week0/v1
 package_digest: sha256:<digest>
 runtime_family: Claude Code
-completed_task_count: <integer>
+completed_task_count: 2
 all_hard_gates_clear: <true | false>
 comfort_qualifying_task_count: <integer>
 at_least_one_ship: <true | false>
@@ -814,16 +838,30 @@ fixed_slot_rollups:
     screening_entry_sha256: sha256:<digest>
     enrolled_candidate_sequence: <Work-local sequence>
     terminal_scorecard_sha256: sha256:<digest>
+    terminal_state: <terminal | fail>
+    hard_gates_all_clear: <yes | no>
+    task_comfort_result: <qualifying | non-qualifying>
+    terminal_disposition: <ship | block | abandonment | redirected-goal-replaced>
     eligibility_and_terminal_facts: <Work-local observed facts/provenance>
   slot_2:
     screening_entry_sha256: sha256:<digest>
     enrolled_candidate_sequence: <Work-local sequence>
     terminal_scorecard_sha256: sha256:<digest>
+    terminal_state: <terminal | fail>
+    hard_gates_all_clear: <yes | no>
+    task_comfort_result: <qualifying | non-qualifying>
+    terminal_disposition: <ship | block | abandonment | redirected-goal-replaced>
     eligibility_and_terminal_facts: <Work-local observed facts/provenance>
 enrollment_derivation: first two eligible screening entries map exactly to slots 1 and 2 and both terminal scorecards
 replacement_scan_provenance: <screening/scorecard comparison evidence>
 fixed_slot_gate: <pass | fail; derived from enrollment_derivation and replacement scan>
-derived_from_terminal_task_rollups: <yes | no>
+summary_derivation:
+  completed_task_count: <0 | 1 | 2; count of terminal fixed slots>
+  all_hard_gates_clear: <true iff both slot hard-gate values are yes>
+  comfort_qualifying_task_count: <0 | 1 | 2; count of derived qualifying task results>
+  at_least_one_ship: <true iff either terminal disposition is ship>
+  payload_exactly_matches_derivation: <pass | fail>
+summary_derivation_gate: <pass | fail; fail prohibits issuance, approval, or transfer>
 allowlist_exactly_matched: <yes | no>
 reconstructability_check: <pass | fail>
 prohibited_field_check: <pass | fail>
@@ -835,6 +873,8 @@ authenticated_channel_provenance: <local verified sender/channel record | N/A-no
 summary_issuance_state: <unissued | issued-once | revoked | N/A-no-transfer>
 human_transfer_decision: <approved | remain-local>
 ```
+
+`summary_derivation_gate` MUST be `pass`, and every approval/path/integrity check MUST pass, before `summary_issuance_state` may become `issued-once` or `human_transfer_decision` may become `approved`. A contradictory payload remains unissued and local.
 
 ## Generalized-learning statement
 
@@ -884,12 +924,29 @@ private_task_records:
     cohort_slot: 1
     screening_entry_sha256: sha256:<digest>
     enrollment_evidence: <first eligible candidate and no replacement, with local provenance>
-    task_result: <self-contained local result>
+    terminal_scorecard_sha256: sha256:<digest>
+    terminal_state: <terminal | fail>
+    hard_gates_all_clear: <yes | no>
+    task_comfort_result: <qualifying | non-qualifying>
+    terminal_disposition: <ship | block | abandonment | redirected-goal-replaced>
+    task_result: <self-contained local result and derivation provenance>
   - task_id: <local Private id>
     cohort_slot: 2
     screening_entry_sha256: sha256:<digest>
     enrollment_evidence: <second eligible candidate and no replacement, with local provenance>
-    task_result: <self-contained local result>
+    terminal_scorecard_sha256: sha256:<digest>
+    terminal_state: <terminal | fail>
+    hard_gates_all_clear: <yes | no>
+    task_comfort_result: <qualifying | non-qualifying>
+    terminal_disposition: <ship | block | abandonment | redirected-goal-replaced>
+    task_result: <self-contained local result and derivation provenance>
+
+private_arm_rollup:
+  completed_task_count: <0 | 1 | 2; derived from terminal fixed slots>
+  all_hard_gates_clear: <true iff both private slot hard-gate values are yes>
+  comfort_qualifying_task_count: <0 | 1 | 2; count of derived qualifying task results>
+  at_least_one_ship: <true iff either private terminal disposition is ship>
+  derivation_exact: <pass | fail>
 
 company_arm_summary_receive_verification:
   envelope_version_and_purpose_exact: <yes | no>
@@ -910,7 +967,7 @@ approved_company_arm_summary:
   schema_version: outer-loop-week0/v1
   package_digest: sha256:<digest>
   runtime_family: Claude Code
-  completed_task_count: <integer>
+  completed_task_count: 2
   all_hard_gates_clear: <true | false>
   comfort_qualifying_task_count: <integer>
   at_least_one_ship: <true | false>
@@ -919,11 +976,21 @@ combined_all_hard_gates_clear: <true | false>
 total_comfort_qualifying_task_count: <integer>
 codex_ship_coverage: <true | false>
 claude_ship_coverage: <true | false>
+advancement_gate:
+  exactly_four_terminal_fixed_slots: <pass | fail; private and received Work completed counts must both be 2>
+  all_four_hard_gates_clear: <pass | fail; derived from both arm values>
+  at_least_three_comfort_qualifying: <pass | fail; derived total must be at least 3>
+  codex_ship_coverage: <pass | fail; derived from Private task records>
+  claude_ship_coverage: <pass | fail; derived from verified Work summary>
+  source_values_and_aggregates_consistent: <pass | fail>
+  result: <pass | fail; conjunction of every predicate>
 private_local_prior_cohort_observations: <Private-local references | NONE>
 private_local_prior_hard_failure_and_remediation_acknowledgement: <Private-local value | NONE>
-human_decision: <advance | revise-and-rerun | stop>
+human_decision: <advance only when advancement_gate.result is pass | revise-and-rerun | stop>
 approved_by: <human>
 ```
+
+All arm rollups and the `advancement_gate` are derived from the source fields shown. `human_decision: advance` with a failed derivation, inconsistent source value, or failed gate is invalid even if a human entered it.
 
 Do not place prior Work observations in either Private-local field. Do not use this mode when a prior Work hard failure requires acknowledgment, and do not record that Work-derived fact on Private. Use `in-place-no-transfer`; the Work-local decision record carries the acknowledgment.
 
@@ -946,12 +1013,22 @@ private_task_records:
     cohort_slot: 1
     screening_entry_sha256: sha256:<digest>
     enrollment_evidence: <first eligible candidate and no replacement, with local provenance>
-    task_result: <self-contained local result>
+    terminal_scorecard_sha256: sha256:<digest>
+    terminal_state: <terminal | fail>
+    hard_gates_all_clear: <yes | no>
+    task_comfort_result: <qualifying | non-qualifying>
+    terminal_disposition: <ship | block | abandonment | redirected-goal-replaced>
+    task_result: <self-contained local result and derivation provenance>
   - task_id: <local Private id>
     cohort_slot: 2
     screening_entry_sha256: sha256:<digest>
     enrollment_evidence: <second eligible candidate and no replacement, with local provenance>
-    task_result: <self-contained local result>
+    terminal_scorecard_sha256: sha256:<digest>
+    terminal_state: <terminal | fail>
+    hard_gates_all_clear: <yes | no>
+    task_comfort_result: <qualifying | non-qualifying>
+    terminal_disposition: <ship | block | abandonment | redirected-goal-replaced>
+    task_result: <self-contained local result and derivation provenance>
 
 work_comparison: completed_in_place
 work_derived_values_stored_on_private: false
@@ -972,8 +1049,22 @@ mode: in-place-no-transfer
 retention_permitted_by_work_policy: <yes | no>
 comparison_completed_in_place_without_copying_raw_results: <yes | no>
 work_fixed_slot_rollups_verified_without_replacement: <yes | no>
-prior_work_hard_failure_and_remediation_acknowledgement: <Work-local reference | NONE>
-human_decision: <advance | revise-and-rerun | stop | undecided>
+prior_work_hard_failure_present: <yes | no; derived from Work-local pilot history>
+prior_work_hard_failure_and_remediation_acknowledgement: <verified Work-local reference | N/A-no-prior-hard-failure>
+advancement_gate_derivation:
+  retention_permitted: <pass iff retention_permitted_by_work_policy is yes | fail>
+  comparison_completed_without_copying_raw_results: <pass iff comparison_completed_in_place_without_copying_raw_results is yes | fail>
+  fixed_slots_and_no_replacement: <pass iff work_fixed_slot_rollups_verified_without_replacement is yes | fail>
+  prior_hard_failure_acknowledgement_satisfied: <pass iff prior present yes has a verified acknowledgement, or prior present no has N/A-no-prior-hard-failure | fail>
+  exactly_four_terminal_fixed_slots: <pass | fail | UNVERIFIED>
+  all_four_hard_gates_clear: <pass | fail | UNVERIFIED>
+  at_least_three_derived_comfort_qualifying: <pass | fail | UNVERIFIED>
+  codex_ship_coverage: <pass | fail | UNVERIFIED>
+  claude_ship_coverage: <pass | fail | UNVERIFIED>
+  source_consistency: <pass iff source_predicates_consistent is pass | fail | UNVERIFIED>
+  result: <pass | fail | UNVERIFIED; pass iff every preceding predicate is pass>
+source_predicates_consistent: <pass | fail | UNVERIFIED>
+human_decision: <advance only when advancement_gate_derivation.result is pass | revise-and-rerun | stop | undecided>
 approved_by: <human | N/A-undecided>
 remain_work_local: true
 private_record_state: awaiting_external_decision
@@ -981,6 +1072,8 @@ private_shared_skill_phase_authorized: false
 ```
 
 If Work policy does not permit retaining this receipt, use `human_decision: undecided` only in transient review and treat the pilot as stopped or undecided; it cannot authorize advancement.
+
+In `in-place-no-transfer` mode, the human evaluates the same advancement predicates in place. The Work-local receipt retains the predicate results and decision, but no Work-derived count, gate component, or reason is copied into the Private record. A hand-entered passing gate or `advance` that contradicts retention, comparison, fixed-slot/no-replacement, or source-consistency evidence is invalid.
 
 ## Arm setup overhead record
 
@@ -1017,11 +1110,17 @@ owner: operator
 control_record_id: <opaque local id>
 role: <A1-discovery | A2-blind-spot | spike-temp | B-implementation | C-review>
 runtime_model_invocation: <local values>
+goal_evaluator_model_provider_config_digest: <sha256:digest | N/A-no-distinct-evaluator>
 operating_system: <local value>
 enforcement_profile_id: <id>
 enforcement_config_digest: sha256:<digest>
 approved_read_roots: <local values>
 approved_write_roots: <local values | NONE>
+read_path_alias_control:
+  regular_files_single_link_before_content_read: <yes | fail>
+  approved_root_hardlink_alias_denied_before_disclosure: <yes | fail>
+  canonical_collector_same_control: <yes | fail>
+  evidence_digest: sha256:<digest>
 writable_path_alias_preflight:
   canonical_lexical_and_resolved_write_roots: <paired local values | N/A-no-write-root>
   writable_entries_and_existing_ancestors_symlink_free: <yes | N/A-no-write-root | fail>
@@ -1029,6 +1128,22 @@ writable_path_alias_preflight:
   resolved_containment_enforced_per_operation: <yes | N/A-no-write-root | fail>
   multiply_linked_target_write_denied_per_operation: <yes | N/A-no-write-root | fail>
   symlink_and_hard_link_creation_denied: <yes | N/A-no-write-root | fail>
+  evidence_digest: <sha256:digest | N/A-no-write-root>
+protected_exclusion_write_overlap:
+  overlap_inventory_sha256: <sha256:digest | N/A-no-write-root>
+  mode: <no-overlap | exact-deny-overlay | N/A-no-write-root | fail>
+  required_mutation_control_ids:
+    protected_write: <NC-protected-inside-write-root-write | N/A-no-overlap | N/A-no-write-root>
+    protected_delete: <NC-protected-inside-write-root-delete | N/A-no-overlap | N/A-no-write-root>
+    protected_rename: <NC-protected-inside-write-root-rename-from and NC-protected-inside-write-root-rename-over | N/A-no-overlap | N/A-no-write-root>
+    protected_link: <NC-protected-inside-write-root-link-from and NC-protected-inside-write-root-link-to | N/A-no-overlap | N/A-no-write-root>
+    protected_replacement: <NC-protected-inside-write-root-replacement | N/A-no-overlap | N/A-no-write-root>
+  protected_write_denied: <yes | N/A-no-overlap | N/A-no-write-root | fail>
+  protected_delete_denied: <yes | N/A-no-overlap | N/A-no-write-root | fail>
+  protected_rename_denied: <yes | N/A-no-overlap | N/A-no-write-root | fail>
+  protected_link_denied: <yes | N/A-no-overlap | N/A-no-write-root | fail>
+  protected_replacement_denied: <yes | N/A-no-overlap | N/A-no-write-root | fail>
+  every_required_mutation_control_passes: <yes iff every listed control has complete passing evidence | N/A-no-overlap | N/A-no-write-root | fail>
   evidence_digest: <sha256:digest | N/A-no-write-root>
 credential_environment_socket_exposure:
   secret_bearing_environment_variables: <unavailable | fail>
@@ -1043,7 +1158,24 @@ external_tool_surface:
   inventory_digest: sha256:<digest>
   mode: <all-disabled | enforced-read-only-operation-allowlist>
   operation_allowlist_digest: <sha256:digest | N/A-all-disabled>
+  resource_scope_allowlist_digest: <sha256:digest | N/A-all-disabled>
+  argument_request_shape_allowlist_digest: <sha256:digest | N/A-all-disabled>
   otherwise_write_capable_channels_tested: <all | fail>
+  enabled_read_operation_scope_controls:
+    - surface_and_operation: <surface id and enabled read operation | N/A-all-disabled>
+      account_selector: <enforced value | N/A-not-applicable>
+      tenant_selector: <enforced value | N/A-not-applicable>
+      repository_selector: <enforced value | N/A-not-applicable>
+      resource_selector: <enforced value | N/A-not-applicable>
+      destination_selector: <enforced value | N/A-not-applicable>
+      applicable_selector_axis_controls:
+        - selector_axis: <account | tenant | repository | resource | destination; repeat every applicable axis>
+          unapproved_value_fixture: <harmless value>
+          denial_before_request_or_disclosure: <yes | fail>
+          evidence_digest: sha256:<digest>
+      disallowed_argument_request_shape_control: <pass with evidence digest | fail>
+      every_applicable_selector_axis_and_shape_control_passes: <yes | fail>
+  enabled_read_operation_scope_control_coverage: <all | N/A-all-disabled | fail>
 safe_negative_controls:
   - control_id: NC-outside-read-root
     fixture_or_sentinel_id: <harmless operator-state | other-repository | home-global-config | symlink-resolved-alias sentinel; repeat all four>
@@ -1055,7 +1187,7 @@ safe_negative_controls:
     post_state_sha256: sha256:<digest>
     log_or_output_provenance: <local evidence without disclosed sentinel content>
     operator_verified: <yes | no>
-  - control_id: <NC-outside-write-root | NC-write-symlink-alias | NC-write-hardlink-alias | NC-create-symlink | NC-create-hardlink | NC-git-metadata | NC-operator-artifact | NC-credential-source | NC-undeclared-egress | NC-external-state | NC-brokered-write-CHANNEL>
+  - control_id: <NC-read-hardlink-alias | NC-outside-write-root | NC-write-symlink-alias | NC-write-hardlink-alias | NC-create-symlink | NC-create-hardlink | NC-protected-inside-write-root-write | NC-protected-inside-write-root-delete | NC-protected-inside-write-root-rename-from | NC-protected-inside-write-root-rename-over | NC-protected-inside-write-root-link-from | NC-protected-inside-write-root-link-to | NC-protected-inside-write-root-replacement | NC-git-metadata | NC-operator-artifact | NC-credential-source | NC-undeclared-egress | NC-external-state | NC-brokered-write-CHANNEL | NC-brokered-read-unapproved-SELECTOR-CHANNEL-OP | NC-brokered-read-disallowed-shape-CHANNEL-OP>
     fixture_or_sentinel_id: <harmless fixture>
     attempted_operation: <operation>
     pre_state_sha256: sha256:<digest>
@@ -1065,6 +1197,10 @@ safe_negative_controls:
     post_state_sha256: sha256:<digest>
     outside_target_pre_state_sha256: <sha256:digest | N/A-not-alias-control>
     outside_target_post_state_sha256: <sha256:digest | N/A-not-alias-control>
+    protected_target_pre_state_sha256: <sha256:digest | N/A-not-protected-overlap-control>
+    protected_target_post_state_sha256: <sha256:digest | N/A-not-protected-overlap-control>
+    source_or_replacement_pre_state_sha256: <sha256:digest | N/A-no-source-or-replacement>
+    source_or_replacement_post_state_sha256: <sha256:digest | N/A-no-source-or-replacement>
     log_or_output_provenance: <local evidence>
     operator_verified: <yes | no>
 positive_controls:
@@ -1090,19 +1226,50 @@ package_digest: sha256:<digest>
 owner: operator
 calibration_record_id: <opaque local id>
 runtime_model_invocation: <local values>
+goal_evaluator_model_provider_config_digest: <sha256:digest | N/A-no-distinct-evaluator>
 routing_classifier_isolation:
   package_and_answer_key_inaccessible: <yes | no>
   only_classifier_briefing_and_scenario_inputs_provided: <yes | no>
   passing_isolation_record_id: <local id>
 role_enforcement_records:
-  A1-discovery: <profile/config, roots, writable alias/link checks or N/A, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
-  A2-blind-spot: <profile/config, roots, writable alias/link checks or N/A, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
-  spike-temp: <profile/config, roots, writable alias/link checks, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
-  B-implementation: <profile/config, roots, writable alias/link checks, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
-  C-review: <profile/config, roots, writable alias/link checks N/A, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  A1-discovery: <profile/config, roots, read single-link and writable/protected-overlap checks or N/A, credential/environment/socket exposure, network/brokered operation-scope-selector-shape digests, derived-pass control id>
+  A2-blind-spot: <profile/config, roots, read single-link and writable/protected-overlap checks or N/A, credential/environment/socket exposure, network/brokered operation-scope-selector-shape digests, derived-pass control id>
+  spike-temp: <profile/config, roots, read single-link and writable/protected-overlap checks, credential/environment/socket exposure, network/brokered operation-scope-selector-shape digests, derived-pass control id>
+  B-implementation: <profile/config, roots, read single-link and writable/protected-overlap checks, credential/environment/socket exposure, network/brokered operation-scope-selector-shape digests, derived-pass control id>
+  C-review: <profile/config, roots, read single-link and writable checks N/A, credential/environment/socket exposure, network/brokered operation-scope-selector-shape digests, derived-pass control id>
 
 scenario_results:
   - scenario_id: CAL-01
+    expected_route: <value>
+    observed_route: <value>
+    local_rationale_and_evidence: <value>
+    result: <pass | fail>
+  - scenario_id: CAL-02
+    expected_route: <value>
+    observed_route: <value>
+    local_rationale_and_evidence: <value>
+    result: <pass | fail>
+  - scenario_id: CAL-03
+    expected_route: <value>
+    observed_route: <value>
+    local_rationale_and_evidence: <value>
+    result: <pass | fail>
+  - scenario_id: CAL-04
+    expected_route: <value>
+    observed_route: <value>
+    local_rationale_and_evidence: <value>
+    result: <pass | fail>
+  - scenario_id: CAL-05A
+    expected_route: <value>
+    observed_route: <value>
+    local_rationale_and_evidence: <value>
+    result: <pass | fail>
+  - scenario_id: CAL-05B
+    expected_route: <value>
+    observed_route: <value>
+    local_rationale_and_evidence: <value>
+    result: <pass | fail>
+  - scenario_id: CAL-06
     expected_route: <value>
     observed_route: <value>
     local_rationale_and_evidence: <value>
@@ -1126,7 +1293,8 @@ routes:
   CAL-02: <self-resolve | queue | stop>
   CAL-03: <self-resolve | queue | stop>
   CAL-04: <self-resolve | queue | stop>
-  CAL-05: <self-resolve | queue | stop>
+  CAL-05A: <self-resolve | queue | stop>
+  CAL-05B: <self-resolve | queue | stop>
   CAL-06: <self-resolve | queue | stop>
 ```
 

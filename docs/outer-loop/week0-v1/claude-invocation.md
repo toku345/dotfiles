@@ -4,15 +4,15 @@ Schema: `outer-loop-week0/v1`
 
 This is a thin operator-facing adapter for a Work Session B. It does not redefine [policy.md](policy.md), create pilot state, or grant authority. The effective task input is only the rendered payload below, the immutable approved contract, and inherited repository/global safety guidance. Safety guidance may narrow but never broaden the contract.
 
-Claude Code documents `/goal` for version 2.1.145 or later. Setting it starts a turn immediately; a separate evaluator checks the condition after each turn and can judge only evidence surfaced in the conversation. One goal is active per session, an achieved goal clears automatically, and resuming an active goal resets its turn, timer, and token-spend baselines. The exact installed behavior MUST still be observed in [calibration.md](calibration.md).
+Claude Code documents `/goal` for version 2.1.139 or later. Setting it starts a turn immediately; a separate evaluator checks the condition after each turn and can judge only evidence surfaced in the conversation. One goal is active per session, an achieved goal clears automatically, and resuming an active goal resets its turn, timer, and token-spend baselines. The exact installed behavior MUST still be observed in [calibration.md](calibration.md).
 
 ## Operator preflight
 
-- Record the Claude Code version, main model/provider, invocation document version, operating system, schema, and package digest in Work-local operator state.
+- Record the Claude Code version, main model/provider, effective `/goal` evaluator model/provider/configuration digest, invocation document version, operating system, schema, and package digest in Work-local operator state.
 - Confirm workspace trust and `/goal` availability. If hooks are disabled by local or managed policy, block the Work arm; do not bypass or change that policy as part of the pilot.
 - Start a fresh session. A new Claude goal replaces an existing one, so never reuse a session that may contain another run's active goal.
 - Verify the final read-only contract whole-file digest and its Checkpoint 1 receipt.
-- Verify the current `B-implementation` enforcement profile/config digest, canonical lexical/resolved roots, writable-path symlink/hard-link preflight and per-operation controls, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory/operation-allowlist digests, and passing-control id.
+- Verify the current `B-implementation` enforcement profile/config digest, canonical lexical/resolved roots, read-side single-link control, writable-path symlink/hard-link controls, protected-exclusion/write-root overlap control, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory plus operation/scope-selector/argument-shape allowlist digests, and passing-control id.
 - Confirm only approved target-worktree paths, declared disposable paths, and `report.md` are writable.
 - Use interactive `/goal` for Week 0. Do not use `claude -p` unless that separate mode has passed the same controls and lifecycle rehearsal.
 - Substitute the two placeholders below without adding operator-only evaluation or cohort material.
@@ -46,7 +46,7 @@ The evaluator's success means only that the CP2-ready handoff was surfaced in th
 
 ## Drift conditions
 
-Material Claude Code runtime/model/provider, schema, package, or adapter/invocation changes, plus a live hard-route mismatch, require affected role controls, end-to-end rehearsal, and both-runtime calibration before a real task. Enforcement profile/configuration, roots, credential/environment/socket exposure, network mode/allowlists, or host-brokered external-tool inventory/operation allowlists require affected role controls and end-to-end rehearsal; they also require both-runtime calibration when routing or lifecycle behavior may change.
+Material Claude Code runtime, main model/provider, effective goal-evaluator model/provider/configuration, schema, package, or adapter/invocation changes, plus a live hard-route mismatch, require affected role controls, end-to-end rehearsal, and both-runtime calibration before a real task. Enforcement profile/configuration, roots, read/write alias or protected-overlap controls, credential/environment/socket exposure, network mode/allowlists, or host-brokered external-tool inventory/operation/scope-selector/argument-shape allowlists require affected role controls and end-to-end rehearsal; they also require both-runtime calibration when routing or lifecycle behavior may change.
 
 ## Source
 

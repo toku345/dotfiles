@@ -2,9 +2,9 @@
 
 Schema: `outer-loop-week0/v1`
 
-Package digest: `sha256:be7c2d19627ca8b91583512010f7675ddeefe9c13d53cb5ed9fd41cafffd4b45`
+Package digest: `sha256:cb887d143c92cf129dd05688a8ea00a747b7a8a336bae007a121cb3b6a2c1daf`
 
-Source revision at generation: `outer-loop-week0/v1-content-9` (informational and excluded from package identity)
+Source revision at generation: `outer-loop-week0/v1-content-11` (informational and excluded from package identity)
 
 Generated on: `2026-07-13` (informational and excluded from package identity)
 
@@ -13,12 +13,12 @@ Generated on: `2026-07-13` (informational and excluded from package identity)
 `manifest.md` excludes itself. Each record is the lowercase SHA-256 of the covered file's exact bytes, two ASCII spaces, its package-root-relative path, and LF. Records are sorted by relative path using C-locale byte order. The package digest is the SHA-256 of the resulting six records, including each terminal LF.
 
 ```text
-3f9f06372c46d4320829bb28e7fc0e4b80b0f0d388d0b5bb075c3776d37eac76  README.md
-3ff7dd85ea73e432b2508f35ad0c376b5c1d131ca968fc07c73289ddd427dae8  artifact-templates.md
-ea06a3e992de6cd3e499f2dbb5a4738814634b63e1bf29e9d18033f769d0798f  calibration.md
-d206e0d6e6664512a704a9ca2d2b331bbf082890d727614327e22701bd4613da  claude-invocation.md
-6a911dd667bdad386d7a13c812498729cb839e2c753a7d7a838fc57f588387b2  codex-invocation.md
-225a1ea024e097fa16c87d8756fde277f8d7fe43e1ce08e17d2300c12875f603  policy.md
+66644556303b1650a019854cb1d90c2b0b1aa816ce8a9b1c856a43cc1f20c343  README.md
+1a54df1c370a2d32cfa255c11f7afd43fd2eb82dccd0c31c67166df45c55d4c1  artifact-templates.md
+aa5e548613e761432313a6209531748aec63627a0d35a7676a8a6558aa2a7bb2  calibration.md
+07f6b7c2c3214fda34239fdd51e1749dbbeab2893820857138cd300a70dda859  claude-invocation.md
+4ea813c3cad193f82e7aadcf62db655c130334dc07176aa543683e02b9df612d  codex-invocation.md
+15696a585a57946a3998b3b3e0b18e8e31f388f4d322905782165a2a34fe2077  policy.md
 ```
 
 ## Reproduce on macOS
@@ -35,7 +35,7 @@ done | LC_ALL=C sort -k2,2 | shasum -a 256
 Expected digest:
 
 ```text
-be7c2d19627ca8b91583512010f7675ddeefe9c13d53cb5ed9fd41cafffd4b45
+cb887d143c92cf129dd05688a8ea00a747b7a8a336bae007a121cb3b6a2c1daf
 ```
 
 ## Reproduce on Linux

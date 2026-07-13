@@ -14,7 +14,7 @@ The package contains generalized policy and blank templates only. Never store a 
 | [artifact-templates.md](artifact-templates.md) | Operator; approved contract/report excerpts go to agents | Blank local artifact templates and ownership rules |
 | [codex-invocation.md](codex-invocation.md) | Private operator and Session B | Thin Codex `/goal` handoff |
 | [claude-invocation.md](claude-invocation.md) | Work operator and Session B | Thin Claude Code `/goal` handoff |
-| [calibration.md](calibration.md) | Operator | Six generalized routing cases and end-to-end rehearsal sheets |
+| [calibration.md](calibration.md) | Operator | Seven generalized routing cases and end-to-end rehearsal sheets |
 | [manifest.md](manifest.md) | Operator | Covered-file hashes and canonical package digest |
 
 If this runbook appears to conflict with `policy.md`, stop and use `policy.md`. If the package conflicts with ADR 0030 before a real task, block the arm and revise through the package-change/drift path. During an active pilot, enter `PAUSED_HARD` only when the conflict produces a policy-defined hard-failure trigger.
@@ -60,14 +60,14 @@ Complete these locally before a real task:
 
 - Recompute every covered hash and the package digest in [manifest.md](manifest.md); match the last successful cross-runtime calibration.
 - Approve the durable state root, private temporary root mechanism, raw retention/deletion policy, and any permitted cross-environment transfer path.
-- Record the runtime, model, invocation version, operating system, and current package identity.
-- For `A1-discovery`, `A2-blind-spot`, `B-implementation`, `C-review`, and optional `spike-temp`, record a passing control id, enforcement profile/configuration digest, read/write roots, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory/operation-allowlist digests, and invocation version.
-- Demonstrate with safe disposable sentinels and complete per-control evidence that outside-approved-root reads, prohibited writes, credential-source reads, undeclared egress, and every otherwise write-capable brokered-tool channel are denied before disclosure, request, or mutation; confirm no secret-bearing inherited environment variable or credential/keychain/agent socket is exposed to role tools. Detection afterward or a hand-entered aggregate result is not a passing control.
+- Record the runtime, main model, any distinct goal-evaluator model/provider/configuration digest, invocation version, operating system, and current package identity.
+- For `A1-discovery`, `A2-blind-spot`, `B-implementation`, `C-review`, and optional `spike-temp`, record a passing control id, enforcement profile/configuration digest, read/write roots, read-side single-link control, writable alias/protected-overlap controls where applicable, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory plus operation/scope-selector/argument-shape allowlist digests, and invocation version.
+- Demonstrate with safe disposable sentinels and complete per-control evidence that outside-approved-root and approved-root hard-link-alias reads, prohibited writes, every protected-descendant write/delete/rename/link/replacement mutation inside writable roots, credential-source reads, undeclared egress, every otherwise write-capable brokered-tool channel, and every enabled brokered read against an unapproved value on each applicable account/tenant/repository/resource/destination selector axis or a disallowed shape are denied before disclosure, request, or mutation; confirm no secret-bearing inherited environment variable or credential/keychain/agent socket is exposed to role tools. Detection afterward or a hand-entered aggregate result is not a passing control.
 - Confirm that no role has write access to operator-owned artifacts and that A1, A2, and C cannot mutate the target worktree.
 - On Work, approve the storage, package transfer or manual recreation path, manifest attestation process, reviewer runtime, and retention minimum under company policy.
 - Complete both-runtime routing calibration plus success, redirect, and restart/resume rehearsals in [calibration.md](calibration.md).
 
-Any package, profile, canonical root or writable-path alias/link control, credential/environment/socket exposure, network enforcement, host-brokered external-tool surface, invocation, or runtime-behavior drift blocks the affected session until [policy.md](policy.md#drift-and-recalibration) is satisfied.
+Any package, profile, canonical root, read/write alias or protected-overlap control, credential/environment/socket exposure, network enforcement, host-brokered external-tool operation/scope-selector/argument-shape boundary, invocation, goal-evaluator identity/configuration, or runtime-behavior drift blocks the affected session until [policy.md](policy.md#drift-and-recalibration) is satisfied.
 
 ## Operator runbook
 
@@ -85,16 +85,17 @@ Any package, profile, canonical root or writable-path alias/link control, creden
 2. Run bounded, read-only Session A1.
 3. Run fresh, read-only Session A2 without the A1 inventory or plan.
 4. If the policy requires risk reduction, narrow the scope or run one evidence-only spike in a declared private temporary root.
-5. Reconcile candidates into the contract template. Route every retained candidate; do not treat agent agreement as evidence.
-6. Recheck HEAD, status, index state, and diff digest. Any unexpected mutation blocks Checkpoint 1.
+5. Record the current attempt's A1, A2, and used-spike declared/observed/status/evidence tuples before Checkpoint 1; they remain even if the contract is not approved.
+6. Reconcile candidates into the contract template. Route every retained candidate; do not treat agent agreement as evidence.
+7. Recheck HEAD, status, index state, and diff digest. Any unexpected mutation blocks Checkpoint 1.
 
 ### 3. Hold Checkpoint 1
 
 1. Assign the next `run_sequence` and present the contract, Unknown evidence and routes, plan-changing questions, authority, rollback, and bounds. The run attempt starts at this first presentation even if approval never occurs; the full-burden task attention window is already active.
-2. The human chooses approve, narrow, or block within the policy bounds.
+2. The human chooses approve, narrow, or block within the policy bounds; record the attempt's Checkpoint 1 bound tuple regardless of outcome.
 3. On approval, calculate the approved-payload digest as specified by the contract template, complete the operator receipt, make the final contract read-only, calculate its whole-file digest, and record both digests in `scorecard.md`.
 4. Recompute the package digest and verify the `B-implementation` enforcement record immediately before Session B.
-5. With the operator-owned canonical collector, freeze the complete pre-Session-B reviewable baseline and local protected-exclusion metadata. Never traverse Git control paths, follow symlinks, or read/bundle denied or secret-bearing content. A classification failure blocks Session B, and the approved-but-not-started ledger variant preserves the run's frozen contract and authority.
+5. With the operator-owned canonical collector, freeze the complete pre-Session-B reviewable baseline and local protected-exclusion metadata. Never traverse Git control paths, follow symlinks, or read regular-file content unless `st_nlink == 1`. Before Session B, reject protected/write-root overlap or prove an exact deny overlay for every protected descendant. A multiply linked or otherwise required-but-protected review input, classification failure, or unproved overlap blocks Session B, and the approved-but-not-started ledger variant preserves the run's frozen contract and authority.
 
 ### 4. Run fresh Session B with `/goal`
 
@@ -123,7 +124,7 @@ Any package, profile, canonical root or writable-path alias/link control, creden
 
 ### 7. Redirect or finish the task
 
-A same-intent `narrow`, `redirect`, or post-freeze fix may create the next contract and run attempt under the same task id only when sequence 1 or 2 remains. A pre-approval `narrow` already consumed its attempt. Preserve and cumulatively count every earlier attempt; a third is prohibited. A material Goal replacement terminates the old task as non-qualifying and receives a new task id. Do not let a new run erase cost, evidence, or a hard failure.
+A same-intent `narrow`, `redirect`, or post-freeze fix may create the next contract and run attempt under the same task id only when sequence 1 or 2 remains. A pre-approval `narrow` already consumed its attempt. Preserve every earlier attempt's A1/A2/spike/CP1 and started B/C bound tuples and derive task bound compliance as their conjunction; a later success cannot erase an earlier overrun or `UNVERIFIED`. Preserve and cumulatively count every earlier attempt; a third is prohibited. A material Goal replacement terminates the old task as non-qualifying and receives a new task id. Do not let a new run erase cost, evidence, or a hard failure.
 
 ## Runtime lifecycle mapping
 
@@ -170,7 +171,7 @@ After both Work tasks terminate, use exactly one mode defined by [policy.md](pol
 - Have Private issue a current schema/package single-use challenge, then transfer one human-approved seven-field company-arm summary and its canonical challenge-bound integrity envelope atomically through a company-permitted authenticated path; Private verifies sender/channel provenance, envelope schema, challenge freshness, payload hash, and replay absence before consuming the challenge; or
 - Perform the comparison in place without persisting Work-derived counts, coverage, gates, reasons, or combined evidence on Private.
 
-The Work-local receipt must derive fixed-slot/no-replacement validity from screening-entry and terminal-scorecard digests; that evidence never transfers. Any missing or failed source-local or receive-side check falls back to `in-place-no-transfer`. A generalized-learning statement may cross only after its own abstraction and reconstructability review and only when content and timing do not associate it with a task or arm summary. It is not a cohort result or proxy decision. If no Work outcome may cross, Private records `awaiting_external_decision` and must not begin or claim the shared Skill phase.
+Each task result is `qualifying` if and only if it is comfort-eligible, all hard gates are clear, and every comfort check passes. Each arm derives completed count, hard-gate conjunction, qualifying count, and ship coverage from exactly two immutable fixed-slot terminal scorecards. The Work-local receipt must prove that derivation plus fixed-slot/no-replacement validity before the unchanged seven-field payload can be issued; that evidence never transfers. Private derives the four-task advancement gate from its two local rollups and the verified Work summary, and `advance` is valid only when exactly four slots are terminal, all hard gates are clear, at least three tasks qualify, both runtimes have a ship, and every source/aggregate value is consistent. Any missing, contradictory, or failed source-local or receive-side check blocks issuance/advancement or falls back to `in-place-no-transfer`. A generalized-learning statement may cross only after its own abstraction and reconstructability review and only when content and timing do not associate it with a task or arm summary. It is not a cohort result or proxy decision. If no Work outcome may cross, Private records `awaiting_external_decision` and must not begin or claim the shared Skill phase.
 
 If a prior Work hard failure or remediation must be acknowledged, the seven-field summary is insufficient. Keep that comparison and a never-transfer decision receipt in Work-local state; do not add failure/remediation fields to the summary or Private record. If Work policy cannot retain that local receipt, the comparison cannot authorize advancement.
 

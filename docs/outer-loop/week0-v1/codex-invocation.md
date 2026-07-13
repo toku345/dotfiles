@@ -8,11 +8,11 @@ Codex currently documents `/goal <objective>` to set a goal, `/goal` to inspect 
 
 ## Operator preflight
 
-- Record the Codex version, model, invocation document version, operating system, schema, and package digest in local operator state.
+- Record the Codex version, model, any distinct goal-evaluator model/provider/configuration digest or `N/A-no-distinct-evaluator`, invocation document version, operating system, schema, and package digest in local operator state.
 - Confirm `/goal` is already available. If absent, block the arm; do not ask Session B to enable a feature or change global configuration.
 - In a fresh session, inspect `/goal` and confirm no active goal from another run. Never replace or edit another run's goal.
 - Verify the final read-only contract whole-file digest and its Checkpoint 1 receipt.
-- Verify the current `B-implementation` enforcement profile/config digest, canonical lexical/resolved roots, writable-path symlink/hard-link preflight and per-operation controls, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory/operation-allowlist digests, and passing-control id.
+- Verify the current `B-implementation` enforcement profile/config digest, canonical lexical/resolved roots, read-side single-link control, writable-path symlink/hard-link controls, protected-exclusion/write-root overlap control, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory plus operation/scope-selector/argument-shape allowlist digests, and passing-control id.
 - Confirm only approved target-worktree paths, declared disposable paths, and `report.md` are writable.
 - Substitute the two placeholders below without adding operator-only evaluation or cohort material.
 
@@ -45,7 +45,7 @@ If Codex auto-completes the goal after producing the packet, map that runtime co
 
 ## Drift conditions
 
-Material Codex runtime/model, schema, package, or adapter/invocation changes, plus a live hard-route mismatch, require affected role controls, end-to-end rehearsal, and both-runtime calibration before a real task. Enforcement profile/configuration, roots, credential/environment/socket exposure, network mode/allowlists, or host-brokered external-tool inventory/operation allowlists require affected role controls and end-to-end rehearsal; they also require both-runtime calibration when routing or lifecycle behavior may change.
+Material Codex runtime/model, distinct goal-evaluator identity/configuration when applicable, schema, package, or adapter/invocation changes, plus a live hard-route mismatch, require affected role controls, end-to-end rehearsal, and both-runtime calibration before a real task. Enforcement profile/configuration, roots, read/write alias or protected-overlap controls, credential/environment/socket exposure, network mode/allowlists, or host-brokered external-tool inventory/operation/scope-selector/argument-shape allowlists require affected role controls and end-to-end rehearsal; they also require both-runtime calibration when routing or lifecycle behavior may change.
 
 ## Source
 
