@@ -17,11 +17,50 @@ import tomllib
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 AGENTS_DIR = REPO_ROOT / "private_dot_codex" / "agents"
+CODEX_BASELINE = REPO_ROOT / "private_dot_codex" / "private_config.chezmoi.toml"
 SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
 REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
 SEVERITY_RULES = SKILL_DIR / "references" / "severity-rules.json"
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
+
+EXPECTED_REVIEW_PROFILES = {
+    "review": {
+        "path": REPO_ROOT / "private_dot_codex" / "private_review.config.toml",
+        "model_reasoning_effort": "medium",
+    },
+    "review_deep": {
+        "path": REPO_ROOT / "private_dot_codex" / "private_review_deep.config.toml",
+        "model_reasoning_effort": "high",
+    },
+    "review_audit": {
+        "path": REPO_ROOT / "private_dot_codex" / "private_review_audit.config.toml",
+        "model_reasoning_effort": "xhigh",
+    },
+}
+
+RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1"
+RUNTIME_RETRY_COMMAND = (
+    "codex exec --profile review -C '<repo-root>' "
+    "'$pr-review --base <same-base>'"
+)
+RUNTIME_CONTRACT_SNIPPETS = [
+    "Before running any shell or Git command and before invoking any multi-agent tool",
+    "Tool discovery is allowed here; a probe spawn is not.",
+    "`spawn_agent` accepts `agent_type` and `message`",
+    "does not accept V2 fields `task_name` or `fork_turns`",
+    "supplies an `agent_id`",
+    "`wait_agent` accepts `targets`",
+    "`close_agent` is available for an `agent_id`",
+    "If tool discovery cannot resolve the required multi-agent definitions",
+    "ERROR: $pr-review could not resolve the required Codex multi-agent V1 tools after tool discovery.",
+    "ERROR: $pr-review requires the Codex multi-agent V1 schema, but this session exposes V2 or a mixed or unknown collaboration schema.",
+    "No specialist was spawned and no review was performed.",
+    RUNTIME_RETRY_COMMAND,
+    "hide_spawn_agent_metadata = false",
+    "Do not fall back to default agents.",
+    "https://github.com/toku345/dotfiles/issues/297",
+]
 
 # The Claude-side copies are drift-proof only while they stay one-line
 # {{ include }} templates of the Codex canonical; an inline replacement would
@@ -172,7 +211,6 @@ PROCEDURE_SKILL_SNIPPETS = [
     "do not use a suffixed template such as `pr-review-diff.XXXXXX.diff`",
     "Abort if `mktemp`, diff writing, byte counting, or hashing fails.",
     "The diff packet is authoritative",
-    "Current Codex 0.130.0 contract: `agent_type` selects the custom role",
     "The recorded `$BASE_COMMIT`",
     "The recorded `$HEAD_REF`",
     "review only the orchestrator-provided `$BASE_COMMIT...$HEAD_REF` committed branch diff",
@@ -273,6 +311,42 @@ def fail(message: str) -> None:
 
 def sha256(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_toml(path: pathlib.Path, description: str) -> dict:
+    if not path.is_file():
+        fail(f"missing {description}: {path.relative_to(REPO_ROOT)}")
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        fail(f"{path}: invalid TOML: {exc}")
+    if not isinstance(data, dict):
+        fail(f"{path}: TOML root must be a table")
+    return data
+
+
+def nested_key_paths(value, key: str, prefix: str = "") -> list[str]:
+    """Return dotted paths for a key found anywhere in a TOML structure."""
+    found = []
+    if isinstance(value, dict):
+        for child_key, child_value in value.items():
+            child_path = f"{prefix}.{child_key}" if prefix else child_key
+            if child_key == key:
+                found.append(child_path)
+            found.extend(nested_key_paths(child_value, key, child_path))
+    elif isinstance(value, list):
+        for index, child_value in enumerate(value):
+            found.extend(nested_key_paths(child_value, key, f"{prefix}[{index}]"))
+    return found
+
+
+def require_no_hide_spawn_metadata(data: dict, context: pathlib.Path) -> None:
+    paths = nested_key_paths(data, "hide_spawn_agent_metadata")
+    if paths:
+        fail(
+            f"{context}: hide_spawn_agent_metadata must not be configured "
+            f"(found at {', '.join(paths)})"
+        )
 
 
 def require_contains(text: str, needle: str, context: str) -> None:
@@ -392,6 +466,58 @@ def verify_claude_share_templates() -> None:
             )
 
 
+def verify_codex_config_profiles() -> None:
+    baseline = load_toml(CODEX_BASELINE, "managed Codex baseline")
+    expected_baseline = {
+        "model": "gpt-5.6-sol",
+        "model_reasoning_effort": "high",
+        "sandbox_mode": "workspace-write",
+    }
+    for key, expected in expected_baseline.items():
+        actual = baseline.get(key)
+        if actual != expected:
+            fail(f"{CODEX_BASELINE}: {key} must be {expected!r}, got {actual!r}")
+
+    baseline_features = baseline.get("features")
+    if not isinstance(baseline_features, dict):
+        fail(f"{CODEX_BASELINE}: [features] must be a table")
+    if baseline_features.get("multi_agent") is not True:
+        fail(f"{CODEX_BASELINE}: features.multi_agent must be true")
+
+    legacy_profiles = baseline.get("profiles", {})
+    if not isinstance(legacy_profiles, dict):
+        fail(f"{CODEX_BASELINE}: profiles must be a table when present")
+    stale = sorted(set(EXPECTED_REVIEW_PROFILES).intersection(legacy_profiles))
+    if stale:
+        fail(
+            f"{CODEX_BASELINE}: legacy review profile tables must be removed: "
+            f"{', '.join(stale)}"
+        )
+    require_no_hide_spawn_metadata(baseline, CODEX_BASELINE)
+
+    for profile_name, spec in EXPECTED_REVIEW_PROFILES.items():
+        path = spec["path"]
+        data = load_toml(path, f"Codex {profile_name} profile")
+        expected_values = {
+            "model": "gpt-5.5",
+            "model_reasoning_effort": spec["model_reasoning_effort"],
+            "sandbox_mode": "workspace-write",
+        }
+        for key, expected in expected_values.items():
+            actual = data.get(key)
+            if actual != expected:
+                fail(f"{path}: {key} must be {expected!r}, got {actual!r}")
+
+        features = data.get("features")
+        if not isinstance(features, dict):
+            fail(f"{path}: [features] must be a table")
+        if features.get("multi_agent") is not True:
+            fail(f"{path}: features.multi_agent must be true")
+        if features.get("multi_agent_v2") is not False:
+            fail(f"{path}: features.multi_agent_v2 must be false")
+        require_no_hide_spawn_metadata(data, path)
+
+
 def verify_agent_toml() -> None:
     actual_files = sorted(path.name for path in AGENTS_DIR.glob("*.toml"))
     expected_files = sorted(meta["file"] for meta in EXPECTED_AGENTS.values())
@@ -405,6 +531,7 @@ def verify_agent_toml() -> None:
             data = tomllib.loads(raw)
         except tomllib.TOMLDecodeError as exc:
             fail(f"{path}: invalid TOML: {exc}")
+        require_no_hide_spawn_metadata(data, path)
 
         for key in ("name", "description", "developer_instructions"):
             value = data.get(key)
@@ -492,6 +619,31 @@ def verify_skill_contract() -> None:
         require_contains(raw, f"`{agent_name}`", str(SKILL))
     require_not_contains(raw, 'git fetch --quiet origin "$BASE"', str(SKILL))
     require_not_contains(raw, "use that immutable OID as `$BASE_REF`", str(SKILL))
+    require_not_contains(raw, "Current Codex 0.130.0 contract", str(SKILL))
+
+    if raw.count(RUNTIME_CONTRACT_SENTINEL) != 1:
+        fail(
+            f"{SKILL}: expected exactly one {RUNTIME_CONTRACT_SENTINEL!r} "
+            f"sentinel, got {raw.count(RUNTIME_CONTRACT_SENTINEL)}"
+        )
+    runtime_contract = section_between(
+        raw,
+        "0. **V1 runtime contract**",
+        "1. **Clean worktree**",
+        str(SKILL),
+    )
+    for needle in RUNTIME_CONTRACT_SNIPPETS:
+        require_contains(runtime_contract, needle, f"{SKILL}:V1-runtime-contract")
+    if runtime_contract.count(RUNTIME_RETRY_COMMAND) != 2:
+        fail(f"{SKILL}: both V1 runtime failure branches must contain the review-profile retry command")
+    if runtime_contract.count("No specialist was spawned and no review was performed.") != 2:
+        fail(f"{SKILL}: both V1 runtime failure branches must state that no review was performed")
+    stage1_heading = "2. **Build the Stage 1 specialist set and spawn it in parallel**"
+    require_contains(raw, stage1_heading, str(SKILL))
+    if raw.index(RUNTIME_CONTRACT_SENTINEL) > raw.index("1. **Clean worktree**"):
+        fail(f"{SKILL}: V1 runtime contract must run before repository inspection")
+    if raw.index(RUNTIME_CONTRACT_SENTINEL) > raw.index(stage1_heading):
+        fail(f"{SKILL}: V1 runtime contract must run before specialist spawn")
 
     procedure = section_between(raw, "## Procedure", "## Output format", str(SKILL))
     for needle in PROCEDURE_SKILL_SNIPPETS:
@@ -501,6 +653,16 @@ def verify_skill_contract() -> None:
     require_not_contains(
         procedure,
         'git log --no-decorate "$BASE_COMMIT"..."$HEAD_REF"',
+        f"{SKILL}:procedure",
+    )
+    require_contains(
+        procedure,
+        "The V1 schema admitted by Precondition 0 uses `agent_type` to select the custom role.",
+        f"{SKILL}:procedure",
+    )
+    require_contains(
+        procedure,
+        "omission and generic/default role fallback are forbidden",
         f"{SKILL}:procedure",
     )
 
@@ -523,6 +685,7 @@ def main() -> None:
     verify_review_criteria()
     verify_severity_rules()
     verify_claude_share_templates()
+    verify_codex_config_profiles()
     verify_agent_toml()
     verify_skill_contract()
     print("OK: Codex pr-review bundle validation passed")
