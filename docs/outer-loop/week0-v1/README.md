@@ -28,7 +28,7 @@ If this runbook appears to conflict with `policy.md`, stop and use `policy.md`. 
 | Session A2 — blind-spot pass | Goal, constraints, Acceptance Criteria, target worktree, primary evidence; not A1 inventory or plan | Its response only; target worktree and pilot artifacts are read-only |
 | Optional spike | Approved inputs and one declared private temporary root | Evidence-only output inside that temporary root |
 | Session B — implementation | Frozen contract, approved target-worktree paths, repository guidance, declared verification inputs | Approved target-worktree paths, declared disposable paths, and `report.md`; no other pilot artifact |
-| Session C — independent review | Frozen snapshots of Goal, Acceptance Criteria, contract, canonical CP2 change snapshot, report, and verification | Its response only; the operator transcribes findings and questions into `scorecard.md` |
+| Session C — independent review | Frozen Goal, Acceptance Criteria, contract, report, verification, complete reviewable CP2 snapshot, and only the aggregate protected-exclusion unchanged attestation; no protected path/metadata detail | Its response only; the operator transcribes findings and questions into `scorecard.md` |
 
 Session C reports `reported_by` metadata; the operator separately records `recorded_by`. This preserves provenance without letting the reviewer modify observer evidence.
 
@@ -67,7 +67,7 @@ Complete these locally before a real task:
 - On Work, approve the storage, package transfer or manual recreation path, manifest attestation process, reviewer runtime, and retention minimum under company policy.
 - Complete both-runtime routing calibration plus success, redirect, and restart/resume rehearsals in [calibration.md](calibration.md).
 
-Any package, profile, roots, credential/environment/socket exposure, network enforcement, host-brokered external-tool surface, invocation, or runtime-behavior drift blocks the affected session until [policy.md](policy.md#drift-and-recalibration) is satisfied.
+Any package, profile, canonical root or writable-path alias/link control, credential/environment/socket exposure, network enforcement, host-brokered external-tool surface, invocation, or runtime-behavior drift blocks the affected session until [policy.md](policy.md#drift-and-recalibration) is satisfied.
 
 ## Operator runbook
 
@@ -75,9 +75,9 @@ Any package, profile, roots, credential/environment/socket exposure, network enf
 
 1. Append every candidate in arrival order to the local `screening.md` created from [artifact-templates.md](artifact-templates.md#screening-log).
 2. Apply the eligibility and exclusion rules in [policy.md](policy.md#eligibility).
-3. After arm readiness, irreversibly enroll the first two eligible candidates as local slots 1 and 2 at eligibility time. Never replace an enrolled task because of its later outcome.
-4. For an eligible task, assign its dominant class and scope tier and fix the required comparison baseline before the first Checkpoint 1 presentation.
-5. Record package/profile preflight evidence and the pre-CP1 operator effort separately from advancement attention.
+3. Prospectively record task-specific screening time for each candidate. After arm readiness, irreversibly enroll the first two eligible candidates as local slots 1 and 2 at eligibility time and start their full-burden attention record with that candidate's screening entry. Never replace an enrolled task because of its later outcome.
+4. For an enrolled task, assign its dominant class and scope tier and freeze the required same-boundary comparison baseline before discovery.
+5. Include per-task package/profile preflight, discovery, contract/template preparation, and session-start effort in advancement attention. Record pre-CP1 effort separately only as an included subset; record one-time arm setup/calibration separately as non-task pilot overhead.
 
 ### 2. Discover Unknowns without changing the worktree
 
@@ -90,7 +90,7 @@ Any package, profile, roots, credential/environment/socket exposure, network enf
 
 ### 3. Hold Checkpoint 1
 
-1. Assign the next `run_sequence` and present the contract, Unknown evidence and routes, plan-changing questions, authority, rollback, and bounds. The attempt and task attention window start at this first presentation even if approval never occurs.
+1. Assign the next `run_sequence` and present the contract, Unknown evidence and routes, plan-changing questions, authority, rollback, and bounds. The run attempt starts at this first presentation even if approval never occurs; the full-burden task attention window is already active.
 2. The human chooses approve, narrow, or block within the policy bounds.
 3. On approval, calculate the approved-payload digest as specified by the contract template, complete the operator receipt, make the final contract read-only, calculate its whole-file digest, and record both digests in `scorecard.md`.
 4. Recompute the package digest and verify the `B-implementation` enforcement record immediately before Session B.
@@ -109,14 +109,14 @@ Any package, profile, roots, credential/environment/socket exposure, network enf
 1. At `CP2_READY`, ensure Session B cannot continue without a new human turn. Run the identical collector, freeze `report.md` and the Evidence Packet, and bind pre-B baseline to final state in a canonical CP2 change snapshot covering reviewable tracked/untracked/ignored paths and pre-existing-change attribution. Protected paths remain content-free and Work-local. A protected-path change attributable to Session B triggers the unauthorized-operation hard-failure route; other protected metadata drift, classification failure, or required review content behind that boundary yields `STOP_REQUIRED` with no Session C handoff.
 2. Record all component and canonical digests plus a self-contained summary in the operator-owned scorecard.
 3. Recompute the package digest and verify the `C-review` enforcement record.
-4. Start Session C in a fresh context with read-only reviewable snapshots and only the aggregate protected-exclusion unchanged attestation. It first verifies snapshot completeness and exact digest, then inspects Goal, Acceptance Criteria, the snapshot, and verification before the driver's Decision Log.
-5. Session C returns merge-blocking findings, evidence gaps, reviewer-discovered Unknowns, and three to five understanding questions. The operator records them plus durable evidence that the context was fresh and the blind-first order was followed in the scorecard.
+4. Build the canonical exact-byte Session C review-bundle manifest over every policy-required reviewable input and only the aggregate protected-exclusion unchanged attestation; include canonical empty bytes rather than omitting an empty required category. In a fresh context, Session C verifies the required logical-name inventory and recomputes every received input hash and the bundle digest before inspecting Goal, Acceptance Criteria, the snapshot, and verification ahead of the driver's Decision Log. Protected paths and metadata remain operator-local.
+5. A complete Session C returns merge-blocking findings, evidence gaps, reviewer-discovered Unknowns, and three to five understanding questions. The operator records them plus durable evidence that the context was fresh and the blind-first order was followed in the scorecard. If Session C launched but timed out, crashed, or returned no complete usable result, retain the real prelaunch facts, record `UNVERIFIED-no-session-c-result` for missing result facts, and fail the review, quiz, and ship gates without inventing output.
 
 ### 6. Hold Checkpoint 2
 
 1. Present the frozen Evidence Packet and understanding questions; start the CP2 timer.
 2. Resolve quiz misses from evidence within the policy limits. An unresolved or foundational miss cannot result in `ship`.
-3. Recheck that the live worktree still equals the frozen canonical snapshot. Evaluate and record the scorecard's ship gate: every Acceptance Criterion is `PASS`, every Unknown has a complete evidence outcome and is resolved or explicitly accepted by a human owner with evidence, every queued decision has a human-reviewed terminal outcome, Session C has passing snapshot-integrity/fresh-context/blind-first evidence and completed within its bound, no `blocks-ship` finding remains, and the quiz gate passed.
+3. Recheck the operator-local canonical snapshot and protected metadata against live state. Evaluate and record the scorecard's ship gate: every Acceptance Criterion is `PASS`, every Unknown has a complete evidence outcome and is resolved or explicitly accepted by a human owner with evidence, every queued decision has a human-reviewed terminal outcome, Session C recomputed the complete required review bundle and has passing fresh-context/blind-first evidence within its bound, no `blocks-ship` finding remains, and the quiz gate passed.
 4. The human records `ship` only after that gate passes; otherwise record `narrow`, `redirect`, or `block`.
 5. Close, pause, or replace the runtime goal according to the lifecycle behavior observed during calibration.
 6. Immediately before delivery, recheck the live worktree against the frozen snapshot. Only after an exact match and terminal human `ship` disposition may ordinary commit, push, draft-PR, merge, or deployment workflows run outside Week 0 under repository rules and separate approvals. `narrow` and `redirect` use the next attempt when available; otherwise `block` or abandonment prohibits delivery.
@@ -132,17 +132,21 @@ Each environment records the observed mapping rather than assuming identical pro
 ```text
 ACTIVE
   |
-  v
-CP2_READY_WAIT
-  |
-  +--> ship
-  +--> narrow -> next attempt if a sequence remains
-  +--> redirect -> next attempt if a sequence remains
-  +--> block
-  `--> abandonment
+  +--> CP2_READY_WAIT
+  |      +--> ship
+  |      +--> narrow -> next attempt if a sequence remains
+  |      +--> redirect -> next attempt if a sequence remains
+  |      +--> block
+  |      `--> abandonment
+  `--> runtime/host interruption
+         +--> proven calibrated continuity -> same ACTIVE attempt
+         `--> otherwise INTERRUPTED_NO_MARKER -> post-run reconciliation
+                +--> reconciled-clear -> next attempt if available, else block/abandonment
+                +--> reconciliation-unverified -> block/abandonment
+                `--> Session-B-caused unauthorized delta -> PAUSED_HARD
 ```
 
-At `CP2_READY_WAIT`, Session B yields and cannot continue without a new human turn. If a runtime cannot safely keep a goal waiting, the run goal may complete narrowly as “produce the frozen CP2-ready packet” while the task remains active in the operator scorecard. Any restart/resume recovery that cannot preserve the current attempt may use only an unused sequence; otherwise the task blocks or is abandoned.
+At `CP2_READY_WAIT`, Session B yields and cannot continue without a new human turn. If a runtime cannot safely keep a goal waiting, the run goal may complete narrowly as “produce the frozen CP2-ready packet” while the task remains active in the operator scorecard. A runtime/host interruption suspends the run's authority immediately. The same attempt and authority resume only when every calibrated continuity property, including the frozen contract and authority, is observed and recorded. Otherwise authority expires: record `INTERRUPTED_NO_MARKER`, freeze only actually observed partial evidence, mark missing artifacts explicitly, and never start Session C or record `ship`. When the final collector is incomplete, keep those missing fields unchanged and separately reconcile the frozen pre-B baseline against current state with the identical collector before any next attempt or terminal aggregation. Recovery requires `reconciled-clear` and an unused sequence; an unverified reconciliation blocks or abandons, while a Session-B-caused protected or out-of-authority delta enters `PAUSED_HARD`.
 
 ## Hard pause and resume
 

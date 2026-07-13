@@ -34,6 +34,8 @@ originating_runtime_family: <Codex | Claude Code>
 considered_at_local: <local-only value>
 recorded_by: <operator>
 provenance: <how this candidate entered the queue>
+task_specific_screening_attention_minutes: <prospectively recorded value>
+screening_attention_provenance: <timer/observation evidence>
 
 ### Thick-change indicators
 
@@ -48,6 +50,7 @@ emergency: <yes | no>
 mechanical_only: <yes | no>
 irreversible_migration: <yes | no>
 human_or_shared_state_dominated: <yes | no>
+symlink_or_multiply_linked_file_mutation_required: <yes | no>
 
 eligibility: <eligible | excluded>
 exclusion_reason: <NONE | reason>
@@ -105,10 +108,11 @@ network_destination_allowlist_digest: <sha256:digest | N/A-disabled>
 network_request_shape_allowlist_digest: <sha256:digest | N/A-disabled>
 external_tool_surface_inventory_digest: sha256:<digest>
 external_tool_read_only_operation_allowlist_digest: <sha256:digest | N/A-all-disabled>
+approved_write_path_alias_preflight_digest: sha256:<symlink-free ancestors and single-link regular-file evidence>
 
 human_approved_authority: <specific authority>
 authority_scope: current-run-only
-authority_expires_at: <CP2_READY or earlier stop>
+authority_expires_at: <CP2_READY, earlier stop, or interruption whose same-attempt continuity is not fully proven; transient interruption suspends use until proof>
 
 ## Goal
 
@@ -354,7 +358,7 @@ lifecycle_state: <ACTIVE | STOP_REQUIRED | CP2_READY>
 
 ## Task scorecard
 
-The operator owns this durable record. Copy enough observed facts to keep it meaningful after every raw contract, report, path reference, and snapshot is removed. CP2 time and permission handling are subsets of human attention; do not add them again when calculating attention.
+The operator owns this durable record. Copy enough observed facts to keep it meaningful after every raw contract, report, path reference, and snapshot is removed. Pre-CP1 task-specific time, CP2 time, and permission handling are subsets of full-burden human attention; do not add them again when calculating attention.
 
 ```markdown
 # Week 0 task scorecard
@@ -363,7 +367,7 @@ artifact_type: task-scorecard
 schema_version: outer-loop-week0/v1
 package_digest: sha256:<digest>
 owner: operator
-lifecycle_state: <ACTIVE | CP2_READY_WAIT | TERMINAL | PAUSED_HARD>
+lifecycle_state: <ACTIVE | CP2_READY_WAIT | INTERRUPTED_NO_MARKER | TERMINAL | PAUSED_HARD>
 task_id: <opaque machine-local id>
 cohort_id: <opaque machine-local cohort id>
 cohort_arm: <Private-Codex | Work-Claude-Code>
@@ -386,12 +390,13 @@ baseline_kind: <historical | estimated>
 baseline_local_source: <local reference>
 environment_runtime_workflow_match: <evidence>
 recency_match: <within previous 10 eligible tasks or 90 days>
-baseline_attention_minutes: <number | estimated range>
+baseline_full_burden_attention_minutes: <number | estimated range under the same task boundary>
 baseline_confidence_anchor: <1-5>
 baseline_source_and_assumptions: <value>
-baseline_frozen_before_cp1: <yes | no>
+baseline_frozen_before_task_specific_discovery: <yes | no>
 comfort_eligible: <yes | no; estimated must be no>
-pre_cp1_operator_admin_minutes: <diagnostic value>
+pre_cp1_task_specific_attention_minutes: <included subset of task cumulative attention>
+one_time_arm_setup_overhead_reference: <local arm-level record; not attributed to this task>
 attempt_ledger:
   - run_id: <opaque local run id or draft-run id>
     run_sequence: <1 | 2>
@@ -472,21 +477,28 @@ session_b_artifacts: N/A-not-started
 
 ### Variant B — Session B started
 
+For `CP2_READY`, every complete artifact and digest below is required. For `STOP_REQUIRED` or `INTERRUPTED_NO_MARKER`, preserve every actually observed artifact and collector result, use the exact value `N/A-not-created` for an absent artifact and `UNVERIFIED-collection-failed` for a failed observation, and never invent completeness. Both end states record no Session C and cannot support `ship`.
+
 run_id: <opaque local id>
 run_sequence: <1 | 2>
 session_b_start_state: started
-session_b_end_state: <CP2_READY | STOP_REQUIRED>
+session_b_end_state: <CP2_READY | STOP_REQUIRED | INTERRUPTED_NO_MARKER>
+terminal_marker_observed: <CP2_READY | STOP_REQUIRED | NONE>
+terminal_marker_provenance: <conversation evidence | NONE-runtime-or-host-interruption>
+operator_evidence_freeze_completeness: <complete | partial | UNVERIFIED>
+observed_partial_evidence_summary: <self-contained list | NONE-complete>
+runtime_host_interruption_events: <NONE | list of event, observed continuity properties, and resume/end result>
 human_run_disposition: <ship | narrow | redirect | block | abandonment | N/A-pending>
 human_approved_authority_summary: <self-contained authority granted for this run>
 authority_scope: current-run-only
-authority_expiry_or_end_condition: <CP2_READY or earlier stop>
+authority_expiry_or_end_condition: <CP2_READY, earlier stop, or interruption whose same-attempt continuity is not fully proven; transient interruption suspends use until proof>
 approved_read_write_scope_summary: <self-contained roots/path classes>
 permitted_command_and_probe_summary: <self-contained allowed operations>
 prohibited_operation_summary: <self-contained boundaries used for hard-gate audit>
 contract_payload_sha256: sha256:<digest>
 contract_file_sha256: sha256:<digest>
-report_sha256: sha256:<digest>
-evidence_packet_sha256: sha256:<digest>
+report_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+evidence_packet_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
 pre_session_b_canonical_baseline:
   head: <commit id or unborn>
   index_sha256: sha256:<digest>
@@ -497,31 +509,40 @@ pre_session_b_canonical_baseline:
   collector_provenance: <operator command/tool/version and local evidence>
   result: <pass | block>
 canonical_cp2_change_snapshot:
+  availability: <complete | partial | N/A-not-created | UNVERIFIED-collection-failed>
   baseline_snapshot_sha256: sha256:<digest of pre_session_b_canonical_baseline>
-  final_head: <commit id or unborn>
-  final_index_sha256: sha256:<digest>
-  final_reviewable_worktree_manifest_sha256: sha256:<digest>
-  final_reviewable_content_bundle_sha256: sha256:<digest>
-  declared_disposable_exclusion_inventory_sha256: sha256:<digest>
-  final_protected_exclusion_local_metadata_sha256: sha256:<digest>
-  protected_exclusions_unchanged_attestation_sha256: sha256:<digest exposed to Session C without paths/metadata>
-  changed_path_inventory_sha256: sha256:<digest>
-  tracked_content_or_patch_sha256: sha256:<digest>
-  non_disposable_untracked_or_ignored_content_sha256: sha256:<digest>
-  file_modes_and_symlink_targets_sha256: sha256:<digest>
-  pre_existing_change_attribution_sha256: sha256:<digest>
-  canonical_snapshot_sha256: sha256:<digest>
-  all_changed_paths_covered: <yes | no>
-  protected_path_change_or_unreviewable_content: <NONE | STOP_REQUIRED | PAUSED_HARD>
-  session_c_observed_sha256: sha256:<digest>
-  session_c_exact_match: <yes | no>
+  final_head: <commit id or unborn | N/A-not-created | UNVERIFIED-collection-failed>
+  final_index_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  final_reviewable_worktree_manifest_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  final_reviewable_content_bundle_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  declared_disposable_exclusion_inventory_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  final_protected_exclusion_local_metadata_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  protected_exclusions_unchanged_attestation_sha256: <sha256:digest exposed to Session C without paths/metadata | N/A-no-session-c | N/A-not-created | UNVERIFIED-collection-failed>
+  changed_path_inventory_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  tracked_content_or_patch_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  non_disposable_untracked_or_ignored_content_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  file_modes_and_symlink_targets_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  pre_existing_change_attribution_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  canonical_snapshot_sha256: <sha256:digest | N/A-not-created | UNVERIFIED-collection-failed>
+  all_changed_paths_covered: <yes | no | N/A-not-created | UNVERIFIED-collection-failed>
+  protected_path_change_or_unreviewable_content: <NONE | STOP_REQUIRED | PAUSED_HARD | N/A-not-created | UNVERIFIED-collection-failed>
+  session_c_review_bundle:
+    result_state: <N/A-no-session-c | UNVERIFIED-no-session-c-result | complete-result>
+    start_provenance: <N/A-no-session-c | local launch evidence>
+    stable_logical_input_inventory_sha256: <sha256:digest | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
+    required_logical_names_present: <yes | no | N/A-no-session-c | UNVERIFIED-no-session-c-result>
+    expected_bundle_sha256: <sha256:digest | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
+    session_c_recomputed_bundle_sha256: <sha256:digest | N/A-no-session-c | UNVERIFIED-no-session-c-result>
+    every_input_hash_recomputed: <yes | no | N/A-no-session-c | UNVERIFIED-no-session-c-result>
+    exact_match: <yes | no | N/A-no-session-c | UNVERIFIED-no-session-c-result>
+    protected_path_or_metadata_details_absent: <yes | no | N/A-no-session-c | UNVERIFIED-no-session-c-result>
   pre_disposition_live_check:
-    expected_canonical_snapshot_sha256: sha256:<digest>
-    observed_live_snapshot_sha256: sha256:<digest>
-    expected_protected_metadata_sha256: sha256:<digest>
-    observed_protected_metadata_sha256: sha256:<digest>
-    collector_provenance: <operator command/tool/version and local evidence>
-    exact_match: <yes | no; derived from both digest pairs>
+    expected_canonical_snapshot_sha256: <sha256:digest | UNVERIFIED-no-complete-frozen-snapshot>
+    observed_live_snapshot_sha256: <sha256:digest | UNVERIFIED-collection-failed>
+    expected_protected_metadata_sha256: <sha256:digest | UNVERIFIED-no-complete-frozen-snapshot>
+    observed_protected_metadata_sha256: <sha256:digest | UNVERIFIED-collection-failed>
+    collector_provenance: <operator command/tool/version and local evidence | UNVERIFIED-collection-failed>
+    exact_match: <yes | no | UNVERIFIED; derived from both digest pairs when present>
   pre_delivery_live_check:
     expected_canonical_snapshot_sha256: <sha256:digest | N/A-no-ship>
     observed_live_snapshot_sha256: <sha256:digest | N/A-no-ship>
@@ -529,6 +550,29 @@ canonical_cp2_change_snapshot:
     observed_protected_metadata_sha256: <sha256:digest | N/A-no-ship>
     collector_provenance: <operator command/tool/version and local evidence | N/A-no-ship>
     exact_match: <yes | no | N/A-no-ship; derived from both digest pairs>
+post_run_reconciliation:
+  required: <yes-incomplete-final-collector | N/A-complete-final-collector>
+  trigger: <STOP_REQUIRED-incomplete-final | INTERRUPTED_NO_MARKER | N/A-complete-final-collector>
+  original_final_artifact_absence_preserved: <yes | no | N/A-complete-final-collector>
+  completed_before_next_attempt_or_terminal_aggregation: <yes | no | N/A-complete-final-collector>
+  frozen_pre_session_b_baseline_sha256: sha256:<digest>
+  collector_identity_and_config_sha256: <sha256:digest | N/A-complete-final-collector>
+  collection_status: <complete | UNVERIFIED-collection-failed | N/A-complete-final-collector>
+  current_canonical_snapshot_sha256: <sha256:digest | UNVERIFIED-collection-failed | N/A-complete-final-collector>
+  current_protected_metadata_sha256: <sha256:digest | UNVERIFIED-collection-failed | N/A-complete-final-collector>
+  baseline_to_current_delta_inventory_sha256: <sha256:digest | UNVERIFIED-collection-failed | N/A-complete-final-collector>
+  protected_metadata_exact_match: <yes | no | UNVERIFIED | N/A-complete-final-collector>
+  every_delta_classified: <yes | no | UNVERIFIED | N/A-complete-final-collector>
+  delta_attribution: <none-or-approved-session-b-only | session-b-unauthorized | proven-operator-or-external | ambiguous | UNVERIFIED | N/A-complete-final-collector>
+  attribution_evidence: <self-contained facts/provenance | UNVERIFIED | N/A-complete-final-collector>
+  outcome: <reconciled-clear | external-drift-restore-required | reconciliation-unverified | unauthorized-hard-failure | N/A-complete-final-collector>
+  next_attempt_allowed: <yes | no | N/A-complete-final-collector>
+  hard_gates_all_clear_effect: <no-change | force-no>
+  task_qualification_effect: <no-change | non-qualifying>
+  route: <next-attempt-if-unused | restore-and-reconcile-again | block-or-abandon | PAUSED_HARD | N/A>
+
+Post-run reconciliation never replaces the original final-artifact values. `next_attempt_allowed: yes` requires `outcome: reconciled-clear` and an unused sequence. `reconciliation-unverified` or `unauthorized-hard-failure` forces hard gates `no` and task non-qualification; only the latter enters `PAUSED_HARD`. Top-level hard gates can be `yes` only when every started run has either a complete final collector or `reconciled-clear`.
+
 package_checks:
   pre_discovery:
     observed_digest: sha256:<digest>
@@ -541,10 +585,10 @@ package_checks:
     last_calibration_match: <yes | no>
     evidence_or_control_reference: <local value>
   pre_session_c:
-    observed_digest: sha256:<digest>
-    manifest_match: <yes | no>
-    last_calibration_match: <yes | no>
-    evidence_or_control_reference: <local value>
+    observed_digest: <sha256:digest | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
+    manifest_match: <yes | no | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
+    last_calibration_match: <yes | no | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
+    evidence_or_control_reference: <local value | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
 pre_discovery_worktree_integrity:
   before:
     head: <commit id or unborn>
@@ -581,34 +625,39 @@ role_bound_compliance:
     status: <compliant | overrun | UNVERIFIED>
     evidence: <report fact/provenance>
   C-review:
-    declared_bound: 20 minutes
-    observed_result: <value>
-    status: <compliant | overrun | UNVERIFIED>
-    evidence: <local timer/provenance>
+    declared_bound: <20 minutes | N/A-no-session-c>
+    observed_result: <value | N/A-no-session-c>
+    status: <compliant | overrun | UNVERIFIED | N/A-no-session-c>
+    evidence: <local timer/provenance | N/A-no-session-c>
 runtime_model_by_role:
   A1-discovery: <runtime/model>
   A2-blind-spot: <runtime/model>
   spike-temp: <runtime/model | N/A>
   B-implementation: <runtime/model>
-  C-review: <runtime/model>
+  C-review: <runtime/model | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
 enforcement_by_role:
-  A1-discovery: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
-  A2-blind-spot: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
-  spike-temp: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id | N/A>
-  B-implementation: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
-  C-review: <profile/config, roots, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
-goal_lifecycle_observation: <ACTIVE -> CP2_READY_WAIT/terminal behavior>
+  A1-discovery: <profile/config, roots, writable alias/link checks or N/A, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
+  A2-blind-spot: <profile/config, roots, writable alias/link checks or N/A, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
+  spike-temp: <profile/config, roots, writable alias/link checks, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id | N/A>
+  B-implementation: <profile/config, roots, writable alias/link checks, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id>
+  C-review: <profile/config, roots, writable alias/link checks N/A, credential/environment/socket exposure, network and external-tool allowlist digests, passing control id | N/A-no-session-c | UNVERIFIED-prelaunch-missing>
+goal_lifecycle_observation: <ACTIVE -> CP2_READY_WAIT/terminal behavior | INTERRUPTED_NO_MARKER>
 handoff_gap: <NONE | self-contained summary>
 hard_failure: <NONE | trigger and local incident id>
 
-Any `overrun` or `UNVERIFIED` bound remains visible in terminal qualification. A C-review timeout blocks `ship`; do not convert it to a completed review.
+Session C state is consistent across this scorecard. `N/A-no-session-c` means no launch and requires `N/A-no-session-c` in the pre-Session-C package check and C role fields. `UNVERIFIED-no-session-c-result` means launch occurred: package check, runtime, enforcement, start provenance, logical-input inventory, and expected bundle use observed values; the C bound is `overrun` or `UNVERIFIED`; and the independent-review record below is required. A missing required prelaunch value uses `UNVERIFIED-prelaunch-missing`, prohibits a valid launch, and forces hard gates `no` rather than inventing evidence. `complete-result` permits no N/A or no-result sentinel in required result fields. Any `overrun` or `UNVERIFIED` bound remains visible in terminal qualification. A C-review timeout blocks `ship`; do not convert it to a completed review.
 
-## Independent review and understanding gate — repeat for every reviewed run
+## Independent review and understanding gate — repeat for every started Session C; omit only for `N/A-no-session-c`
+
+If Session C starts but does not return a complete usable result, preserve any observed partial output and provenance, set `review_artifact_state: UNVERIFIED-no-session-c-result`, use the same sentinel for unreturned scalar values, set existing yes/no verification values to `UNVERIFIED`, and set `review_validity` and `quiz_gate` to `fail`. When a list availability field has that sentinel, omit its child list rather than inventing entries.
 
 run_id: <opaque local run id>
-review_mode: <same-model | cross-model>
-reported_by: <Session C runtime/model>
+review_mode: <same-model | cross-model | UNVERIFIED-prelaunch-missing>
+reported_by: <Session C runtime/model | UNVERIFIED-prelaunch-missing>
 recorded_by: <operator>
+review_artifact_state: <UNVERIFIED-no-session-c-result | complete-result>
+review_artifact_sha256: <sha256:digest of complete or partial observed output | UNVERIFIED-no-session-c-result>
+result_or_no_result_provenance: <local evidence>
 fresh_context:
   status: <pass | fail | UNVERIFIED>
   evidence: <new-session observation and provenance>
@@ -617,16 +666,23 @@ blind_first_order:
   evidence: <ordered observation and provenance>
   status: <pass | fail | UNVERIFIED>
 snapshot_input_verification:
-  canonical_snapshot_sha256_received: sha256:<digest>
-  complete_path_inventory_observed: <yes | no | UNVERIFIED>
-  digest_match: <yes | no | UNVERIFIED>
-review_validity: <pass | fail; requires fresh context, blind-first order, complete snapshot, and digest match>
+  expected_session_c_review_bundle_sha256: <sha256:digest | UNVERIFIED-prelaunch-missing>
+  session_c_recomputed_review_bundle_sha256: <sha256:digest | UNVERIFIED-no-session-c-result>
+  required_logical_names_present: <yes | no | UNVERIFIED>
+  every_delivered_input_hash_recomputed: <yes | no | UNVERIFIED>
+  complete_reviewable_path_inventory_observed: <yes | no | UNVERIFIED>
+  protected_exclusion_unchanged_attestation_received: <yes | no | UNVERIFIED>
+  protected_path_or_metadata_details_absent: <yes | no | UNVERIFIED>
+  review_bundle_digest_match: <yes | no | UNVERIFIED>
+review_validity: <pass | fail; no-result is fail; pass requires fresh context, blind-first order, exact required logical-name inventory, recomputed exact-byte bundle/input hashes, complete reviewable snapshot, protected unchanged attestation without protected detail, and digest match>
+review_findings_availability: <complete | UNVERIFIED-no-session-c-result>
 review_findings:
   - finding: <value>
     observed_evidence: <fact/provenance>
     disposition: <resolved | accepted-risk | blocks-ship>
     resolution_evidence: <value | UNVERIFIED>
     accepted_risk_owner: <human owner | N/A | UNVERIFIED>
+reviewer_discovered_unknowns_availability: <complete | UNVERIFIED-no-session-c-result>
 reviewer_discovered_unknowns:
   - unknown: <value>
     claim_kind: <approved-assumption | risk-hypothesis | fact-gap | preference>
@@ -640,6 +696,7 @@ reviewer_discovered_unknowns:
     status: <resolved | accepted-risk | blocked | UNVERIFIED>
     resolution_evidence: <value | UNVERIFIED>
     accepted_risk_owner: <value | N/A | UNVERIFIED>
+understanding_questions_availability: <complete | UNVERIFIED-no-session-c-result>
 understanding_questions:
   - question_id: Q1
     question: <behavior/invariant/decision/risk/rollback question>
@@ -650,8 +707,8 @@ understanding_questions:
         result: <correct | miss | resolved-by-evidence>
     foundational_misunderstanding: <yes | no>
 quiz_gate: <pass | fail>
-wrong_queued_decisions: <NONE | self-contained summary>
-residual_risk_acceptance: <owner/evidence | NONE>
+wrong_queued_decisions: <NONE | self-contained summary | UNVERIFIED-no-session-c-result>
+residual_risk_acceptance: <owner/evidence | NONE | UNVERIFIED-no-session-c-result>
 
 ## Per-run and cumulative measurements
 
@@ -659,7 +716,8 @@ residual_risk_acceptance: <owner/evidence | NONE>
 |---|---:|---:|---:|
 | CP1 active-review minutes | <n> | <n/N/A> | <n> |
 | CP1 packet presentations | <n> | <n/N/A> | <n> |
-| Active human attention minutes | <n> | <n/N/A> | <n> |
+| Pre-CP1 task-specific attention minutes (included subset) | <n> | <n/N/A> | <n> |
+| Full-burden active human attention minutes | <n> | <n/N/A> | <n> |
 | CP2 active-review minutes | <n> | <n/N/A> | <n> |
 | Permission prompts | <n> | <n/N/A> | <n> |
 | Permission-handling minutes | <n> | <n/N/A> | <n> |
@@ -681,28 +739,30 @@ ship_gate:
   all_acceptance_criteria_pass: <pass | fail>
   all_unknowns_terminal_with_evidence_outcome_resolution_and_owner: <pass | fail>
   all_queued_decisions_human_reviewed_and_terminal: <pass | fail>
-  canonical_cp2_snapshot_complete_and_session_c_digest_matched: <pass | fail>
-  live_worktree_matches_frozen_snapshot: <pass | fail; derived from pre-disposition canonical and protected-metadata digest pairs>
+  session_c_result_state_complete: <pass | fail>
+  session_c_review_bundle_complete_and_recomputed_digest_matched: <pass | fail>
+  operator_local_canonical_snapshot_and_protected_metadata_match: <pass | fail; derived from pre-disposition canonical and protected-metadata digest pairs>
   session_c_fresh_context_and_blind_first: <pass | fail>
   session_c_review_complete_within_bound: <pass | fail>
   all_review_findings_resolved_or_human_owned_accepted_risk: <pass | fail; blocks-ship is fail>
   quiz_gate_pass: <pass | fail>
   overall: <pass | fail; terminal ship requires every component pass and top-level hard_gates_all_clear yes>
-attention_ratio_to_historical_baseline: <ratio | N/A>
-attention_delta: <lower | same | higher | diagnostic-only>
+full_burden_attention_ratio_to_historical_baseline: <ratio | N/A>
+full_burden_attention_delta: <lower | same | higher | diagnostic-only>
 terminal_confidence_anchor: <1-5>
 confidence_delta: <lower | same | higher>
-hard_gates_all_clear: <yes | no>
+all_started_runs_complete_final_or_reconciled_clear: <yes | no>
+hard_gates_all_clear: <yes | no; yes requires every started run to have a complete final collector or reconciled-clear post-run reconciliation and no other hard failure>
 all_role_bounds_compliant: <pass | fail; any overrun or UNVERIFIED is fail>
 comfort_checks:
   historical_baseline: <pass | fail>
   all_role_bounds_compliant: <pass | fail>
-  lower_attention: <pass | fail>
+  lower_full_burden_attention: <pass | fail>
   equal_or_higher_confidence: <pass | fail>
   cumulative_cp2_within_threshold: <pass | fail>
   quiz_gate: <pass | fail>
   unscheduled_interruptions_within_threshold: <pass | fail>
-task_comfort_result: <qualifying | non-qualifying>
+task_comfort_result: <qualifying | non-qualifying; hard_gates_all_clear no requires non-qualifying>
 prior_hard_pause_acknowledgement: <NONE | local reference and effect>
 
 ## Retention and cleanup
@@ -922,6 +982,27 @@ private_shared_skill_phase_authorized: false
 
 If Work policy does not permit retaining this receipt, use `human_decision: undecided` only in transient review and treat the pilot as stopped or undecided; it cannot authorize advancement.
 
+## Arm setup overhead record
+
+Create one operator-owned record per arm. Keep it separate from every task total and historical baseline; it measures one-time adoption cost rather than recurring loop comfort.
+
+```markdown
+# Week 0 arm setup overhead
+
+artifact_type: arm-setup-overhead
+schema_version: outer-loop-week0/v1
+package_digest: sha256:<digest>
+owner: operator
+cohort_arm: <Private-Codex | Work-Claude-Code>
+one_time_package_setup_minutes: <value>
+one_time_enforcement_setup_minutes: <value>
+one_time_both_runtime_calibration_minutes: <value>
+other_one_time_setup_minutes: <value | 0>
+total_one_time_arm_setup_minutes: <derived sum>
+timer_and_derivation_provenance: <local evidence>
+excluded_from_task_attention_and_baselines: yes
+```
+
 ## Local calibration record and comparison payload
 
 Create one operator-owned passing-control record per role before referencing its id from a contract or scorecard:
@@ -941,6 +1022,14 @@ enforcement_profile_id: <id>
 enforcement_config_digest: sha256:<digest>
 approved_read_roots: <local values>
 approved_write_roots: <local values | NONE>
+writable_path_alias_preflight:
+  canonical_lexical_and_resolved_write_roots: <paired local values | N/A-no-write-root>
+  writable_entries_and_existing_ancestors_symlink_free: <yes | N/A-no-write-root | fail>
+  writable_regular_files_single_link: <yes | N/A-no-existing-regular-file | N/A-no-write-root | fail>
+  resolved_containment_enforced_per_operation: <yes | N/A-no-write-root | fail>
+  multiply_linked_target_write_denied_per_operation: <yes | N/A-no-write-root | fail>
+  symlink_and_hard_link_creation_denied: <yes | N/A-no-write-root | fail>
+  evidence_digest: <sha256:digest | N/A-no-write-root>
 credential_environment_socket_exposure:
   secret_bearing_environment_variables: <unavailable | fail>
   credential_keychain_agent_sockets: <unavailable | fail>
@@ -966,7 +1055,7 @@ safe_negative_controls:
     post_state_sha256: sha256:<digest>
     log_or_output_provenance: <local evidence without disclosed sentinel content>
     operator_verified: <yes | no>
-  - control_id: <NC-outside-write-root | NC-git-metadata | NC-operator-artifact | NC-credential-source | NC-undeclared-egress | NC-external-state | NC-brokered-write-CHANNEL>
+  - control_id: <NC-outside-write-root | NC-write-symlink-alias | NC-write-hardlink-alias | NC-create-symlink | NC-create-hardlink | NC-git-metadata | NC-operator-artifact | NC-credential-source | NC-undeclared-egress | NC-external-state | NC-brokered-write-CHANNEL>
     fixture_or_sentinel_id: <harmless fixture>
     attempted_operation: <operation>
     pre_state_sha256: sha256:<digest>
@@ -974,6 +1063,8 @@ safe_negative_controls:
     exit_status: <value>
     denial_stage: <before-mutation | before-disclosure | before-request | fail>
     post_state_sha256: sha256:<digest>
+    outside_target_pre_state_sha256: <sha256:digest | N/A-not-alias-control>
+    outside_target_post_state_sha256: <sha256:digest | N/A-not-alias-control>
     log_or_output_provenance: <local evidence>
     operator_verified: <yes | no>
 positive_controls:
@@ -1004,11 +1095,11 @@ routing_classifier_isolation:
   only_classifier_briefing_and_scenario_inputs_provided: <yes | no>
   passing_isolation_record_id: <local id>
 role_enforcement_records:
-  A1-discovery: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
-  A2-blind-spot: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
-  spike-temp: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
-  B-implementation: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
-  C-review: <profile/config, roots, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  A1-discovery: <profile/config, roots, writable alias/link checks or N/A, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  A2-blind-spot: <profile/config, roots, writable alias/link checks or N/A, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  spike-temp: <profile/config, roots, writable alias/link checks, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  B-implementation: <profile/config, roots, writable alias/link checks, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
+  C-review: <profile/config, roots, writable alias/link checks N/A, credential/environment/socket exposure, network/external-tool digests, derived-pass control id>
 
 scenario_results:
   - scenario_id: CAL-01

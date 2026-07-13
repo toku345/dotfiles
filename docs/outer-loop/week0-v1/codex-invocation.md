@@ -12,7 +12,7 @@ Codex currently documents `/goal <objective>` to set a goal, `/goal` to inspect 
 - Confirm `/goal` is already available. If absent, block the arm; do not ask Session B to enable a feature or change global configuration.
 - In a fresh session, inspect `/goal` and confirm no active goal from another run. Never replace or edit another run's goal.
 - Verify the final read-only contract whole-file digest and its Checkpoint 1 receipt.
-- Verify the current `B-implementation` enforcement profile/config digest, roots, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory/operation-allowlist digests, and passing-control id.
+- Verify the current `B-implementation` enforcement profile/config digest, canonical lexical/resolved roots, writable-path symlink/hard-link preflight and per-operation controls, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory/operation-allowlist digests, and passing-control id.
 - Confirm only approved target-worktree paths, declared disposable paths, and `report.md` are writable.
 - Substitute the two placeholders below without adding operator-only evaluation or cohort material.
 
@@ -36,8 +36,9 @@ Record the actual mapping locally during rehearsal. The expected operator proced
 | Inspect | Use `/goal` without arguments and record the observed state locally |
 | `STOP_REQUIRED` | If still active, use `/goal pause`; freeze local evidence and follow the required stop or hard-pause path |
 | `CP2_READY` | Ensure the agent has yielded; freeze report/canonical-change/Evidence snapshots and keep the task active for independent review, including honest `FAIL`/`UNVERIFIED` packets |
+| Runtime/host interruption before either marker | Continue the same attempt only when every calibrated continuity property is observed; otherwise record `INTERRUPTED_NO_MARKER`, freeze only observed partial evidence with explicit absent/`UNVERIFIED` fields, start no Session C, and allow an unused next attempt only after required post-run reconciliation reaches `reconciled-clear` |
 | Redirect | Clear or close the old goal only after evidence is frozen; create a new contract/run/fresh session only when an unused sequence remains, otherwise block/abandon instead of editing the active goal or creating attempt 3 |
-| Restart/resume | Continue the same run only if calibration proved identity, evidence, and measurement continuity; otherwise freeze prior evidence and create the next attempt only when an unused sequence remains, or block/abandon instead of creating attempt 3 |
+| Restart/resume | Continue the same run only if calibration proved identity, evidence, and measurement continuity; otherwise freeze prior evidence and create the next attempt only when required reconciliation is clear and an unused sequence remains, or follow its block/hard-pause route instead of creating attempt 3 |
 | Terminal human disposition | Clear or close any remaining run goal before ordinary delivery outside Week 0 |
 
 If Codex auto-completes the goal after producing the packet, map that runtime completion to `CP2_READY_WAIT` in operator state; it is not Acceptance-Criterion verification or human disposition. If it remains active, pause it. Do not resume Session B to fix post-freeze findings; a fix uses the next attempt when available, otherwise the task blocks or is abandoned.

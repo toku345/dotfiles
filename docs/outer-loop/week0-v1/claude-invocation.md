@@ -12,7 +12,7 @@ Claude Code documents `/goal` for version 2.1.145 or later. Setting it starts a 
 - Confirm workspace trust and `/goal` availability. If hooks are disabled by local or managed policy, block the Work arm; do not bypass or change that policy as part of the pilot.
 - Start a fresh session. A new Claude goal replaces an existing one, so never reuse a session that may contain another run's active goal.
 - Verify the final read-only contract whole-file digest and its Checkpoint 1 receipt.
-- Verify the current `B-implementation` enforcement profile/config digest, roots, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory/operation-allowlist digests, and passing-control id.
+- Verify the current `B-implementation` enforcement profile/config digest, canonical lexical/resolved roots, writable-path symlink/hard-link preflight and per-operation controls, credential/environment/socket exposure, network mode and allowlist digests when enabled, host-brokered external-tool inventory/operation-allowlist digests, and passing-control id.
 - Confirm only approved target-worktree paths, declared disposable paths, and `report.md` are writable.
 - Use interactive `/goal` for Week 0. Do not use `claude -p` unless that separate mode has passed the same controls and lifecycle rehearsal.
 - Substitute the two placeholders below without adding operator-only evaluation or cohort material.
@@ -37,8 +37,9 @@ Record the actual mapping locally during rehearsal. The expected operator proced
 | Inspect | Use `/goal` without arguments and record condition, turns, token use, and evaluator reason locally |
 | `STOP_REQUIRED` | The terminal branch should let the evaluator end the loop; if it continues, use `/goal clear`, freeze evidence, and follow the required stop or hard-pause path |
 | `CP2_READY` | Evaluator success normally auto-clears the goal; map that event to `CP2_READY_WAIT` and freeze report/canonical-change/Evidence snapshots, including honest `FAIL`/`UNVERIFIED` packets |
+| Runtime/host interruption before either marker | Because documented resume resets counters, record `INTERRUPTED_NO_MARKER`, freeze only observed partial evidence with explicit absent/`UNVERIFIED` fields, start no Session C, and allow an unused next attempt only after required post-run reconciliation reaches `reconciled-clear` |
 | Redirect | Create a new contract/run/fresh session only when an unused sequence remains; otherwise block/abandon, and never replace the active goal in place or create attempt 3 |
-| Restart/resume | Treat a resumed active goal as the next attempt because documented turn/timer/token baselines reset; preserve prior evidence and accounting, and block/abandon when no sequence remains instead of creating attempt 3 |
+| Restart/resume | Treat a resumed active goal as the next attempt because documented turn/timer/token baselines reset; preserve prior evidence and accounting, require post-run reconciliation to clear first, and follow its block/hard-pause route or the two-attempt limit instead of creating attempt 3 |
 | Terminal human disposition | Confirm no goal remains before ordinary delivery outside Week 0 |
 
 The evaluator's success means only that the CP2-ready handoff was surfaced in the conversation. It is not Acceptance-Criterion verification or human disposition. Do not return Session B to a frozen report; post-freeze fixes use the next attempt when available, otherwise the task blocks or is abandoned.
