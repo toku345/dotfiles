@@ -49,13 +49,21 @@ Run these in order. If any fails, abort with the indicated error; do not launch 
 4. **Deterministic routing flags** (grep floor — the workflow OR-composes these with the categorizer agent's semantic judgment, so an agent false negative can never narrow the specialist fan-out; grep false positives only widen it, which is the safe direction):
 
    ```sh
-   flags_src=$(mktemp "${TMPDIR:-/tmp}/pr-review-flags.XXXXXX")
+   # The diff itself fails loud (abort-on-failure, same as steps 2-3); only the
+   # grep filters get `|| true`, whose exit 1 legitimately means "no matching
+   # lines". A combined pipeline would let a git failure (bad ref, transient FS
+   # error) silently yield an empty flags_src — false/false flags identical to
+   # a genuine no-match, eroding the deterministic floor exactly when the
+   # environment misbehaves.
+   flags_raw=$(mktemp "${TMPDIR:-/tmp}/pr-review-flagsraw.XXXXXX") || exit 1
+   flags_src=$(mktemp "${TMPDIR:-/tmp}/pr-review-flags.XXXXXX") || exit 1
    # .md/.mdx excluded: prose uses 'type'/'class'/'schema' constantly and would
    # over-trigger the keyword patterns below. The strict 'a/', 'b/', '/dev/null'
    # header forms keep removed SQL/Lua comment lines ('-- x' rendered as '--- x')
    # from being eaten by a bare ^--- exclusion.
-   git diff "$BASE_COMMIT...$HEAD_REF" -- ':(exclude)*.md' ':(exclude)*.mdx' \
-     | LC_ALL=C grep -E '^[+-]' \
+   git diff "$BASE_COMMIT...$HEAD_REF" -- ':(exclude)*.md' ':(exclude)*.mdx' > "$flags_raw" \
+     || { rm -f "$flags_raw" "$flags_src"; echo "ABORT: git diff for routing flags failed" >&2; exit 1; }
+   LC_ALL=C grep -E '^[+-]' "$flags_raw" \
      | LC_ALL=C grep -vE '^(\+\+\+|---) (a/|b/|/dev/null)' > "$flags_src" || true
 
    commentChanges=false
@@ -66,6 +74,10 @@ Run these in order. If any fails, abort with the indicated error; do not launch 
    LC_ALL=C grep -qE '(^|[^[:alnum:]_])type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(=|struct([^[:alnum:]_]|$)|interface([^[:alnum:]_]|$))' "$flags_src" && typeChanges=true
    LC_ALL=C grep -q '@dataclass' "$flags_src" && typeChanges=true
    LC_ALL=C grep -qiE '(^|[^[:alnum:]_])(create|alter)[[:space:]]+(table|schema)([^[:alnum:]_]|$)' "$flags_src" && typeChanges=true
+
+   # Self-cleanup: the temp files are only ever read inside this block, and
+   # their mktemp paths are unrecoverable after the Bash call returns.
+   rm -f "$flags_raw" "$flags_src"
 
    # The readout doubles as the block's exit status: without it, a benign
    # no-match on the trailing `grep -q ... && ...` chains exits 1, and the
@@ -114,7 +126,7 @@ The workflow runs in the background; wait for its completion notification before
    > "Review subagents or concurrent tooling changed the worktree: <list>. These changes were not part of the reviewed committed diff. Revert, commit, or stash them, then retry."
 2. Re-run `git rev-parse HEAD` and compare with the recorded `$HEAD_REF`. If it differs, abort with:
    > "HEAD changed during review: started at `<old>`, now `<new>`. The completed specialist results do not cover the current commit. Re-run the review."
-3. Remove the diff packet and routing-flags temp files.
+3. Remove the diff packet temp file (the routing-flags block in Collect step 4 cleans up its own temp files).
 
 ## Render the result
 
