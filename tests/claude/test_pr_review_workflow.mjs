@@ -142,6 +142,8 @@ function makeArgs(overrides = {}) {
     packetBytes: 1234,
     packetSha: SHA,
     changedFiles: FILES.slice(),
+    commentChanges: false,
+    typeChanges: false,
     criteria: '<!-- PR_REVIEW_CRITERIA_SHARED_V1 -->\n# pr-review Review Criteria\n(test stub)',
     severityRules: rules,
     ...overrides,
@@ -182,6 +184,8 @@ assert(r1.important.some(f => (f.label || '').toLowerCase() === 'critical gap'),
 assert(r1.importantOverflow.length === 0 && r1.suggestionsOverflow.length === 0, 'S1: no overflow under caps')
 assert(r1.suggestionsTotal === 1, `S1: Nit excluded from fix queue (only the code-reviewer Suggestion remains) — got ${r1.suggestionsTotal}`)
 assert(r1.stopCondition.includes('Re-run only after addressing Critical/Important'), 'S1: active blockers return re-run guidance')
+assert(r1.argsContract === 'PR_REVIEW_ARGS_V2', 'S1: argsContract sentinel returned for the render-side skew guard')
+assert(r1.typeChanges === true && r1.commentChanges === false, 'S1: effective flags are the OR of args floor and categorizer judgment')
 
 // S2: suggestions only — Stage2 runs and contributes
 const r2 = await run(makeArgs(), { suggestionsOnly: true })
@@ -238,6 +242,9 @@ await expectThrow(makeArgs({ severityRules: { ...rules, version: 2 } }), {}, /ve
 await expectThrow(makeArgs({ changedFiles: [] }), {}, /changedFiles/, 'S6: empty changedFiles rejected')
 const noFiles = makeArgs(); delete noFiles.changedFiles
 await expectThrow(noFiles, {}, /changedFiles/, 'S6: missing changedFiles rejected')
+const noFlags = makeArgs(); delete noFlags.commentChanges
+await expectThrow(noFlags, {}, /commentChanges.*typeChanges must be booleans/, 'S6: missing routing flags rejected (stale-SKILL.md skew)')
+await expectThrow(makeArgs({ typeChanges: 'yes' }), {}, /commentChanges.*typeChanges must be booleans/, 'S6: non-boolean routing flag rejected')
 
 // S7: string-encoded args are parsed (harness delivers args as JSON string)
 const r7 = await run(JSON.stringify(makeArgs()))
@@ -334,6 +341,15 @@ assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
   assert(negatedOverride.critical.length === 3, `S7d: negated override pattern ignored — Critical ${negatedOverride.critical.length}`)
   assert(negatedOverride.important.some(f => f.file === 'src/table-driven-negated-authoritative.js'), 'S7d: negated override candidate remains visible as Important')
   STAGE1_FINDINGS['code-reviewer'] = savedCr
+}
+
+// S7e: the args grep floor widens routing even when the categorizer misses it
+// (no docs paths, categorizer stub says commentChanges=false — only the
+// main-session flag can route comment-analyzer here)
+{
+  const r7e = await run(makeArgs({ changedFiles: ['src/app.js'], commentChanges: true }))
+  assert(r7e.specialists.includes('comment-analyzer'), 'S7e: args.commentChanges floor routes comment-analyzer without docs paths or agent flag')
+  assert(r7e.commentChanges === true, 'S7e: effective commentChanges reflects the args floor')
 }
 
 // S8: categorizer packet-integrity gate fails closed on hash mismatch
