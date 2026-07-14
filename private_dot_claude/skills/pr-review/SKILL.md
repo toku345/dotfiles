@@ -46,7 +46,48 @@ Run these in order. If any fails, abort with the indicated error; do not launch 
 1. `HEAD_REF=$(git rev-parse HEAD)` — record it.
 2. **Empty diff check + changed files**: run `git diff --name-only "$BASE_COMMIT...$HEAD_REF"` and record the output as `changedFiles` (one path per array element — this main-session list is the authoritative specialist-routing input; the workflow refuses to re-derive it from an agent echo). If empty, run the Final guard below, then report `No committed changes relative to <base>; nothing to review.` and stop.
 3. **Diff packet**: `diff_packet=$(mktemp "${TMPDIR:-/tmp}/pr-review-diff.XXXXXX")` (suffix-free template — suffixed templates collide on BSD mktemp), then `git diff "$BASE_COMMIT...$HEAD_REF" > "$diff_packet"`. Record byte count (`wc -c`) and SHA-256 (`sha256sum` / `shasum -a 256`). Abort if any step fails. The packet is authoritative for all specialists.
-4. **Shared references** (deploy-skew defense — file existence alone is not enough):
+4. **Deterministic routing flags** (grep floor — the workflow OR-composes these with the categorizer agent's semantic judgment, so an agent false negative can never narrow the specialist fan-out; grep false positives only widen it, which is the safe direction):
+
+   ```sh
+   # The diff itself fails loud (abort-on-failure, same as steps 2-3); only the
+   # grep filters get `|| true`, whose exit 1 legitimately means "no matching
+   # lines". A combined pipeline would let a git failure (bad ref, transient FS
+   # error) silently yield an empty flags_src — false/false flags identical to
+   # a genuine no-match, eroding the deterministic floor exactly when the
+   # environment misbehaves.
+   flags_raw=$(mktemp "${TMPDIR:-/tmp}/pr-review-flagsraw.XXXXXX") || exit 1
+   flags_src=$(mktemp "${TMPDIR:-/tmp}/pr-review-flags.XXXXXX") || exit 1
+   # .md/.mdx excluded: prose uses 'type'/'class'/'schema' constantly and would
+   # over-trigger the keyword patterns below. The strict 'a/', 'b/', '/dev/null'
+   # header forms keep removed SQL/Lua comment lines ('-- x' rendered as '--- x')
+   # from being eaten by a bare ^--- exclusion.
+   git diff "$BASE_COMMIT...$HEAD_REF" -- ':(exclude)*.md' ':(exclude)*.mdx' > "$flags_raw" \
+     || { rm -f "$flags_raw" "$flags_src"; echo "ABORT: git diff for routing flags failed" >&2; exit 1; }
+   LC_ALL=C grep -E '^[+-]' "$flags_raw" \
+     | LC_ALL=C grep -vE '^(\+\+\+|---) (a/|b/|/dev/null)' > "$flags_src" || true
+
+   commentChanges=false
+   LC_ALL=C grep -qE '^[+-][[:space:]]*(#|//|/\*|\*|<!--|;|--|"{3}|'\''{3})' "$flags_src" && commentChanges=true
+
+   typeChanges=false
+   LC_ALL=C grep -qE '^[+-][[:space:]]*(export[[:space:]]+)?(pub(\([^)]*\))?[[:space:]]+)?((abstract|final|data|sealed)[[:space:]]+)?(class|interface|struct|enum|trait)[[:space:]]+[A-Za-z_]' "$flags_src" && typeChanges=true
+   LC_ALL=C grep -qE '(^|[^[:alnum:]_])type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(=|struct([^[:alnum:]_]|$)|interface([^[:alnum:]_]|$))' "$flags_src" && typeChanges=true
+   LC_ALL=C grep -q '@dataclass' "$flags_src" && typeChanges=true
+   LC_ALL=C grep -qiE '(^|[^[:alnum:]_])(create|alter)[[:space:]]+(table|schema)([^[:alnum:]_]|$)' "$flags_src" && typeChanges=true
+
+   # Self-cleanup: the temp files are only ever read inside this block, and
+   # their mktemp paths are unrecoverable after the Bash call returns.
+   rm -f "$flags_raw" "$flags_src"
+
+   # The readout doubles as the block's exit status: without it, a benign
+   # no-match on the trailing `grep -q ... && ...` chains exits 1, and the
+   # variables are shell-local — unobservable after the Bash call returns.
+   echo "commentChanges=$commentChanges typeChanges=$typeChanges"
+   ```
+
+   Run the block verbatim (LC_ALL=C and POSIX classes keep BSD/GNU grep deterministic) and record both booleans from the echoed line. Bare `type`/`schema` keywords are deliberately NOT matched — JS/JSON diffs contain `type: 'string'` everywhere and the flag would be always-true; definition-anchored false negatives are rescued by the categorizer agent's OR inside the workflow.
+
+5. **Shared references** (deploy-skew defense — file existence alone is not enough):
    - Read `~/.claude/skills/pr-review/references/review-criteria.md` and verify it contains the sentinel `PR_REVIEW_CRITERIA_SHARED_V1`. Keep the full contents as `criteria`.
    - Read `~/.claude/skills/pr-review/references/severity-rules.json`, parse it as JSON, and verify `sentinel == "PR_REVIEW_SEVERITY_RULES_V1"` and `version == 1`. Keep the parsed object as `severityRules`.
    - If either check fails, abort with:
@@ -67,6 +108,8 @@ Workflow({
     packetBytes: <byte count>,
     packetSha: "<sha256>",
     changedFiles: ["<path>", ...],
+    commentChanges: <boolean from the Collect grep floor>,
+    typeChanges: <boolean from the Collect grep floor>,
     criteria: "<contents of review-criteria.md>",
     severityRules: <parsed severity-rules.json object>
   }
@@ -83,11 +126,15 @@ The workflow runs in the background; wait for its completion notification before
    > "Review subagents or concurrent tooling changed the worktree: <list>. These changes were not part of the reviewed committed diff. Revert, commit, or stash them, then retry."
 2. Re-run `git rev-parse HEAD` and compare with the recorded `$HEAD_REF`. If it differs, abort with:
    > "HEAD changed during review: started at `<old>`, now `<new>`. The completed specialist results do not cover the current commit. Re-run the review."
-3. Remove the diff packet temp file.
+3. Remove the diff packet temp file (the routing-flags block in Collect step 4 cleans up its own temp files).
 
 ## Render the result
 
-The workflow returns a structured object (`critical`, `important`/`importantOverflow`/`importantTotal`, `suggestions`/`suggestionsOverflow`/`suggestionsTotal`, `strengths`, `refuted`, `specialists`, `stage2Ran`). Render it as:
+The workflow returns a structured object (`argsContract`, `critical`, `important`/`importantOverflow`/`importantTotal`, `suggestions`/`suggestionsOverflow`/`suggestionsTotal`, `strengths`, `refuted`, `specialists`, `stage2Ran`). Before rendering anything, verify `argsContract` is exactly `PR_REVIEW_ARGS_V2`; if it is missing or different, a stale deployed workflow handled the run and silently ignored the deterministic routing flags — abort with:
+
+> "Stale ~/.claude/workflows/pr-review.js deployed (argsContract mismatch). Run `chezmoi apply -v`, then re-run the review."
+
+Otherwise render it as:
 
 ```
 # PR Review: <branch> vs <base>
