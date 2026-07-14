@@ -408,8 +408,11 @@ function byConfidenceDesc(x, y) {
 // ---------------------------------------------------------------------------
 
 phase('Categorize')
-// effort low: mechanical verification — the deterministic routing floor now
-// arrives via args, and a SHA mismatch still fails loud below
+// effort low: steps 1-2 are mechanical (SHA/status/log; a hash mismatch still
+// fails loud below), but step 3's semantic flags remain the widen-only rescue
+// arm for the grep floor's known false negatives (SKILL.md step 4) — low
+// effort accepts a higher miss risk on that arm because OR-composition means
+// it can never narrow routing below the args floor
 const cat = await agent([
   'You are the diff categorizer for the pr-review gate. Work read-only; do not modify any file. Do not review the changes — only verify and categorize.',
   '',

@@ -71,8 +71,8 @@ async function agentStub(prompt, opts = {}) {
   if (label === 'categorize') {
     return {
       packetShaObserved: scenario.badPacket ? 'f'.repeat(64) : SHA,
-      commentChanges: false,
-      typeChanges: true,
+      commentChanges: scenario.catFlags ? scenario.catFlags.commentChanges : false,
+      typeChanges: scenario.catFlags ? scenario.catFlags.typeChanges : true,
       statusShort: '',
       commitLog: 'commit b\n  feat: x',
     }
@@ -350,6 +350,24 @@ assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
   const r7e = await run(makeArgs({ changedFiles: ['src/app.js'], commentChanges: true }))
   assert(r7e.specialists.includes('comment-analyzer'), 'S7e: args.commentChanges floor routes comment-analyzer without docs paths or agent flag')
   assert(r7e.commentChanges === true, 'S7e: effective commentChanges reflects the args floor')
+}
+
+// S7f: the categorizer widens routing even when the args grep floor misses it
+// (no docs paths, args commentChanges=false — only the agent flag can route
+// comment-analyzer here; kills a dropped `|| cat.commentChanges` mutation)
+{
+  const r7f = await run(makeArgs({ changedFiles: ['src/app.js'] }), { catFlags: { commentChanges: true, typeChanges: true } })
+  assert(r7f.specialists.includes('comment-analyzer'), 'S7f: categorizer commentChanges routes comment-analyzer over a false args floor')
+  assert(r7f.commentChanges === true, 'S7f: effective commentChanges reflects the categorizer judgment')
+}
+
+// S7g: the args typeChanges floor widens routing even when the categorizer
+// misses it (kills a dropped `a.typeChanges ||` mutation, which S1 cannot —
+// the default categorizer stub already answers typeChanges=true)
+{
+  const r7g = await run(makeArgs({ changedFiles: ['src/app.js'], typeChanges: true }), { catFlags: { commentChanges: false, typeChanges: false } })
+  assert(r7g.specialists.includes('type-design-analyzer'), 'S7g: args.typeChanges floor routes type-design-analyzer despite a categorizer miss')
+  assert(r7g.typeChanges === true, 'S7g: effective typeChanges reflects the args floor')
 }
 
 // S8: categorizer packet-integrity gate fails closed on hash mismatch

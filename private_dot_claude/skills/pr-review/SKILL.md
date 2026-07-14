@@ -66,9 +66,14 @@ Run these in order. If any fails, abort with the indicated error; do not launch 
    LC_ALL=C grep -qE '(^|[^[:alnum:]_])type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(=|struct([^[:alnum:]_]|$)|interface([^[:alnum:]_]|$))' "$flags_src" && typeChanges=true
    LC_ALL=C grep -q '@dataclass' "$flags_src" && typeChanges=true
    LC_ALL=C grep -qiE '(^|[^[:alnum:]_])(create|alter)[[:space:]]+(table|schema)([^[:alnum:]_]|$)' "$flags_src" && typeChanges=true
+
+   # The readout doubles as the block's exit status: without it, a benign
+   # no-match on the trailing `grep -q ... && ...` chains exits 1, and the
+   # variables are shell-local — unobservable after the Bash call returns.
+   echo "commentChanges=$commentChanges typeChanges=$typeChanges"
    ```
 
-   Run the block verbatim (LC_ALL=C and POSIX classes keep BSD/GNU grep deterministic) and record both booleans. Bare `type`/`schema` keywords are deliberately NOT matched — JS/JSON diffs contain `type: 'string'` everywhere and the flag would be always-true; definition-anchored false negatives are rescued by the categorizer agent's OR inside the workflow.
+   Run the block verbatim (LC_ALL=C and POSIX classes keep BSD/GNU grep deterministic) and record both booleans from the echoed line. Bare `type`/`schema` keywords are deliberately NOT matched — JS/JSON diffs contain `type: 'string'` everywhere and the flag would be always-true; definition-anchored false negatives are rescued by the categorizer agent's OR inside the workflow.
 
 5. **Shared references** (deploy-skew defense — file existence alone is not enough):
    - Read `~/.claude/skills/pr-review/references/review-criteria.md` and verify it contains the sentinel `PR_REVIEW_CRITERIA_SHARED_V1`. Keep the full contents as `criteria`.
