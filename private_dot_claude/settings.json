@@ -74,8 +74,7 @@
       "Read(~/.netrc)",
       "Read(~/.npmrc)",
       "Read(~/.ssh/**)",
-      "Read(~/.terraform.d/**)",
-      "Edit(secrets/)"
+      "Read(~/.terraform.d/**)"
     ],
     "ask": [
       "Bash(chmod +x:*)",
