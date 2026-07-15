@@ -1,8 +1,8 @@
 # Codex / Claude Outer Loop Week 0 v2 Boundary — Design Doc
 
 Parent decision: [ADR 0030](../adr/0030-codex-claude-outer-loop-pilot.md)
-Target decision: ADR 0031
-Status: Proposed
+Target decision: [ADR 0031](../adr/0031-outer-loop-week0-v2-hard-link-boundary.md)
+Status: Accepted
 
 ## Context
 
@@ -246,7 +246,7 @@ The field migration is narrow and explicit:
 
 Role enforcement summaries replace only their read-side runtime single-link proof with the v2 preflight/collector evidence. The collector's own rule that multiply linked content is never opened or hashed remains mandatory.
 
-The package will contain new copies of `README.md`, `policy.md`, `artifact-templates.md`, `calibration.md`, `codex-invocation.md`, `claude-invocation.md`, and `manifest.md`. Runtime invocation payloads remain thin; operator-only threat-model, collector, reconciliation, and cohort rules are not copied into implementation-agent prompts unless the role needs a specific stop condition.
+The package will contain `README.md`, `policy.md`, `collector.md`, `artifact-templates.md`, `calibration.md`, `codex-invocation.md`, `claude-invocation.md`, and `manifest.md`. The first seven files are package-digest-covered; `manifest.md` excludes itself. Runtime invocation payloads remain thin; operator-only threat-model, collector, reconciliation, and cohort rules are not copied into implementation-agent prompts unless the role needs a specific stop condition.
 
 ## Calibration and negative controls
 

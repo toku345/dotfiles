@@ -3,6 +3,7 @@
 ## Status
 
 Accepted
+Amended for schema `outer-loop-week0/v2` by [ADR 0031](0031-outer-loop-week0-v2-hard-link-boundary.md).
 
 ## Context
 
