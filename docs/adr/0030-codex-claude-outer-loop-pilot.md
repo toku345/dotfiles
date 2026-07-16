@@ -3,6 +3,8 @@
 ## Status
 
 Accepted
+Amended for schema `outer-loop-week0/v2` by [ADR 0031](0031-outer-loop-week0-v2-hard-link-boundary.md).
+The zero-build v2 execution path is superseded for future pilot execution by [ADR 0032](0032-private-lima-outer-loop-calibration-boundary.md); the remaining outer-loop principles stay accepted unless a later decision explicitly revises them.
 
 ## Context
 
