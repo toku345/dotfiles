@@ -2,6 +2,8 @@
 
 Schema: `outer-loop-week0/v2`
 
+> **Superseded — do not extract or run.** [ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) prohibits future calibration, arming, enrollment, role launch, and real-task execution with this v2 package. This collector is retained only as historical design evidence.
+
 This document is an operator procedure. [policy.md](policy.md) is the sole normative runtime-neutral policy source. If this procedure conflicts with policy, stop; do not reinterpret or weaken policy here.
 
 The collector is an exact, package-covered inline Python 3 program. It installs no helper. The operator extracts the marked source unchanged, verifies its digest against the local passing calibration record, and executes it outside every role boundary.

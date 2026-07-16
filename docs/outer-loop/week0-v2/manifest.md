@@ -2,11 +2,15 @@
 
 Schema: `outer-loop-week0/v2`
 
-Package digest: `sha256:955b29bdb7eb7a7a9fb9574030b90e099786c97c9a8983ca2820b07390ca12bc`
+Execution status: `SUPERSEDED_FOR_FUTURE_EXECUTION`
 
-Source revision at generation: `outer-loop-week0/v2-content-1` (informational and excluded from package identity)
+> **Historical identity only.** This manifest MUST NOT authorize calibration, arming, enrollment, role launch, or real-task execution. [ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) supersedes the zero-build v2 execution path.
 
-Generated on: `2026-07-15` (informational and excluded from package identity)
+Package digest: `sha256:e525d960fcec990b0c61362f0804373f4a37b5672f504fa924ecd8d904f24d06`
+
+Source revision at generation: `outer-loop-week0/v2-content-2-superseded` (informational and excluded from package identity)
+
+Generated on: `2026-07-16` (informational and excluded from package identity)
 
 ## Canonical digest input
 
@@ -14,13 +18,13 @@ Generated on: `2026-07-15` (informational and excluded from package identity)
 
 <!-- BEGIN OUTER_LOOP_WEEK0_V2_MANIFEST_RECORDS -->
 ```text
-efcde0bfb8daf0db86a2670e4a6e137890003356e9712ac7ae5b29e4a016c78b  README.md
-ac0eb88c22bafa15a18b877983947d3f947e52bf950b9bbfc28d9065e6ad1b6f  artifact-templates.md
-089a1e77bb1d30963e2aa0c95deb569e0dfd74f02f1cb1a0d3adb104e0fa80c8  calibration.md
-73afdc8975203210c666c8d952eef9470ff0a8f55aac45bddbf921f6434b5816  claude-invocation.md
-c3f1c3b786a4310d8db16b060b539c848454dc9bb8638fa76514619b5798b365  codex-invocation.md
-668b1fc0d4b9b439e39b6626817a14d4eae753bf93853341fea0378b6f3e8f36  collector.md
-ead2f0218160e2dfb05005b81ec5fc1b7ec98d68950ff3ad2ded4440bc82e0cf  policy.md
+85c572fb9ca717c7cada3df71ff61fcdda859978e8c365cd6f9c592721edb893  README.md
+839da281e4229960fb532935c3ad559e006b0079c8fb71a12474adc933014365  artifact-templates.md
+2c6c10910b550f5ec36f93152d2fbf58c87d0c3cd41b0a355c1aa9fdf0aff063  calibration.md
+12ebfe3d8d68c66c9a7a9e9b0accd208624ab3413ade492803ba44baaa540035  claude-invocation.md
+d95d81d1d6ad8d0bfba466a2176dbf7187dd4ffcb34503e2f917442a58448cce  codex-invocation.md
+e6b8c6e95b1700873675197783e1f34c241f5b2742041c8233b915cb7fcafeed  collector.md
+daaffcb9384cf1c533d9205017e1bd37f2c50f9d02c89da4a9a695563f04a070  policy.md
 ```
 <!-- END OUTER_LOOP_WEEK0_V2_MANIFEST_RECORDS -->
 
@@ -61,6 +65,6 @@ LC_ALL=C sha256sum README.md artifact-templates.md calibration.md claude-invocat
   | sha256sum
 ```
 
-The first field MUST equal `955b29bdb7eb7a7a9fb9574030b90e099786c97c9a8983ca2820b07390ca12bc`. Before every role session, also compare each covered-file digest with the canonical records above; aggregate agreement alone is not a substitute for retained local manifest evidence.
+The first field MUST equal `e525d960fcec990b0c61362f0804373f4a37b5672f504fa924ecd8d904f24d06`. This digest identifies the frozen historical package only and MUST NOT authorize any session. The canonical records remain available to verify that archived identity.
 
-Any mismatch blocks calibration, role launch, and cohort pooling. Before the first formal calibration observation, correct covered content only by regenerating every affected record and the aggregate digest and replacing the unobserved package commit. The first formal observation freezes v2. After that point, create a new schema/package instead of editing v2 in place.
+Any mismatch means the archived package identity is corrupt and blocks all use and pooling. ADR 0032 used the one permitted pre-observation correction to add supersession notices and regenerate this identity; that correction path is closed. Do not edit v2 in place. Any later proposal must create a new schema/package identity and must not pool with v2.

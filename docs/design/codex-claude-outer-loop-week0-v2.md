@@ -2,7 +2,7 @@
 
 Parent decision: [ADR 0030](../adr/0030-codex-claude-outer-loop-pilot.md)
 Target decision: [ADR 0031](../adr/0031-outer-loop-week0-v2-hard-link-boundary.md)
-Status: Accepted
+Status: Accepted historically; superseded for future execution by [ADR 0032](../adr/0032-private-lima-outer-loop-calibration-boundary.md)
 
 ## Context
 

@@ -2,7 +2,9 @@
 
 Schema: `outer-loop-week0/v2`
 
-This directory is the manual, zero-build pilot package selected by [ADR 0030](../../adr/0030-codex-claude-outer-loop-pilot.md). It is used for two Private tasks driven by Codex and two Work tasks driven by Claude Code before any reusable Skill, hook, Dynamic Workflow, runner, or persistent adapter is built.
+> **Superseded — do not execute.** [ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) supersedes this zero-build v2 path for all future calibration, arming, enrollment, role launch, and real-task execution. The remaining procedures are retained only as historical design evidence and grant no authority. Continue only through the Private Lima pre-arm calibration, whose passing state still has `real_task_allowed: no`.
+
+This directory preserves the manual, zero-build pilot package selected by [ADR 0030](../../adr/0030-codex-claude-outer-loop-pilot.md) as amended by [ADR 0031](../../adr/0031-outer-loop-week0-v2-hard-link-boundary.md). It was never formally calibrated and must not be used for the two Private Codex tasks or two Work Claude Code tasks it originally described.
 
 The package contains runtime-neutral policy, an exact operator collector procedure, runtime adapters, calibration fixtures, and blank templates. Never store a real contract, report, scorecard, calibration result, task identifier, repository detail, or Work-derived observation in this directory or another repository.
 
@@ -206,7 +208,7 @@ In `in-place-no-transfer` mode, the Work-local decision receipt requires complet
 
 ## Package change procedure
 
-Before the first formal calibration observation, a covered-content correction may replace the package commit only after regenerating every affected record and the package digest. The first formal observation freezes this version. After that point, do not edit it in place; create a new versioned directory, recompute its manifest, rerun affected role controls and end-to-end rehearsals, calibrate both runtimes, and begin a new advancement cohort. Preserve older observations without pooling identities.
+[ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) used the one permitted pre-observation correction to add the supersession notices and regenerate this historical package identity. That correction path is now closed. Do not edit v2 in place; any later proposal must create a new schema and versioned directory with its own manifest, controls, rehearsals, and calibration. Preserve this package and any older observations without pooling identities.
 
 ## ADR traceability
 

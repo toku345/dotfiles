@@ -2,7 +2,9 @@
 
 Schema: `outer-loop-week0/v2`
 
-Copy these templates into approved environment-local state outside every repository. Replace every placeholder. Empty fields are invalid: use `NONE`, `N/A`, or `UNVERIFIED` explicitly. Digests use `sha256:<lowercase-hex>`.
+> **Superseded — do not instantiate.** [ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) prohibits future calibration, arming, enrollment, role launch, and real-task execution with this v2 package. These templates are retained only as historical design evidence.
+
+These templates were designed to be copied into approved environment-local state outside every repository. If read as historical specification, every placeholder was required to be replaced, empty fields were invalid, and `NONE`, `N/A`, or `UNVERIFIED` had to be explicit. Digests used `sha256:<lowercase-hex>`.
 
 The ownership and routing rules in [policy.md](policy.md) are authoritative. Agent agreement is never evidence. Evidence records include an observed fact or result summary in addition to a local reference or digest. When the operator transcribes another session's output, keep `reported_by` and `recorded_by` separate.
 

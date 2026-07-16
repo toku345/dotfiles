@@ -2,6 +2,8 @@
 
 Schema: `outer-loop-week0/v2`
 
+> **Superseded — do not launch.** [ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) prohibits future calibration, arming, enrollment, role launch, and real-task execution with this v2 package. Do not copy the payload below into Claude Code.
+
 This is a thin operator-facing adapter for a Work Session B. It does not redefine [policy.md](policy.md), create pilot state, or grant authority. The effective task input is only the rendered payload below, the immutable approved contract, and inherited repository/global safety guidance. Safety guidance may narrow but never broaden the contract.
 
 Claude Code documents `/goal` for version 2.1.139 or later. Setting it starts a turn immediately; a separate evaluator checks the condition after each turn and can judge only evidence surfaced in the conversation. One goal is active per session, an achieved goal clears automatically, and resuming an active goal resets its turn, timer, and token-spend baselines. The exact installed behavior MUST still be observed in [calibration.md](calibration.md).

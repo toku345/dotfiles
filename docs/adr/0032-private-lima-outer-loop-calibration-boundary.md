@@ -16,7 +16,7 @@ The user has separate Codex and Claude Code subscription environments available 
 
 ### Stop pursuing zero-build v2 as the next pilot path
 
-Retain ADR 0031 as the accepted historical decision for `outer-loop-week0/v2`, but supersede zero-build v2 as the selected path for future pilot execution. Keep `docs/outer-loop/week0-v1/`, `docs/outer-loop/week0-v2/`, ADR 0031, and all existing calibration observations immutable. Never pool their results with the successor.
+Retain ADR 0031 as the accepted historical decision for `outer-loop-week0/v2`, but supersede zero-build v2 as the selected path for future pilot execution. No formal v2 calibration observation was recorded before this decision, so add fail-closed supersession notices to ADR 0030, ADR 0031, the v2 design, and every v2 package entry point as the final pre-observation covered-content correction permitted by the v2 policy; regenerate every manifest record and the aggregate package digest. After that correction, keep `docs/outer-loop/week0-v1/`, the corrected `docs/outer-loop/week0-v2/`, the status-marked ADR 0031, and all existing calibration observations immutable. Never pool their results with the successor.
 
 Permit a small repository-managed calibration harness, reviewed Lima profiles, non-secret runtime seed configurations, a sync guard, an export validator, and a secret-free evidence recorder. Do not create these components in this ADR cycle; define them in the subsequent implementation plan.
 

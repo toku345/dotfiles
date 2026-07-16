@@ -2,13 +2,15 @@
 
 Schema: `outer-loop-week0/v2`
 
-This file is the sole normative runtime-neutral policy for the Week 0 pilot selected by [ADR 0030](../../adr/0030-codex-claude-outer-loop-pilot.md). `MUST`, `MUST NOT`, `SHOULD`, and `MAY` are normative. Other package documents provide procedures, blank artifacts, runtime-specific handoffs, or fixtures and MUST NOT broaden this policy.
+Execution status: `SUPERSEDED_FOR_FUTURE_EXECUTION`
+
+This package MUST NOT be calibrated, armed, used to enroll a task, used to launch any role, or used for real-task execution. [ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) supersedes the zero-build v2 execution path. The remaining text preserves the runtime-neutral v2 policy as historical design evidence; its `MUST`, `MUST NOT`, `SHOULD`, and `MAY` terms document the superseded contract and MUST NOT override this execution prohibition or grant authority. Other package documents MUST NOT broaden this status.
 
 ## Package identity
 
 - The seven covered files listed in [manifest.md](manifest.md) MUST be hashed as exact UTF-8 bytes. Their sorted `digest<two spaces>path` records define the canonical package digest; `manifest.md` excludes itself.
-- The operator MUST recompute the covered-file hashes and package digest before calibration and before every A1/A2 discovery pair, Session B, and Session C. They MUST match both `manifest.md` and the last passing cross-runtime calibration.
-- A mismatch MUST block the session and pooling. Before the first formal calibration observation, a covered-content correction MUST regenerate every affected file record and the aggregate package digest and replace the unobserved package commit. The first formal calibration observation freezes the package. After that observation, a covered-file change MUST create a new versioned directory, package identity, both-runtime calibration, and four-task advancement cohort. Older observations remain history and MUST NOT be rewritten or pooled.
+- The operator MAY recompute the covered-file hashes and package digest solely to verify the archived identity. Agreement with [manifest.md](manifest.md) MUST NOT authorize calibration, arming, enrollment, role launch, or execution.
+- A mismatch means the archived package identity is corrupt and MUST block all use and pooling. ADR 0032 used the one permitted pre-observation correction to add supersession notices and regenerate this identity; that correction path is closed. Any later covered-file change MUST create a new versioned directory and package identity. This package and older observations MUST NOT be rewritten or pooled.
 
 ## Eligibility
 

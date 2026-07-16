@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted as a historical decision. Superseded for future pilot execution by [ADR 0032](0032-private-lima-outer-loop-calibration-boundary.md).
 
 ## Context
 

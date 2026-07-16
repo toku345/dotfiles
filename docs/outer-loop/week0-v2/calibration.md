@@ -2,7 +2,9 @@
 
 Schema: `outer-loop-week0/v2`
 
-Run this locally on both Private Codex and Work Claude Code before any real task. The scenarios are generalized fixtures and contain no repository, company, task, or machine-specific data. Local rationales, runtime/profile details, paths, logs, timing, and rehearsal evidence remain in their originating environment.
+> **Superseded — do not run.** [ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) prohibits future calibration, arming, enrollment, role launch, and real-task execution with this v2 package. This procedure is retained only as historical design evidence.
+
+This rehearsal was designed to run locally on both Private Codex and Work Claude Code before any real task. Its scenarios are generalized fixtures and contain no repository, company, task, or machine-specific data. Local rationales, runtime/profile details, paths, logs, timing, and rehearsal evidence would have remained in their originating environment.
 
 ## Phase 0 pre-seal feasibility
 
@@ -350,4 +352,4 @@ Use generalized, disposable fixtures only. Do not perform a real prohibited oper
 
 Material runtime/main-model or distinct goal-evaluator model/provider/configuration, schema, package, or adapter/invocation changes, plus a live hard-route mismatch, require affected role controls, end-to-end rehearsal, and both-runtime routing calibration. Enforcement-profile/configuration, canonical root, read/write alias or protected-overlap control, credential/environment/socket exposure, network mode/allowlists, or host-brokered external-tool inventory/operation/scope-selector/argument-shape allowlists require affected role controls and end-to-end rehearsal; they also require both-runtime calibration when routing or lifecycle behavior may change.
 
-Any route, package identity, enforcement, ownership, or goal-lifecycle mismatch blocks the arm. A mismatch found before a real task follows the drift/recalibration path without being mislabeled as a hard failure. A mismatch discovered during an active pilot enters `PAUSED_HARD` only when it meets a [hard-failure trigger](policy.md#hard-failure-and-resume). Before the first formal observation, correct covered content only by regenerating every affected record/digest and replacing the unobserved package commit. After the first formal observation, create a new schema/package identity when covered content changes, rerun required controls and rehearsals, and do not pool prior observations into the new cohort.
+Historically, any route, package identity, enforcement, ownership, or goal-lifecycle mismatch would have blocked the arm. ADR 0032 used the one permitted pre-observation correction to add supersession notices and regenerate the package identity; that correction path is closed. Do not run this rehearsal or edit v2 in place. Any later proposal must create a new schema/package identity, run its own controls and rehearsals, and prohibit pooling with v2.

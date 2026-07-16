@@ -51,7 +51,7 @@ real_task_allowed: no
 ## Non-goals
 
 - Running a real task or creating `outer-loop-week0/v3` in this design cycle.
-- Modifying `docs/outer-loop/week0-v1/`, `docs/outer-loop/week0-v2/`, ADR 0031, or any existing calibration record.
+- Modifying `docs/outer-loop/week0-v1/`, any existing calibration record, or the archived v2 package and ADR 0031 after the one-time pre-observation supersession correction recorded by ADR 0032.
 - Pooling v1, v2, or pre-arm observations with a future v3 cohort.
 - Supporting Work Mac tasks, Work-to-Private summaries, or cross-environment comparison.
 - Providing direct Codex-to-Claude live messaging, shared `agmsg` storage, or a network relay between guests.

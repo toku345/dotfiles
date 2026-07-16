@@ -2,6 +2,8 @@
 
 Schema: `outer-loop-week0/v2`
 
+> **Superseded — do not launch.** [ADR 0032](../../adr/0032-private-lima-outer-loop-calibration-boundary.md) prohibits future calibration, arming, enrollment, role launch, and real-task execution with this v2 package. Do not copy the payload below into Codex.
+
 This is a thin operator-facing adapter for a Private Session B. It does not redefine [policy.md](policy.md), create pilot state, or grant authority. The effective task input is only the rendered payload below, the immutable approved contract, and inherited repository/global safety guidance. Safety guidance may narrow but never broaden the contract.
 
 Codex currently documents `/goal <objective>` to set a goal, `/goal` to inspect it, and `/goal pause`, `/goal resume`, or `/goal clear` to control it. The exact installed behavior MUST still be observed in [calibration.md](calibration.md). Do not assume another Codex version or Claude Code has identical semantics.
