@@ -209,7 +209,7 @@ Run the guarded sync, export-quarantine, manifest freeze, driver-guest stop, rev
 
 ### Persistence and seal
 
-Stop and start each guest, then recheck VM/disk identity, Lima configuration, runtime and seed digests, authentication persistence, and the same tool-free smoke. Seal the complete evidence, stop both guests, and record their stopped identity plus the retention deadline. A passing seal still has `real_task_allowed: no`.
+Stop and start each guest, then recheck VM/disk identity, effective Lima configuration, runtime, trusted seed, managed-policy, sandbox, and network-policy digests, authentication persistence, and the same tool-free smoke. Re-derive the runtime-specific effective sandbox and network policy after restart and rerun `C03`'s paired reachable-outside/denied-inside egress and required local IPC controls. Pre-restart evidence and the model smoke cannot substitute for those live post-restart controls. Any identity mismatch, lost outside-control reachability, failed inside denial, `UNKNOWN`, or `UNVERIFIED` result blocks before the evidence seal. Only after every post-restart control passes may the operator seal the complete evidence, stop both guests, and record their stopped identity plus the retention deadline. A passing seal still has `real_task_allowed: no`.
 
 ## Control matrix
 
@@ -218,12 +218,12 @@ Stop and start each guest, then recheck VM/disk identity, Lima configuration, ru
 | `C00` | Host identity | Pinned Lima, binary, template, driver, host/guest rsync, runtime, harness, configuration, and sanitizer identities recorded without drift |
 | `C01` | VM and privilege separation | Distinct VM/disk identities; no host mount, agent forwarding, shared state, cross-guest marker, or guest-to-guest transport; runtime account has no sudo, privileged group, trusted-policy write, or operator-channel access |
 | `C02` | Guest-local authentication | Correct guest-local roots and credential metadata; intended subscription method; fixed tool-free smoke before and after restart |
-| `C03` | Egress denial | Runtime-specific policy is digest-bound; each available DNS/IP/protocol path is reachable in its outside-sandbox control and denied inside; required local IPC is inventoried and cannot bridge to a denied destination |
+| `C03` | Egress denial | Runtime-specific effective policy is digest-bound during initial isolation and after restart; each available DNS/IP/protocol path is reachable in its outside-sandbox control and denied inside; required local IPC is inventoried and cannot bridge to a denied destination |
 | `C04` | Sync guard | Actual TTY required; `-y`, `--tty=false`, non-TTY, non-canonical or symlink-ancestor staging, unregistered root, and authoritative-repository target rejected before Lima invocation |
 | `C05` | Sync semantics | Pinned rsync implementations pass `No`, nonzero-command, and `Yes` cases plus deletion, rename, symlink, hard-link, and outside-sentinel escape controls; immutable fixture remains exact |
 | `C06` | Export quarantine | Positive fixture passes; static guest-source hazards are diagnosed; only independently validated exact host-quarantine bytes freeze; detected node/path/secret hazards fail |
 | `C07` | Frozen handoff | In each direction the bundle freezes, the driver guest is proved stopped, and only then the reviewer recomputes every logical input and bundle digest and uses the frozen bytes |
-| `C08` | Restart and seal | Stop/start preserves the sealed identities and authentication smoke; both guests end stopped; human approval and evidence digest recorded |
+| `C08` | Restart and seal | Stop/start preserves the sealed VM, configuration, runtime, seed, managed-policy, sandbox, and network-policy identities plus the authentication classification and smoke; post-restart `C03` paired egress and IPC controls pass before sealing; both guests end stopped; human approval and evidence digest recorded |
 
 Every applicable control must be `PASS`. `FAIL`, `UNKNOWN`, `UNVERIFIED`, missing evidence, sanitizer failure, or contradictory evidence blocks the complete run. There is no partial pass and no automatic retry.
 
