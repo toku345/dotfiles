@@ -64,7 +64,19 @@ class GuestControlTests(unittest.TestCase):
         ):
             self.assertEqual(control.main(), 77)
         started, complete = self.receipts(control, output.getvalue())
-        expected_digest = hashlib.sha256(control.canonical(argv)).hexdigest()
+        expected_digest = hashlib.sha256(
+            control.canonical(
+                [
+                    "/usr/local/libexec/outer-loop/control.py",
+                    "--nonce",
+                    nonce,
+                    "--destination",
+                    "host",
+                    "--",
+                    *argv,
+                ]
+            )
+        ).hexdigest()
         self.assertEqual(started["classification"], "STARTED")
         self.assertEqual(complete["classification"], "DENIED_BY_SANDBOX")
         self.assertEqual(complete["nonce"], nonce)

@@ -45,7 +45,16 @@ def main() -> int:
     argv = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
     if not argv:
         parser.error("probe argv is required")
-    argv_digest = hashlib.sha256(canonical(argv)).hexdigest()
+    receipt_argv = [
+        "/usr/local/libexec/outer-loop/control.py",
+        "--nonce",
+        args.nonce,
+        "--destination",
+        args.destination,
+        "--",
+        *argv,
+    ]
+    argv_digest = hashlib.sha256(canonical(receipt_argv)).hexdigest()
     started = {
         "schema_version": 1,
         "nonce": args.nonce,

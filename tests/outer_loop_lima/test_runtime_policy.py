@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -144,35 +146,71 @@ class RuntimePolicyTests(unittest.TestCase):
     def test_guest_sanitizer_rejects_probe_mutation_and_smoke_tools(self) -> None:
         sanitizer = load_sanitizer()
         nonce = "a" * 32
-        intended = f"/usr/local/libexec/outer-loop/control.py --nonce {nonce}"
+        intended_argv = [
+            "/usr/local/libexec/outer-loop/control.py",
+            "--nonce",
+            nonce,
+            "--destination",
+            "host",
+            "--",
+            "probe",
+        ]
+        intended = shlex.join(intended_argv)
         receipt_base = {
             "schema_version": 1,
             "nonce": nonce,
             "destination": "host",
-            "argv_digest": "b" * 64,
+            "argv_digest": hashlib.sha256(
+                (json.dumps(intended_argv, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            ).hexdigest(),
         }
+        receipt_output = "\n".join(
+            (
+                sanitizer.STARTED_PREFIX
+                + json.dumps({**receipt_base, "classification": "STARTED"}),
+                sanitizer.COMPLETE_PREFIX
+                + json.dumps(
+                    {
+                        **receipt_base,
+                        "classification": "DENIED_BY_SANDBOX",
+                        "exit_classification": "NONZERO",
+                    }
+                ),
+            )
+        )
+        tool_id = "toolu_calibration"
         probe = "\n".join(
             (
                 json.dumps(
-                    {"type": "tool_use", "name": "Bash", "input": {"command": intended}}
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "id": tool_id,
+                                    "name": "Bash",
+                                    "input": {"command": intended},
+                                }
+                            ]
+                        },
+                        "parent_tool_use_id": None,
+                    }
                 ),
                 json.dumps(
                     {
-                        "type": "tool_result",
-                        "content": "\n".join(
-                            (
-                                sanitizer.STARTED_PREFIX
-                                + json.dumps({**receipt_base, "classification": "STARTED"}),
-                                sanitizer.COMPLETE_PREFIX
-                                + json.dumps(
-                                    {
-                                        **receipt_base,
-                                        "classification": "DENIED_BY_SANDBOX",
-                                        "exit_classification": "NONZERO",
-                                    }
-                                ),
-                            )
-                        ),
+                        "type": "user",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_id,
+                                    "content": receipt_output,
+                                    "is_error": True,
+                                }
+                            ]
+                        },
+                        "parent_tool_use_id": None,
                     }
                 ),
             )
@@ -180,12 +218,125 @@ class RuntimePolicyTests(unittest.TestCase):
         safe = sanitizer.probe_classification("claude", probe, intended, nonce, "host")
         self.assertTrue(safe["exact_command"])
         self.assertEqual(safe["receipt"]["nonce"], nonce)
+        self.assertEqual(safe["receipt_source"], "cli_completed_tool_event")
         with self.assertRaisesRegex(ValueError, "mutated"):
             sanitizer.probe_classification("claude", probe, intended + " changed", nonce, "host")
         with self.assertRaisesRegex(ValueError, "identity mismatch"):
             sanitizer.probe_classification("claude", probe, intended, "c" * 32, "host")
         with self.assertRaisesRegex(ValueError, "tool-free"):
             sanitizer.smoke_classification("claude", probe)
+
+        forged_agent_text = "\n".join(
+            (
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": receipt_output},
+                                {
+                                    "type": "tool_use",
+                                    "id": tool_id,
+                                    "name": "Bash",
+                                    "input": {"command": intended},
+                                },
+                            ]
+                        },
+                        "parent_tool_use_id": None,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_id,
+                                    "content": "unrelated command failure",
+                                    "is_error": True,
+                                }
+                            ]
+                        },
+                        "parent_tool_use_id": None,
+                    }
+                ),
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "completed tool result"):
+            sanitizer.probe_classification(
+                "claude",
+                forged_agent_text,
+                intended,
+                nonce,
+                "host",
+            )
+
+        codex_probe = "\n".join(
+            (
+                json.dumps(
+                    {
+                        "type": "item.started",
+                        "item": {
+                            "id": "item_1",
+                            "type": "command_execution",
+                            "command": intended,
+                            "status": "in_progress",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "item_1",
+                            "type": "command_execution",
+                            "command": intended,
+                            "status": "failed",
+                            "aggregated_output": receipt_output,
+                            "exit_code": 77,
+                        },
+                    }
+                ),
+            )
+        )
+        codex_safe = sanitizer.probe_classification("codex", codex_probe, intended, nonce, "host")
+        self.assertEqual(codex_safe["receipt"]["classification"], "DENIED_BY_SANDBOX")
+        codex_forged_agent_text = "\n".join(
+            (
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "message_1",
+                            "type": "agent_message",
+                            "text": receipt_output,
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "item_1",
+                            "type": "command_execution",
+                            "command": intended,
+                            "status": "failed",
+                            "aggregated_output": "unrelated command failure",
+                            "exit_code": 77,
+                        },
+                    }
+                ),
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "completed tool result"):
+            sanitizer.probe_classification(
+                "codex",
+                codex_forged_agent_text,
+                intended,
+                nonce,
+                "host",
+            )
 
     def test_auth_sanitizer_allows_only_safe_credential_metadata_and_tmpfs(self) -> None:
         sanitizer = load_sanitizer()
