@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "generated_for": "Private Lima pre-arm calibration; no artifact may float",
+  "artifacts": {
+    "lima_distribution": {
+      "version": "2.1.4",
+      "source": "https://ghcr.io/v2/homebrew/core/lima/blobs/sha256:3c5700d39777426daf59dafdd7afaa34ac29d88ad9c5e4e345929d7cf55410c0",
+      "sha256": "3c5700d39777426daf59dafdd7afaa34ac29d88ad9c5e4e345929d7cf55410c0"
+    },
+    "host_limactl": {
+      "version": "2.1.4",
+      "source": "/opt/homebrew/bin/limactl",
+      "sha256": "3957f467a116b4adb093cecef7af320b9d4ddec81eb95b613b95ad3c76821320"
+    },
+    "host_python": {
+      "version": "3.14.5",
+      "source": "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/bin/python3.14",
+      "sha256": "2477b47fa3ae65b9574eb18a15edb364e96948eaa1875ad3f1c80d780efc9c12"
+    },
+    "host_rsync": {
+      "version": "OpenRSYNC protocol 29; rsync 2.6.9 compatible",
+      "source": "/usr/bin/rsync on macOS 26.5.2 build 25F84",
+      "sha256": "fec0b6aa3c7b787f762b854b017b90b9a87260ccda408dec1d80c85bdd3182ba"
+    },
+    "ubuntu_noble_arm64_image": {
+      "version": "24.04-daily-20260615",
+      "source": "https://cloud-images.ubuntu.com/noble/20260615/noble-server-cloudimg-arm64.img",
+      "sha256": "cafa1a965b591b7c4184b484ffd8e625981a79d48f9b4ae8a4adf7b4c5ade927"
+    },
+    "node_linux_arm64": {
+      "version": "24.18.0",
+      "source": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-arm64.tar.xz",
+      "sha256": "58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6"
+    },
+    "codex_linux_arm64": {
+      "version": "0.144.5-linux-arm64",
+      "source": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.5-linux-arm64.tgz",
+      "integrity": "sha512-zAHggxVwR2TBxKmybXY7ZMiB0G8DMonY2YPdwNNjwXcf+LOIqNGgswwNCDMbP/HEe6r8j+R9ZX/yYoo8f+n/RQ=="
+    },
+    "claude_code": {
+      "version": "2.1.211",
+      "source": "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.211.tgz",
+      "integrity": "sha512-yGhXSF9YfHoVGe0S6N9ky5uajx79f+vt6ZT3HhBJLFSjJtiGEs67H0h93iTdOvPU/wOffijpTUAn76U/+vQnTQ=="
+    },
+    "claude_code_linux_arm64": {
+      "version": "2.1.211",
+      "source": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.211.tgz",
+      "integrity": "sha512-ZPthYxltbqA87X/avbAHA0XVPuFuqoNrXKRmx0G0qfwEuyyloVKdaUsY1AEbFXQIRJYKZZ8UvMklD2jvm9+etA=="
+    },
+    "sandbox_runtime": {
+      "version": "0.0.65",
+      "source": "https://registry.npmjs.org/@anthropic-ai/sandbox-runtime/-/sandbox-runtime-0.0.65.tgz",
+      "integrity": "sha512-0uW2bMIBLT45tehULlohOnco71xCJzrb4h7pQSUnMYfMJAJ77sMAI3Q9jP2h973hw5tg6dfEjyayc85rXixuAg=="
+    },
+    "srt_socks5_server": {
+      "version": "1.0.10",
+      "source": "https://registry.npmjs.org/@pondwader/socks5-server/-/socks5-server-1.0.10.tgz",
+      "integrity": "sha512-bQY06wzzR8D2+vVCUoBsr5QS2U6UgPUQRmErNwtsuI6vLcyRKkafjkr3KxbtGFf9aBBIV2mcvlsKD1UYaIV+sg=="
+    },
+    "srt_commander": {
+      "version": "12.1.0",
+      "source": "https://registry.npmjs.org/commander/-/commander-12.1.0.tgz",
+      "integrity": "sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA=="
+    },
+    "srt_node_forge": {
+      "version": "1.4.0",
+      "source": "https://registry.npmjs.org/node-forge/-/node-forge-1.4.0.tgz",
+      "integrity": "sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ=="
+    },
+    "srt_zod": {
+      "version": "3.25.76",
+      "source": "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz",
+      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
+    },
+    "ubuntu_noble_inrelease": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble/InRelease",
+      "sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0"
+    },
+    "ubuntu_noble_main_arm64_index": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble/main/binary-arm64/Packages.xz",
+      "sha256": "4a1901e6124fb0a111f5dffc8f5c14474f449e2ecfa71f2eaf0b29917edb53f9"
+    },
+    "ubuntu_noble_universe_arm64_index": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble/universe/binary-arm64/Packages.xz",
+      "sha256": "6df230cf5cfebcbd59e4e2713b8eed07dc0aaed66fb471ebf046cb70ccb07275"
+    },
+    "ubuntu_noble_updates_inrelease": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble-updates/InRelease",
+      "sha256": "ddf83c454984ae0861742cd6a89585888050166315368e0f1e1ba6cdde12b52e"
+    },
+    "ubuntu_noble_updates_main_arm64_index": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble-updates/main/binary-arm64/Packages.xz",
+      "sha256": "4c12b4d49218d98d9cfdf74c6a2668e9f2351a00b439f2704afe380fb7b2ff9f"
+    },
+    "ubuntu_noble_updates_universe_arm64_index": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble-updates/universe/binary-arm64/Packages.xz",
+      "sha256": "df5b2f79219ac45c2b966f9d7319d8e772c6b3e7fa5c80338a8b2ad972621606"
+    },
+    "ubuntu_noble_security_inrelease": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble-security/InRelease",
+      "sha256": "5644c374ba44e2b79107645f211a6d9867537840b702d53c398d244843d2f2ab"
+    },
+    "ubuntu_noble_security_main_arm64_index": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble-security/main/binary-arm64/Packages.xz",
+      "sha256": "9ab982553e2ff358c1559da453dd50548b0e1c6b5bc1edf8776f5bea22774ab4"
+    },
+    "ubuntu_noble_security_universe_arm64_index": {
+      "version": "20260615T000000Z",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/dists/noble-security/universe/binary-arm64/Packages.xz",
+      "sha256": "0f9222a8b702af69f215c79ca1f2888f7d6528635adac73a861498932dcaac5f"
+    },
+    "apparmor_arm64_deb": {
+      "version": "4.0.1really4.0.1-0ubuntu0.24.04.7",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/a/apparmor/apparmor_4.0.1really4.0.1-0ubuntu0.24.04.7_arm64.deb",
+      "sha256": "965a2b0023da444b260cbcd4ae37ae75e0e842efc8bb4792944e4f58a257f34d"
+    },
+    "bubblewrap_arm64_deb": {
+      "version": "0.9.0-1ubuntu0.1",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/b/bubblewrap/bubblewrap_0.9.0-1ubuntu0.1_arm64.deb",
+      "sha256": "3fb4ca3a8d2060444836568ed49d6897a403467e4ba29c93440900093fb96a38"
+    },
+    "ca_certificates_deb": {
+      "version": "20240203",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/c/ca-certificates/ca-certificates_20240203_all.deb",
+      "sha256": "641de77d8f142cfd62a1a6f964ba67b20754d3337c480efb529d086075a06c9a"
+    },
+    "curl_arm64_deb": {
+      "version": "8.5.0-2ubuntu10.9",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/c/curl/curl_8.5.0-2ubuntu10.9_arm64.deb",
+      "sha256": "1aae63bf3f4d271500ae51a440807f33c0b1cbac0efdf1ddda637887e298adb4"
+    },
+    "libseccomp2_arm64_deb": {
+      "version": "2.5.5-1ubuntu3.1",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/libs/libseccomp/libseccomp2_2.5.5-1ubuntu3.1_arm64.deb",
+      "sha256": "2feac77a129e336960734586ccdb16eefb040adfe7b662369549e41b82ba0a1b"
+    },
+    "python3_arm64_deb": {
+      "version": "3.12.3-0ubuntu2.1",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/p/python3-defaults/python3_3.12.3-0ubuntu2.1_arm64.deb",
+      "sha256": "ea792b91e0fc9e249b96b960d14e04a8b7107029988546e8dd3511b74a693a6c"
+    },
+    "ripgrep_arm64_deb": {
+      "version": "14.1.0-1",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/universe/r/rust-ripgrep/ripgrep_14.1.0-1_arm64.deb",
+      "sha256": "71fe8a5667bc87d2bca175a3426c6ec518e0679cc821d23ae7056de7096f04de"
+    },
+    "rsync_arm64_deb": {
+      "version": "3.2.7-1ubuntu1.5",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/r/rsync/rsync_3.2.7-1ubuntu1.5_arm64.deb",
+      "sha256": "acadec1dfd367c1dd7101e94e8ca19eb9b7e94ddfc3ec22f0b1a49e2bdd60382"
+    },
+    "seccomp_arm64_deb": {
+      "version": "2.5.5-1ubuntu3.1",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/universe/libs/libseccomp/seccomp_2.5.5-1ubuntu3.1_arm64.deb",
+      "sha256": "364154e86215c056121cbaf72ba9ad97bd3d3bb0ae072a90f39e76de5101f12a"
+    },
+    "socat_arm64_deb": {
+      "version": "1.8.0.0-4build3",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/s/socat/socat_1.8.0.0-4build3_arm64.deb",
+      "sha256": "279771298f436064f544f45d66ba75b2937a9b3e3e63836877760141d3b21983"
+    },
+    "tar_arm64_deb": {
+      "version": "1.35+dfsg-3build1",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/t/tar/tar_1.35+dfsg-3build1_arm64.deb",
+      "sha256": "2df76253d79fd27b8e10b4b1426e2a229c1f374406a80607878eb66bdc1edcf6"
+    },
+    "xz_utils_arm64_deb": {
+      "version": "5.6.1+really5.4.5-1ubuntu0.3",
+      "source": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/pool/main/x/xz-utils/xz-utils_5.6.1+really5.4.5-1ubuntu0.3_arm64.deb",
+      "sha256": "0ffb706ab125224ab5abb99055a239eb74a39a0b5f42e608648f02b2a5489b76"
+    }
+  },
+  "guest_apt": {
+    "snapshot": "https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/",
+    "suites": ["noble", "noble-updates", "noble-security"],
+    "components": ["main", "universe"],
+    "architecture": "arm64",
+    "install": {
+      "apparmor": "4.0.1really4.0.1-0ubuntu0.24.04.7",
+      "bubblewrap": "0.9.0-1ubuntu0.1",
+      "ca-certificates": "20240203",
+      "curl": "8.5.0-2ubuntu10.9",
+      "libseccomp2": "2.5.5-1ubuntu3.1",
+      "python3": "3.12.3-0ubuntu2.1",
+      "ripgrep": "14.1.0-1",
+      "rsync": "3.2.7-1ubuntu1.5",
+      "seccomp": "2.5.5-1ubuntu3.1",
+      "socat": "1.8.0.0-4build3",
+      "tar": "1.35+dfsg-3build1",
+      "xz-utils": "5.6.1+really5.4.5-1ubuntu0.3"
+    }
+  }
+}
