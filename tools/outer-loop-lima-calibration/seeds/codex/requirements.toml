@@ -1,0 +1,20 @@
+allowed_approval_policies = ["never"]
+allowed_sandbox_modes = ["workspace-write"]
+allowed_web_search_modes = ["disabled"]
+allow_appshots = false
+allow_remote_control = false
+allow_managed_hooks_only = true
+
+[features]
+apps = false
+browser_use = false
+browser_use_external = false
+computer_use = false
+hooks = false
+image_generation = false
+in_app_browser = false
+multi_agent = false
+plugins = false
+plugin_sharing = false
+skill_mcp_dependency_install = false
+tool_call_mcp_elicitation = false

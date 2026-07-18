@@ -1,0 +1,44 @@
+{
+  "filesystem": {
+    "denyRead": [
+      "/home/calibration/.claude/.credentials.json",
+      "/home/calibration/.claude.json"
+    ],
+    "allowRead": [
+      "/home/calibration/workspace",
+      "/usr/local/libexec/outer-loop/control.py"
+    ],
+    "allowWrite": [
+      "/home/calibration/workspace",
+      "/run/outer-loop-probe/receipts"
+    ],
+    "denyWrite": [
+      "/etc",
+      "/usr",
+      "/var/lib/outer-loop"
+    ]
+  },
+  "network": {
+    "allowedDomains": [],
+    "deniedDomains": ["*"],
+    "strictAllowlist": true,
+    "allowUnixSockets": [],
+    "allowAllUnixSockets": false,
+    "allowLocalBinding": false
+  },
+  "credentials": {
+    "files": [
+      {"path": "/home/calibration/.claude/.credentials.json", "mode": "deny"},
+      {"path": "/home/calibration/.claude.json", "mode": "deny"}
+    ],
+    "envVars": [
+      {"name": "ANTHROPIC_API_KEY", "mode": "deny"},
+      {"name": "ANTHROPIC_AUTH_TOKEN", "mode": "deny"},
+      {"name": "CLAUDE_CODE_OAUTH_TOKEN", "mode": "deny"}
+    ],
+    "allowPlaintextInject": false
+  },
+  "enableWeakerNestedSandbox": false,
+  "enableWeakerNetworkIsolation": false,
+  "allowAppleEvents": false
+}

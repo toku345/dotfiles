@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(/usr/local/libexec/outer-loop/control.py *)"
+    ],
+    "deny": [
+      "Agent",
+      "WebFetch",
+      "WebSearch"
+    ]
+  },
+  "allowManagedPermissionRulesOnly": true,
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "autoAllowBashIfSandboxed": true,
+    "excludedCommands": [],
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "allowWrite": [
+        "/home/calibration/workspace",
+        "/run/outer-loop-probe/receipts"
+      ],
+      "denyWrite": [
+        "/etc",
+        "/usr",
+        "/var/lib/outer-loop"
+      ],
+      "denyRead": [
+        "/home/calibration/.claude/.credentials.json",
+        "/home/calibration/.claude.json"
+      ],
+      "allowManagedReadPathsOnly": true
+    },
+    "network": {
+      "allowedDomains": [],
+      "allowManagedDomainsOnly": true
+    },
+    "credentials": {
+      "files": [
+        {
+          "path": "/home/calibration/.claude/.credentials.json",
+          "mode": "deny"
+        },
+        {
+          "path": "/home/calibration/.claude.json",
+          "mode": "deny"
+        }
+      ],
+      "envVars": [
+        {"name": "ANTHROPIC_API_KEY", "mode": "deny"},
+        {"name": "ANTHROPIC_AUTH_TOKEN", "mode": "deny"},
+        {"name": "CLAUDE_CODE_OAUTH_TOKEN", "mode": "deny"},
+        {"name": "CLAUDE_CODE_USE_BEDROCK", "mode": "deny"},
+        {"name": "CLAUDE_CODE_USE_FOUNDRY", "mode": "deny"},
+        {"name": "CLAUDE_CODE_USE_VERTEX", "mode": "deny"}
+      ]
+    }
+  },
+  "allowedMcpServers": [],
+  "allowManagedMcpServersOnly": true,
+  "enableAllProjectMcpServers": false,
+  "disableClaudeAiConnectors": true,
+  "disableAllHooks": true,
+  "allowManagedHooksOnly": true,
+  "allowedHttpHookUrls": [],
+  "disableSideloadFlags": true,
+  "strictKnownMarketplaces": [],
+  "strictPluginOnlyCustomization": true,
+  "disableSkillShellExecution": true,
+  "disableBundledSkills": true,
+  "disableWorkflows": true,
+  "disableAgentView": true,
+  "disableArtifact": true,
+  "disableAutoMode": "disable",
+  "disableRemoteControl": true,
+  "autoMemoryEnabled": false,
+  "env": {
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"
+  }
+}
