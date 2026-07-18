@@ -1,7 +1,7 @@
 # Codex / Claude Outer Loop Private Lima Pre-Arm Calibration — Design Doc
 
 Parent decisions: [ADR 0030](../adr/0030-codex-claude-outer-loop-pilot.md), [ADR 0031](../adr/0031-outer-loop-week0-v2-hard-link-boundary.md)
-Target decision: [ADR 0032](../adr/0032-private-lima-outer-loop-calibration-boundary.md)
+Target decision: [ADR 0032](../adr/0032-private-lima-outer-loop-calibration-boundary.md), amended by [ADR 0033](../adr/0033-private-lima-runtime-main-process-egress-risk.md)
 Status: Accepted
 
 ## Context
@@ -12,7 +12,7 @@ The pilot has therefore learned that preserving zero-build is more costly than t
 
 The first successor cohort will also be Private-only. It will eventually contain two non-sensitive Codex-driven tasks and two non-sensitive Claude-driven tasks, with the opposite runtime acting as the fresh independent reviewer. Work Mac support, Work-derived aggregation, and cross-environment transfer are deferred to a later decision.
 
-The user accepts that a runtime may be able to read its own guest-local subscription credential. That risk is accepted only for non-sensitive tasks, zero-by-default egress from agent-launched commands, guest-local credentials, reviewed export, and logout plus guest destruction after the cohort or abandonment.
+The user accepts two residual risks: `AR-01 runtime-may-read-own-guest-credential` and `AR-02 runtime-main-process-egress-not-enforced`. Those risks are accepted only for non-sensitive data, disabled auxiliary tools, zero-by-default egress from agent-launched commands, root-owned policy, human approval, reviewed export, and logout plus guest destruction after the cohort or abandonment. They are risk records, not passing controls.
 
 ## Scope and sequencing
 
@@ -42,7 +42,7 @@ real_task_allowed: no
 
 - Prove that Codex and Claude Code run in distinct Lima VMs with independent disks and no host filesystem mount, SSH-agent forwarding, shared runtime state, or direct guest-to-guest transport.
 - Establish guest-local subscription authentication without copying or mounting host `~/.codex`, `~/.claude`, keychain material, API keys, access tokens, or agent sockets.
-- Allow only each CLI's own authentication and model-provider traffic while denying external, host, private, and peer-guest network access from agent-launched commands and disabling Web, app, connector, MCP, and unsandboxed escape paths.
+- Record explicitly that main-process endpoint restriction is not enforced, while denying external, host, private, and peer-guest network access from agent-launched commands and disabling Web, app, connector, MCP, and unsandboxed escape paths.
 - Prove a guarded, disposable staging workflow in which no Lima sync operation targets an authoritative repository.
 - Freeze and digest exact exported bytes before transferring them through the operator to the other guest.
 - Calibrate both Codex-driver to Claude-reviewer and Claude-driver to Codex-reviewer handoffs.
@@ -105,17 +105,17 @@ Each guest separates the trusted provisioning/operator account from a dedicated 
 
 The currently observed Homebrew installation is Lima `2.1.4`, and its `limactl` supports `--plain`, `--mount-none`, `--containerd=none`, and `shell --sync`. The calibration records the actual version, resolved binary digest, template digest, and effective configuration at run time instead of treating that observation as timeless. Any mismatch is drift.
 
-## Component boundaries for later implementation
+## Implementation component boundaries
 
 The zero-build constraint is removed for this successor. A small repository-managed calibration harness is allowed, but it must remain decomposed into reviewable units:
 
 1. **Host orchestrator** — creates run state, invokes bounded phases, owns terminal routing, and is the only component allowed to write final evidence.
-2. **Lima profiles/templates** — define the two guests, trusted provisioning account, non-sudo runtime account, and their mount, containerd, forwarding, provisioning, resource, and disk settings without containing credentials.
+2. **Lima profiles and provisioning** — define two static guests, a trusted provisioning account, a non-sudo runtime account, and their mount, containerd, forwarding, resource, and disk settings without templates, renderers, or credentials.
 3. **Runtime seed configurations** — provide reviewed root-owned non-secret Codex and Claude managed policy; runtime-writable authentication state remains guest-local and untracked.
 4. **Sync guard and export validator** — require an interactive TTY, reject `-y` and `--tty=false`, restrict sync roots to canonical disposable staging with non-symlink ancestors, validate guest-source diagnostics and load-bearing host-quarantine inventories, and freeze accepted bytes.
 5. **Evidence recorder and sanitizer** — emit canonical, secret-free control records and summaries while keeping raw sensitive output guest-local and ephemeral.
 
-No component is a daemon, host network service, guest-to-guest broker, general-purpose remote executor, or `agmsg` replacement. The later implementation plan assigns concrete file paths and focused tests to these units.
+No component is a daemon, host network service, guest-to-guest broker, general-purpose remote executor, or `agmsg` replacement. The [implementation design](codex-claude-outer-loop-private-lima-calibration-implementation.md) assigns concrete file paths, commands, records, and focused tests to these units.
 
 ## Authentication and guest-local state
 
@@ -129,9 +129,9 @@ The same guests are stopped and retained after a passing calibration so that a l
 
 ## Network boundary
 
-The guest is not claimed to be network-disconnected: trusted provisioning and the CLI process require network access. The calibrated enforcement layer is each runtime's child-command sandbox and root-owned effective policy. The runtime process may reach only the endpoints needed for its own subscription login and model calls. Commands, scripts, and subprocesses launched by the agent receive zero external, host, private, and peer-guest network egress by default. Codex command networking and Web search are disabled. Claude's Linux sandbox is required to start fail-closed; its unsandboxed-command escape is disabled. WebFetch, WebSearch, apps, connectors, MCP, inherited cloud credentials, and SSH credentials are unavailable to both roles.
+The guest is not claimed to be network-disconnected: trusted provisioning and each CLI main process require network access. As accepted by ADR 0033, the harness does not enforce or claim an endpoint allowlist for the runtime main process. This is `AR-02 runtime-main-process-egress-not-enforced`, outside the control matrix. The calibrated enforcement layer for `C03` is only each runtime's child-command sandbox and root-owned effective policy. Commands, scripts, and subprocesses launched through the agent tool boundary receive zero external, host, private, and peer-guest network egress by default. Codex command networking and Web search are disabled. Claude's Linux sandbox is required to start fail-closed; its unsandboxed-command escape is disabled. WebFetch, WebSearch, apps, connectors, MCP, inherited cloud credentials, and SSH credentials are unavailable to both roles.
 
-Runtime-internal loopback listeners and Unix sockets required by the calibrated sandbox or CLI may exist, but their exact purpose and identity must be inventoried and digest-bound. Agent commands may not use undeclared local IPC or use declared IPC to reach the host, peer guest, or an external destination. The exact runtime-specific effective policy and enforcement configuration are digested. For each available DNS, IPv4, IPv6, TCP, and UDP path, an operator-owned control outside the agent command sandbox first proves a controlled destination is reachable, then the corresponding agent-command probe must fail inside the sandbox. An unavailable protocol is recorded as unavailable baseline, not counted as a passing denial. The matrix also covers host gateway, peer guest, public and private destinations, and every runtime proxy or socket that could bridge the sandbox. A fixed tool-free model smoke proves only the CLI path. A failed command is not accepted without the reachable outside-sandbox control and evidence that the intended boundary denied the inside-sandbox probe.
+Runtime-internal loopback listeners and Unix sockets required by the calibrated sandbox or CLI may exist, but their exact purpose and identity must be inventoried and digest-bound. Agent commands may not use undeclared local IPC or use declared IPC to reach the host, peer guest, or an external destination. The exact runtime-specific effective policy and enforcement configuration are digested. For each runtime, initial/post-restart occurrence, DNS/IPv4/IPv6, TCP/UDP, and public/host/private/peer/local-IPC path, an operator-owned control outside the agent command sandbox first proves a controlled destination is reachable, then the corresponding agent-command probe must fail inside the sandbox. An unavailable path is classified `UNAVAILABLE_BASELINE` and is not counted as a passing denial. The guest execution receipt and operator canary ingress log are independent: missing intended-argv execution, outside ingress, sandbox-denial classification, or inside non-ingress makes the control `UNVERIFIED`. Claude additionally runs the same intended argv first through the root-owned SRT profile and then through the actual Claude Bash tool; the second stage is load-bearing. A fixed tool-free model smoke proves only the CLI path.
 
 If a later candidate genuinely requires external access, the current action stops. The human must review the exact destination, operation, purpose, duration, and alternatives. A denial makes the candidate ineligible or blocked under the later v3 rules. An approval changes the network-policy and configuration digests and requires the affected positive and negative controls plus both relevant handoff roles to be recalibrated. No prompt or runtime may widen the allowlist itself.
 
@@ -191,7 +191,7 @@ evidence seal and guest stop
 
 ### Host preflight
 
-Record the Private Mac OS and architecture; Lima, template, VM driver, rsync, runtime, sandbox dependency, harness, validator, and sanitizer identities; the accepted risks; the retention deadline; the exact objective and prohibitions; and the two allowed terminal states. Verify a private operator state root and dedicated `LIMA_HOME`. No real repository or task is present.
+Record the Private Mac OS and architecture; Lima, profiles, VM driver, rsync, Python, runtime, sandbox dependency, harness manifest, validator, and sanitizer identities; separately typed `AR-01` and `AR-02` risk acceptances; the immutable UTC retention deadline; the exact objective and prohibitions; and the two allowed terminal states. Verify a private operator state root and dedicated `LIMA_HOME`. No real repository or task is present.
 
 The currently observed macOS `rsync` identifies itself as OpenRSYNC with rsync `2.6.9` compatibility. It is neither accepted nor rejected by version string alone. The disposable sync controls determine compatibility. If they fail for a proved rsync reason, installing and pinning GNU rsync requires a human decision and a new calibration run.
 
@@ -215,33 +215,46 @@ Stop and start each guest, then recheck VM/disk identity, effective Lima configu
 
 | ID | Control | Passing evidence |
 |---|---|---|
-| `C00` | Host identity | Pinned Lima, binary, template, driver, host/guest rsync, runtime, harness, configuration, and sanitizer identities recorded without drift |
+| `C00` | Host and runtime identity | Pinned Lima, binary, profiles, driver, host/guest rsync, Python, runtimes, harness, configuration, AppArmor/SRT, and sanitizer identities recorded without drift; Codex `config/read` with layers and `configRequirements/read` map every seed key to the expected effective value and origin with no cloud-composed mismatch |
 | `C01` | VM and privilege separation | Distinct VM/disk identities; no host mount, agent forwarding, shared state, cross-guest marker, or guest-to-guest transport; runtime account has no sudo, privileged group, trusted-policy write, or operator-channel access |
 | `C02` | Guest-local authentication | Correct guest-local roots and credential metadata; intended subscription method; fixed tool-free smoke before and after restart |
-| `C03` | Egress denial | Runtime-specific effective policy is digest-bound during initial isolation and after restart; each available DNS/IP/protocol path is reachable in its outside-sandbox control and denied inside; required local IPC is inventoried and cannot bridge to a denied destination |
+| `C03` | Agent-launched command egress denial | Runtime-specific child-command policy is digest-bound during initial isolation and after restart; each available DNS/IP/protocol path is reachable in its outside-sandbox control and the intended inside argv is executed and denied with independent receipt/canary evidence; required local IPC is inventoried and cannot bridge to a denied destination |
 | `C04` | Sync guard | Actual TTY required; `-y`, `--tty=false`, non-TTY, non-canonical or symlink-ancestor staging, unregistered root, and authoritative-repository target rejected before Lima invocation |
 | `C05` | Sync semantics | Pinned rsync implementations pass `No`, nonzero-command, and `Yes` cases plus deletion, rename, symlink, hard-link, and outside-sentinel escape controls; immutable fixture remains exact |
 | `C06` | Export quarantine | Positive fixture passes; static guest-source hazards are diagnosed; only independently validated exact host-quarantine bytes freeze; detected node/path/secret hazards fail |
 | `C07` | Frozen handoff | In each direction the bundle freezes, the driver guest is proved stopped, and only then the reviewer recomputes every logical input and bundle digest and uses the frozen bytes |
 | `C08` | Restart and seal | Stop/start preserves the sealed VM, configuration, runtime, seed, managed-policy, sandbox, and network-policy identities plus the authentication classification and smoke; post-restart `C03` paired egress and IPC controls pass before sealing; both guests end stopped; human approval and evidence digest recorded |
 
-Every applicable control must be `PASS`. `FAIL`, `UNKNOWN`, `UNVERIFIED`, missing evidence, sanitizer failure, or contradictory evidence blocks the complete run. There is no partial pass and no automatic retry.
+Every applicable control must be `PASS`. `FAIL`, `UNKNOWN`, `UNVERIFIED`, missing evidence, sanitizer failure, or contradictory evidence blocks the complete run. `UNAVAILABLE_BASELINE` is an observation classification, not a control result or passing denial. `NOT_PROVIDED_ACCEPTED_RISK` is a risk disposition, not a control result. `AR-02` cannot enter the control aggregator. There is no partial pass and no automatic retry.
 
 ## Evidence contract
 
 Evidence remains outside repositories and synchronized directories under an operator-owned `0700` root:
 
 ```text
-<operator-state>/calibration/<run-id>/
-|-- identity.json
-|-- controls.jsonl
-|-- summary.md
-`-- fixture-bundles/
+~/.local/state/outer-loop/lima-prearm/v1/runs/<run-id>/
+|-- work/
+|-- frozen-harness/
+|-- evidence/
+|   |-- identity.json
+|   |-- controls.jsonl
+|   |-- decisions.jsonl
+|   |-- summary.md
+|   `-- fixture-bundles/
+`-- cleanup/
 ```
 
-Files use mode `0600`. Each control record binds the run ID, control ID, target runtime/direction, expected classification, observed sanitized classification, exit code where non-sensitive, evidence digest, result, and responsible operator step. The final summary binds every control result, the overall terminal state, the human approval, and the sealed identity digest.
+The operator root and run directories use mode `0700`; evidence files use `0600`, then `0400` plus `uchg` after terminal sealing on macOS. Each control record binds `run_id + control_id + occurrence + target`, expected classification, observed sanitized classification, non-sensitive exit classification, evidence digest, and responsible operator step. Risk, approval, control, and cleanup records are different types. The final summary binds every control result, the overall terminal state, the human approval, immutable retention deadline, and sealed identity digest.
 
-Raw login, environment, runtime JSONL, or command output that may contain identity or credential material remains in guest tmpfs only long enough to derive the allowed classification, then is destroyed. If sanitization cannot be proved, no raw material crosses and the control fails. Failure records are immutable; remediation starts a new run ID and never overwrites or pools the old result.
+Raw login, environment, runtime JSONL, or command output that may contain identity or credential material remains in guest tmpfs only long enough to derive the allowed classification, then is destroyed. If sanitization cannot be proved, no raw material crosses and the control fails. Failure records are append-only and immutable; remediation starts a new run ID and never overwrites, retries, or pools the old result. Cleanup writes a separate attestation under `cleanup/`, bound to the seal digest, and never modifies sealed calibration evidence.
+
+## Retention and cleanup
+
+`init` accepts one RFC 3339 UTC deadline. H1 approves it before VM creation; it cannot be extended or changed within the run. A frozen-harness LaunchAgent definition uses `RunAtLoad`, the deadline `StartCalendarInterval`, and hourly catch-up, while its script independently checks the absolute deadline and is side-effect-free before it is due. Registration and read-back occur only during a later approved live run.
+
+Deadline, abandonment, exposure, or cohort completion immediately prohibits new runtime work. Cleanup attempts each runtime logout once within 60 seconds, then removes both instances and disks regardless of logout outcome. Logout failure or suspected exposure sets `account_revoke_required: true`; cleanup remains unverified until the human records provider-side disposition. Instance, disk, staging, quarantine, raw tmp, listener, LaunchAgent job, and plist absence are all read back. Any unknown item ends calibration `BLOCKED` with cleanup disposition `CLEANUP_PENDING`.
+
+If a started control occurrence lacks a completion record, the next `status` appends `UNVERIFIED`, ends the run `BLOCKED`, and permits only `status`, `cleanup`, and `verify-cleanup`. Remediation requires human approval, a new run ID, new guests, and full execution from `C00`; old guests, partial passes, and handoff bundles are not reused.
 
 ## Fail-closed routing
 
@@ -301,7 +314,8 @@ Work Mac support and any Work/Private comparison require a later design, calibra
 
 | Risk | Mitigation |
 |---|---|
-| Runtime reads its own guest credential | Explicit accepted risk; non-sensitive tasks; command-egress denial; export quarantine; logout/revoke and guest destruction |
+| Runtime reads its own guest credential (`AR-01`) | Explicit accepted risk; non-sensitive tasks; command-egress denial; export quarantine; logout/revoke and guest destruction |
+| Runtime main-process egress is not endpoint-enforced (`AR-02`) | Explicit accepted risk under ADR 0033; auxiliary tools disabled; root-owned policy; human approval; no claim that main-process traffic is safe or limited |
 | Non-TTY Lima sync silently writes back | Disposable staging only; actual-TTY guard; explicit rejection of `-y` and `--tty=false`; negative control |
 | Guest background process changes workspace after driver completion | Freeze exact host quarantine bytes, stop guest, and give later stages only the frozen bundle |
 | Copy normalizes hazardous source metadata | Inspect source inside guest and destination on host; reject hazardous fixtures; avoid claims of perfect credential non-disclosure |
@@ -311,7 +325,7 @@ Work Mac support and any Work/Private comparison require a later design, calibra
 
 ## Design acceptance
 
-The user approved the separate persistent-guest architecture, the calibration lifecycle and bidirectional frozen handoff, the fail-closed boundary, and the complete control/evidence matrix on 2026-07-16. The current cycle may write this design and ADR 0032 only; implementation and VM creation require a subsequent implementation plan.
+The user approved the separate persistent-guest architecture, the calibration lifecycle and bidirectional frozen handoff, the fail-closed boundary, and the complete control/evidence matrix on 2026-07-16. The implementation cycle adds the repository-managed harness and static verification only. VM creation, authentication, LaunchAgent registration, and live `C00`-`C08` execution remain a separate human-approved cycle.
 
 ## References
 
@@ -322,3 +336,5 @@ The user approved the separate persistent-guest architecture, the calibration li
 - [Codex security](https://developers.openai.com/codex/security)
 - [Claude Code authentication](https://code.claude.com/docs/en/authentication)
 - [Claude Code sandboxing](https://code.claude.com/docs/en/sandboxing)
+- [ADR 0033: Accept Unenforced Runtime Main-Process Egress](../adr/0033-private-lima-runtime-main-process-egress-risk.md)
+- [Private Lima calibration implementation design](codex-claude-outer-loop-private-lima-calibration-implementation.md)
