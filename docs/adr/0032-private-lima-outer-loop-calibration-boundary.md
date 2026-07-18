@@ -4,6 +4,8 @@
 
 Accepted
 
+Amended by [ADR 0033](0033-private-lima-runtime-main-process-egress-risk.md), which accepts unenforced runtime main-process egress as `AR-02` and limits `C03` to agent-launched commands. The original decision history below is retained.
+
 ## Context
 
 [ADR 0030](0030-codex-claude-outer-loop-pilot.md) selected a zero-build four-task pilot split between Private Codex and Work Claude Code. The `outer-loop-week0/v1` Private Codex calibration stopped safely before any real task when a stock path sandbox disclosed a harmless outside-root sentinel through a pre-existing hard-link alias in an approved root.

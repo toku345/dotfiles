@@ -263,6 +263,65 @@ jobs:
       - name: Run bats test suite
         run: bats tests/bats/
 
+  private-lima-calibration:
+    name: Private Lima Calibration Unit Tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository with implementation base
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14.5"
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run calibration unit and negative tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s tests/outer_loop_lima -p 'test_*.py'
+
+      - name: Check guest provisioning shell
+        run: |
+          find tools/outer-loop-lima-calibration/guest \
+            -type f -name '*.sh' \
+            -exec shellcheck --severity=warning {} +
+
+  private-lima-profiles:
+    name: Private Lima Static Profiles
+    runs-on: macos-15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install and identify Lima
+        run: |
+          brew install lima
+          test "$(limactl --version)" = "limactl version 2.1.4"
+
+      - name: Validate static profiles without starting a VM
+        run: |
+          limactl validate --tty=false \
+            tools/outer-loop-lima-calibration/profiles/week0-codex.yaml \
+            tools/outer-loop-lima-calibration/profiles/week0-claude.yaml
+
   reusable-secret-scan:
     name: Reusable Secret Scan
     uses: ./.github/workflows/secret-scan.reusable.yml
