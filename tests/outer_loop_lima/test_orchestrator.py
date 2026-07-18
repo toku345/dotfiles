@@ -7,6 +7,7 @@ import io
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
@@ -425,6 +426,66 @@ class OrchestratorTests(unittest.TestCase):
             attempts["destructive_attempts"]["launchagent:bootout"],
             "NONZERO",
         )
+
+    def test_cleanup_waits_for_live_operation_without_false_unverified_record(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        state = self.orchestrator._load(paths)
+        state["phase"] = Phase.AUTHENTICATED
+        self.orchestrator._save(paths, state)
+        self.orchestrator._begin(
+            paths,
+            state,
+            "run isolation",
+            Phase.AUTHENTICATED,
+            control_id="C03",
+            occurrence="initial",
+            target="matrix",
+        )
+        watcher = Orchestrator(
+            harness_root=self.harness,
+            state_root=self.state_root,
+            driver_factory=lambda _paths: FakeDriver(),
+            now=lambda: datetime(2029, 1, 1, tzinfo=UTC),
+        )
+        lock_attempted = threading.Event()
+        original_try_lock = watcher._try_operation_lock
+
+        def observed_try_lock(lock_paths, *, blocking=False):
+            if blocking:
+                lock_attempted.set()
+            return original_try_lock(lock_paths, blocking=blocking)
+
+        watcher._try_operation_lock = observed_try_lock
+        failures: list[BaseException] = []
+
+        def run_cleanup() -> None:
+            try:
+                watcher.cleanup(run_id, cause="abandonment")
+            except BaseException as exc:  # pragma: no cover - asserted below
+                failures.append(exc)
+
+        result = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with patch("lib.orchestrator.CommandRunner.run", return_value=result):
+            thread = threading.Thread(target=run_cleanup)
+            thread.start()
+            self.assertTrue(lock_attempted.wait(timeout=2))
+            self.assertTrue(thread.is_alive())
+            self.orchestrator._finish(
+                paths,
+                state,
+                "run isolation",
+                Phase.ISOLATION_COMPLETE,
+            )
+            thread.join(timeout=2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(failures, [])
+        final_state = watcher._load(paths)
+        self.assertTrue(final_state["cleanup_started"])
+        self.assertEqual(final_state["terminal_state"], TerminalState.BLOCKED)
+        self.assertFalse((paths.evidence / "controls.jsonl").exists())
 
     def test_failed_authentication_attempt_requires_logout_or_revoke(self) -> None:
         run_id = "run-0001"

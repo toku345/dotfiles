@@ -132,9 +132,18 @@ class CommandRunner:
         timeout: int,
         capture_output: bool = True,
         check: bool = True,
+        cwd_fd: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["LIMA_HOME"] = str(self.lima_home)
+        enter_pinned_directory: Callable[[], None] | None = None
+        pass_fds: tuple[int, ...] = ()
+        if cwd_fd is not None:
+            pass_fds = (cwd_fd,)
+
+            def enter_pinned_directory() -> None:
+                os.fchdir(cwd_fd)
+
         try:
             return subprocess.run(
                 list(argv),
@@ -143,6 +152,8 @@ class CommandRunner:
                 text=True,
                 timeout=timeout,
                 env=environment,
+                pass_fds=pass_fds,
+                preexec_fn=enter_pinned_directory,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise ContractError(f"bounded command failed: {argv[0]}") from exc
@@ -1077,7 +1088,18 @@ class LimaDriver:
                 f"sync {direction} case {name}: choose {'Yes' if name == 'yes' else 'No'} at the Lima prompt",
                 flush=True,
             )
-            result = self.runner.run(argv, timeout=300, capture_output=False, check=False)
+            try:
+                guarded.verify_path_identity()
+                result = self.runner.run(
+                    guarded.argv,
+                    timeout=300,
+                    capture_output=False,
+                    check=False,
+                    cwd_fd=guarded.directory_fd,
+                )
+                guarded.verify_path_identity()
+            finally:
+                guarded.close()
             if name == "nonzero":
                 if result.returncode == 0:
                     raise ContractError("nonzero sync case unexpectedly returned zero")
@@ -1422,7 +1444,7 @@ class Orchestrator:
         os.chmod(paths.state_file, 0o600)
 
     @staticmethod
-    def _try_operation_lock(paths: RunPaths) -> int | None:
+    def _try_operation_lock(paths: RunPaths, *, blocking: bool = False) -> int | None:
         ensure_private_directory(paths.work)
         lock_path = paths.work / OPERATION_LOCK_NAME
         try:
@@ -1443,8 +1465,11 @@ class Orchestrator:
             ):
                 raise ContractError("operation lock identity or mode is unsafe")
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+                fcntl.flock(descriptor, flags)
             except BlockingIOError:
+                if blocking:
+                    raise ContractError("blocking operation lock acquisition failed")
                 os.close(descriptor)
                 return None
             return descriptor
@@ -1452,10 +1477,10 @@ class Orchestrator:
             os.close(descriptor)
             raise
 
-    def _acquire_operation_lock(self, paths: RunPaths) -> None:
+    def _acquire_operation_lock(self, paths: RunPaths, *, blocking: bool = False) -> None:
         if paths.run_id in self._operation_locks:
             raise ContractError("operation lock is already held by this orchestrator")
-        descriptor = self._try_operation_lock(paths)
+        descriptor = self._try_operation_lock(paths, blocking=blocking)
         if descriptor is None:
             raise ContractError("another operation is still in progress")
         self._operation_locks[paths.run_id] = descriptor
@@ -1523,7 +1548,14 @@ class Orchestrator:
         self._save(paths, state)
         self._release_operation_lock(paths)
 
-    def _block(self, paths: RunPaths, state: dict[str, object], reason: str) -> None:
+    def _block(
+        self,
+        paths: RunPaths,
+        state: dict[str, object],
+        reason: str,
+        *,
+        release_lock: bool = True,
+    ) -> None:
         try:
             active = state.get("active_operation")
             if isinstance(active, dict) and isinstance(active.get("control_id"), str):
@@ -1557,7 +1589,8 @@ class Orchestrator:
             state["active_operation"] = None
             self._save(paths, state)
         finally:
-            self._release_operation_lock(paths)
+            if release_lock:
+                self._release_operation_lock(paths)
 
     def _run_phase(
         self,
@@ -2135,11 +2168,24 @@ class Orchestrator:
         if cause not in {"deadline", "abandonment", "exposure", "cohort-completion"}:
             raise ContractError("invalid cleanup cause")
         paths = self._paths(run_id)
+        self._acquire_operation_lock(paths, blocking=True)
+        try:
+            return self._cleanup_locked(paths, cause=cause)
+        finally:
+            self._release_operation_lock(paths)
+
+    def _cleanup_locked(self, paths: RunPaths, *, cause: str) -> dict[str, object]:
+        run_id = paths.run_id
         state = self._load(paths)
         if state.get("cleanup_started") is True:
             return state
         if state.get("active_operation") is not None:
-            self._block(paths, state, "cleanup interrupted an incomplete operation")
+            self._block(
+                paths,
+                state,
+                "cleanup found an orphaned incomplete operation",
+                release_lock=False,
+            )
         attempts = state.get("authentication_attempts", [])
         if not isinstance(attempts, list) or any(runtime not in RUNTIMES for runtime in attempts):
             raise ContractError("authentication attempt state is invalid")

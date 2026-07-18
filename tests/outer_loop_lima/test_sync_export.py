@@ -20,6 +20,7 @@ from lib.export_validator import (  # noqa: E402
 )
 from lib.model import ContractError  # noqa: E402
 from lib import sync_guard  # noqa: E402
+from lib.orchestrator import CommandRunner  # noqa: E402
 from lib.sync_guard import validate_sync_invocation  # noqa: E402
 
 
@@ -39,7 +40,9 @@ class SyncGuardTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def validate(self, argv=("limactl", "shell", "--sync=staging"), **overrides):
+    def validate(self, argv=None, **overrides):
+        if argv is None:
+            argv = ("limactl", "shell", f"--sync={self.staging}")
         values = {
             "registered_roots": (self.registered,),
             "authoritative_roots": (self.authoritative,),
@@ -51,7 +54,26 @@ class SyncGuardTests(unittest.TestCase):
 
     def test_valid_operator_staging_passes(self) -> None:
         guarded = self.validate()
+        self.addCleanup(guarded.close)
         self.assertEqual(guarded.staging, self.staging.resolve())
+        self.assertIn("--sync=.", guarded.argv)
+
+    def test_pinned_directory_drives_command_and_detects_path_replacement(self) -> None:
+        guarded = self.validate()
+        self.addCleanup(guarded.close)
+        parked = self.registered / "staging-pinned"
+        self.staging.rename(parked)
+        self.staging.symlink_to(self.authoritative, target_is_directory=True)
+
+        result = CommandRunner(self.root / "lima-home").run(
+            ("/bin/pwd",),
+            timeout=5,
+            cwd_fd=guarded.directory_fd,
+        )
+
+        self.assertEqual(Path(result.stdout.strip()), parked.resolve())
+        with self.assertRaisesRegex(ContractError, "identity changed"):
+            guarded.verify_path_identity()
 
     def test_non_tty_and_automation_flags_are_rejected(self) -> None:
         with self.assertRaisesRegex(ContractError, "TTY"):
@@ -59,6 +81,12 @@ class SyncGuardTests(unittest.TestCase):
         for flag in ("-y", "--yes", "--tty=false", "--tty=0"):
             with self.assertRaisesRegex(ContractError, "forbidden"):
                 self.validate(("limactl", flag, "shell"))
+
+    def test_sync_argument_must_match_validated_staging(self) -> None:
+        with self.assertRaisesRegex(ContractError, "does not match"):
+            self.validate(("limactl", "shell", f"--sync={self.authoritative}"))
+        with self.assertRaisesRegex(ContractError, "exactly one"):
+            self.validate(("limactl", "shell"))
 
     def test_symlink_unregistered_and_repository_targets_are_rejected(self) -> None:
         link = self.registered / "link"

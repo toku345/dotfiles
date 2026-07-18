@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "files": [
-    {"path": "README.md", "sha256": "7ac8ea1a9abe694fe81666df454bfe16e6ec152ce62b20483154be0973b567fd"},
+    {"path": "README.md", "sha256": "f4eb0628b2d5c92b91a0bd5e5a05bc12682453535425bc8001e1d5da58fbd881"},
     {"path": "calibrate.py", "sha256": "cbb9c23bd88998712a48629b4895293c4f27e860fa11ce08c3ec372236f3c35c"},
     {"path": "fixtures/sync-positive/delete.txt", "sha256": "a90b63e0c8e0f2975890931a6456a5e31f89755ad096eba0760cfd220ec6ea72"},
     {"path": "fixtures/sync-positive/keep.txt", "sha256": "4b654bd1437066b13498661f3ca14774daf1066d072036beffaf06f0c014250e"},
@@ -19,11 +19,11 @@
     {"path": "lib/export_validator.py", "sha256": "887c111e301af03a3c4b3b4cdf43269f8f60629010b216108e09913a5f925a65"},
     {"path": "lib/identities.py", "sha256": "6f8343c56b9c037a8d4230ac213c6ee16eac9c2e09e515e31a174f35cf80782d"},
     {"path": "lib/model.py", "sha256": "34d616d989c8f544df4c1ae096db5064fa9e3a2f01ec306cfe08cf0ca88b7851"},
-    {"path": "lib/orchestrator.py", "sha256": "30f728ae73f57870e2544e2d567b9ddc80a16a5c942557f699ad90cb2119cc08"},
+    {"path": "lib/orchestrator.py", "sha256": "19288aa0928c22c14aa0923e15590b4af1e86fc45a3dc8e8cd482db5de50bfd9"},
     {"path": "lib/paths.py", "sha256": "1a44d1a903103f30a033c3caeb4c97a7b84ba339fb5bdb694f3b4871fb872cf6"},
     {"path": "lib/probes.py", "sha256": "8aeb3286ed3fd5ba1a3f842625b951619c4f10f8fe24f06a48bf39e0570ad539"},
     {"path": "lib/retention.py", "sha256": "9bf0c98b5a44cfd8f571a2389c8daa3d0c5a1c494fb9ba9db1c382321fbbfebb"},
-    {"path": "lib/sync_guard.py", "sha256": "3b4375ad644e2c636395f7325cce88a3f2771dde0bde4c865c36aae110ce2155"},
+    {"path": "lib/sync_guard.py", "sha256": "29c078f000eaabca8a79c572aba275ed3087cffa223a3c587a658ea54411d873"},
     {"path": "profiles/week0-claude.yaml", "sha256": "2f8377c32e095f08d81d8c594e7be7ac7a824bc3993264aa296183c1b70a0ab2"},
     {"path": "profiles/week0-codex.yaml", "sha256": "2f8377c32e095f08d81d8c594e7be7ac7a824bc3993264aa296183c1b70a0ab2"},
     {"path": "runtime/claude.py", "sha256": "ad6d9655cb45c0cced143da97d323a163c397736b56f80057c6ab40597361282"},
