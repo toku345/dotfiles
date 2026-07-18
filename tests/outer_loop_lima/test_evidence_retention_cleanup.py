@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -95,6 +97,45 @@ class EvidenceTests(unittest.TestCase):
                     retention_deadline="2030-01-02T00:00:00Z",
                     control_records=(record("C00"),),
                 )
+
+    def test_ready_summary_is_removed_when_final_immutability_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = RunPaths.for_run("run-0001", Path(temporary))
+            paths.create()
+            write_once(paths.evidence / "identity.json", {"run_id": "run-0001"})
+            c00 = record("C00")
+            record_control(paths, c00)
+            prepared = seal_input_digest(paths)
+            record_decision(
+                paths,
+                ApprovalRecord("run-0001", "final-seal", prepared, "2030-01-01T00:00:00Z", "b" * 64),
+            )
+            c08 = record("C08")
+            record_control(paths, c08)
+
+            def chflags(argv, **_kwargs):
+                if argv[1] == "uchg" and argv[-1].endswith("summary.md"):
+                    raise subprocess.CalledProcessError(1, argv)
+                return subprocess.CompletedProcess(argv, 0)
+
+            with (
+                patch("lib.evidence.sys.platform", "darwin"),
+                patch("lib.evidence.subprocess.run", side_effect=chflags),
+                self.assertRaises(subprocess.CalledProcessError),
+            ):
+                seal(
+                    paths,
+                    terminal=TerminalState.READY,
+                    approved_digest=prepared,
+                    retention_deadline="2030-01-02T00:00:00Z",
+                    control_records=(c00, c08),
+                )
+            self.assertFalse((paths.evidence / "summary.md").exists())
+            self.assertFalse((paths.work / ".summary.pending").exists())
+            self.assertEqual(
+                stat.S_IMODE((paths.evidence / "controls.jsonl").stat().st_mode),
+                0o600,
+            )
 
 
 class RetentionCleanupTests(unittest.TestCase):

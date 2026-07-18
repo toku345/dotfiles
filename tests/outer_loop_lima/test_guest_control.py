@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 import subprocess
-import sys
-import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +25,23 @@ def load_guest_control():
 
 
 class GuestControlTests(unittest.TestCase):
+    @staticmethod
+    def receipts(control, output: str) -> tuple[dict[str, object], dict[str, object]]:
+        lines = output.splitlines()
+        started = [
+            json.loads(line.removeprefix(control.STARTED_PREFIX))
+            for line in lines
+            if line.startswith(control.STARTED_PREFIX)
+        ]
+        complete = [
+            json.loads(line.removeprefix(control.COMPLETE_PREFIX))
+            for line in lines
+            if line.startswith(control.COMPLETE_PREFIX)
+        ]
+        if len(started) != 1 or len(complete) != 1:
+            raise AssertionError("wrapper did not emit exactly one receipt pair")
+        return started[0], complete[0]
+
     def test_receipt_binds_nonce_destination_argv_and_denial(self) -> None:
         control = load_guest_control()
         nonce = "a" * 32
@@ -35,20 +52,18 @@ class GuestControlTests(unittest.TestCase):
             stdout="",
             stderr="operation not permitted",
         )
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            with (
-                patch.object(control, "RECEIPT_ROOT", root),
-                patch.object(control.subprocess, "run", return_value=completed),
-                patch.object(
-                    control.sys,
-                    "argv",
-                    ["control.py", "--nonce", nonce, "--destination", "host", "--", *argv],
-                ),
-            ):
-                self.assertEqual(control.main(), 77)
-            started = json.loads((root / f"{nonce}.started.json").read_text())
-            complete = json.loads((root / f"{nonce}.complete.json").read_text())
+        output = io.StringIO()
+        with (
+            patch.object(control.subprocess, "run", return_value=completed),
+            patch.object(
+                control.sys,
+                "argv",
+                ["control.py", "--nonce", nonce, "--destination", "host", "--", *argv],
+            ),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(control.main(), 77)
+        started, complete = self.receipts(control, output.getvalue())
         expected_digest = hashlib.sha256(control.canonical(argv)).hexdigest()
         self.assertEqual(started["classification"], "STARTED")
         self.assertEqual(complete["classification"], "DENIED_BY_SANDBOX")
@@ -57,29 +72,33 @@ class GuestControlTests(unittest.TestCase):
         self.assertEqual(complete["argv_digest"], expected_digest)
         self.assertEqual(complete["exit_classification"], "NONZERO")
 
-    def test_timeout_still_writes_terminal_receipt(self) -> None:
+    def test_timeout_still_emits_terminal_receipt(self) -> None:
         control = load_guest_control()
         nonce = "b" * 32
         argv = ["probe", "203.0.113.10", "443"]
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            with (
-                patch.object(control, "RECEIPT_ROOT", root),
-                patch.object(
-                    control.subprocess,
-                    "run",
-                    side_effect=subprocess.TimeoutExpired(argv, 30),
-                ),
-                patch.object(
-                    control.sys,
-                    "argv",
-                    ["control.py", "--nonce", nonce, "--destination", "public", "--", *argv],
-                ),
-            ):
-                self.assertEqual(control.main(), 124)
-            complete = json.loads((root / f"{nonce}.complete.json").read_text())
+        output = io.StringIO()
+        with (
+            patch.object(
+                control.subprocess,
+                "run",
+                side_effect=subprocess.TimeoutExpired(argv, 30),
+            ),
+            patch.object(
+                control.sys,
+                "argv",
+                ["control.py", "--nonce", nonce, "--destination", "public", "--", *argv],
+            ),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(control.main(), 124)
+        _, complete = self.receipts(control, output.getvalue())
         self.assertEqual(complete["classification"], "COMMAND_TIMEOUT")
         self.assertEqual(complete["exit_classification"], "NONZERO")
+
+    def test_wrapper_has_no_runtime_writable_receipt_file_channel(self) -> None:
+        control = load_guest_control()
+        self.assertFalse(hasattr(control, "RECEIPT_ROOT"))
+        self.assertNotIn("/run/outer-loop-probe", (HARNESS / "guest" / "control.py").read_text())
 
 
 if __name__ == "__main__":

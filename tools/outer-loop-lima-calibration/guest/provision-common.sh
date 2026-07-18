@@ -117,7 +117,6 @@ install -d -m 0700 -o calibration -g calibration /home/calibration/workspace
 install -d -m 0700 -o calibration -g calibration /home/calibration/workspace/harmless
 install -d -m 0700 -o calibration -g calibration /home/calibration/.codex
 install -d -m 0700 -o calibration -g calibration /home/calibration/.claude
-install -d -m 0733 -o root -g root /run/outer-loop-probe/receipts
 install -d -m 0700 -o root -g root /var/lib/outer-loop
 
 chown -R root:root /usr/local/share/outer-loop /usr/local/libexec/outer-loop

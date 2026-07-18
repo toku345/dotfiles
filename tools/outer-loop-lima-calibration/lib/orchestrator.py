@@ -54,7 +54,6 @@ from lib.probes import (
     classify_claude_two_stage,
     classify_paired_probe,
     required_probe_matrix,
-    send_canary,
 )
 from lib.retention import (
     LABEL_PREFIX,
@@ -70,6 +69,7 @@ CLAUDE_INSTANCE = "outer-loop-week0-claude"
 RUNTIMES = ("codex", "claude")
 HANDOFF_DIRECTIONS = ("forward", "reverse")
 LIMA_HOME_RELATIVE = Path("lima-home")
+COMPLETE_RECEIPT_PREFIX = "OUTER_LOOP_RECEIPT_COMPLETE:"
 
 
 class Phase:
@@ -191,10 +191,18 @@ class LimaDriver:
     def _profile(self, runtime: str) -> Path:
         return self.paths.frozen_harness / "profiles" / f"week0-{runtime}.yaml"
 
-    def _shell(self, instance: str, argv: Sequence[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    def _shell(
+        self,
+        instance: str,
+        argv: Sequence[str],
+        *,
+        timeout: int = 120,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
         return self.runner.run(
             ("limactl", "--tty=false", "shell", instance, *argv),
             timeout=timeout,
+            check=check,
         )
 
     def _install_harness(self, runtime: str) -> None:
@@ -540,7 +548,7 @@ class LimaDriver:
             check = (
                 "sudo -u calibration env CODEX_HOME=/home/calibration/.codex "
                 "codex login status > /dev/shm/outer-loop/auth.raw 2>&1; "
-                "sudo -u calibration /usr/local/libexec/outer-loop/sanitize-auth.py "
+                "/usr/local/libexec/outer-loop/sanitize-auth.py "
                 "--kind auth --runtime codex --input /dev/shm/outer-loop/auth.raw "
                 "--output /dev/shm/outer-loop/auth.safe --credential /home/calibration/.codex/auth.json"
             )
@@ -559,7 +567,7 @@ class LimaDriver:
             check = (
                 "sudo -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude "
                 "claude auth status > /dev/shm/outer-loop/auth.raw 2>&1; "
-                "sudo -u calibration /usr/local/libexec/outer-loop/sanitize-auth.py "
+                "/usr/local/libexec/outer-loop/sanitize-auth.py "
                 "--kind auth --runtime claude --input /dev/shm/outer-loop/auth.raw "
                 "--output /dev/shm/outer-loop/auth.safe --credential /home/calibration/.claude/.credentials.json"
             )
@@ -573,7 +581,7 @@ class LimaDriver:
                 "codex exec --json --ephemeral --skip-git-repo-check --cd /home/calibration/workspace/harmless "
                 "'Reply with exactly CALIBRATION_SMOKE_OK. Do not call any tool.' "
                 "> /dev/shm/outer-loop/smoke.raw || rc=$?; "
-                "sudo -u calibration /usr/local/libexec/outer-loop/sanitize-auth.py "
+                "/usr/local/libexec/outer-loop/sanitize-auth.py "
                 "--kind smoke --runtime codex --input /dev/shm/outer-loop/smoke.raw "
                 "--output /dev/shm/outer-loop/smoke.safe; test \"$rc\" = 0"
             )
@@ -584,7 +592,7 @@ class LimaDriver:
                 "--disable-slash-commands --no-session-persistence --output-format stream-json --verbose "
                 "'Reply with exactly CALIBRATION_SMOKE_OK. Do not call any tool.' "
                 "> /dev/shm/outer-loop/smoke.raw || rc=$?; "
-                "sudo -u calibration /usr/local/libexec/outer-loop/sanitize-auth.py "
+                "/usr/local/libexec/outer-loop/sanitize-auth.py "
                 "--kind smoke --runtime claude --input /dev/shm/outer-loop/smoke.raw "
                 "--output /dev/shm/outer-loop/smoke.safe; test \"$rc\" = 0"
             )
@@ -593,24 +601,24 @@ class LimaDriver:
     def _collect_runtime_classification(self, runtime: str, occurrence: str) -> dict[str, object]:
         instance = self._instance(runtime)
         _, check = self._auth_commands(runtime)
-        self._shell(instance, ("sudo", "install", "-d", "-m", "0700", "-o", "calibration", "-g", "calibration", "/dev/shm/outer-loop"))
+        self._shell(instance, ("sudo", "install", "-d", "-m", "0700", "-o", "root", "-g", "root", "/dev/shm/outer-loop"))
         self._shell(instance, check, timeout=60)
         self._shell(instance, ("sudo", "/bin/sh", "-ceu", self._smoke_script(runtime)), timeout=300)
-        safe = self.paths.work / f"{runtime}-auth-{occurrence}.json"
-        self.runner.run(
-            ("limactl", "--tty=false", "copy", "--backend=scp", f"{instance}:/dev/shm/outer-loop/auth.safe", str(safe)),
-            timeout=30,
-        )
-        value = load_json(safe)
-        safe.unlink(missing_ok=True)
-        smoke_safe = self.paths.work / f"{runtime}-smoke-{occurrence}.json"
-        self.runner.run(
-            ("limactl", "--tty=false", "copy", "--backend=scp", f"{instance}:/dev/shm/outer-loop/smoke.safe", str(smoke_safe)),
-            timeout=30,
-        )
-        smoke_value = load_json(smoke_safe)
-        smoke_safe.unlink(missing_ok=True)
-        self._shell(instance, ("sudo", "rm", "-f", "/dev/shm/outer-loop/auth.safe", "/dev/shm/outer-loop/smoke.safe"))
+        try:
+            value = json.loads(
+                self._shell(instance, ("sudo", "cat", "/dev/shm/outer-loop/auth.safe"), timeout=20).stdout
+            )
+            smoke_value = json.loads(
+                self._shell(instance, ("sudo", "cat", "/dev/shm/outer-loop/smoke.safe"), timeout=20).stdout
+            )
+        except json.JSONDecodeError as exc:
+            raise ContractError("sanitized runtime classification was invalid") from exc
+        finally:
+            self._shell(
+                instance,
+                ("sudo", "rm", "-f", "/dev/shm/outer-loop/auth.safe", "/dev/shm/outer-loop/smoke.safe"),
+                check=False,
+            )
         expected_method = "chatgpt_device" if runtime == "codex" else "claudeai_oauth"
         if value.get("authentication_method") != expected_method or value.get("authenticated") is not True:
             raise ContractError("authentication method classification mismatch")
@@ -694,7 +702,7 @@ class LimaDriver:
         raise ContractError("guest could not resolve the host IPv4 address")
 
     @staticmethod
-    def _probe_argv(host: str, port: int, protocol: str, nonce: str) -> tuple[str, ...]:
+    def _probe_client_argv(host: str, port: int, protocol: str, nonce: str) -> tuple[str, ...]:
         if protocol == "tcp":
             code = (
                 "import socket,sys;"
@@ -707,7 +715,10 @@ class LimaDriver:
                 "a=socket.getaddrinfo(sys.argv[1],int(sys.argv[2]),type=socket.SOCK_DGRAM)[0];"
                 "s=socket.socket(a[0],a[1],a[2]);s.sendto(sys.argv[3].encode('ascii'),a[4]);s.close()"
             )
-        client = ("/usr/bin/python3", "-c", code, host, str(port), nonce)
+        return ("/usr/bin/python3", "-c", code, host, str(port), nonce)
+
+    @classmethod
+    def _probe_argv(cls, host: str, port: int, protocol: str, nonce: str) -> tuple[str, ...]:
         return (
             "/usr/local/libexec/outer-loop/control.py",
             "--nonce",
@@ -715,42 +726,59 @@ class LimaDriver:
             "--destination",
             "host",
             "--",
-            *client,
+            *cls._probe_client_argv(host, port, protocol, nonce),
         )
 
-    def _clear_receipt(self, runtime: str, nonce: str) -> None:
-        self._shell(
-            self._instance(runtime),
-            (
-                "sudo",
-                "rm",
-                "-f",
-                f"/run/outer-loop-probe/receipts/{nonce}.started.json",
-                f"/run/outer-loop-probe/receipts/{nonce}.complete.json",
-            ),
-        )
-
-    def _read_receipt(self, runtime: str, nonce: str) -> ExecutionReceipt | None:
+    @staticmethod
+    def _receipt_from_value(
+        value: object,
+        *,
+        nonce: str,
+        destination: str,
+    ) -> ExecutionReceipt | None:
         try:
-            result = self._shell(
-                self._instance(runtime),
-                ("sudo", "cat", f"/run/outer-loop-probe/receipts/{nonce}.complete.json"),
-                timeout=20,
+            if not isinstance(value, dict):
+                return None
+            receipt = ExecutionReceipt(
+                nonce=str(value["nonce"]),
+                destination_class=str(value["destination"]),
+                argv_digest=str(value["argv_digest"]),
+                classification=str(value["classification"]),
             )
-        except ContractError:
+        except KeyError:
             return None
-        try:
-            value = json.loads(result.stdout)
-            return ExecutionReceipt(
-                nonce=value["nonce"],
-                destination_class=value["destination"],
-                argv_digest=value["argv_digest"],
-                classification=value["classification"],
-            )
-        except (KeyError, json.JSONDecodeError, TypeError):
+        if receipt.nonce != nonce or receipt.destination_class != destination:
             return None
+        return receipt
 
-    def _run_agent_probe(self, runtime: str, command: str, nonce: str) -> bool:
+    @classmethod
+    def _receipt_from_output(
+        cls,
+        output: str,
+        *,
+        nonce: str,
+        destination: str,
+    ) -> ExecutionReceipt | None:
+        values: list[object] = []
+        for line in output.splitlines():
+            marker = line.find(COMPLETE_RECEIPT_PREFIX)
+            if marker < 0:
+                continue
+            try:
+                values.append(json.loads(line[marker + len(COMPLETE_RECEIPT_PREFIX):]))
+            except json.JSONDecodeError:
+                return None
+        if len(values) != 1:
+            return None
+        return cls._receipt_from_value(values[0], nonce=nonce, destination=destination)
+
+    def _run_agent_probe(
+        self,
+        runtime: str,
+        command: str,
+        nonce: str,
+        destination: str,
+    ) -> tuple[bool, ExecutionReceipt | None]:
         instance = self._instance(runtime)
         raw = f"/dev/shm/outer-loop/probe-{nonce}.raw"
         safe = f"/dev/shm/outer-loop/probe-{nonce}.safe"
@@ -770,15 +798,30 @@ class LimaDriver:
             )
         script = (
             f"rc=0; {runtime_command} > {shlex.quote(raw)} || rc=$?; "
-            "sudo -u calibration /usr/local/libexec/outer-loop/sanitize-auth.py "
+            "/usr/local/libexec/outer-loop/sanitize-auth.py "
             f"--kind probe --runtime {runtime} --input {shlex.quote(raw)} --output {shlex.quote(safe)} "
-            f"--intended-command {shlex.quote(command)}; test \"$rc\" = 0"
+            f"--intended-command {shlex.quote(command)} --expected-nonce {nonce} "
+            f"--expected-destination {destination}; test \"$rc\" = 0"
         )
         self._shell(instance, ("sudo", "/bin/sh", "-ceu", script), timeout=300)
-        result = self._shell(instance, ("sudo", "cat", safe), timeout=20)
-        self._shell(instance, ("sudo", "rm", "-f", safe))
-        value = json.loads(result.stdout)
-        return value.get("exact_command") is True and value.get("command_digest") == hashlib.sha256(command.encode()).hexdigest()
+        try:
+            result = self._shell(instance, ("sudo", "cat", safe), timeout=20)
+            value = json.loads(result.stdout)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ContractError("sanitized probe classification was invalid") from exc
+        finally:
+            self._shell(instance, ("sudo", "rm", "-f", safe), check=False)
+        exact = (
+            isinstance(value, dict)
+            and value.get("exact_command") is True
+            and value.get("command_digest") == hashlib.sha256(command.encode()).hexdigest()
+        )
+        receipt = self._receipt_from_value(
+            value.get("receipt") if isinstance(value, dict) else None,
+            nonce=nonce,
+            destination=destination,
+        )
+        return exact, receipt
 
     def _run_probe_stage(
         self,
@@ -791,10 +834,10 @@ class LimaDriver:
         outside_ingress_nonce: str,
         listeners: Path,
     ) -> tuple[ProbeOutcome, dict[str, object]]:
-        self._clear_receipt(target.runtime, nonce)
         canary = OneShotCanary(target.protocol, port=port, timeout=30)
         command = shlex.join(intended_argv)
         runtime_argv: tuple[str, ...] | None = intended_argv
+        receipt: ExecutionReceipt | None = None
         try:
             if stage == "srt-direct":
                 result = self._shell(
@@ -809,17 +852,27 @@ class LimaDriver:
                         *intended_argv,
                     ),
                     timeout=60,
+                    check=False,
                 )
-                del result
+                receipt = self._receipt_from_output(
+                    result.stdout,
+                    nonce=nonce,
+                    destination=target.destination_class,
+                )
             else:
-                if not self._run_agent_probe(target.runtime, command, nonce):
+                exact, receipt = self._run_agent_probe(
+                    target.runtime,
+                    command,
+                    nonce,
+                    target.destination_class,
+                )
+                if not exact:
                     runtime_argv = None
         except ContractError:
             if stage == "srt-direct":
                 pass
             else:
                 runtime_argv = None
-        receipt = self._read_receipt(target.runtime, nonce)
         ingress = canary.wait()
         evidence = ProbeEvidence(
             target=target,
@@ -850,9 +903,15 @@ class LimaDriver:
         nonce = secrets.token_hex(16)
         outside = OneShotCanary(target.protocol, timeout=30)
         port = outside.port
-        send_canary("127.0.0.1", port, target.protocol, nonce)
+        host = "host.lima.internal" if target.address_family == "dns" else self._guest_host_ipv4(target.runtime)
+        outside_result = self._shell(
+            self._instance(target.runtime),
+            ("sudo", *self._probe_client_argv(host, port, target.protocol, nonce)),
+            timeout=20,
+            check=False,
+        )
         outside_ingress = outside.wait()
-        if outside_ingress != nonce:
+        if outside_result.returncode != 0 or outside_ingress != nonce:
             return ControlRecord(
                 ControlKey(run_id, "C03", target.occurrence, target.target_id),
                 "PAIRED_DENIAL_PROVED",
@@ -862,7 +921,6 @@ class LimaDriver:
                 "run isolation",
                 "CANARY_UNREACHABLE",
             )
-        host = "host.lima.internal" if target.address_family == "dns" else self._guest_host_ipv4(target.runtime)
         intended_argv = self._probe_argv(host, port, target.protocol, nonce)
         if target.runtime == "claude":
             stage_one, stage_one_log = self._run_probe_stage(

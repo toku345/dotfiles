@@ -4,28 +4,22 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
-from pathlib import Path
 
 
 NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
-RECEIPT_ROOT = Path("/run/outer-loop-probe/receipts")
+STARTED_PREFIX = "OUTER_LOOP_RECEIPT_STARTED:"
+COMPLETE_PREFIX = "OUTER_LOOP_RECEIPT_COMPLETE:"
 
 
 def canonical(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
-def write_once(path: Path, value: object) -> None:
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    try:
-        os.write(descriptor, canonical(value))
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+def emit(prefix: str, value: object) -> None:
+    print(prefix + json.dumps(value, sort_keys=True, separators=(",", ":")), flush=True)
 
 
 def classify(returncode: int, stderr: str) -> str:
@@ -51,15 +45,14 @@ def main() -> int:
     if not argv:
         parser.error("probe argv is required")
     argv_digest = hashlib.sha256(canonical(argv)).hexdigest()
-    start = RECEIPT_ROOT / f"{args.nonce}.started.json"
-    complete = RECEIPT_ROOT / f"{args.nonce}.complete.json"
-    write_once(start, {
+    started = {
         "schema_version": 1,
         "nonce": args.nonce,
         "destination": args.destination,
         "argv_digest": argv_digest,
         "classification": "STARTED"
-    })
+    }
+    emit(STARTED_PREFIX, started)
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=30, check=False)
         classification = classify(result.returncode, result.stderr)
@@ -67,14 +60,15 @@ def main() -> int:
     except subprocess.TimeoutExpired:
         classification = "COMMAND_TIMEOUT"
         returncode = 124
-    write_once(complete, {
+    complete = {
         "schema_version": 1,
         "nonce": args.nonce,
         "destination": args.destination,
         "argv_digest": argv_digest,
         "classification": classification,
         "exit_classification": "ZERO" if returncode == 0 else "NONZERO"
-    })
+    }
+    emit(COMPLETE_PREFIX, complete)
     return returncode
 
 

@@ -149,16 +149,48 @@ def seal(
     ).hexdigest()
     summary += f"terminal_evidence_digest: {terminal_digest}\n"
     summary_path = paths.evidence / "summary.md"
-    descriptor = os.open(summary_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
+    pending_summary = paths.work / ".summary.pending"
+    descriptor = os.open(
+        pending_summary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+    )
     try:
         os.write(descriptor, summary.encode())
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
     seal_digest = hashlib.sha256((current_digest + "\n" + summary).encode()).hexdigest()
-    for path in paths.evidence.rglob("*"):
-        if path.is_file():
+    prior_modes: list[tuple[Path, int]] = []
+    try:
+        for path in sorted(paths.evidence.rglob("*")):
+            if not path.is_file():
+                continue
+            prior_modes.append((path, stat.S_IMODE(path.stat().st_mode)))
             os.chmod(path, 0o400)
             if sys.platform == "darwin":
                 subprocess.run(["chflags", "uchg", str(path)], check=True, timeout=10)
+        os.chmod(pending_summary, 0o400)
+        os.replace(pending_summary, summary_path)
+        if sys.platform == "darwin":
+            subprocess.run(["chflags", "uchg", str(summary_path)], check=True, timeout=10)
+    except Exception:
+        pending_summary.unlink(missing_ok=True)
+        if summary_path.exists() or summary_path.is_symlink():
+            if sys.platform == "darwin":
+                subprocess.run(
+                    ["chflags", "nouchg", str(summary_path)],
+                    check=False,
+                    timeout=10,
+                )
+            summary_path.unlink(missing_ok=True)
+        for path, mode in reversed(prior_modes):
+            if sys.platform == "darwin":
+                subprocess.run(
+                    ["chflags", "nouchg", str(path)],
+                    check=False,
+                    timeout=10,
+                )
+            os.chmod(path, mode)
+        raise
     return seal_digest

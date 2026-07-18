@@ -9,13 +9,13 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 from contextlib import redirect_stderr
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
 sys.path.insert(0, str(HARNESS))
 
-from calibrate import build_parser, main as calibrate_main  # noqa: E402
+from calibrate import build_parser, dispatch, main as calibrate_main  # noqa: E402
 from lib.model import (  # noqa: E402
     ContractError,
     ControlKey,
@@ -25,7 +25,7 @@ from lib.model import (  # noqa: E402
     TerminalState,
 )
 from lib.orchestrator import LimaDriver, Orchestrator, Phase, PhaseResult  # noqa: E402
-from lib.probes import required_probe_matrix  # noqa: E402
+from lib.probes import ProbeOutcome, ProbeTarget, required_probe_matrix  # noqa: E402
 
 
 def passed(run_id: str, control_id: str, occurrence: str, target: str) -> ControlRecord:
@@ -194,6 +194,26 @@ class OrchestratorTests(unittest.TestCase):
         state = self.orchestrator._load(self.orchestrator._paths(run_id))
         self.assertEqual(state["terminal_state"], TerminalState.BLOCKED)
 
+    def test_retention_registration_writes_and_reads_back_launchagent(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T03:04:05Z")
+        paths = self.orchestrator._paths(run_id)
+        (paths.frozen_harness / "versions.lock.json").write_text(
+            json.dumps({"artifacts": {"host_python": {"source": "/usr/bin/python3"}}})
+        )
+
+        def success(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=success) as runner:
+            self.orchestrator._register_retention(paths)
+        self.assertEqual(runner.call_count, 3)
+        wrapper = (paths.cleanup / "deadline-cleanup.sh").read_text()
+        self.assertIn("2030-01-02T03:04:05Z", wrapper)
+        self.assertIn("cleanup run-0001 --cause deadline", wrapper)
+        plist = paths.cleanup / "com.toku345.outer-loop-lima-cleanup.run-0001.plist"
+        self.assertTrue(plist.is_file())
+
     def test_incomplete_c03_matrix_blocks_ready_path(self) -> None:
         run_id = "run-0001"
         self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
@@ -241,6 +261,34 @@ class OrchestratorTests(unittest.TestCase):
         ):
             with self.subTest(argv=argv), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 parser.parse_args(argv)
+
+    def test_cli_dispatches_fixed_state_changing_routes(self) -> None:
+        parser = build_parser()
+        cases = (
+            (["init", "run-0001", "--retention-deadline", "2030-01-02T00:00:00Z"], "init", ("run-0001", "2030-01-02T00:00:00Z"), {}),
+            (["preflight", "run-0001"], "preflight", ("run-0001",), {}),
+            (["approve", "pre-vm", "run-0001"], "approve_pre_vm", ("run-0001",), {}),
+            (["approve", "pre-auth", "run-0001", "--code-paste-feasibility", "confirmed"], "approve_pre_auth", ("run-0001",), {"code_paste_feasible": True}),
+            (["approve", "pre-handoff", "run-0001", "forward"], "approve_pre_handoff", ("run-0001", "forward"), {}),
+            (["approve", "final-seal", "run-0001"], "approve_final_seal", ("run-0001",), {}),
+            (["provision", "run-0001"], "provision", ("run-0001",), {}),
+            (["authenticate", "runtime", "run-0001", "codex"], "authenticate", ("run-0001", "codex"), {}),
+            (["run", "isolation", "run-0001"], "isolation", ("run-0001",), {}),
+            (["run", "sync-export", "run-0001"], "sync_export", ("run-0001",), {}),
+            (["run", "handoff-forward", "run-0001"], "handoff", ("run-0001", "forward"), {}),
+            (["run", "handoff-reverse", "run-0001"], "handoff", ("run-0001", "reverse"), {}),
+            (["run", "restart", "run-0001"], "restart", ("run-0001",), {}),
+            (["prepare-seal", "run-0001"], "prepare_seal", ("run-0001",), {}),
+            (["seal", "run-0001"], "seal", ("run-0001",), {}),
+            (["cleanup", "run-0001", "--cause", "abandonment"], "cleanup", ("run-0001",), {"cause": "abandonment"}),
+            (["verify-cleanup", "run-0001", "--revoke-human-confirmed"], "verify_cleanup", ("run-0001",), {"revoke_human_confirmed": True}),
+        )
+        for argv, method_name, positional, keyword in cases:
+            with self.subTest(argv=argv):
+                orchestrator = Mock()
+                getattr(orchestrator, method_name).return_value = {}
+                self.assertEqual(dispatch(parser.parse_args(argv), orchestrator), {})
+                getattr(orchestrator, method_name).assert_called_once_with(*positional, **keyword)
 
     def test_unexpected_cli_error_reports_sanitized_diagnostic(self) -> None:
         output = io.StringIO()
@@ -323,6 +371,51 @@ class PeerIsolationTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "guest-to-guest transport is reachable"):
                 driver._verify_peer_isolation()
 
+
+class C03DriverTests(unittest.TestCase):
+    def test_host_probe_requires_guest_root_outside_baseline(self) -> None:
+        driver = LimaDriver.__new__(LimaDriver)
+        target = ProbeTarget("codex", "initial", "dns", "tcp", "host")
+        nonce = "a" * 32
+        canary = Mock(port=39001)
+        canary.wait.return_value = nonce
+        passed_outcome = ProbeOutcome("PAIRED_DENIAL_PROVED", ControlResult.PASS, True, "complete")
+        with (
+            patch("lib.orchestrator.secrets.token_hex", return_value=nonce),
+            patch("lib.orchestrator.OneShotCanary", return_value=canary),
+            patch.object(
+                driver,
+                "_shell",
+                return_value=subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+            ) as guest_shell,
+            patch.object(driver, "_run_probe_stage", return_value=(passed_outcome, {"ok": True})),
+        ):
+            record = driver._execute_host_probe("run-0001", target, Path("/tmp/listeners"))
+        self.assertEqual(record.result, ControlResult.PASS)
+        baseline_argv = guest_shell.call_args.args[1]
+        self.assertEqual(baseline_argv[0], "sudo")
+        self.assertEqual(baseline_argv[1], "/usr/bin/python3")
+        self.assertIn("host.lima.internal", baseline_argv)
+
+    def test_host_probe_blocks_when_guest_root_baseline_fails(self) -> None:
+        driver = LimaDriver.__new__(LimaDriver)
+        target = ProbeTarget("codex", "initial", "dns", "udp", "host")
+        nonce = "a" * 32
+        canary = Mock(port=39002)
+        canary.wait.return_value = None
+        with (
+            patch("lib.orchestrator.secrets.token_hex", return_value=nonce),
+            patch("lib.orchestrator.OneShotCanary", return_value=canary),
+            patch.object(
+                driver,
+                "_shell",
+                return_value=subprocess.CompletedProcess([], 1, stdout="", stderr=""),
+            ),
+            patch.object(driver, "_run_probe_stage") as inside_probe,
+        ):
+            record = driver._execute_host_probe("run-0001", target, Path("/tmp/listeners"))
+        self.assertEqual(record.result, ControlResult.UNVERIFIED)
+        inside_probe.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,6 @@ web_search = "disabled"
 
 [sandbox_workspace_write]
 network_access = false
-writable_roots = ["/home/calibration/workspace", "/run/outer-loop-probe/receipts"]
+writable_roots = ["/home/calibration/workspace"]
 exclude_tmpdir_env_var = true
 exclude_slash_tmp = true

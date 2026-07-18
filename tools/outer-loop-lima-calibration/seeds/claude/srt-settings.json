@@ -9,8 +9,7 @@
       "/usr/local/libexec/outer-loop/control.py"
     ],
     "allowWrite": [
-      "/home/calibration/workspace",
-      "/run/outer-loop-probe/receipts"
+      "/home/calibration/workspace"
     ],
     "denyWrite": [
       "/etc",
