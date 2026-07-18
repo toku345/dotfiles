@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Iterable, Mapping
 
@@ -141,6 +141,7 @@ class CleanupRecord:
     cleanup_verified: bool
     account_revoke_required: bool
     observations: Mapping[str, str]
+    diagnostics: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.disposition, CleanupDisposition):
@@ -149,6 +150,10 @@ class CleanupRecord:
             raise ContractError("cleanup verification and disposition disagree")
         if not self.run_id or not self.seal_digest:
             raise ContractError("cleanup record must bind run and seal")
+        if not set(self.diagnostics).issubset(self.observations):
+            raise ContractError("cleanup diagnostics must identify observed checks")
+        if any(not value for value in self.diagnostics.values()):
+            raise ContractError("cleanup diagnostics must be non-empty")
 
     def to_dict(self) -> dict[str, object]:
         return {"record_type": "cleanup", **asdict(self)}

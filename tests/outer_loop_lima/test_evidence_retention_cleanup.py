@@ -164,8 +164,27 @@ class RetentionCleanupTests(unittest.TestCase):
         self.assertFalse(revoke.cleanup_verified)
 
     def test_cleanup_readback_exception_becomes_unknown(self) -> None:
-        observations = collect_absence((('listener', lambda: (_ for _ in ()).throw(OSError())),))
+        diagnostics: dict[str, str] = {}
+        observations = collect_absence(
+            (("listener", lambda: (_ for _ in ()).throw(OSError())),),
+            diagnostics=diagnostics,
+        )
         self.assertEqual(observations["listener"], "UNKNOWN")
+        self.assertEqual(diagnostics, {"listener": "OSError"})
+
+    def test_cleanup_attestation_preserves_sanitized_diagnostics(self) -> None:
+        absent = {name: "ABSENT" for name in REQUIRED_ABSENCE}
+        absent["listener"] = "UNKNOWN"
+        record = verify_cleanup(
+            "run-0001",
+            "a" * 64,
+            absent,
+            account_revoke_required=False,
+            revoke_human_confirmed=False,
+            diagnostics={"listener": "OSError"},
+        )
+        self.assertEqual(record.diagnostics, {"listener": "OSError"})
+        self.assertEqual(record.to_dict()["diagnostics"], {"listener": "OSError"})
 
 
 if __name__ == "__main__":

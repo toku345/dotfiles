@@ -671,25 +671,6 @@ class LimaDriver:
                         "reason": "no operator-authority path exists under the static no-network profile",
                     }
                 )
-                controls.append(
-                    ControlRecord(
-                        key=ControlKey(run_id, "C03", occurrence, target.target_id),
-                        expected_classification="PAIRED_DENIAL_PROVED_OR_PROVED_UNAVAILABLE",
-                        observed_classification=ObservationClass.UNAVAILABLE_BASELINE,
-                        evidence_digest=hashlib.sha256(
-                            canonical_json(
-                                {
-                                    "target": target.target_id,
-                                    "classification": ObservationClass.UNAVAILABLE_BASELINE,
-                                    "proof": "NOT_ESTABLISHED",
-                                }
-                            )
-                        ).hexdigest(),
-                        result=ControlResult.UNVERIFIED,
-                        operator_step="run isolation",
-                        exit_classification="NO_OPERATOR_CANARY",
-                    )
-                )
                 continue
             control = self._execute_host_probe(run_id, target, listeners)
             controls.append(control)
@@ -1293,6 +1274,14 @@ class Orchestrator:
         os.replace(temporary, paths.state_file)
         os.chmod(paths.state_file, 0o600)
 
+    def _enforce_deadline(self, paths: RunPaths, state: dict[str, object]) -> None:
+        if state.get("terminal_state") is not TerminalState.RUNNING and state.get("terminal_state") != TerminalState.RUNNING:
+            raise ContractError("terminal run allows only status and cleanup")
+        deadline = parse_utc_deadline(str(state.get("retention_deadline", "")))
+        if self._now().astimezone(UTC) >= deadline:
+            self._block(paths, state, "retention deadline reached before operation start")
+            raise ContractError("retention deadline reached; only status and cleanup are allowed")
+
     def _begin(
         self,
         paths: RunPaths,
@@ -1304,8 +1293,7 @@ class Orchestrator:
         occurrence: str = "phase",
         target: str = "aggregate",
     ) -> None:
-        if state.get("terminal_state") is not TerminalState.RUNNING and state.get("terminal_state") != TerminalState.RUNNING:
-            raise ContractError("terminal run allows only status and cleanup")
+        self._enforce_deadline(paths, state)
         if state.get("phase") != expected_phase:
             raise ContractError(f"phase skip or retry rejected: expected {expected_phase}")
         if state.get("active_operation") is not None or operation in state.get("completed_operations", []):
@@ -1376,6 +1364,7 @@ class Orchestrator:
         control_id: str,
         occurrence: str,
         target: str,
+        required_probe_occurrence: str | None = None,
     ) -> dict[str, object]:
         paths = self._paths(run_id)
         state = self._load(paths)
@@ -1390,12 +1379,57 @@ class Orchestrator:
         )
         try:
             result = action(self._driver_factory(paths))
-            self._accept_phase_result(paths, state, result, allowed_controls)
+            self._accept_phase_result(
+                paths,
+                state,
+                result,
+                allowed_controls,
+                required_probe_occurrence=required_probe_occurrence,
+            )
             self._finish(paths, state, operation, next_phase)
             return state
         except Exception as exc:
             self._block(paths, state, str(exc))
             raise
+
+    @staticmethod
+    def _validate_c03_coverage(result: PhaseResult, occurrence: str) -> None:
+        expected = {
+            target.target_id
+            for target in required_probe_matrix()
+            if target.occurrence == occurrence
+        }
+        control_targets = [
+            record.key.target
+            for record in result.controls
+            if record.key.control_id == "C03"
+        ]
+        observation_targets: list[str] = []
+        for observation in result.observations:
+            if type(observation) is not dict or observation.get("control_id") != "C03":
+                raise ContractError("C03 phase returned an invalid observation")
+            target = observation.get("target")
+            reason = observation.get("reason")
+            if (
+                not isinstance(target, str)
+                or observation.get("observed_classification") != ObservationClass.UNAVAILABLE_BASELINE
+                or observation.get("result") is not None
+                or not isinstance(reason, str)
+                or not reason
+            ):
+                raise ContractError("C03 unavailable baseline observation is invalid")
+            observation_targets.append(target)
+        coverage = control_targets + observation_targets
+        duplicates = sorted({target for target in coverage if coverage.count(target) > 1})
+        missing = sorted(expected.difference(coverage))
+        unexpected = sorted(set(coverage).difference(expected))
+        if duplicates or missing or unexpected:
+            raise ContractError(
+                "C03 matrix coverage mismatch "
+                f"duplicates={duplicates} missing={missing} unexpected={unexpected}"
+            )
+        if not control_targets:
+            raise ContractError("C03 produced no applicable paired-probe controls")
 
     def _accept_phase_result(
         self,
@@ -1403,13 +1437,18 @@ class Orchestrator:
         state: dict[str, object],
         result: PhaseResult,
         allowed_controls: set[str],
+        *,
+        required_probe_occurrence: str | None = None,
     ) -> None:
         if not result.controls:
             raise ContractError("phase produced no control records")
+        if required_probe_occurrence is not None:
+            self._validate_c03_coverage(result, required_probe_occurrence)
         required = state.get("required_control_keys")
         if not isinstance(required, list):
             raise ContractError("invalid required control state")
         existing = set(required)
+        accepted: list[tuple[ControlRecord, str]] = []
         failures: list[str] = []
         for record in result.controls:
             if type(record) is not ControlRecord or record.key.run_id != paths.run_id:
@@ -1419,9 +1458,11 @@ class Orchestrator:
             stable_id = record.key.stable_id()
             if stable_id in existing:
                 raise ContractError("same-run control retry rejected")
+            accepted.append((record, stable_id))
+            existing.add(stable_id)
+        for record, stable_id in accepted:
             record_control(paths, record)
             required.append(stable_id)
-            existing.add(stable_id)
             if record.result is not ControlResult.PASS:
                 failures.append(stable_id)
         for observation in result.observations:
@@ -1654,6 +1695,18 @@ class Orchestrator:
             state = self._load(paths)
             self._block(paths, state, "Claude code-paste login unavailable without forwarding")
             raise ContractError("code-paste feasibility is required; boundary will not be relaxed")
+        paths = self._paths(run_id)
+        state = self._load(paths)
+        self._enforce_deadline(paths, state)
+        state["approval_targets"]["pre-auth"] = hashlib.sha256(
+            canonical_json(
+                {
+                    "controls_digest": self._controls_digest(paths, {"C00", "C01"}),
+                    "claude_code_paste_feasible_without_forwarding": True,
+                }
+            )
+        ).hexdigest()
+        self._save(paths, state)
         return self._approve(run_id, "pre-auth", Phase.PROVISIONED, Phase.PRE_AUTH_APPROVED)
 
     def authenticate(self, run_id: str, runtime: str) -> dict[str, object]:
@@ -1684,6 +1737,7 @@ class Orchestrator:
             control_id="C03",
             occurrence="initial",
             target="matrix",
+            required_probe_occurrence="initial",
         )
 
     def sync_export(self, run_id: str) -> dict[str, object]:
@@ -1704,6 +1758,7 @@ class Orchestrator:
             raise ContractError("handoff direction must be forward or reverse")
         paths = self._paths(run_id)
         state = self._load(paths)
+        self._enforce_deadline(paths, state)
         expected = Phase.SYNC_EXPORT_COMPLETE if direction == "forward" else Phase.FORWARD_COMPLETE
         gate = f"pre-handoff-{direction}"
         state["approval_targets"][gate] = self._controls_digest(paths, {"C04", "C05", "C06", "C07"})
@@ -1739,6 +1794,7 @@ class Orchestrator:
             control_id="C08",
             occurrence="post_restart",
             target="aggregate",
+            required_probe_occurrence="post_restart",
         )
 
     def prepare_seal(self, run_id: str) -> dict[str, object]:
@@ -1858,29 +1914,44 @@ class Orchestrator:
                 except ContractError:
                     logout[runtime] = "UNAVAILABLE_OR_TIMEOUT"
         revoke_required = cause == "exposure" or any(value != "SUCCESS" for value in logout.values())
+        destructive_attempts: dict[str, str] = {}
         for instance in (CODEX_INSTANCE, CLAUDE_INSTANCE):
             try:
-                runner.run(
+                result = runner.run(
                     ("limactl", "--tty=false", "delete", "--force", instance),
                     timeout=180,
                     check=False,
                 )
             except ContractError:
-                pass
+                destructive_attempts[f"delete:{instance}"] = "UNAVAILABLE_OR_TIMEOUT"
+            else:
+                destructive_attempts[f"delete:{instance}"] = (
+                    "SUCCESS" if result.returncode == 0 else "NONZERO"
+                )
         label = f"{LABEL_PREFIX}.{run_id}"
         try:
-            runner.run(
+            result = runner.run(
                 ("launchctl", "bootout", f"gui/{os.getuid()}/{label}"),
                 timeout=30,
                 check=False,
             )
         except ContractError:
-            pass
+            destructive_attempts["launchagent:bootout"] = "UNAVAILABLE_OR_TIMEOUT"
+        else:
+            destructive_attempts["launchagent:bootout"] = (
+                "SUCCESS" if result.returncode == 0 else "NONZERO"
+            )
         for path in (
             paths.cleanup / f"{label}.plist",
             paths.cleanup / "deadline-cleanup.sh",
         ):
-            path.unlink(missing_ok=True)
+            key = f"unlink:{path.name}"
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                destructive_attempts[key] = f"FAILED_{type(exc).__name__}"
+            else:
+                destructive_attempts[key] = "SUCCESS"
         for path in (
             paths.work / "staging",
             paths.work / "quarantine",
@@ -1888,8 +1959,16 @@ class Orchestrator:
             paths.work / "listeners",
             paths.work / "sentinels",
         ):
-            if path.exists() and path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path)
+            key = f"remove:{path.name}"
+            try:
+                if path.exists() or path.is_symlink():
+                    if not path.is_dir() or path.is_symlink():
+                        destructive_attempts[key] = "SKIPPED_UNSAFE_NODE"
+                        continue
+                    shutil.rmtree(path)
+                destructive_attempts[key] = "SUCCESS"
+            except OSError as exc:
+                destructive_attempts[key] = f"FAILED_{type(exc).__name__}"
         append_jsonl(
             paths.cleanup / "attempts.jsonl",
             {
@@ -1897,6 +1976,7 @@ class Orchestrator:
                 "run_id": run_id,
                 "cause": cause,
                 "logout": logout,
+                "destructive_attempts": destructive_attempts,
                 "account_revoke_required": revoke_required,
             },
         )
@@ -1932,46 +2012,41 @@ class Orchestrator:
         runner = CommandRunner(self.state_root / LIMA_HOME_RELATIVE)
 
         def instances_absent() -> bool | None:
-            try:
-                result = runner.run(
-                    ("limactl", "--tty=false", "list", "--format=json"),
-                    timeout=30,
-                    check=False,
-                )
-                if result.returncode != 0:
-                    return None
-                value = json.loads(result.stdout)
-                records = value if isinstance(value, list) else [value]
-                names = {record.get("name") for record in records if isinstance(record, dict)}
-                return not names.intersection({CODEX_INSTANCE, CLAUDE_INSTANCE})
-            except (ContractError, json.JSONDecodeError):
-                return None
+            result = runner.run(
+                ("limactl", "--tty=false", "list", "--format=json"),
+                timeout=30,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise ContractError("limactl instance read-back failed")
+            value = json.loads(result.stdout)
+            records = value if isinstance(value, list) else [value]
+            names = {record.get("name") for record in records if isinstance(record, dict)}
+            return not names.intersection({CODEX_INSTANCE, CLAUDE_INSTANCE})
 
         def path_absent(path: Path) -> bool:
             return not path.exists() and not path.is_symlink()
 
         def launchagent_absent() -> bool | None:
-            try:
-                result = runner.run(
-                    (
-                        "launchctl",
-                        "print",
-                        f"gui/{os.getuid()}/{LABEL_PREFIX}.{run_id}",
-                    ),
-                    timeout=30,
-                    check=False,
-                )
-                if result.returncode == 0:
-                    return False
-                diagnostic = f"{result.stdout}\n{result.stderr}".lower()
-                if "could not find service" in diagnostic or "service not found" in diagnostic:
-                    return True
-                return None
-            except ContractError:
-                return None
+            result = runner.run(
+                (
+                    "launchctl",
+                    "print",
+                    f"gui/{os.getuid()}/{LABEL_PREFIX}.{run_id}",
+                ),
+                timeout=30,
+                check=False,
+            )
+            if result.returncode == 0:
+                return False
+            diagnostic = f"{result.stdout}\n{result.stderr}".lower()
+            if "could not find service" in diagnostic or "service not found" in diagnostic:
+                return True
+            raise ContractError("launchagent read-back was inconclusive")
 
         lima_home = self.state_root / LIMA_HOME_RELATIVE
         label = f"{LABEL_PREFIX}.{run_id}"
+        diagnostics: dict[str, str] = {}
         observations = collect_absence(
             (
                 ("codex_instance", instances_absent),
@@ -1984,7 +2059,8 @@ class Orchestrator:
                 ("listener", lambda: path_absent(paths.work / "listeners")),
                 ("launchagent_job", launchagent_absent),
                 ("launchagent_plist", lambda: path_absent(paths.cleanup / f"{label}.plist")),
-            )
+            ),
+            diagnostics=diagnostics,
         )
         if set(observations) != set(REQUIRED_ABSENCE):
             raise ContractError("cleanup read-back set drifted")
@@ -2005,6 +2081,7 @@ class Orchestrator:
             observations,
             account_revoke_required=bool(state.get("account_revoke_required")),
             revoke_human_confirmed=revoke_human_confirmed,
+            diagnostics=diagnostics,
         )
         append_jsonl(paths.cleanup / "attestations.jsonl", record.to_dict())
         state["cleanup_verified"] = record.cleanup_verified

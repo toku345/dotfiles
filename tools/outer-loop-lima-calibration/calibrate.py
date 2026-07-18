@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -158,13 +159,16 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    except Exception:
+    except Exception as exc:
+        exception_class = f"{type(exc).__module__}.{type(exc).__qualname__}"
         print(
             json.dumps(
                 {
                     "terminal_state": "BLOCKED",
                     "real_task_allowed": False,
                     "error": "unexpected_internal_error",
+                    "exception_class": exception_class,
+                    "diagnostic_id": hashlib.sha256(exception_class.encode()).hexdigest()[:16],
                 },
                 sort_keys=True,
             ),

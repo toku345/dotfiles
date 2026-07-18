@@ -132,6 +132,16 @@ class ExportTests(unittest.TestCase):
                 with self.assertRaises(ContractError):
                     validate_quarantine(source, root / "quarantine")
 
+    def test_secret_content_after_first_megabyte_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = self.make_source(root)
+            large = source / "large.txt"
+            large.write_bytes(b"x" * (1024 * 1024 + 17) + b"\ntoken=supersecretvalue\n")
+            os.chmod(large, 0o600)
+            with self.assertRaisesRegex(ContractError, "secret-shaped"):
+                validate_quarantine(source, root / "quarantine")
+
     def test_inventory_race_and_silent_drop_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

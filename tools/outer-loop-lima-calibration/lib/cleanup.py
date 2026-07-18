@@ -47,6 +47,7 @@ def verify_cleanup(
     *,
     account_revoke_required: bool,
     revoke_human_confirmed: bool,
+    diagnostics: dict[str, str] | None = None,
 ) -> CleanupRecord:
     missing = sorted(set(REQUIRED_ABSENCE).difference(observations))
     invalid = sorted(
@@ -63,17 +64,22 @@ def verify_cleanup(
         cleanup_verified=verified,
         account_revoke_required=account_revoke_required,
         observations=observations,
+        diagnostics=diagnostics or {},
     )
 
 
 def collect_absence(
-    checks: Iterable[tuple[str, Callable[[], bool | None]]]
+    checks: Iterable[tuple[str, Callable[[], bool | None]]],
+    *,
+    diagnostics: dict[str, str] | None = None,
 ) -> dict[str, str]:
     observations: dict[str, str] = {}
     for name, check in checks:
         try:
             result = check()
-        except Exception:
+        except Exception as exc:
+            if diagnostics is not None:
+                diagnostics[name] = type(exc).__name__
             result = None
         observations[name] = "ABSENT" if result is True else "PRESENT" if result is False else "UNKNOWN"
     return observations

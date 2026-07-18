@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,15 +15,17 @@ from unittest.mock import patch
 HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
 sys.path.insert(0, str(HARNESS))
 
-from calibrate import build_parser  # noqa: E402
+from calibrate import build_parser, main as calibrate_main  # noqa: E402
 from lib.model import (  # noqa: E402
     ContractError,
     ControlKey,
     ControlRecord,
     ControlResult,
+    ObservationClass,
     TerminalState,
 )
-from lib.orchestrator import Orchestrator, Phase, PhaseResult  # noqa: E402
+from lib.orchestrator import LimaDriver, Orchestrator, Phase, PhaseResult  # noqa: E402
+from lib.probes import required_probe_matrix  # noqa: E402
 
 
 def passed(run_id: str, control_id: str, occurrence: str, target: str) -> ControlRecord:
@@ -35,6 +38,31 @@ def passed(run_id: str, control_id: str, occurrence: str, target: str) -> Contro
         "fake-driver",
         "ZERO",
     )
+
+
+def complete_c03(run_id: str, occurrence: str) -> PhaseResult:
+    controls: list[ControlRecord] = []
+    observations: list[dict[str, object]] = []
+    for target in required_probe_matrix():
+        if target.occurrence != occurrence:
+            continue
+        if (
+            target.destination_class == "host"
+            and target.address_family in {"dns", "ipv4"}
+            and target.protocol in {"tcp", "udp"}
+        ):
+            controls.append(passed(run_id, "C03", occurrence, target.target_id))
+        else:
+            observations.append(
+                {
+                    "control_id": "C03",
+                    "target": target.target_id,
+                    "observed_classification": ObservationClass.UNAVAILABLE_BASELINE,
+                    "result": None,
+                    "reason": "no operator-authority path in test fixture",
+                }
+            )
+    return PhaseResult(tuple(controls), tuple(observations))
 
 
 class FakeDriver:
@@ -52,7 +80,7 @@ class FakeDriver:
         return PhaseResult((passed(run_id, "C02", occurrence, runtime),))
 
     def isolation(self, run_id: str, occurrence: str) -> PhaseResult:
-        return PhaseResult((passed(run_id, "C03", occurrence, "host:tcp"),))
+        return complete_c03(run_id, occurrence)
 
     def sync_export(self, run_id: str) -> PhaseResult:
         return PhaseResult(
@@ -70,12 +98,14 @@ class FakeDriver:
         return PhaseResult((passed(run_id, "C07", direction, direction),))
 
     def restart(self, run_id: str) -> PhaseResult:
+        c03 = complete_c03(run_id, "post_restart")
         return PhaseResult(
             (
                 passed(run_id, "C02", "post_restart", "codex"),
                 passed(run_id, "C02", "post_restart", "claude"),
-                passed(run_id, "C03", "post_restart", "host:tcp"),
-            )
+                *c03.controls,
+            ),
+            c03.observations,
         )
 
     def stop_for_seal(self, run_id: str) -> dict[str, object]:
@@ -155,6 +185,32 @@ class OrchestratorTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "already exists"):
             self.orchestrator.init("run-0001", "2030-01-02T00:00:00Z")
 
+    def test_deadline_blocks_mutating_operation_without_launchagent(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        self.orchestrator._now = lambda: datetime(2030, 1, 2, tzinfo=UTC)
+        with self.assertRaisesRegex(ContractError, "retention deadline reached"):
+            self.orchestrator.preflight(run_id)
+        state = self.orchestrator._load(self.orchestrator._paths(run_id))
+        self.assertEqual(state["terminal_state"], TerminalState.BLOCKED)
+
+    def test_incomplete_c03_matrix_blocks_ready_path(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        state = self.orchestrator._load(paths)
+        state["phase"] = Phase.AUTHENTICATED
+        self.orchestrator._save(paths, state)
+
+        class IncompleteDriver(FakeDriver):
+            def isolation(self, run_id: str, occurrence: str) -> PhaseResult:
+                return PhaseResult((passed(run_id, "C03", occurrence, "host:tcp"),))
+
+        self.orchestrator._driver_factory = lambda _paths: IncompleteDriver()
+        with self.assertRaisesRegex(ContractError, "C03 matrix coverage mismatch"):
+            self.orchestrator.isolation(run_id)
+        self.assertEqual(self.orchestrator.status(run_id)["terminal_state"], TerminalState.BLOCKED)
+
     def test_status_converts_orphaned_started_control_to_unverified_blocked(self) -> None:
         run_id = "run-0001"
         self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
@@ -185,6 +241,87 @@ class OrchestratorTests(unittest.TestCase):
         ):
             with self.subTest(argv=argv), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 parser.parse_args(argv)
+
+    def test_unexpected_cli_error_reports_sanitized_diagnostic(self) -> None:
+        output = io.StringIO()
+        with (
+            patch("calibrate.dispatch", side_effect=RuntimeError("secret-bearing detail")),
+            redirect_stderr(output),
+        ):
+            result = calibrate_main(
+                ["--state-root", str(self.state_root), "status", "run-0001"]
+            )
+        self.assertEqual(result, 1)
+        diagnostic = json.loads(output.getvalue())
+        self.assertEqual(diagnostic["exception_class"], "builtins.RuntimeError")
+        self.assertEqual(len(diagnostic["diagnostic_id"]), 16)
+        self.assertNotIn("secret-bearing detail", output.getvalue())
+
+    def test_cleanup_records_failed_destructive_attempts(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+
+        def nonzero(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 9, stdout="", stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=nonzero):
+            self.orchestrator.cleanup(run_id, cause="abandonment")
+        attempts = json.loads(
+            (self.orchestrator._paths(run_id).cleanup / "attempts.jsonl")
+            .read_text()
+            .splitlines()[-1]
+        )
+        self.assertEqual(
+            attempts["destructive_attempts"]["delete:outer-loop-week0-codex"],
+            "NONZERO",
+        )
+        self.assertEqual(
+            attempts["destructive_attempts"]["launchagent:bootout"],
+            "NONZERO",
+        )
+
+
+class PeerIsolationTests(unittest.TestCase):
+    def driver(self) -> LimaDriver:
+        return LimaDriver.__new__(LimaDriver)
+
+    def test_peer_isolation_accepts_only_baseline_reachable_peer_denial(self) -> None:
+        driver = self.driver()
+        nonces = ("1" * 32, "2" * 32, "3" * 32, "4" * 32)
+        with (
+            patch.object(driver, "_guest_ipv4", return_value="192.0.2.10"),
+            patch.object(driver, "_start_guest_canary"),
+            patch.object(driver, "_guest_send", side_effect=(0, 1, 0, 1)),
+            patch.object(driver, "_finish_guest_canary", side_effect=(nonces[0], None, nonces[2], None)),
+            patch("lib.orchestrator.secrets.token_hex", side_effect=nonces),
+        ):
+            result = driver._verify_peer_isolation()
+        self.assertEqual(len(result["directions"]), 2)
+        self.assertTrue(all(not item["peer_ingress"] for item in result["directions"]))
+
+    def test_peer_isolation_rejects_unreachable_baseline(self) -> None:
+        driver = self.driver()
+        with (
+            patch.object(driver, "_guest_ipv4", return_value="192.0.2.10"),
+            patch.object(driver, "_start_guest_canary"),
+            patch.object(driver, "_guest_send", return_value=1),
+            patch("lib.orchestrator.secrets.token_hex", return_value="1" * 32),
+        ):
+            with self.assertRaisesRegex(ContractError, "baseline was unreachable"):
+                driver._verify_peer_isolation()
+
+    def test_peer_isolation_rejects_peer_ingress(self) -> None:
+        driver = self.driver()
+        nonces = ("1" * 32, "2" * 32)
+        with (
+            patch.object(driver, "_guest_ipv4", return_value="192.0.2.10"),
+            patch.object(driver, "_start_guest_canary"),
+            patch.object(driver, "_guest_send", side_effect=(0, 0)),
+            patch.object(driver, "_finish_guest_canary", side_effect=(nonces[0], nonces[1])),
+            patch("lib.orchestrator.secrets.token_hex", side_effect=nonces),
+        ):
+            with self.assertRaisesRegex(ContractError, "guest-to-guest transport is reachable"):
+                driver._verify_peer_isolation()
 
 
 if __name__ == "__main__":

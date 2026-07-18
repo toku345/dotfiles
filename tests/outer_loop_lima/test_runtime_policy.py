@@ -42,6 +42,12 @@ def unflatten(flattened: dict[str, object]) -> dict[str, object]:
 
 
 class RuntimePolicyTests(unittest.TestCase):
+    def test_guest_provisioning_removes_unpinned_apt_sources(self) -> None:
+        script = (HARNESS / "guest" / "provision-common.sh").read_text()
+        self.assertIn("outer-loop-disabled-sources", script)
+        self.assertIn("-exec mv -t", script)
+        self.assertNotIn("-exec chmod 000", script)
+
     def test_codex_commands_are_subscription_and_tool_free(self) -> None:
         self.assertEqual(codex.login_command(), ["codex", "login", "--device-auth"])
         command = codex.smoke_command()

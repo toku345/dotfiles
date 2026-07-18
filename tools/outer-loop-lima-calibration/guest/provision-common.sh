@@ -9,9 +9,17 @@ fi
 
 readonly SNAPSHOT='https://snapshot.ubuntu.com/ubuntu/20260615T000000Z/'
 readonly CACHE_DIR='/var/cache/outer-loop-debs'
+readonly DISABLED_SOURCES='/etc/apt/outer-loop-disabled-sources'
 
 install -d -m 0700 -o root -g root "$CACHE_DIR"
+install -d -m 0700 -o root -g root "$DISABLED_SOURCES"
 install -d -m 0755 -o root -g root /usr/local/share/outer-loop /usr/local/libexec/outer-loop
+
+if [ -f /etc/apt/sources.list ]; then
+  mv /etc/apt/sources.list "$DISABLED_SOURCES/sources.list"
+fi
+find /etc/apt/sources.list.d -maxdepth 1 -type f \
+  ! -name outer-loop.sources -exec mv -t "$DISABLED_SOURCES" {} +
 
 install -m 0644 -o root -g root /dev/null /etc/apt/sources.list.d/outer-loop.sources
 printf '%s\n' \
@@ -23,8 +31,6 @@ printf '%s\n' \
   'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
   'Check-Valid-Until: no' \
   > /etc/apt/sources.list.d/outer-loop.sources
-find /etc/apt/sources.list /etc/apt/sources.list.d -maxdepth 1 -type f \
-  ! -name outer-loop.sources -exec chmod 000 {} + 2>/dev/null || true
 
 apt-get -o Acquire::Check-Valid-Until=false update
 

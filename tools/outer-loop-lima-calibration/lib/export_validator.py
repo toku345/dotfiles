@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mmap
 import os
 import re
 import stat
@@ -40,18 +41,19 @@ def _safe_relative(path: Path, root: Path) -> str:
     return relative
 
 
-def _hash_regular(path: Path) -> tuple[str, bytes]:
+def _hash_regular(path: Path) -> tuple[str, bool]:
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     try:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ContractError("export node changed type")
         digest = hashlib.sha256()
-        sample = bytearray()
         while chunk := os.read(descriptor, 1024 * 1024):
             digest.update(chunk)
-            if len(sample) < 1024 * 1024:
-                sample.extend(chunk[: 1024 * 1024 - len(sample)])
+        secret_shaped = False
+        if before.st_size:
+            with mmap.mmap(descriptor, 0, access=mmap.ACCESS_READ) as contents:
+                secret_shaped = SECRET_CONTENT.search(contents) is not None
         after = os.fstat(descriptor)
         if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
             after.st_dev,
@@ -60,7 +62,7 @@ def _hash_regular(path: Path) -> tuple[str, bytes]:
             after.st_mtime_ns,
         ):
             raise ContractError("export file changed while hashing")
-        return digest.hexdigest(), bytes(sample)
+        return digest.hexdigest(), secret_shaped
     finally:
         os.close(descriptor)
 
@@ -76,8 +78,8 @@ def inventory(root: Path, *, read_only: bool = False) -> tuple[InventoryNode, ..
             info = path.lstat()
             mode = f"{stat.S_IMODE(info.st_mode):04o}"
             if stat.S_ISREG(info.st_mode):
-                digest, sample = _hash_regular(path)
-                if SECRET_NAME.search(relative) or SECRET_CONTENT.search(sample):
+                digest, secret_shaped = _hash_regular(path)
+                if SECRET_NAME.search(relative) or secret_shaped:
                     raise ContractError(f"secret-shaped export rejected at {relative}")
                 if info.st_nlink != 1:
                     raise ContractError(f"hard-linked export rejected at {relative}")
