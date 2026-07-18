@@ -471,7 +471,8 @@ class C03DriverTests(unittest.TestCase):
         passed_outcome = ProbeOutcome("PAIRED_DENIAL_PROVED", ControlResult.PASS, True, "complete")
         with (
             patch("lib.orchestrator.secrets.token_hex", return_value=nonce),
-            patch("lib.orchestrator.OneShotCanary", return_value=canary),
+            patch("lib.orchestrator.OneShotCanary", return_value=canary) as canary_factory,
+            patch.object(driver, "_guest_host_ipv4", return_value="192.0.2.1"),
             patch.object(
                 driver,
                 "_shell",
@@ -485,6 +486,7 @@ class C03DriverTests(unittest.TestCase):
         self.assertEqual(baseline_argv[0], "sudo")
         self.assertEqual(baseline_argv[1], "/usr/bin/python3")
         self.assertIn("host.lima.internal", baseline_argv)
+        canary_factory.assert_called_once_with("tcp", bind_host="192.0.2.1", timeout=30)
 
     def test_host_probe_blocks_when_guest_root_baseline_fails(self) -> None:
         driver = LimaDriver.__new__(LimaDriver)
@@ -495,6 +497,7 @@ class C03DriverTests(unittest.TestCase):
         with (
             patch("lib.orchestrator.secrets.token_hex", return_value=nonce),
             patch("lib.orchestrator.OneShotCanary", return_value=canary),
+            patch.object(driver, "_guest_host_ipv4", return_value="192.0.2.1"),
             patch.object(
                 driver,
                 "_shell",
@@ -516,6 +519,7 @@ class C03DriverTests(unittest.TestCase):
         with (
             patch("lib.orchestrator.secrets.token_hex", return_value=nonce),
             patch("lib.orchestrator.OneShotCanary", return_value=canary),
+            patch.object(driver, "_guest_host_ipv4", return_value="192.0.2.1"),
             patch.object(
                 driver,
                 "_shell",
@@ -531,6 +535,7 @@ class C03DriverTests(unittest.TestCase):
         self.assertEqual(record.result, ControlResult.PASS)
         self.assertEqual([call.kwargs["stage"] for call in stages.call_args_list], ["srt-direct", "claude-bash"])
         self.assertEqual(stages.call_args_list[0].args[1], stages.call_args_list[1].args[1])
+        self.assertTrue(all(call.kwargs["bind_host"] == "192.0.2.1" for call in stages.call_args_list))
 
     def test_probe_stage_listener_error_is_unverified(self) -> None:
         driver = LimaDriver.__new__(LimaDriver)
@@ -555,6 +560,7 @@ class C03DriverTests(unittest.TestCase):
                 nonce,
                 intended,
                 39004,
+                bind_host="192.0.2.1",
                 stage="codex-command",
                 outside_ingress_nonce=nonce,
                 listeners=Path(temporary),
@@ -562,6 +568,21 @@ class C03DriverTests(unittest.TestCase):
         self.assertEqual(outcome.result, ControlResult.UNVERIFIED)
         self.assertEqual(outcome.observation, "INSIDE_CANARY_ERROR")
         self.assertEqual(log["inside_canary_error"], "OSError")
+        self.assertEqual(log["canary_bind_host"], "192.0.2.1")
+
+    def test_guest_host_ipv4_rejects_unspecified_and_loopback_addresses(self) -> None:
+        driver = LimaDriver.__new__(LimaDriver)
+        with patch.object(
+            driver,
+            "_shell",
+            return_value=subprocess.CompletedProcess(
+                [],
+                0,
+                stdout="0.0.0.0 STREAM host.lima.internal\n127.0.0.1 STREAM host.lima.internal\n192.0.2.1 STREAM host.lima.internal\n",
+                stderr="",
+            ),
+        ):
+            self.assertEqual(driver._guest_host_ipv4("codex"), "192.0.2.1")
 
 
 class HandoffDriverTests(unittest.TestCase):

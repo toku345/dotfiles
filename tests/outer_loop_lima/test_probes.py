@@ -95,11 +95,16 @@ class ProbeTests(unittest.TestCase):
     def test_one_shot_tcp_and_udp_canaries_record_nonce(self) -> None:
         for protocol in ("tcp", "udp"):
             try:
-                listener = OneShotCanary(protocol, timeout=1)
+                listener = OneShotCanary(protocol, bind_host="127.0.0.1", timeout=1)
             except PermissionError:
                 self.skipTest("local socket creation is denied by the test sandbox")
             send_canary("127.0.0.1", listener.port, protocol, "b" * 32)
             self.assertEqual(listener.wait(2), CanaryResult("b" * 32, None))
+
+    def test_one_shot_canary_rejects_wildcard_and_non_literal_bind_hosts(self) -> None:
+        for bind_host in ("0.0.0.0", "::", "host.lima.internal"):
+            with self.subTest(bind_host=bind_host), self.assertRaises(ContractError):
+                OneShotCanary("tcp", bind_host=bind_host)
 
 
 if __name__ == "__main__":

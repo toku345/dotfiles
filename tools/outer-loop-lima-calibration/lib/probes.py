@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import socket
 import threading
 from dataclasses import dataclass
@@ -145,12 +146,18 @@ class OneShotCanary:
         self,
         protocol: str,
         *,
-        bind_host: str = "0.0.0.0",
+        bind_host: str,
         port: int = 0,
         timeout: float = 30.0,
     ) -> None:
         if protocol not in {"tcp", "udp"}:
             raise ContractError("canary protocol must be tcp or udp")
+        try:
+            bind_address = ipaddress.ip_address(bind_host)
+        except ValueError as exc:
+            raise ContractError("canary bind host must be a literal IP address") from exc
+        if bind_address.is_unspecified:
+            raise ContractError("canary must not bind all network interfaces")
         family = socket.AF_INET6 if ":" in bind_host else socket.AF_INET
         kind = socket.SOCK_STREAM if protocol == "tcp" else socket.SOCK_DGRAM
         self._socket = socket.socket(family, kind)

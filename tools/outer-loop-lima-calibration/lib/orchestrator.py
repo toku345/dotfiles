@@ -697,7 +697,7 @@ class LimaDriver:
                 address = ipaddress.ip_address(token)
             except ValueError:
                 continue
-            if address.version == 4:
+            if address.version == 4 and not address.is_unspecified and not address.is_loopback:
                 return str(address)
         raise ContractError("guest could not resolve the host IPv4 address")
 
@@ -830,11 +830,17 @@ class LimaDriver:
         intended_argv: tuple[str, ...],
         port: int,
         *,
+        bind_host: str,
         stage: str,
         outside_ingress_nonce: str,
         listeners: Path,
     ) -> tuple[ProbeOutcome, dict[str, object]]:
-        canary = OneShotCanary(target.protocol, port=port, timeout=30)
+        canary = OneShotCanary(
+            target.protocol,
+            bind_host=bind_host,
+            port=port,
+            timeout=30,
+        )
         command = shlex.join(intended_argv)
         runtime_argv: tuple[str, ...] | None = intended_argv
         receipt: ExecutionReceipt | None = None
@@ -892,6 +898,7 @@ class LimaDriver:
             "target": target.target_id,
             "stage": stage,
             "nonce": nonce,
+            "canary_bind_host": bind_host,
             "outside_ingress_nonce": outside_ingress_nonce,
             "inside_ingress_nonce": ingress,
             "inside_canary_error": canary_result.error,
@@ -904,9 +911,10 @@ class LimaDriver:
 
     def _execute_host_probe(self, run_id: str, target, listeners: Path) -> ControlRecord:
         nonce = secrets.token_hex(16)
-        outside = OneShotCanary(target.protocol, timeout=30)
+        bind_host = self._guest_host_ipv4(target.runtime)
+        outside = OneShotCanary(target.protocol, bind_host=bind_host, timeout=30)
         port = outside.port
-        host = "host.lima.internal" if target.address_family == "dns" else self._guest_host_ipv4(target.runtime)
+        host = "host.lima.internal" if target.address_family == "dns" else bind_host
         outside_result = self._shell(
             self._instance(target.runtime),
             ("sudo", *self._probe_client_argv(host, port, target.protocol, nonce)),
@@ -920,7 +928,16 @@ class LimaDriver:
                 ControlKey(run_id, "C03", target.occurrence, target.target_id),
                 "PAIRED_DENIAL_PROVED",
                 "OUTSIDE_INGRESS_MISSING",
-                hashlib.sha256(canonical_json({"target": target.target_id, "nonce": nonce})).hexdigest(),
+                hashlib.sha256(
+                    canonical_json(
+                        {
+                            "target": target.target_id,
+                            "nonce": nonce,
+                            "canary_bind_host": bind_host,
+                            "canary_error": outside_canary.error,
+                        }
+                    )
+                ).hexdigest(),
                 ControlResult.UNVERIFIED,
                 "run isolation",
                 "CANARY_LISTENER_ERROR" if outside_canary.error is not None else "CANARY_UNREACHABLE",
@@ -932,6 +949,7 @@ class LimaDriver:
                 nonce,
                 intended_argv,
                 port,
+                bind_host=bind_host,
                 stage="srt-direct",
                 outside_ingress_nonce=outside_ingress,
                 listeners=listeners,
@@ -941,6 +959,7 @@ class LimaDriver:
                 nonce,
                 intended_argv,
                 port,
+                bind_host=bind_host,
                 stage="claude-bash",
                 outside_ingress_nonce=outside_ingress,
                 listeners=listeners,
@@ -954,6 +973,7 @@ class LimaDriver:
                 nonce,
                 intended_argv,
                 port,
+                bind_host=bind_host,
                 stage="codex-command",
                 outside_ingress_nonce=outside_ingress,
                 listeners=listeners,
