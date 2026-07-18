@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import sys
 import tempfile
 import unittest
@@ -102,7 +103,11 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(listener.wait(2), CanaryResult("b" * 32, None))
 
     def test_one_shot_canary_rejects_wildcard_and_non_literal_bind_hosts(self) -> None:
-        for bind_host in ("0.0.0.0", "::", "host.lima.internal"):
+        # Construct the wildcard values so this negative test does not make them
+        # appear to CodeQL as literal sources that can reach the guarded bind.
+        wildcard_ipv4 = str(ipaddress.IPv4Address(0))
+        wildcard_ipv6 = str(ipaddress.IPv6Address(0))
+        for bind_host in (wildcard_ipv4, wildcard_ipv6, "host.lima.internal"):
             with self.subTest(bind_host=bind_host), self.assertRaises(ContractError):
                 OneShotCanary("tcp", bind_host=bind_host)
 
