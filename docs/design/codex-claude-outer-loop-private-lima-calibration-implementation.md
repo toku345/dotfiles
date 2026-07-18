@@ -137,10 +137,10 @@ The state machine permits only the next command in sequence. A subprocess has an
 1. `init` creates a new run with an immutable RFC 3339 UTC retention deadline.
 2. `preflight` validates the lock, manifest, host identity, exact objective/prohibitions, terminal states, and risk records `AR-01` and `AR-02`.
 3. H1 `approve pre-vm` binds the lock digest, manifest digest, deadline, and both accepted risks.
-4. `provision` creates both new guests and collects guest identities. It closes the deferred C00 aggregate and C01 only when every live observation passes.
+4. `provision` registers and reads back deadline retention before creating either guest, then creates both new guests and collects guest identities. It closes the deferred C00 aggregate and C01 only when every live observation passes.
 5. The operator verifies Claude subscription code-paste login can begin without port forwarding. Infeasibility blocks without relaxing the boundary.
 6. H2 `approve pre-auth` binds C00, C01, and code-paste feasibility.
-7. `authenticate runtime`, `run isolation`, and `run sync-export` close C02/C03 initial and C04-C06 in order.
+7. `authenticate runtime`, `run isolation`, and `run sync-export` close C02/C03 initial and the direction-specific C04-C06 records in order. Each authentication attempt is durably marked before the interactive login command so cleanup cannot omit logout/revoke handling after a later classification failure.
 8. H3 `approve pre-handoff` is separate for each direction. `run handoff-forward` and `run handoff-reverse` close separate C07 records.
 9. `run restart` stop/starts both guests and reruns C02/C03 with occurrence `post_restart`.
 10. `prepare-seal` constructs the complete pre-approval seal-input digest.
@@ -183,7 +183,7 @@ The immutable order is fixture to `0700` staging, baseline/sentinels, guest comm
 
 The sync guard rejects non-TTY stdin/stdout, `-y`, `--yes`, `--tty=false`, symlink ancestors, mount transitions, unregistered roots, path escape, and any authoritative repository before invoking Lima. Quarantine treats a symlink as a node to reject: it neither dereferences nor silently drops it. Regular files use no-follow open, fstat/hash/fstat, and two stable inventories. Hard links, special nodes, unsafe modes, path changes, secret-shaped names/content, races, or silent drops fail C06.
 
-C07 forward and reverse have separate bundle manifests and records. The reviewer verifies every logical name and digest only after the driver stop identity matches. Mutable staging is never a handoff input.
+C04-C06 run the fixed sync, diagnostic, quarantine, and freeze sequence once with Codex as the forward driver and once with Claude as the reverse driver. C07 forward and reverse consume their corresponding separate bundle manifests and records. The reviewer verifies every logical name and digest only after the driver stop identity matches. Mutable staging is never a handoff input.
 
 ## Retention and cleanup
 

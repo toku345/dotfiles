@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "files": [
-    {"path": "README.md", "sha256": "30f323a0dc7eb1572866bf6ec0e5b23c4452f243a391c17c6930f5890164007d"},
+    {"path": "README.md", "sha256": "0c7def24c296103db181a74d9e99a457a811726281edd542475eda8adac5235c"},
     {"path": "calibrate.py", "sha256": "cbb9c23bd88998712a48629b4895293c4f27e860fa11ce08c3ec372236f3c35c"},
     {"path": "fixtures/sync-positive/delete.txt", "sha256": "a90b63e0c8e0f2975890931a6456a5e31f89755ad096eba0760cfd220ec6ea72"},
     {"path": "fixtures/sync-positive/keep.txt", "sha256": "4b654bd1437066b13498661f3ca14774daf1066d072036beffaf06f0c014250e"},
@@ -19,9 +19,9 @@
     {"path": "lib/export_validator.py", "sha256": "887c111e301af03a3c4b3b4cdf43269f8f60629010b216108e09913a5f925a65"},
     {"path": "lib/identities.py", "sha256": "6f8343c56b9c037a8d4230ac213c6ee16eac9c2e09e515e31a174f35cf80782d"},
     {"path": "lib/model.py", "sha256": "34d616d989c8f544df4c1ae096db5064fa9e3a2f01ec306cfe08cf0ca88b7851"},
-    {"path": "lib/orchestrator.py", "sha256": "56963d5c0c6b4486a8384eb84a6869de65b67611f3109152cd20efaacf27c9c9"},
+    {"path": "lib/orchestrator.py", "sha256": "5f263becc3468d34285d08a64a4f65b703951cbbbda63edf89d3b05a8528c14a"},
     {"path": "lib/paths.py", "sha256": "1a44d1a903103f30a033c3caeb4c97a7b84ba339fb5bdb694f3b4871fb872cf6"},
-    {"path": "lib/probes.py", "sha256": "e45acf19e04ee285545871a975a25be1069fe010f22271589aa08dd0df670459"},
+    {"path": "lib/probes.py", "sha256": "9a751a37e1c93a689462b18913ff9107513b624e11abcb453f4c9701d343bdc2"},
     {"path": "lib/retention.py", "sha256": "9bf0c98b5a44cfd8f571a2389c8daa3d0c5a1c494fb9ba9db1c382321fbbfebb"},
     {"path": "lib/sync_guard.py", "sha256": "3b4375ad644e2c636395f7325cce88a3f2771dde0bde4c865c36aae110ce2155"},
     {"path": "profiles/week0-claude.yaml", "sha256": "2f8377c32e095f08d81d8c594e7be7ac7a824bc3993264aa296183c1b70a0ab2"},
@@ -33,6 +33,6 @@
     {"path": "seeds/claude/srt-settings.json", "sha256": "2ba1cf4c718416af58a3f49591768c60e0e14434b03b1592694c5a4deb0f13b1"},
     {"path": "seeds/codex/config.toml", "sha256": "55cd50bf5809fb2c4464e09b22f72f28ed9fd38a0ead55ee029178038e923b8e"},
     {"path": "seeds/codex/requirements.toml", "sha256": "3b099595bc12177b7e72c7ac30cbb3ecbbf61d37226da49bddd0fb3af684a0f2"},
-    {"path": "versions.lock.json", "sha256": "88e4e79759ac4263c5ed0b0e8559fd8c744546b1eaba4330dd409fa34b3707d0"}
+    {"path": "versions.lock.json", "sha256": "ca5a2d885dc928c0996ef5826cdcc0d3b1e65253cfe90ce28c01dfe2ce0f399e"}
   ]
 }

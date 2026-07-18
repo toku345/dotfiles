@@ -873,7 +873,8 @@ class LimaDriver:
                 pass
             else:
                 runtime_argv = None
-        ingress = canary.wait()
+        canary_result = canary.wait()
+        ingress = canary_result.received
         evidence = ProbeEvidence(
             target=target,
             nonce=nonce,
@@ -883,6 +884,7 @@ class LimaDriver:
             outside_ingress_nonce=outside_ingress_nonce,
             receipt=receipt,
             inside_ingress_nonce=ingress,
+            inside_canary_error=canary_result.error,
         )
         outcome = classify_paired_probe(evidence)
         log = {
@@ -892,6 +894,7 @@ class LimaDriver:
             "nonce": nonce,
             "outside_ingress_nonce": outside_ingress_nonce,
             "inside_ingress_nonce": ingress,
+            "inside_canary_error": canary_result.error,
             "receipt": asdict(receipt) if receipt else None,
             "runtime_argv_exact": runtime_argv == intended_argv,
             "outcome": asdict(outcome),
@@ -910,8 +913,9 @@ class LimaDriver:
             timeout=20,
             check=False,
         )
-        outside_ingress = outside.wait()
-        if outside_result.returncode != 0 or outside_ingress != nonce:
+        outside_canary = outside.wait()
+        outside_ingress = outside_canary.received
+        if outside_result.returncode != 0 or outside_canary.error is not None or outside_ingress != nonce:
             return ControlRecord(
                 ControlKey(run_id, "C03", target.occurrence, target.target_id),
                 "PAIRED_DENIAL_PROVED",
@@ -919,7 +923,7 @@ class LimaDriver:
                 hashlib.sha256(canonical_json({"target": target.target_id, "nonce": nonce})).hexdigest(),
                 ControlResult.UNVERIFIED,
                 "run isolation",
-                "CANARY_UNREACHABLE",
+                "CANARY_LISTENER_ERROR" if outside_canary.error is not None else "CANARY_UNREACHABLE",
             )
         intended_argv = self._probe_argv(host, port, target.protocol, nonce)
         if target.runtime == "claude":
@@ -967,17 +971,23 @@ class LimaDriver:
             exit_classification="SANITIZED",
         )
 
-    def sync_export(self, run_id: str) -> PhaseResult:
-        fixture = self.paths.frozen_harness / "fixtures" / "sync-positive"
-        fixture_before = stable_inventory(fixture)
-        staging_root = self.paths.work / "staging"
+    def _sync_export_direction(
+        self,
+        run_id: str,
+        direction: str,
+        driver_instance: str,
+        fixture: Path,
+        fixture_before: tuple[object, ...],
+        staging_parent: Path,
+        sentinels: Path,
+    ) -> tuple[ControlRecord, ...]:
+        staging_root = staging_parent / direction
         staging_root.mkdir(mode=0o700, exist_ok=False)
         os.chmod(staging_root, 0o700)
-        sentinels = self.paths.work / "sentinels"
-        sentinels.mkdir(mode=0o700, exist_ok=False)
-        outside_sentinel = sentinels / "outside-sync.txt"
+        outside_sentinel = sentinels / f"{direction}-outside-sync.txt"
         write_once(outside_sentinel, {"nonce": secrets.token_hex(16)})
         sentinel_digest = sha256_file(outside_sentinel)
+        diagnostic_root = f"/dev/shm/outer-loop-sync-{direction}"
         cases: dict[str, tuple[Path, tuple[object, ...]]] = {}
         for name in ("no", "nonzero", "yes"):
             staging = staging_root / name
@@ -993,9 +1003,9 @@ class LimaDriver:
                 "rm delete.txt; mv rename-from.txt rename-to.txt; "
                 "mkdir created; printf 'new-file\\n' > created/new.txt; "
                 "printf 'guest-escape-attempt\\n' > ../outside-sentinel; "
-                "mkdir -m 0700 -p /dev/shm/outer-loop-sync; "
+                f"mkdir -m 0700 -p {diagnostic_root}; "
                 "/usr/local/libexec/outer-loop/inspect-export.py . "
-                "> /dev/shm/outer-loop-sync/export-diagnostic.json"
+                f"> {diagnostic_root}/export-diagnostic.json"
             ),
         }
         guard_evidence: list[dict[str, object]] = []
@@ -1005,7 +1015,7 @@ class LimaDriver:
                 "limactl",
                 "shell",
                 f"--sync={staging}",
-                CODEX_INSTANCE,
+                driver_instance,
                 "/bin/sh",
                 "-ceu",
                 commands[name],
@@ -1013,13 +1023,13 @@ class LimaDriver:
             guarded = validate_sync_invocation(
                 argv,
                 staging,
-                registered_roots=(staging_root,),
+                registered_roots=(staging_parent,),
                 authoritative_roots=(self.repository_root,),
                 stdin_isatty=os.isatty(0),
                 stdout_isatty=os.isatty(1),
             )
             print(
-                f"sync case {name}: choose {'Yes' if name == 'yes' else 'No'} at the Lima prompt",
+                f"sync {direction} case {name}: choose {'Yes' if name == 'yes' else 'No'} at the Lima prompt",
                 flush=True,
             )
             result = self.runner.run(argv, timeout=300, capture_output=False, check=False)
@@ -1027,17 +1037,21 @@ class LimaDriver:
                 if result.returncode == 0:
                     raise ContractError("nonzero sync case unexpectedly returned zero")
             elif result.returncode != 0:
-                raise ContractError(f"sync case failed: {name}")
+                raise ContractError(f"sync case failed: {direction}:{name}")
             observed = stable_inventory(staging)
             if name in {"no", "nonzero"} and observed != baseline:
-                raise ContractError(f"sync-back occurred for rejected case: {name}")
+                raise ContractError(f"sync-back occurred for rejected case: {direction}:{name}")
             guard_evidence.append(
                 {
                     "case": name,
+                    "direction": direction,
+                    "driver": driver_instance,
                     "staging": str(guarded.staging),
                     "registered_root": str(guarded.registered_root),
                     "returncode": result.returncode,
-                    "inventory_digest": hashlib.sha256(canonical_json([asdict(node) for node in observed])).hexdigest(),
+                    "inventory_digest": hashlib.sha256(
+                        canonical_json([asdict(node) for node in observed])
+                    ).hexdigest(),
                 }
             )
             if sha256_file(outside_sentinel) != sentinel_digest:
@@ -1045,14 +1059,11 @@ class LimaDriver:
 
         yes_staging = cases["yes"][0]
         diagnostic_result = self._shell(
-            CODEX_INSTANCE,
-            ("sudo", "cat", "/dev/shm/outer-loop-sync/export-diagnostic.json"),
+            driver_instance,
+            ("sudo", "cat", f"{diagnostic_root}/export-diagnostic.json"),
             timeout=20,
         )
-        self._shell(
-            CODEX_INSTANCE,
-            ("sudo", "rm", "-rf", "/dev/shm/outer-loop-sync"),
-        )
+        self._shell(driver_instance, ("sudo", "rm", "-rf", diagnostic_root))
         try:
             guest_diagnostic = json.loads(diagnostic_result.stdout)
         except json.JSONDecodeError as exc:
@@ -1073,28 +1084,59 @@ class LimaDriver:
         if stable_inventory(fixture) != fixture_before:
             raise ContractError("immutable fixture changed during sync calibration")
 
-        quarantine = self.paths.work / "quarantine"
+        quarantine = self.paths.work / "quarantine" / direction
+        quarantine.parent.mkdir(mode=0o700, exist_ok=True)
         quarantine_inventory = validate_quarantine(yes_staging, quarantine)
-        frozen = self.paths.fixture_bundles / "sync-export"
+        frozen = self.paths.fixture_bundles / direction
         bundle_digest = freeze_bundle(quarantine, frozen, quarantine_inventory)
-        c04_evidence = {"guards": guard_evidence, "tty": True}
+        c04_evidence = {"direction": direction, "driver": driver_instance, "guards": guard_evidence, "tty": True}
         c05_evidence = {
-            "fixture_digest": hashlib.sha256(canonical_json([asdict(node) for node in fixture_before])).hexdigest(),
+            "direction": direction,
+            "driver": driver_instance,
+            "fixture_digest": hashlib.sha256(
+                canonical_json([asdict(node) for node in fixture_before])
+            ).hexdigest(),
             "accepted_inventory": [asdict(node) for node in yes_inventory],
             "outside_sentinel_digest": sentinel_digest,
         }
         c06_evidence = {
+            "direction": direction,
+            "driver": driver_instance,
             "guest_diagnostic_digest": hashlib.sha256(canonical_json(guest_diagnostic)).hexdigest(),
             "quarantine_inventory": [asdict(node) for node in quarantine_inventory],
             "bundle_digest": bundle_digest,
         }
-        return PhaseResult(
-            (
-                self._record(run_id, "C04", "initial", "sync-guard", c04_evidence, "run sync-export"),
-                self._record(run_id, "C05", "initial", "sync-semantics", c05_evidence, "run sync-export"),
-                self._record(run_id, "C06", "initial", "export-quarantine", c06_evidence, "run sync-export"),
-            )
+        return (
+            self._record(run_id, "C04", direction, f"{direction}:sync-guard", c04_evidence, "run sync-export"),
+            self._record(run_id, "C05", direction, f"{direction}:sync-semantics", c05_evidence, "run sync-export"),
+            self._record(run_id, "C06", direction, f"{direction}:export-quarantine", c06_evidence, "run sync-export"),
         )
+
+    def sync_export(self, run_id: str) -> PhaseResult:
+        fixture = self.paths.frozen_harness / "fixtures" / "sync-positive"
+        fixture_before = stable_inventory(fixture)
+        staging_root = self.paths.work / "staging"
+        staging_root.mkdir(mode=0o700, exist_ok=False)
+        os.chmod(staging_root, 0o700)
+        sentinels = self.paths.work / "sentinels"
+        sentinels.mkdir(mode=0o700, exist_ok=False)
+        controls: list[ControlRecord] = []
+        for direction, driver_instance in (
+            ("forward", CODEX_INSTANCE),
+            ("reverse", CLAUDE_INSTANCE),
+        ):
+            controls.extend(
+                self._sync_export_direction(
+                    run_id,
+                    direction,
+                    driver_instance,
+                    fixture,
+                    fixture_before,
+                    staging_root,
+                    sentinels,
+                )
+            )
+        return PhaseResult(tuple(controls))
 
     def handoff(self, run_id: str, direction: str) -> PhaseResult:
         if direction not in HANDOFF_DIRECTIONS:
@@ -1126,7 +1168,7 @@ class LimaDriver:
                 ("limactl", "--tty=false", "start", "--timeout=10m", reviewer_instance),
                 timeout=720,
             )
-        bundle = self.paths.fixture_bundles / "sync-export"
+        bundle = self.paths.fixture_bundles / direction
         manifest = bundle / "bundle-manifest.json"
         expected_digest = sha256_file(manifest)
         guest_bundle = f"/tmp/outer-loop-handoff-{direction}"
@@ -1275,6 +1317,7 @@ class Orchestrator:
             "real_task_allowed": False,
             "active_operation": None,
             "completed_operations": ["init"],
+            "authentication_attempts": [],
             "required_control_keys": [],
             "approval_targets": {},
             "seal_input_digest": None,
@@ -1423,6 +1466,7 @@ class Orchestrator:
         occurrence: str,
         target: str,
         required_probe_occurrence: str | None = None,
+        require_sync_export_coverage: bool = False,
     ) -> dict[str, object]:
         paths = self._paths(run_id)
         state = self._load(paths)
@@ -1437,6 +1481,9 @@ class Orchestrator:
         )
         try:
             result = action(self._driver_factory(paths))
+            state = self._load(paths)
+            if require_sync_export_coverage:
+                self._validate_sync_export_coverage(result)
             self._accept_phase_result(
                 paths,
                 state,
@@ -1447,7 +1494,7 @@ class Orchestrator:
             self._finish(paths, state, operation, next_phase)
             return state
         except Exception as exc:
-            self._block(paths, state, str(exc))
+            self._block(paths, self._load(paths), str(exc))
             raise
 
     @staticmethod
@@ -1488,6 +1535,31 @@ class Orchestrator:
             )
         if not control_targets:
             raise ContractError("C03 produced no applicable paired-probe controls")
+
+    @staticmethod
+    def _validate_sync_export_coverage(result: PhaseResult) -> None:
+        expected = {
+            (control_id, direction, f"{direction}:{target}")
+            for direction in HANDOFF_DIRECTIONS
+            for control_id, target in (
+                ("C04", "sync-guard"),
+                ("C05", "sync-semantics"),
+                ("C06", "export-quarantine"),
+            )
+        }
+        actual = [
+            (record.key.control_id, record.key.occurrence, record.key.target)
+            for record in result.controls
+            if record.key.control_id in {"C04", "C05", "C06"}
+        ]
+        duplicates = sorted({key for key in actual if actual.count(key) > 1})
+        missing = sorted(expected.difference(actual))
+        unexpected = sorted(set(actual).difference(expected))
+        if duplicates or missing or unexpected:
+            raise ContractError(
+                "sync/export direction coverage mismatch "
+                f"duplicates={duplicates} missing={missing} unexpected={unexpected}"
+            )
 
     def _accept_phase_result(
         self,
@@ -1693,9 +1765,8 @@ class Orchestrator:
         paths = self._paths(run_id)
 
         def action(driver: CalibrationDriver) -> PhaseResult:
-            result = driver.provision(run_id, paths.frozen_harness)
             self._register_retention(paths)
-            return result
+            return driver.provision(run_id, paths.frozen_harness)
 
         state = self._run_phase(
             run_id,
@@ -1772,12 +1843,26 @@ class Orchestrator:
             raise ContractError("runtime must be codex or claude")
         expected = Phase.PRE_AUTH_APPROVED if runtime == "codex" else Phase.CODEX_AUTHENTICATED
         next_phase = Phase.CODEX_AUTHENTICATED if runtime == "codex" else Phase.AUTHENTICATED
+        paths = self._paths(run_id)
+
+        def action(driver: CalibrationDriver) -> PhaseResult:
+            state = self._load(paths)
+            active = state.get("active_operation")
+            if not isinstance(active, dict) or active.get("name") != f"authenticate {runtime}":
+                raise ContractError("authentication attempt state does not match active operation")
+            attempts = state.get("authentication_attempts")
+            if not isinstance(attempts, list) or runtime in attempts:
+                raise ContractError("authentication attempt state is invalid")
+            attempts.append(runtime)
+            self._save(paths, state)
+            return driver.authenticate(run_id, runtime, "initial")
+
         return self._run_phase(
             run_id,
             f"authenticate {runtime}",
             expected,
             next_phase,
-            lambda driver: driver.authenticate(run_id, runtime, "initial"),
+            action,
             allowed_controls={"C02"},
             control_id="C02",
             occurrence="initial",
@@ -1809,6 +1894,7 @@ class Orchestrator:
             control_id="C04",
             occurrence="initial",
             target="sync-export",
+            require_sync_export_coverage=True,
         )
 
     def approve_pre_handoff(self, run_id: str, direction: str) -> dict[str, object]:
@@ -1928,9 +2014,11 @@ class Orchestrator:
             return state
         if state.get("active_operation") is not None:
             self._block(paths, state, "cleanup interrupted an incomplete operation")
-        completed = state.get("completed_operations", [])
+        attempts = state.get("authentication_attempts", [])
+        if not isinstance(attempts, list) or any(runtime not in RUNTIMES for runtime in attempts):
+            raise ContractError("authentication attempt state is invalid")
         authenticated_runtimes = tuple(
-            runtime for runtime in RUNTIMES if f"authenticate {runtime}" in completed
+            runtime for runtime in RUNTIMES if runtime in attempts
         )
         runner = CommandRunner(self.state_root / LIMA_HOME_RELATIVE)
         logout: dict[str, str] = {}

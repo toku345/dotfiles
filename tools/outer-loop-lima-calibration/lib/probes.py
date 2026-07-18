@@ -61,6 +61,7 @@ class ProbeEvidence:
     outside_ingress_nonce: str | None
     receipt: ExecutionReceipt | None
     inside_ingress_nonce: str | None
+    inside_canary_error: str | None = None
     expected_denial_classification: str = ObservationClass.DENIED_BY_SANDBOX
 
 
@@ -70,6 +71,12 @@ class ProbeOutcome:
     result: ControlResult | None
     applicable: bool
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class CanaryResult:
+    received: str | None
+    error: str | None
 
 
 def argv_digest(argv: Iterable[str]) -> str:
@@ -100,6 +107,8 @@ def classify_paired_probe(evidence: ProbeEvidence) -> ProbeOutcome:
         )
     if evidence.outside_ingress_nonce != evidence.nonce:
         return ProbeOutcome("OUTSIDE_INGRESS_MISSING", ControlResult.UNVERIFIED, True, "outside canary missing")
+    if evidence.inside_canary_error is not None:
+        return ProbeOutcome("INSIDE_CANARY_ERROR", ControlResult.UNVERIFIED, True, "inside canary unhealthy")
     if evidence.runtime_observed_argv is None:
         return ProbeOutcome("RUNTIME_ARGV_MISSING", ControlResult.UNVERIFIED, True, "runtime event missing")
     if evidence.runtime_observed_argv != evidence.intended_argv:
@@ -170,17 +179,21 @@ class OneShotCanary:
             else:
                 data, _ = self._socket.recvfrom(4096)
             self.received = data.decode("ascii", errors="strict")
+        except socket.timeout:
+            pass
         except (OSError, UnicodeError) as exc:
             self.error = type(exc).__name__
         finally:
             self._socket.close()
 
-    def wait(self, timeout: float = 31.0) -> str | None:
+    def wait(self, timeout: float = 31.0) -> CanaryResult:
         self._thread.join(timeout)
         if self._thread.is_alive():
             self._socket.close()
             self._thread.join(1)
-        return self.received
+            if self._thread.is_alive() or self.error is None:
+                self.error = "ListenerJoinTimeout"
+        return CanaryResult(self.received, self.error)
 
 
 def send_canary(host: str, port: int, protocol: str, nonce: str, timeout: float = 5.0) -> None:

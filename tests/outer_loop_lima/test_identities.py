@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -27,6 +28,17 @@ class IdentityTests(unittest.TestCase):
         lock = validate_versions_lock(HARNESS / "versions.lock.json")
         self.assertEqual(lock["schema_version"], 1)
         self.assertEqual(lock["artifacts"]["sandbox_runtime"]["version"], "0.0.65")
+
+    def test_provisioned_remote_artifacts_are_all_lock_sources(self) -> None:
+        lock = validate_versions_lock(HARNESS / "versions.lock.json")
+        locked_sources = {artifact["source"] for artifact in lock["artifacts"].values()}
+        locked_sources.add(lock["guest_apt"]["snapshot"])
+        provisioned_sources: set[str] = set()
+        for script in (HARNESS / "guest").glob("provision-*.sh"):
+            provisioned_sources.update(
+                re.findall(r"https://[^'\s]+", script.read_text(encoding="utf-8"))
+            )
+        self.assertEqual(sorted(provisioned_sources.difference(locked_sources)), [])
 
     def test_repository_manifest_is_complete(self) -> None:
         manifest = validate_manifest(HARNESS)

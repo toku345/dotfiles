@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import io
 import subprocess
@@ -25,7 +26,15 @@ from lib.model import (  # noqa: E402
     TerminalState,
 )
 from lib.orchestrator import LimaDriver, Orchestrator, Phase, PhaseResult  # noqa: E402
-from lib.probes import ProbeOutcome, ProbeTarget, required_probe_matrix  # noqa: E402
+from lib.paths import RunPaths  # noqa: E402
+from lib.probes import (  # noqa: E402
+    CanaryResult,
+    ExecutionReceipt,
+    ProbeOutcome,
+    ProbeTarget,
+    argv_digest,
+    required_probe_matrix,
+)
 
 
 def passed(run_id: str, control_id: str, occurrence: str, target: str) -> ControlRecord:
@@ -85,7 +94,8 @@ class FakeDriver:
     def sync_export(self, run_id: str) -> PhaseResult:
         return PhaseResult(
             tuple(
-                passed(run_id, control_id, "initial", target)
+                passed(run_id, control_id, direction, f"{direction}:{target}")
+                for direction in ("forward", "reverse")
                 for control_id, target in (
                     ("C04", "sync-guard"),
                     ("C05", "sync-semantics"),
@@ -162,6 +172,10 @@ class OrchestratorTests(unittest.TestCase):
         self.orchestrator.approve_pre_auth(run_id, code_paste_feasible=True)
         self.orchestrator.authenticate(run_id, "codex")
         self.orchestrator.authenticate(run_id, "claude")
+        self.assertEqual(
+            self.orchestrator._load(self.orchestrator._paths(run_id))["authentication_attempts"],
+            ["codex", "claude"],
+        )
         self.orchestrator.isolation(run_id)
         self.orchestrator.sync_export(run_id)
         self.orchestrator.approve_pre_handoff(run_id, "forward")
@@ -214,6 +228,29 @@ class OrchestratorTests(unittest.TestCase):
         plist = paths.cleanup / "com.toku345.outer-loop-lima-cleanup.run-0001.plist"
         self.assertTrue(plist.is_file())
 
+    def test_provision_registers_retention_before_guest_creation(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        state = self.orchestrator._load(paths)
+        state["phase"] = Phase.PRE_VM_APPROVED
+        self.orchestrator._save(paths, state)
+        events: list[str] = []
+
+        class OrderedDriver(FakeDriver):
+            def provision(self, run_id: str, frozen_harness: Path) -> PhaseResult:
+                events.append("provision")
+                return super().provision(run_id, frozen_harness)
+
+        self.orchestrator._driver_factory = lambda _paths: OrderedDriver()
+        with patch.object(
+            self.orchestrator,
+            "_register_retention",
+            side_effect=lambda _paths: events.append("retention"),
+        ):
+            self.orchestrator.provision(run_id)
+        self.assertEqual(events, ["retention", "provision"])
+
     def test_incomplete_c03_matrix_blocks_ready_path(self) -> None:
         run_id = "run-0001"
         self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
@@ -229,6 +266,26 @@ class OrchestratorTests(unittest.TestCase):
         self.orchestrator._driver_factory = lambda _paths: IncompleteDriver()
         with self.assertRaisesRegex(ContractError, "C03 matrix coverage mismatch"):
             self.orchestrator.isolation(run_id)
+        self.assertEqual(self.orchestrator.status(run_id)["terminal_state"], TerminalState.BLOCKED)
+
+    def test_incomplete_sync_export_directions_block(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        state = self.orchestrator._load(paths)
+        state["phase"] = Phase.ISOLATION_COMPLETE
+        self.orchestrator._save(paths, state)
+
+        class ForwardOnlyDriver(FakeDriver):
+            def sync_export(self, run_id: str) -> PhaseResult:
+                result = super().sync_export(run_id)
+                return PhaseResult(
+                    tuple(record for record in result.controls if record.key.occurrence == "forward")
+                )
+
+        self.orchestrator._driver_factory = lambda _paths: ForwardOnlyDriver()
+        with self.assertRaisesRegex(ContractError, "sync/export direction coverage mismatch"):
+            self.orchestrator.sync_export(run_id)
         self.assertEqual(self.orchestrator.status(run_id)["terminal_state"], TerminalState.BLOCKED)
 
     def test_status_converts_orphaned_started_control_to_unverified_blocked(self) -> None:
@@ -328,6 +385,38 @@ class OrchestratorTests(unittest.TestCase):
             "NONZERO",
         )
 
+    def test_failed_authentication_attempt_requires_logout_or_revoke(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        state = self.orchestrator._load(paths)
+        state["phase"] = Phase.PRE_AUTH_APPROVED
+        self.orchestrator._save(paths, state)
+
+        class FailedAuthDriver(FakeDriver):
+            def authenticate(self, run_id: str, runtime: str, occurrence: str) -> PhaseResult:
+                raise ContractError("sanitized classification failed")
+
+        self.orchestrator._driver_factory = lambda _paths: FailedAuthDriver()
+        with self.assertRaises(ContractError):
+            self.orchestrator.authenticate(run_id, "codex")
+        state = self.orchestrator._load(paths)
+        self.assertEqual(state["authentication_attempts"], ["codex"])
+
+        def nonzero(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 7, stdout="", stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=nonzero) as runner:
+            state = self.orchestrator.cleanup(run_id, cause="abandonment")
+        logout_calls = [
+            call.args[0]
+            for call in runner.call_args_list
+            if "logout" in call.args[0]
+        ]
+        self.assertEqual(len(logout_calls), 1)
+        self.assertIn("codex", logout_calls[0])
+        self.assertTrue(state["account_revoke_required"])
+
 
 class PeerIsolationTests(unittest.TestCase):
     def driver(self) -> LimaDriver:
@@ -378,7 +467,7 @@ class C03DriverTests(unittest.TestCase):
         target = ProbeTarget("codex", "initial", "dns", "tcp", "host")
         nonce = "a" * 32
         canary = Mock(port=39001)
-        canary.wait.return_value = nonce
+        canary.wait.return_value = CanaryResult(nonce, None)
         passed_outcome = ProbeOutcome("PAIRED_DENIAL_PROVED", ControlResult.PASS, True, "complete")
         with (
             patch("lib.orchestrator.secrets.token_hex", return_value=nonce),
@@ -402,7 +491,7 @@ class C03DriverTests(unittest.TestCase):
         target = ProbeTarget("codex", "initial", "dns", "udp", "host")
         nonce = "a" * 32
         canary = Mock(port=39002)
-        canary.wait.return_value = None
+        canary.wait.return_value = CanaryResult(None, None)
         with (
             patch("lib.orchestrator.secrets.token_hex", return_value=nonce),
             patch("lib.orchestrator.OneShotCanary", return_value=canary),
@@ -416,6 +505,129 @@ class C03DriverTests(unittest.TestCase):
             record = driver._execute_host_probe("run-0001", target, Path("/tmp/listeners"))
         self.assertEqual(record.result, ControlResult.UNVERIFIED)
         inside_probe.assert_not_called()
+
+    def test_host_probe_claude_runs_both_stages_with_stage_two_load_bearing(self) -> None:
+        driver = LimaDriver.__new__(LimaDriver)
+        target = ProbeTarget("claude", "initial", "dns", "tcp", "host")
+        nonce = "c" * 32
+        canary = Mock(port=39003)
+        canary.wait.return_value = CanaryResult(nonce, None)
+        passed_outcome = ProbeOutcome("PAIRED_DENIAL_PROVED", ControlResult.PASS, True, "complete")
+        with (
+            patch("lib.orchestrator.secrets.token_hex", return_value=nonce),
+            patch("lib.orchestrator.OneShotCanary", return_value=canary),
+            patch.object(
+                driver,
+                "_shell",
+                return_value=subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+            ),
+            patch.object(
+                driver,
+                "_run_probe_stage",
+                side_effect=((passed_outcome, {"stage": 1}), (passed_outcome, {"stage": 2})),
+            ) as stages,
+        ):
+            record = driver._execute_host_probe("run-0001", target, Path("/tmp/listeners"))
+        self.assertEqual(record.result, ControlResult.PASS)
+        self.assertEqual([call.kwargs["stage"] for call in stages.call_args_list], ["srt-direct", "claude-bash"])
+        self.assertEqual(stages.call_args_list[0].args[1], stages.call_args_list[1].args[1])
+
+    def test_probe_stage_listener_error_is_unverified(self) -> None:
+        driver = LimaDriver.__new__(LimaDriver)
+        target = ProbeTarget("codex", "initial", "dns", "tcp", "host")
+        nonce = "d" * 32
+        intended = driver._probe_argv("host.lima.internal", 39004, "tcp", nonce)
+        receipt = ExecutionReceipt(
+            nonce,
+            "host",
+            argv_digest(intended),
+            ObservationClass.DENIED_BY_SANDBOX,
+        )
+        canary = Mock()
+        canary.wait.return_value = CanaryResult(None, "OSError")
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("lib.orchestrator.OneShotCanary", return_value=canary),
+            patch.object(driver, "_run_agent_probe", return_value=(True, receipt)),
+        ):
+            outcome, log = driver._run_probe_stage(
+                target,
+                nonce,
+                intended,
+                39004,
+                stage="codex-command",
+                outside_ingress_nonce=nonce,
+                listeners=Path(temporary),
+            )
+        self.assertEqual(outcome.result, ControlResult.UNVERIFIED)
+        self.assertEqual(outcome.observation, "INSIDE_CANARY_ERROR")
+        self.assertEqual(log["inside_canary_error"], "OSError")
+
+
+class HandoffDriverTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.paths = RunPaths.for_run("run-0001", self.root / "state")
+        self.paths.create()
+        self.bundle = self.paths.fixture_bundles / "forward"
+        self.bundle.mkdir()
+        self.manifest = self.bundle / "bundle-manifest.json"
+        self.manifest.write_text('{"schema_version":1,"frozen_inventory":[]}')
+        self.expected_digest = hashlib.sha256(self.manifest.read_bytes()).hexdigest()
+        self.driver = LimaDriver(self.paths, self.root / "state", HARNESS)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _result(
+        self,
+        argv,
+        *,
+        reviewer_digest: str | None = None,
+        driver_status: str = "stopped",
+        **_kwargs,
+    ):
+        if "--all-fields" in argv and argv[-1] == "outer-loop-week0-codex":
+            value = [{"name": argv[-1], "status": driver_status, "dir": "driver", "vmType": "vz", "arch": "aarch64"}]
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(value), stderr="")
+        if "--all-fields" in argv:
+            value = [{"name": argv[-1], "status": "running", "dir": "reviewer", "vmType": "vz", "arch": "aarch64"}]
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(value), stderr="")
+        if "python3" in argv:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout=(reviewer_digest or self.expected_digest) + "\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    def test_handoff_uses_direction_bundle_and_accepts_matching_reviewer_digest(self) -> None:
+        with patch.object(self.driver.runner, "run", side_effect=self._result) as runner:
+            result = self.driver.handoff("run-0001", "forward")
+        self.assertEqual(result.controls[0].result, ControlResult.PASS)
+        copy_call = next(call.args[0] for call in runner.call_args_list if "copy" in call.args[0])
+        self.assertIn(str(self.bundle), copy_call)
+
+    def test_handoff_rejects_reviewer_digest_mismatch(self) -> None:
+        with patch.object(
+            self.driver.runner,
+            "run",
+            side_effect=lambda argv, **kwargs: self._result(argv, reviewer_digest="0" * 64),
+        ):
+            with self.assertRaisesRegex(ContractError, "reviewer digest mismatch"):
+                self.driver.handoff("run-0001", "forward")
+
+    def test_handoff_rejects_driver_stop_identity_mismatch_before_copy(self) -> None:
+        with patch.object(
+            self.driver.runner,
+            "run",
+            side_effect=lambda argv, **kwargs: self._result(argv, driver_status="running"),
+        ) as runner:
+            with self.assertRaisesRegex(ContractError, "driver stop identity mismatch"):
+                self.driver.handoff("run-0001", "forward")
+        self.assertFalse(any("copy" in call.args[0] for call in runner.call_args_list))
 
 if __name__ == "__main__":
     unittest.main()

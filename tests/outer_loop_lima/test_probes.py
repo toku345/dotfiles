@@ -11,6 +11,7 @@ sys.path.insert(0, str(HARNESS))
 
 from lib.model import ContractError, ControlResult, ObservationClass  # noqa: E402
 from lib.probes import (  # noqa: E402
+    CanaryResult,
     ExecutionReceipt,
     OneShotCanary,
     ProbeEvidence,
@@ -54,6 +55,11 @@ class ProbeTests(unittest.TestCase):
         outcome = classify_paired_probe(self.evidence())
         self.assertEqual(outcome.result, ControlResult.PASS)
 
+    def test_inside_listener_error_is_unverified(self) -> None:
+        outcome = classify_paired_probe(self.evidence(inside_canary_error="OSError"))
+        self.assertEqual(outcome.result, ControlResult.UNVERIFIED)
+        self.assertEqual(outcome.observation, "INSIDE_CANARY_ERROR")
+
     def test_unreachable_outside_is_not_a_passing_denial(self) -> None:
         outcome = classify_paired_probe(self.evidence(outside_path_available=False))
         self.assertFalse(outcome.applicable)
@@ -93,7 +99,7 @@ class ProbeTests(unittest.TestCase):
             except PermissionError:
                 self.skipTest("local socket creation is denied by the test sandbox")
             send_canary("127.0.0.1", listener.port, protocol, "b" * 32)
-            self.assertEqual(listener.wait(2), "b" * 32)
+            self.assertEqual(listener.wait(2), CanaryResult("b" * 32, None))
 
 
 if __name__ == "__main__":

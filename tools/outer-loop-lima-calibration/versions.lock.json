@@ -32,6 +32,11 @@
       "source": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-arm64.tar.xz",
       "sha256": "58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6"
     },
+    "codex_base": {
+      "version": "0.144.5",
+      "source": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.5.tgz",
+      "integrity": "sha512-jjB+K+OMv572mKhS+2QuLxWXDJNdpwbPenf+V+8bdq7wg4Scqt3cn6WEekD8wPqDVZqck0HSX17K9rD9kbDJQA=="
+    },
     "codex_linux_arm64": {
       "version": "0.144.5-linux-arm64",
       "source": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.5-linux-arm64.tgz",
