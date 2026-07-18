@@ -427,6 +427,154 @@ class OrchestratorTests(unittest.TestCase):
             "NONZERO",
         )
 
+    def test_verify_cleanup_accepts_absent_calibration_instances(self) -> None:
+        cases = (
+            (
+                "",
+                'level=warning msg="No instance found. Run `limactl create` to create an instance."',
+            ),
+            ('[{"name":"unrelated-lima-instance"}]', ""),
+        )
+        for index, (stdout, stderr) in enumerate(cases, start=1):
+            with self.subTest(stdout=stdout, stderr=stderr):
+                run_id = f"run-20{index:02d}"
+                self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+
+                def calibration_instances_absent(argv, **_kwargs):
+                    if "list" in argv:
+                        return subprocess.CompletedProcess(
+                            argv,
+                            0,
+                            stdout=stdout,
+                            stderr=stderr,
+                        )
+                    if "print" in argv:
+                        return subprocess.CompletedProcess(
+                            argv,
+                            1,
+                            stdout="",
+                            stderr="Could not find service",
+                        )
+                    return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+                with patch(
+                    "lib.orchestrator.CommandRunner.run",
+                    side_effect=calibration_instances_absent,
+                ):
+                    self.orchestrator.cleanup(run_id, cause="abandonment")
+                    state = self.orchestrator.verify_cleanup(
+                        run_id,
+                        revoke_human_confirmed=False,
+                    )
+
+                self.assertTrue(state["cleanup_verified"])
+                attestation = json.loads(
+                    (self.orchestrator._paths(run_id).cleanup / "attestations.jsonl")
+                    .read_text()
+                    .splitlines()[-1]
+                )
+                self.assertEqual(
+                    attestation["observations"]["codex_instance"],
+                    "ABSENT",
+                )
+                self.assertEqual(
+                    attestation["observations"]["claude_instance"],
+                    "ABSENT",
+                )
+
+    def test_verify_cleanup_rejects_ambiguous_instance_output(self) -> None:
+        known_warning = (
+            'level=warning msg="No instance found. Run `limactl create` to create an instance."'
+        )
+        cases = (
+            ("null", ""),
+            ("{}", ""),
+            ('[{"status":"Stopped"}]', ""),
+            ('"outer-loop-week0-codex"', ""),
+            ("", 'level=warning msg="No instance found for current filter."'),
+            ("", f"{known_warning}\nlevel=error msg=unexpected"),
+        )
+        for index, (stdout, stderr) in enumerate(cases, start=1):
+            with self.subTest(stdout=stdout, stderr=stderr):
+                run_id = f"run-10{index:02d}"
+                self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+
+                def inconclusive_instances(argv, **_kwargs):
+                    if "list" in argv:
+                        return subprocess.CompletedProcess(
+                            argv,
+                            0,
+                            stdout=stdout,
+                            stderr=stderr,
+                        )
+                    if "print" in argv:
+                        return subprocess.CompletedProcess(
+                            argv,
+                            1,
+                            stdout="",
+                            stderr="Could not find service",
+                        )
+                    return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+                with patch(
+                    "lib.orchestrator.CommandRunner.run",
+                    side_effect=inconclusive_instances,
+                ):
+                    self.orchestrator.cleanup(run_id, cause="abandonment")
+                    state = self.orchestrator.verify_cleanup(
+                        run_id,
+                        revoke_human_confirmed=False,
+                    )
+
+                self.assertFalse(state["cleanup_verified"])
+                attestation = json.loads(
+                    (self.orchestrator._paths(run_id).cleanup / "attestations.jsonl")
+                    .read_text()
+                    .splitlines()[-1]
+                )
+                self.assertEqual(
+                    attestation["observations"]["codex_instance"],
+                    "UNKNOWN",
+                )
+                self.assertEqual(
+                    attestation["observations"]["claude_instance"],
+                    "UNKNOWN",
+                )
+
+    def test_verify_cleanup_keeps_remaining_instance_present(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+
+        def codex_remains(argv, **_kwargs):
+            if "list" in argv:
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    stdout='[{"name":"outer-loop-week0-codex"}]',
+                    stderr="",
+                )
+            if "print" in argv:
+                return subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    stdout="",
+                    stderr="Could not find service",
+                )
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=codex_remains):
+            self.orchestrator.cleanup(run_id, cause="abandonment")
+            state = self.orchestrator.verify_cleanup(run_id, revoke_human_confirmed=False)
+
+        self.assertFalse(state["cleanup_verified"])
+        attestation = json.loads(
+            (self.orchestrator._paths(run_id).cleanup / "attestations.jsonl")
+            .read_text()
+            .splitlines()[-1]
+        )
+        self.assertEqual(attestation["observations"]["codex_instance"], "PRESENT")
+        self.assertEqual(attestation["observations"]["claude_instance"], "ABSENT")
+
     def test_cleanup_waits_for_live_operation_without_false_unverified_record(self) -> None:
         run_id = "run-0001"
         self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")

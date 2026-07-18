@@ -76,6 +76,9 @@ COMPLETE_RECEIPT_PREFIX = "OUTER_LOOP_RECEIPT_COMPLETE:"
 NETWORK_DENIED_EXIT = 77
 NETWORK_DENIED_MARKER = "OUTER_LOOP_NETWORK_DENIED"
 OPERATION_LOCK_NAME = "operation.lock"
+NO_INSTANCE_WARNING_SUFFIX = (
+    'level=warning msg="No instance found. Run `limactl create` to create an instance."'
+)
 
 
 class Phase:
@@ -2329,18 +2332,48 @@ class Orchestrator:
             )
         runner = CommandRunner(self.state_root / LIMA_HOME_RELATIVE)
 
-        def instances_absent() -> bool | None:
-            result = runner.run(
-                ("limactl", "--tty=false", "list", "--format=json"),
-                timeout=30,
-                check=False,
-            )
-            if result.returncode != 0:
-                raise ContractError("limactl instance read-back failed")
-            value = json.loads(result.stdout)
-            records = value if isinstance(value, list) else [value]
-            names = {record.get("name") for record in records if isinstance(record, dict)}
-            return not names.intersection({CODEX_INSTANCE, CLAUDE_INSTANCE})
+        instance_names: set[str] | None = None
+
+        def instance_absent(instance_name: str) -> bool | None:
+            nonlocal instance_names
+            if instance_names is None:
+                result = runner.run(
+                    ("limactl", "--tty=false", "list", "--format=json"),
+                    timeout=30,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    raise ContractError("limactl instance read-back failed")
+                output = result.stdout.strip()
+                if output:
+                    value = json.loads(output)
+                    if isinstance(value, dict):
+                        records = [value]
+                    elif isinstance(value, list):
+                        records = value
+                    else:
+                        raise ContractError("limactl instance read-back JSON type is invalid")
+                    names: set[str] = set()
+                    for record in records:
+                        if not isinstance(record, dict):
+                            raise ContractError("limactl instance record is invalid")
+                        name = record.get("name")
+                        if not isinstance(name, str) or not name.strip():
+                            raise ContractError("limactl instance name is invalid")
+                        names.add(name)
+                    instance_names = names
+                else:
+                    stderr_lines = [
+                        line.strip()
+                        for line in (result.stderr or "").splitlines()
+                        if line.strip()
+                    ]
+                    if len(stderr_lines) != 1 or not stderr_lines[0].endswith(
+                        NO_INSTANCE_WARNING_SUFFIX
+                    ):
+                        raise ContractError("limactl instance read-back returned no JSON")
+                    instance_names = set()
+            return instance_name not in instance_names
 
         def path_absent(path: Path) -> bool:
             return not path.exists() and not path.is_symlink()
@@ -2367,8 +2400,8 @@ class Orchestrator:
         diagnostics: dict[str, str] = {}
         observations = collect_absence(
             (
-                ("codex_instance", instances_absent),
-                ("claude_instance", instances_absent),
+                ("codex_instance", lambda: instance_absent(CODEX_INSTANCE)),
+                ("claude_instance", lambda: instance_absent(CLAUDE_INSTANCE)),
                 ("codex_disk", lambda: path_absent(lima_home / CODEX_INSTANCE)),
                 ("claude_disk", lambda: path_absent(lima_home / CLAUDE_INSTANCE)),
                 ("staging", lambda: path_absent(paths.work / "staging")),

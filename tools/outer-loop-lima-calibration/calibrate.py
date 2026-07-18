@@ -7,6 +7,11 @@ import json
 import sys
 from pathlib import Path
 
+# The harness manifest rejects every unlisted runtime file. Disable bytecode
+# writes before importing local modules so the CLI cannot dirty its own source
+# tree before preflight validates and freezes it.
+sys.dont_write_bytecode = True
+
 from lib.model import ContractError
 from lib.orchestrator import Orchestrator
 from lib.paths import STATE_ROOT

@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -43,6 +45,41 @@ class IdentityTests(unittest.TestCase):
     def test_repository_manifest_is_complete(self) -> None:
         manifest = validate_manifest(HARNESS)
         self.assertGreater(len(manifest["files"]), 30)
+
+    def test_cli_init_does_not_write_bytecode_into_harness(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            harness = root / "harness"
+            shutil.copytree(
+                HARNESS,
+                harness,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
+            environment = os.environ.copy()
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)
+            environment.pop("PYTHONPYCACHEPREFIX", None)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(harness / "calibrate.py"),
+                    "--state-root",
+                    str(root / "state"),
+                    "init",
+                    "run-0001",
+                    "--retention-deadline",
+                    "2030-01-02T00:00:00Z",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(list(harness.rglob("*.pyc")), [])
+            self.assertEqual(list(harness.rglob("__pycache__")), [])
+            validate_manifest(harness)
 
     def test_lock_rejects_artifact_without_integrity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
