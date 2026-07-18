@@ -48,9 +48,9 @@ class GuestControlTests(unittest.TestCase):
         argv = ["probe", "host.lima.internal", "443"]
         completed = subprocess.CompletedProcess(
             argv,
-            77,
+            control.NETWORK_DENIED_EXIT,
             stdout="",
-            stderr="operation not permitted",
+            stderr=control.NETWORK_DENIED_MARKER + "\n",
         )
         output = io.StringIO()
         with (
@@ -71,6 +71,19 @@ class GuestControlTests(unittest.TestCase):
         self.assertEqual(complete["destination"], "host")
         self.assertEqual(complete["argv_digest"], expected_digest)
         self.assertEqual(complete["exit_classification"], "NONZERO")
+
+    def test_generic_stderr_never_becomes_sandbox_denial(self) -> None:
+        control = load_guest_control()
+        for returncode, stderr in (
+            (1, "operation not permitted"),
+            (1, "permission denied opening an unrelated local file"),
+            (control.NETWORK_DENIED_EXIT, "permission denied"),
+        ):
+            with self.subTest(returncode=returncode, stderr=stderr):
+                self.assertEqual(
+                    control.classify(returncode, stderr),
+                    "COMMAND_FAILED_AMBIGUOUS",
+                )
 
     def test_timeout_still_emits_terminal_receipt(self) -> None:
         control = load_guest_control()

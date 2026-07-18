@@ -19,6 +19,7 @@ from lib.export_validator import (  # noqa: E402
     validate_quarantine,
 )
 from lib.model import ContractError  # noqa: E402
+from lib import sync_guard  # noqa: E402
 from lib.sync_guard import validate_sync_invocation  # noqa: E402
 
 
@@ -83,6 +84,28 @@ class SyncGuardTests(unittest.TestCase):
                 stdin_isatty=True,
                 stdout_isatty=True,
             )
+
+    def test_symlink_swap_after_ancestor_check_is_rejected_by_containment(self) -> None:
+        outside = self.root / "outside"
+        outside.mkdir(mode=0o700)
+        os.chmod(outside, 0o700)
+        parked = self.registered / "staging-original"
+        original_check = sync_guard.ensure_no_symlink_ancestors
+
+        def swap_after_check(path: Path, *, stop: Path) -> None:
+            original_check(path, stop=stop)
+            if path.absolute() == self.staging.absolute():
+                self.staging.rename(parked)
+                self.staging.symlink_to(outside, target_is_directory=True)
+
+        with (
+            patch(
+                "lib.sync_guard.ensure_no_symlink_ancestors",
+                side_effect=swap_after_check,
+            ),
+            self.assertRaisesRegex(ContractError, "escaped its registered root"),
+        ):
+            self.validate()
 
 
 class ExportTests(unittest.TestCase):

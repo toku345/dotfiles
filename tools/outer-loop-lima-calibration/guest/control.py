@@ -12,6 +12,8 @@ import sys
 NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
 STARTED_PREFIX = "OUTER_LOOP_RECEIPT_STARTED:"
 COMPLETE_PREFIX = "OUTER_LOOP_RECEIPT_COMPLETE:"
+NETWORK_DENIED_EXIT = 77
+NETWORK_DENIED_MARKER = "OUTER_LOOP_NETWORK_DENIED"
 
 
 def canonical(value: object) -> bytes:
@@ -23,8 +25,7 @@ def emit(prefix: str, value: object) -> None:
 
 
 def classify(returncode: int, stderr: str) -> str:
-    lowered = stderr.lower()
-    if any(marker in lowered for marker in ("operation not permitted", "network is unreachable", "blocked by network", "permission denied")):
+    if returncode == NETWORK_DENIED_EXIT and stderr == NETWORK_DENIED_MARKER + "\n":
         return "DENIED_BY_SANDBOX"
     if returncode == 0:
         return "COMMAND_SUCCEEDED"

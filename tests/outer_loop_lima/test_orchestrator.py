@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import io
@@ -293,6 +294,30 @@ class OrchestratorTests(unittest.TestCase):
         self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
         paths = self.orchestrator._paths(run_id)
         state = self.orchestrator._load(paths)
+        current = dict(state)
+        current["phase"] = Phase.AUTHENTICATED
+        self.orchestrator._save(paths, current)
+        self.orchestrator._begin(
+            paths,
+            state,
+            "run isolation",
+            Phase.AUTHENTICATED,
+            control_id="C03",
+            occurrence="initial",
+            target="matrix",
+        )
+        self.orchestrator._release_operation_lock(paths)
+        status = self.orchestrator.status(run_id)
+        self.assertEqual(status["terminal_state"], TerminalState.BLOCKED)
+        self.assertEqual(status["operation_state"], "ORPHANED_BLOCKED")
+        control = json.loads((paths.evidence / "controls.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(control["result"], "UNVERIFIED")
+
+    def test_status_reports_lock_held_operation_without_blocking_it(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        state = self.orchestrator._load(paths)
         state["phase"] = Phase.AUTHENTICATED
         self.orchestrator._save(paths, state)
         self.orchestrator._begin(
@@ -304,10 +329,26 @@ class OrchestratorTests(unittest.TestCase):
             occurrence="initial",
             target="matrix",
         )
-        status = self.orchestrator.status(run_id)
-        self.assertEqual(status["terminal_state"], TerminalState.BLOCKED)
-        control = json.loads((paths.evidence / "controls.jsonl").read_text().splitlines()[-1])
-        self.assertEqual(control["result"], "UNVERIFIED")
+        watcher = Orchestrator(
+            harness_root=self.harness,
+            state_root=self.state_root,
+            driver_factory=lambda _paths: FakeDriver(),
+            now=lambda: datetime(2029, 1, 1, tzinfo=UTC),
+        )
+        with self.assertRaisesRegex(ContractError, "still in progress"):
+            watcher._begin(
+                paths,
+                watcher._load(paths),
+                "run isolation",
+                Phase.AUTHENTICATED,
+            )
+        status = watcher.status(run_id)
+        self.assertEqual(status["terminal_state"], TerminalState.RUNNING)
+        self.assertEqual(status["operation_state"], "IN_PROGRESS")
+        self.assertEqual(status["active_operation"], "run isolation")
+        self.assertEqual(self.orchestrator._load(paths)["phase"], Phase.AUTHENTICATED)
+        self.assertFalse((paths.evidence / "controls.jsonl").exists())
+        self.orchestrator._release_operation_lock(paths)
 
     def test_cli_has_no_yes_skip_or_arbitrary_control_route(self) -> None:
         parser = build_parser()
@@ -462,6 +503,30 @@ class PeerIsolationTests(unittest.TestCase):
 
 
 class C03DriverTests(unittest.TestCase):
+    def test_probe_client_marks_only_expected_network_denial_errno(self) -> None:
+        argv = LimaDriver._probe_client_argv("192.0.2.1", 443, "tcp", "a" * 32)
+        fake_socket = Mock()
+        fake_socket.create_connection.side_effect = PermissionError(errno.EPERM, "denied")
+        stderr = io.StringIO()
+        with (
+            patch.dict(sys.modules, {"socket": fake_socket}),
+            patch.object(sys, "argv", ["-c", *argv[3:]]),
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as stopped,
+        ):
+            exec(argv[2], {})
+        self.assertEqual(stopped.exception.code, 77)
+        self.assertEqual(stderr.getvalue(), "OUTER_LOOP_NETWORK_DENIED\n")
+
+        fake_socket.create_connection.side_effect = OSError(errno.EIO, "unrelated failure")
+        with (
+            patch.dict(sys.modules, {"socket": fake_socket}),
+            patch.object(sys, "argv", ["-c", *argv[3:]]),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(OSError),
+        ):
+            exec(argv[2], {})
+
     def test_host_probe_requires_guest_root_outside_baseline(self) -> None:
         driver = LimaDriver.__new__(LimaDriver)
         target = ProbeTarget("codex", "initial", "dns", "tcp", "host")

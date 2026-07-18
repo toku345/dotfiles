@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import errno
+import fcntl
 import hashlib
 import ipaddress
 import json
@@ -8,6 +10,7 @@ import platform
 import secrets
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -70,6 +73,9 @@ RUNTIMES = ("codex", "claude")
 HANDOFF_DIRECTIONS = ("forward", "reverse")
 LIMA_HOME_RELATIVE = Path("lima-home")
 COMPLETE_RECEIPT_PREFIX = "OUTER_LOOP_RECEIPT_COMPLETE:"
+NETWORK_DENIED_EXIT = 77
+NETWORK_DENIED_MARKER = "OUTER_LOOP_NETWORK_DENIED"
+OPERATION_LOCK_NAME = "operation.lock"
 
 
 class Phase:
@@ -704,17 +710,36 @@ class LimaDriver:
     @staticmethod
     def _probe_client_argv(host: str, port: int, protocol: str, nonce: str) -> tuple[str, ...]:
         if protocol == "tcp":
-            code = (
-                "import socket,sys;"
-                "s=socket.create_connection((sys.argv[1],int(sys.argv[2])),timeout=5);"
-                "s.sendall(sys.argv[3].encode('ascii'));s.close()"
+            operation = (
+                "s = socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5)\n"
+                "    s.sendall(sys.argv[3].encode('ascii'))\n"
+                "    s.close()"
             )
         else:
-            code = (
-                "import socket,sys;"
-                "a=socket.getaddrinfo(sys.argv[1],int(sys.argv[2]),type=socket.SOCK_DGRAM)[0];"
-                "s=socket.socket(a[0],a[1],a[2]);s.sendto(sys.argv[3].encode('ascii'),a[4]);s.close()"
+            operation = (
+                "a = socket.getaddrinfo(sys.argv[1], int(sys.argv[2]), type=socket.SOCK_DGRAM)[0]\n"
+                "    s = socket.socket(a[0], a[1], a[2])\n"
+                "    s.sendto(sys.argv[3].encode('ascii'), a[4])\n"
+                "    s.close()"
             )
+        denial_errnos = (
+            errno.EACCES,
+            errno.EPERM,
+            errno.ENETUNREACH,
+            errno.EHOSTUNREACH,
+        )
+        code = (
+            "import errno\n"
+            "import socket\n"
+            "import sys\n"
+            "try:\n"
+            f"    {operation}\n"
+            "except OSError as exc:\n"
+            f"    if exc.errno in {denial_errnos!r}:\n"
+            f"        sys.stderr.write({NETWORK_DENIED_MARKER!r} + '\\n')\n"
+            f"        raise SystemExit({NETWORK_DENIED_EXIT})\n"
+            "    raise\n"
+        )
         return ("/usr/bin/python3", "-c", code, host, str(port), nonce)
 
     @classmethod
@@ -1322,6 +1347,7 @@ class Orchestrator:
         self._stdout_isatty = stdout_isatty or sys.stdout.isatty
         self._input = input_fn
         self._now = now or (lambda: datetime.now(UTC))
+        self._operation_locks: dict[str, int] = {}
 
     def _paths(self, run_id: str) -> RunPaths:
         return RunPaths.for_run(validate_run_id(run_id), self.state_root)
@@ -1395,6 +1421,54 @@ class Orchestrator:
         os.replace(temporary, paths.state_file)
         os.chmod(paths.state_file, 0o600)
 
+    @staticmethod
+    def _try_operation_lock(paths: RunPaths) -> int | None:
+        ensure_private_directory(paths.work)
+        lock_path = paths.work / OPERATION_LOCK_NAME
+        try:
+            descriptor = os.open(
+                lock_path,
+                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+                0o600,
+            )
+        except OSError as exc:
+            raise ContractError("operation lock cannot be opened safely") from exc
+        try:
+            info = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or info.st_uid != os.getuid()
+                or info.st_nlink != 1
+            ):
+                raise ContractError("operation lock identity or mode is unsafe")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(descriptor)
+                return None
+            return descriptor
+        except Exception:
+            os.close(descriptor)
+            raise
+
+    def _acquire_operation_lock(self, paths: RunPaths) -> None:
+        if paths.run_id in self._operation_locks:
+            raise ContractError("operation lock is already held by this orchestrator")
+        descriptor = self._try_operation_lock(paths)
+        if descriptor is None:
+            raise ContractError("another operation is still in progress")
+        self._operation_locks[paths.run_id] = descriptor
+
+    def _release_operation_lock(self, paths: RunPaths) -> None:
+        descriptor = self._operation_locks.pop(paths.run_id, None)
+        if descriptor is None:
+            return
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
     def _enforce_deadline(self, paths: RunPaths, state: dict[str, object]) -> None:
         if state.get("terminal_state") is not TerminalState.RUNNING and state.get("terminal_state") != TerminalState.RUNNING:
             raise ContractError("terminal run allows only status and cleanup")
@@ -1414,19 +1488,27 @@ class Orchestrator:
         occurrence: str = "phase",
         target: str = "aggregate",
     ) -> None:
-        self._enforce_deadline(paths, state)
-        if state.get("phase") != expected_phase:
-            raise ContractError(f"phase skip or retry rejected: expected {expected_phase}")
-        if state.get("active_operation") is not None or operation in state.get("completed_operations", []):
-            raise ContractError("operation is already started or completed")
-        state["active_operation"] = {
-            "name": operation,
-            "control_id": control_id,
-            "occurrence": occurrence,
-            "target": target,
-            "started_at": self._now().astimezone(UTC).isoformat().replace("+00:00", "Z"),
-        }
-        self._save(paths, state)
+        self._acquire_operation_lock(paths)
+        try:
+            current = self._load(paths)
+            state.clear()
+            state.update(current)
+            self._enforce_deadline(paths, state)
+            if state.get("phase") != expected_phase:
+                raise ContractError(f"phase skip or retry rejected: expected {expected_phase}")
+            if state.get("active_operation") is not None or operation in state.get("completed_operations", []):
+                raise ContractError("operation is already started or completed")
+            state["active_operation"] = {
+                "name": operation,
+                "control_id": control_id,
+                "occurrence": occurrence,
+                "target": target,
+                "started_at": self._now().astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            }
+            self._save(paths, state)
+        except Exception:
+            self._release_operation_lock(paths)
+            raise
 
     def _finish(self, paths: RunPaths, state: dict[str, object], operation: str, phase: str) -> None:
         active = state.get("active_operation")
@@ -1439,39 +1521,43 @@ class Orchestrator:
         state["active_operation"] = None
         state["phase"] = phase
         self._save(paths, state)
+        self._release_operation_lock(paths)
 
     def _block(self, paths: RunPaths, state: dict[str, object], reason: str) -> None:
-        active = state.get("active_operation")
-        if isinstance(active, dict) and isinstance(active.get("control_id"), str):
-            record = ControlRecord(
-                key=ControlKey(
-                    paths.run_id,
-                    active["control_id"],
-                    str(active.get("occurrence", "phase")),
-                    str(active.get("target", "aggregate")),
-                ),
-                expected_classification="COMPLETED",
-                observed_classification="OPERATION_INTERRUPTED",
-                evidence_digest=hashlib.sha256(reason.encode()).hexdigest(),
-                result=ControlResult.UNVERIFIED,
-                operator_step=str(active.get("name", "unknown")),
-                exit_classification="BLOCKED",
+        try:
+            active = state.get("active_operation")
+            if isinstance(active, dict) and isinstance(active.get("control_id"), str):
+                record = ControlRecord(
+                    key=ControlKey(
+                        paths.run_id,
+                        active["control_id"],
+                        str(active.get("occurrence", "phase")),
+                        str(active.get("target", "aggregate")),
+                    ),
+                    expected_classification="COMPLETED",
+                    observed_classification="OPERATION_INTERRUPTED",
+                    evidence_digest=hashlib.sha256(reason.encode()).hexdigest(),
+                    result=ControlResult.UNVERIFIED,
+                    operator_step=str(active.get("name", "unknown")),
+                    exit_classification="BLOCKED",
+                )
+                record_control(paths, record)
+            record_decision(
+                paths,
+                {
+                    "record_type": "terminal",
+                    "run_id": paths.run_id,
+                    "terminal_state": TerminalState.BLOCKED,
+                    "real_task_allowed": False,
+                    "reason_digest": hashlib.sha256(reason.encode()).hexdigest(),
+                },
             )
-            record_control(paths, record)
-        record_decision(
-            paths,
-            {
-                "record_type": "terminal",
-                "run_id": paths.run_id,
-                "terminal_state": TerminalState.BLOCKED,
-                "real_task_allowed": False,
-                "reason_digest": hashlib.sha256(reason.encode()).hexdigest(),
-            },
-        )
-        state["terminal_state"] = TerminalState.BLOCKED
-        state["phase"] = Phase.BLOCKED
-        state["active_operation"] = None
-        self._save(paths, state)
+            state["terminal_state"] = TerminalState.BLOCKED
+            state["phase"] = Phase.BLOCKED
+            state["active_operation"] = None
+            self._save(paths, state)
+        finally:
+            self._release_operation_lock(paths)
 
     def _run_phase(
         self,
@@ -2012,12 +2098,32 @@ class Orchestrator:
     def status(self, run_id: str) -> dict[str, object]:
         paths = self._paths(run_id)
         state = self._load(paths)
-        if state.get("active_operation") is not None:
-            self._block(paths, state, "started operation lacked a completion record")
+        active = state.get("active_operation")
+        operation_state = "IDLE"
+        active_name: str | None = None
+        if active is not None:
+            if not isinstance(active, dict) or not isinstance(active.get("name"), str):
+                raise ContractError("active operation state is invalid")
+            descriptor = self._try_operation_lock(paths)
+            if descriptor is None:
+                operation_state = "IN_PROGRESS"
+                active_name = active["name"]
+            else:
+                try:
+                    state = self._load(paths)
+                    active = state.get("active_operation")
+                    if active is not None:
+                        self._block(paths, state, "started operation lacked a completion record")
+                        operation_state = "ORPHANED_BLOCKED"
+                finally:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    os.close(descriptor)
         return {
             "run_id": run_id,
             "phase": state["phase"],
             "terminal_state": state["terminal_state"],
+            "operation_state": operation_state,
+            "active_operation": active_name,
             "real_task_allowed": False,
             "retention_deadline": state["retention_deadline"],
             "seal_digest": state.get("seal_digest"),
