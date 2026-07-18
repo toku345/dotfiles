@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import platform
+import re
 import secrets
 import shlex
 import shutil
@@ -76,9 +77,30 @@ COMPLETE_RECEIPT_PREFIX = "OUTER_LOOP_RECEIPT_COMPLETE:"
 NETWORK_DENIED_EXIT = 77
 NETWORK_DENIED_MARKER = "OUTER_LOOP_NETWORK_DENIED"
 OPERATION_LOCK_NAME = "operation.lock"
-NO_INSTANCE_WARNING_SUFFIX = (
+NO_INSTANCE_WARNING = (
     'level=warning msg="No instance found. Run `limactl create` to create an instance."'
 )
+LIMA_LOG_TIMESTAMP_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})"
+)
+
+
+def _is_pinned_no_instance_warning(line: str) -> bool:
+    timestamp_prefix, separator, message = line.partition('" ')
+    if (
+        separator != '" '
+        or not timestamp_prefix.startswith('time="')
+        or message != NO_INSTANCE_WARNING
+    ):
+        return False
+    timestamp = timestamp_prefix.removeprefix('time="')
+    if LIMA_LOG_TIMESTAMP_RE.fullmatch(timestamp) is None:
+        return False
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
 
 
 class Phase:
@@ -2368,8 +2390,8 @@ class Orchestrator:
                         for line in (result.stderr or "").splitlines()
                         if line.strip()
                     ]
-                    if len(stderr_lines) != 1 or not stderr_lines[0].endswith(
-                        NO_INSTANCE_WARNING_SUFFIX
+                    if len(stderr_lines) != 1 or not _is_pinned_no_instance_warning(
+                        stderr_lines[0]
                     ):
                         raise ContractError("limactl instance read-back returned no JSON")
                     instance_names = set()

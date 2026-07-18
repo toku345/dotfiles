@@ -431,7 +431,8 @@ class OrchestratorTests(unittest.TestCase):
         cases = (
             (
                 "",
-                'level=warning msg="No instance found. Run `limactl create` to create an instance."',
+                'time="2026-07-18T22:09:00+09:00" level=warning '
+                'msg="No instance found. Run `limactl create` to create an instance."',
             ),
             ('[{"name":"unrelated-lima-instance"}]', ""),
         )
@@ -493,6 +494,10 @@ class OrchestratorTests(unittest.TestCase):
             ('"outer-loop-week0-codex"', ""),
             ("", 'level=warning msg="No instance found for current filter."'),
             ("", f"{known_warning}\nlevel=error msg=unexpected"),
+            ("", f"unexpected-prefix {known_warning}"),
+            ("", f'time="not-a-timestamp" {known_warning}'),
+            ("", f'time="2026-07-18T22:09:00" {known_warning}'),
+            ("", f'time="2026-07-18 22:09:00+09:00" {known_warning}'),
         )
         for index, (stdout, stderr) in enumerate(cases, start=1):
             with self.subTest(stdout=stdout, stderr=stderr):
