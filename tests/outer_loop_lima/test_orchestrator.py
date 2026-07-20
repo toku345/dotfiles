@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 
 
 HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
+SHORT_TEMP_ROOT = Path("/tmp").resolve()
 sys.path.insert(0, str(HARNESS))
 
 from calibrate import build_parser, dispatch, main as calibrate_main  # noqa: E402
@@ -154,7 +155,7 @@ class OrchestratorTests(unittest.TestCase):
         (self.harness / "versions.lock.json").write_text("{}")
         (self.harness / "manifest.json").write_text("{}")
         self.state_root = self.root / "state"
-        self.pool_temporary = tempfile.TemporaryDirectory(prefix="ol-", dir="/private/tmp")
+        self.pool_temporary = tempfile.TemporaryDirectory(prefix="ol-", dir=SHORT_TEMP_ROOT)
         self.lima_pool_root = Path(self.pool_temporary.name)
 
         def exact_input(prompt: str) -> str:
@@ -1154,7 +1155,7 @@ class C03DriverTests(unittest.TestCase):
 class LimaDriverProvisionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.pool_temporary = tempfile.TemporaryDirectory(prefix="ol-", dir="/private/tmp")
+        self.pool_temporary = tempfile.TemporaryDirectory(prefix="ol-", dir=SHORT_TEMP_ROOT)
         root = Path(self.temporary.name).resolve()
         self.paths = RunPaths.for_run(
             "run-0001",

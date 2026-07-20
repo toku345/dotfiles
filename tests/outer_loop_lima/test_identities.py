@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
+SHORT_TEMP_ROOT = Path("/tmp").resolve()
 sys.path.insert(0, str(HARNESS))
 
 from lib.identities import (  # noqa: E402
@@ -50,7 +51,7 @@ class IdentityTests(unittest.TestCase):
     def test_cli_init_does_not_write_bytecode_into_harness(self) -> None:
         with (
             tempfile.TemporaryDirectory() as temporary,
-            tempfile.TemporaryDirectory(prefix="ol-", dir="/private/tmp") as pool_temporary,
+            tempfile.TemporaryDirectory(prefix="ol-", dir=SHORT_TEMP_ROOT) as pool_temporary,
         ):
             root = Path(temporary).resolve()
             harness = root / "harness"

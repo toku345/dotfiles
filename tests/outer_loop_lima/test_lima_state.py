@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
+SHORT_TEMP_ROOT = Path("/tmp").resolve()
 sys.path.insert(0, str(HARNESS))
 
 from lib.lima_state import (  # noqa: E402
@@ -175,7 +176,7 @@ class LimaHomeTests(unittest.TestCase):
     def test_relative_and_symlinked_roots_are_rejected(self) -> None:
         with self.assertRaisesRegex(ContractError, "absolute"):
             RunPaths.for_run("run-0001", Path("relative-state"), Path("/private/tmp/pool"))
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+        with tempfile.TemporaryDirectory(dir=SHORT_TEMP_ROOT) as temporary:
             root = Path(temporary)
             real = root / "real"
             real.mkdir()
