@@ -2,7 +2,7 @@
 set -eu
 
 AGMSG_REPO="https://github.com/fujibee/agmsg.git"
-AGMSG_REF="ea3e10f0d708a47c792682c4940b8b0736b528f9"
+AGMSG_REF="caed5a461eb0cfd373188545351f79dd56f13fb8"
 AGMSG_CMD="agmsg"
 
 agents_dir="$HOME/.agents"
