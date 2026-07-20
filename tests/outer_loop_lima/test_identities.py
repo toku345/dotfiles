@@ -45,10 +45,14 @@ class IdentityTests(unittest.TestCase):
     def test_repository_manifest_is_complete(self) -> None:
         manifest = validate_manifest(HARNESS)
         self.assertGreater(len(manifest["files"]), 30)
+        self.assertIn("lib/lima_state.py", {record["path"] for record in manifest["files"]})
 
     def test_cli_init_does_not_write_bytecode_into_harness(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            tempfile.TemporaryDirectory(prefix="ol-", dir="/private/tmp") as pool_temporary,
+        ):
+            root = Path(temporary).resolve()
             harness = root / "harness"
             shutil.copytree(
                 HARNESS,
@@ -58,6 +62,7 @@ class IdentityTests(unittest.TestCase):
             environment = os.environ.copy()
             environment.pop("PYTHONDONTWRITEBYTECODE", None)
             environment.pop("PYTHONPYCACHEPREFIX", None)
+            pool = Path(pool_temporary)
 
             result = subprocess.run(
                 [
@@ -65,6 +70,8 @@ class IdentityTests(unittest.TestCase):
                     str(harness / "calibrate.py"),
                     "--state-root",
                     str(root / "state"),
+                    "--lima-pool-root",
+                    str(pool),
                     "init",
                     "run-0001",
                     "--retention-deadline",

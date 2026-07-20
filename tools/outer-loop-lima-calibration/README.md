@@ -9,7 +9,7 @@ LIMA_CALIBRATION_READY_FOR_V3_DESIGN
 real_task_allowed: no
 ```
 
-Every other terminal is `BLOCKED` with `real_task_allowed: no`. A failed or interrupted run cannot be retried; remediation uses a new run ID and new guests.
+Every other calibration terminal is `BLOCKED` with `real_task_allowed: no`. A failed or interrupted provision cannot be retried in the same run; remediation uses a new run ID, a new physical Lima home, and new guests. Cleanup can additionally record lifecycle disposition `CLEANUP_MANUAL_REQUIRED`, which remains `BLOCKED` and grants no real-task authority.
 
 ## Fixed identities and repository boundary
 
@@ -55,7 +55,15 @@ python3 tools/outer-loop-lima-calibration/calibrate.py preflight run-20300102
 python3 tools/outer-loop-lima-calibration/calibrate.py approve pre-vm run-20300102
 ```
 
-Use `--state-root` only to isolate hermetic tests. The operational default is `~/.local/state/outer-loop/lima-prearm/v1`; `LIMA_HOME` is the dedicated `lima-home/` below it. Instance names are fixed as `outer-loop-week0-codex` and `outer-loop-week0-claude`. A run-level advisory lock is held from each started operation through completion: `status` reports a lock-held operation as `IN_PROGRESS` without mutation and converts only a lock-free started occurrence to `ORPHANED_BLOCKED`. Cleanup acquires the same lock before reloading state, so it waits for a healthy phase to finish and classifies only a remaining lock-free marker as orphaned.
+The operational logical state root is `~/.local/state/outer-loop/lima-prearm/v1`. Each run binds write-once to a fresh short physical `LIMA_HOME` at `~/.local/state/ol/<10-char-token>`, where the lowercase Base32 token is deterministically derived from a domain-separated SHA-256 of the canonical state root and run ID. The harness checks both its `<=95`-byte socket-path policy and Lima `2.1.4`'s `<104`-byte limit before its first write. Existing bindings, token directories, instance directories, disks, symlink ancestry, or ambiguous Lima state are never reused.
+
+`--lima-pool-root <absolute-path>` selects an explicit physical pool. A custom `--state-root` requires an explicit `--lima-pool-root` before the first write; hermetic tests always pass both temporary roots and never touch the operational pool. Relative paths and implicit environment-derived pool fallback are rejected. The same resolved pool is carried through the orchestrator, every `LIMA_HOME`, the retention wrapper/LaunchAgent read-back, cleanup, and `verify-cleanup`.
+
+Instance names are fixed as `outer-loop-week0-codex` and `outer-loop-week0-claude`. Preflight parses Lima `2.1.4` list output as JSON Lines and requires an empty namespace plus both fixed instance-directory/root-disk paths absent. Arrays, malformed or mistyped records, nonzero results, mixed/additional stderr, and any non-canonical empty result are `UNKNOWN`. H1 binds the physical-home identity, harness manifest, parser contract, and absence snapshot. After retention registration, provision repeats that freshness check immediately before any create, then performs `create -> Stopped identity` for both guests before `start -> Running identity`. Create/start attempts are append-only and are written before invocation. An orphan, duplicate, contradiction, or identity drift blocks without same-run retry.
+
+A run-level advisory lock is held from each started operation through completion: `status` reports a lock-held operation as `IN_PROGRESS` without mutation and converts only a lock-free started occurrence to `ORPHANED_BLOCKED`. Cleanup acquires the same lock before reloading state, so it waits for a healthy phase to finish and classifies only a remaining lock-free marker as orphaned.
+
+New run state, evidence, seal input, and cleanup attestations use runtime `schema_version: 2`. Existing runtime schema 1 runs are read-only; they are not migrated, backfilled, mutated, or re-attested, and mutating commands fail closed. `manifest.json` remains schema 1.
 
 ## Live controls
 
@@ -71,9 +79,15 @@ The live sync phase prints the expected response before each Lima prompt. Choosi
 
 ## Retention and cleanup
 
-Before provisioning creates either guest, the frozen harness generates and reads back a per-run LaunchAgent with `RunAtLoad`, deadline calendar scheduling, and hourly catch-up. Its wrapper independently compares the exact immutable UTC deadline and exits without side effects before it is due. The orchestrator also checks the deadline before every mutating operation and transitions the run to `BLOCKED` when it is due, even if scheduled cleanup has not run. The live cycle reads back bootstrap/print and runs a not-due kickstart before authentication. An authentication attempt is durably marked before its interactive login command; cleanup therefore attempts logout or requires provider-side revoke disposition even when later classification fails.
+Before provisioning creates either guest, the frozen harness generates and reads back a per-run LaunchAgent with `RunAtLoad`, deadline calendar scheduling, and hourly catch-up. Its wrapper carries the exact resolved state and Lima-pool roots, independently compares the immutable UTC deadline, and exits without side effects before it is due. The orchestrator also checks the deadline before every mutating operation and transitions the run to `BLOCKED` when it is due, even if scheduled cleanup has not run. The live cycle reads back bootstrap/print and runs a not-due kickstart before authentication. An authentication attempt is durably marked before its interactive login command so cleanup can require provider-side revoke disposition even when later classification fails.
 
-Deadline, abandonment, exposure, or cohort completion blocks new work. Cleanup first serializes behind any current run operation and reloads the committed state, then attempts each applicable logout once with a 60-second bound and deletes both guests regardless. Unknown absence, logout failure, or an unconfirmed account-side revoke leaves `CLEANUP_PENDING` and terminal `BLOCKED`. Cleanup attestations are separate from, and bound to, the immutable calibration seal.
+Deadline, abandonment, exposure, or cohort completion blocks new work. Cleanup first serializes behind any current run operation and reloads committed state. It may operate only on a fixed guest whose strict live identity matches the recorded Stopped or Running identity and whose provision evidence is coherent. A recognized Running guest is stopped by fixed name, its Stopped identity is read back, and the recognized fixed guest is deleted through Lima. Every destructive Lima call has an immediate strict identity recheck. After strict instance/disk absence, the only direct filesystem removal allowed is one `rmdir` of the bound physical home after proving it unchanged and completely empty.
+
+`UNKNOWN`, a partial instance directory, unrelated content, identity/binding drift, orphaned or contradictory provision evidence, a failed Lima call, or residual content causes `CLEANUP_MANUAL_REQUIRED` with zero further destructive action. The harness does not classify or recover partial layouts, quarantine them, unlink nodes, recursively delete, repair, generate manual deletion commands, or retry cleanup in the same run. Only `status`, read-only diagnostics, and read-only `verify-cleanup` remain. After operator action outside the harness, verification reaches `CLEANUP_VERIFIED` only when the strict namespace, fixed directories/disks, physical home, inactive retention job, and any account-revoke disposition are all clear. The wrapper, plist, and evidence remain as operator-owned records.
+
+Retention does not guarantee complete deletion by the deadline. It guarantees that new runtime work is prohibited and that recognized state receives at most one safe automatic cleanup attempt. A guest, disk, or home may remain for operator inspection. Cleanup attestations are separate schema-2 records bound to the immutable calibration seal.
+
+An unresolved `CLEANUP_MANUAL_REQUIRED` run under the selected state root, or any unexplained/unbound pool entry, blocks initialization of another live run. Read-only diagnostics report the recorded run ID, roots, fixed names, instance directories, disks, and binding/evidence paths; they do not print or execute deletion commands.
 
 ## Static verification
 

@@ -19,15 +19,26 @@ HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
 sys.path.insert(0, str(HARNESS))
 
 from calibrate import build_parser, dispatch, main as calibrate_main  # noqa: E402
+from lib.evidence import append_jsonl  # noqa: E402
 from lib.model import (  # noqa: E402
+    CleanupDisposition,
     ContractError,
     ControlKey,
     ControlRecord,
     ControlResult,
     ObservationClass,
     TerminalState,
+    LimaIdentity,
+    LimaListDisposition,
 )
-from lib.orchestrator import LimaDriver, Orchestrator, Phase, PhaseResult  # noqa: E402
+from lib.lima_state import CODEX_INSTANCE, LimaListSnapshot  # noqa: E402
+from lib.orchestrator import (  # noqa: E402
+    BoundedCommandError,
+    LimaDriver,
+    Orchestrator,
+    Phase,
+    PhaseResult,
+)
 from lib.paths import RunPaths  # noqa: E402
 from lib.probes import (  # noqa: E402
     CanaryResult,
@@ -48,6 +59,16 @@ def passed(run_id: str, control_id: str, occurrence: str, target: str) -> Contro
         ControlResult.PASS,
         "fake-driver",
         "ZERO",
+    )
+
+
+def absent_snapshot() -> LimaListSnapshot:
+    return LimaListSnapshot(
+        LimaListDisposition.ABSENT,
+        (),
+        "a" * 64,
+        "b" * 64,
+        0,
     )
 
 
@@ -127,12 +148,14 @@ class FakeDriver:
 class OrchestratorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.harness = self.root / "harness"
         self.harness.mkdir()
         (self.harness / "versions.lock.json").write_text("{}")
         (self.harness / "manifest.json").write_text("{}")
         self.state_root = self.root / "state"
+        self.pool_temporary = tempfile.TemporaryDirectory(prefix="ol-", dir="/private/tmp")
+        self.lima_pool_root = Path(self.pool_temporary.name)
 
         def exact_input(prompt: str) -> str:
             return prompt.rsplit("(", 1)[1].split(")", 1)[0]
@@ -140,6 +163,7 @@ class OrchestratorTests(unittest.TestCase):
         self.orchestrator = Orchestrator(
             harness_root=self.harness,
             state_root=self.state_root,
+            lima_pool_root=self.lima_pool_root,
             driver_factory=lambda _paths: FakeDriver(),
             stdin_isatty=lambda: True,
             stdout_isatty=lambda: True,
@@ -148,6 +172,7 @@ class OrchestratorTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
+        self.pool_temporary.cleanup()
         self.temporary.cleanup()
 
     def test_full_fixed_fsm_reaches_design_only_terminal(self) -> None:
@@ -166,10 +191,25 @@ class OrchestratorTests(unittest.TestCase):
             patch("lib.orchestrator.platform.system", return_value="Darwin"),
             patch("lib.orchestrator.platform.machine", return_value="arm64"),
             patch.object(self.orchestrator, "_freeze_harness"),
+            patch.object(self.orchestrator, "_capture_lima_snapshot", return_value=absent_snapshot()),
         ):
-            self.orchestrator.preflight(run_id)
+            preflight = self.orchestrator.preflight(run_id)
+        paths = self.orchestrator._paths(run_id)
+        freshness = json.loads(
+            (paths.evidence / "lima-preflight-snapshot.json").read_text()
+        )
+        self.assertEqual(freshness["schema_version"], 2)
+        self.assertEqual(
+            preflight["preflight_snapshot_digest"], freshness["snapshot_digest"]
+        )
+        self.assertEqual(len(preflight["approval_targets"]["pre-vm"]), 64)
         self.orchestrator.approve_pre_vm(run_id)
-        with patch.object(self.orchestrator, "_register_retention"):
+        with (
+            patch.object(self.orchestrator, "_register_retention"),
+            patch("lib.orchestrator.validate_manifest", return_value={}),
+            patch.object(self.orchestrator, "_validate_h1_binding"),
+            patch.object(self.orchestrator, "_capture_lima_snapshot", return_value=absent_snapshot()),
+        ):
             self.orchestrator.provision(run_id)
         self.orchestrator.approve_pre_auth(run_id, code_paste_feasible=True)
         self.orchestrator.authenticate(run_id, "codex")
@@ -201,6 +241,20 @@ class OrchestratorTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "already exists"):
             self.orchestrator.init("run-0001", "2030-01-02T00:00:00Z")
 
+    def test_init_writes_schema_two_state_and_write_once_home_binding(self) -> None:
+        state = self.orchestrator.init("run-0001", "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths("run-0001")
+        self.assertEqual(state["schema_version"], 2)
+        self.assertEqual(state["lima_home_binding"]["schema_version"], 2)
+        self.assertEqual(
+            json.loads((paths.evidence / "retention.json").read_text())["schema_version"],
+            2,
+        )
+        self.assertEqual(
+            json.loads((paths.evidence / "lima-home-binding.json").read_text()),
+            state["lima_home_binding"],
+        )
+
     def test_deadline_blocks_mutating_operation_without_launchagent(self) -> None:
         run_id = "run-0001"
         self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
@@ -218,17 +272,58 @@ class OrchestratorTests(unittest.TestCase):
             json.dumps({"artifacts": {"host_python": {"source": "/usr/bin/python3"}}})
         )
 
+        wrapper_path = paths.cleanup / "deadline-cleanup.sh"
+        plist = paths.cleanup / "com.toku345.outer-loop-lima-cleanup.run-0001.plist"
+
         def success(argv, **_kwargs):
-            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+            output = ""
+            if "print" in argv:
+                target = argv[-1]
+                output = "\n".join(
+                    (
+                        f"{target} = {{",
+                        f"\tpath = {plist}",
+                        f"\tprogram = {wrapper_path}",
+                        "\targuments = {",
+                        f"\t\t{wrapper_path}",
+                        "\t}",
+                        "}",
+                    )
+                )
+            return subprocess.CompletedProcess(argv, 0, stdout=output, stderr="")
 
         with patch("lib.orchestrator.CommandRunner.run", side_effect=success) as runner:
             self.orchestrator._register_retention(paths)
         self.assertEqual(runner.call_count, 3)
-        wrapper = (paths.cleanup / "deadline-cleanup.sh").read_text()
+        wrapper = wrapper_path.read_text()
         self.assertIn("2030-01-02T03:04:05Z", wrapper)
         self.assertIn("cleanup run-0001 --cause deadline", wrapper)
-        plist = paths.cleanup / "com.toku345.outer-loop-lima-cleanup.run-0001.plist"
+        self.assertIn(f"--lima-pool-root {self.lima_pool_root}", wrapper)
         self.assertTrue(plist.is_file())
+
+    def test_retention_readback_mismatch_blocks_before_guest_creation(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T03:04:05Z")
+        paths = self.orchestrator._paths(run_id)
+        state = self.orchestrator._load(paths)
+        state["phase"] = Phase.PRE_VM_APPROVED
+        state["preflight_snapshot_digest"] = "a" * 64
+        self.orchestrator._save(paths, state)
+        (paths.frozen_harness / "versions.lock.json").write_text(
+            json.dumps({"artifacts": {"host_python": {"source": "/usr/bin/python3"}}})
+        )
+        driver = Mock()
+        self.orchestrator._driver_factory = lambda _paths: driver
+
+        def mismatched(argv, **_kwargs):
+            output = "gui/501/wrong = {\n\tprogram = /wrong\n\targuments = {\n\t\t/wrong\n\t}\n}\n" if "print" in argv else ""
+            return subprocess.CompletedProcess(argv, 0, stdout=output, stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=mismatched), self.assertRaisesRegex(
+            ContractError, "read-back"
+        ):
+            self.orchestrator.provision(run_id)
+        driver.provision.assert_not_called()
 
     def test_provision_registers_retention_before_guest_creation(self) -> None:
         run_id = "run-0001"
@@ -249,9 +344,45 @@ class OrchestratorTests(unittest.TestCase):
             self.orchestrator,
             "_register_retention",
             side_effect=lambda _paths: events.append("retention"),
+        ), patch("lib.orchestrator.validate_manifest", return_value={}), patch.object(
+            self.orchestrator, "_validate_h1_binding"
+        ), patch.object(
+            self.orchestrator,
+            "_freshness_evidence",
+            side_effect=lambda *_args, **_kwargs: {
+                "schema_version": 2,
+                "snapshot_digest": "a" * 64,
+            },
         ):
+            state["preflight_snapshot_digest"] = "b" * 64
+            self.orchestrator._save(paths, state)
             self.orchestrator.provision(run_id)
         self.assertEqual(events, ["retention", "provision"])
+
+    def test_pre_create_freshness_failure_never_calls_driver(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        state = self.orchestrator._load(paths)
+        state["phase"] = Phase.PRE_VM_APPROVED
+        state["preflight_snapshot_digest"] = "a" * 64
+        self.orchestrator._save(paths, state)
+        driver = Mock()
+        self.orchestrator._driver_factory = lambda _paths: driver
+        with (
+            patch.object(self.orchestrator, "_register_retention"),
+            patch("lib.orchestrator.validate_manifest", return_value={}),
+            patch.object(self.orchestrator, "_validate_h1_binding"),
+            patch.object(
+                self.orchestrator,
+                "_freshness_evidence",
+                side_effect=ContractError("namespace appeared"),
+            ),
+            self.assertRaisesRegex(ContractError, "namespace appeared"),
+        ):
+            self.orchestrator.provision(run_id)
+        driver.provision.assert_not_called()
+        self.assertFalse((paths.evidence / "provision-attempts.jsonl").exists())
 
     def test_incomplete_c03_matrix_blocks_ready_path(self) -> None:
         run_id = "run-0001"
@@ -333,6 +464,7 @@ class OrchestratorTests(unittest.TestCase):
         watcher = Orchestrator(
             harness_root=self.harness,
             state_root=self.state_root,
+            lima_pool_root=self.lima_pool_root,
             driver_factory=lambda _paths: FakeDriver(),
             now=lambda: datetime(2029, 1, 1, tzinfo=UTC),
         )
@@ -396,7 +528,14 @@ class OrchestratorTests(unittest.TestCase):
             redirect_stderr(output),
         ):
             result = calibrate_main(
-                ["--state-root", str(self.state_root), "status", "run-0001"]
+                [
+                    "--state-root",
+                    str(self.state_root),
+                    "--lima-pool-root",
+                    str(self.lima_pool_root),
+                    "status",
+                    "run-0001",
+                ]
             )
         self.assertEqual(result, 1)
         diagnostic = json.loads(output.getvalue())
@@ -404,181 +543,325 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(len(diagnostic["diagnostic_id"]), 16)
         self.assertNotIn("secret-bearing detail", output.getvalue())
 
-    def test_cleanup_records_failed_destructive_attempts(self) -> None:
-        run_id = "run-0001"
-        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+    def test_custom_state_root_without_pool_is_rejected_before_write(self) -> None:
+        output = io.StringIO()
+        state_root = self.root / "custom-state"
+        with redirect_stderr(output):
+            result = calibrate_main(
+                [
+                    "--state-root",
+                    str(state_root),
+                    "init",
+                    "run-0001",
+                    "--retention-deadline",
+                    "2030-01-02T00:00:00Z",
+                ]
+            )
+        self.assertEqual(result, 1)
+        self.assertIn("requires --lima-pool-root", output.getvalue())
+        self.assertFalse(state_root.exists())
 
-        def nonzero(argv, **_kwargs):
-            return subprocess.CompletedProcess(argv, 9, stdout="", stderr="")
-
-        with patch("lib.orchestrator.CommandRunner.run", side_effect=nonzero):
+    def test_legacy_schema_status_is_read_only_and_mutation_is_rejected(self) -> None:
+        run_id = "run-legacy"
+        paths = self.orchestrator._paths(run_id)
+        paths.root.mkdir(mode=0o700, parents=True)
+        paths.work.mkdir(mode=0o700)
+        paths.evidence.mkdir(mode=0o700)
+        legacy = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "retention_deadline": "2030-01-02T00:00:00Z",
+            "phase": Phase.INITIALIZED,
+            "terminal_state": TerminalState.RUNNING,
+            "real_task_allowed": False,
+            "active_operation": {"name": "legacy-operation"},
+        }
+        paths.state_file.write_text(json.dumps(legacy))
+        before = paths.state_file.read_bytes()
+        status = self.orchestrator.status(run_id)
+        self.assertEqual(status["operation_state"], "LEGACY_READ_ONLY")
+        self.assertEqual(paths.state_file.read_bytes(), before)
+        self.assertFalse((paths.work / "operation.lock").exists())
+        with self.assertRaisesRegex(ContractError, "schema 1 is read-only"):
+            self.orchestrator.preflight(run_id)
+        with self.assertRaisesRegex(ContractError, "schema 1 is read-only"):
             self.orchestrator.cleanup(run_id, cause="abandonment")
-        attempts = json.loads(
-            (self.orchestrator._paths(run_id).cleanup / "attempts.jsonl")
-            .read_text()
-            .splitlines()[-1]
-        )
-        self.assertEqual(
-            attempts["destructive_attempts"]["delete:outer-loop-week0-codex"],
-            "NONZERO",
-        )
-        self.assertEqual(
-            attempts["destructive_attempts"]["launchagent:bootout"],
-            "NONZERO",
-        )
 
-    def test_verify_cleanup_accepts_absent_calibration_instances(self) -> None:
-        cases = (
-            (
-                "",
-                'time="2026-07-18T22:09:00+09:00" level=warning '
-                'msg="No instance found. Run `limactl create` to create an instance."',
-            ),
-            ('[{"name":"unrelated-lima-instance"}]', ""),
-        )
-        for index, (stdout, stderr) in enumerate(cases, start=1):
-            with self.subTest(stdout=stdout, stderr=stderr):
-                run_id = f"run-20{index:02d}"
-                self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
-
-                def calibration_instances_absent(argv, **_kwargs):
-                    if "list" in argv:
-                        return subprocess.CompletedProcess(
-                            argv,
-                            0,
-                            stdout=stdout,
-                            stderr=stderr,
-                        )
-                    if "print" in argv:
-                        return subprocess.CompletedProcess(
-                            argv,
-                            1,
-                            stdout="",
-                            stderr="Could not find service",
-                        )
-                    return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
-
-                with patch(
-                    "lib.orchestrator.CommandRunner.run",
-                    side_effect=calibration_instances_absent,
-                ):
-                    self.orchestrator.cleanup(run_id, cause="abandonment")
-                    state = self.orchestrator.verify_cleanup(
-                        run_id,
-                        revoke_human_confirmed=False,
-                    )
-
-                self.assertTrue(state["cleanup_verified"])
-                attestation = json.loads(
-                    (self.orchestrator._paths(run_id).cleanup / "attestations.jsonl")
-                    .read_text()
-                    .splitlines()[-1]
-                )
-                self.assertEqual(
-                    attestation["observations"]["codex_instance"],
-                    "ABSENT",
-                )
-                self.assertEqual(
-                    attestation["observations"]["claude_instance"],
-                    "ABSENT",
-                )
-
-    def test_verify_cleanup_rejects_ambiguous_instance_output(self) -> None:
-        known_warning = (
-            'level=warning msg="No instance found. Run `limactl create` to create an instance."'
-        )
-        cases = (
-            ("null", ""),
-            ("{}", ""),
-            ('[{"status":"Stopped"}]', ""),
-            ('"outer-loop-week0-codex"', ""),
-            ("", 'level=warning msg="No instance found for current filter."'),
-            ("", f"{known_warning}\nlevel=error msg=unexpected"),
-            ("", f"unexpected-prefix {known_warning}"),
-            ("", f'time="not-a-timestamp" {known_warning}'),
-            ("", f'time="2026-07-18T22:09:00" {known_warning}'),
-            ("", f'time="2026-07-18 22:09:00+09:00" {known_warning}'),
-        )
-        for index, (stdout, stderr) in enumerate(cases, start=1):
-            with self.subTest(stdout=stdout, stderr=stderr):
-                run_id = f"run-10{index:02d}"
-                self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
-
-                def inconclusive_instances(argv, **_kwargs):
-                    if "list" in argv:
-                        return subprocess.CompletedProcess(
-                            argv,
-                            0,
-                            stdout=stdout,
-                            stderr=stderr,
-                        )
-                    if "print" in argv:
-                        return subprocess.CompletedProcess(
-                            argv,
-                            1,
-                            stdout="",
-                            stderr="Could not find service",
-                        )
-                    return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
-
-                with patch(
-                    "lib.orchestrator.CommandRunner.run",
-                    side_effect=inconclusive_instances,
-                ):
-                    self.orchestrator.cleanup(run_id, cause="abandonment")
-                    state = self.orchestrator.verify_cleanup(
-                        run_id,
-                        revoke_human_confirmed=False,
-                    )
-
-                self.assertFalse(state["cleanup_verified"])
-                attestation = json.loads(
-                    (self.orchestrator._paths(run_id).cleanup / "attestations.jsonl")
-                    .read_text()
-                    .splitlines()[-1]
-                )
-                self.assertEqual(
-                    attestation["observations"]["codex_instance"],
-                    "UNKNOWN",
-                )
-                self.assertEqual(
-                    attestation["observations"]["claude_instance"],
-                    "UNKNOWN",
-                )
-
-    def test_verify_cleanup_keeps_remaining_instance_present(self) -> None:
+    def test_cleanup_unknown_is_manual_required_without_destructive_calls(self) -> None:
         run_id = "run-0001"
         self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
 
-        def codex_remains(argv, **_kwargs):
+        def unknown(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout="null\n", stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=unknown) as runner:
+            state = self.orchestrator.cleanup(run_id, cause="abandonment")
+        calls = [call.args[0] for call in runner.call_args_list]
+        self.assertFalse(any("stop" in argv or "delete" in argv for argv in calls))
+        self.assertTrue(self.orchestrator._paths(run_id).lima_home.is_dir())
+        self.assertEqual(
+            state["cleanup_disposition"],
+            CleanupDisposition.CLEANUP_MANUAL_REQUIRED,
+        )
+        with patch("lib.orchestrator.CommandRunner.run") as retry_runner, self.assertRaisesRegex(
+            ContractError, "retry is prohibited"
+        ):
+            self.orchestrator.cleanup(run_id, cause="abandonment")
+        retry_runner.assert_not_called()
+        with self.assertRaisesRegex(ContractError, "unresolved manual cleanup"):
+            self.orchestrator.init("run-0002", "2030-01-02T00:00:00Z")
+
+    def test_cleanup_and_verify_accept_strict_absence(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        warning = (
+            'time="2026-07-18T22:09:00+09:00" level=warning '
+            'msg="No instance found. Run `limactl create` to create an instance."'
+        )
+
+        def absent(argv, **_kwargs):
             if "list" in argv:
-                return subprocess.CompletedProcess(
-                    argv,
-                    0,
-                    stdout='[{"name":"outer-loop-week0-codex"}]',
-                    stderr="",
-                )
+                return subprocess.CompletedProcess(argv, 0, stdout="", stderr=warning)
             if "print" in argv:
                 return subprocess.CompletedProcess(
-                    argv,
-                    1,
-                    stdout="",
-                    stderr="Could not find service",
+                    argv, 1, stdout="", stderr="Could not find service"
                 )
             return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
-        with patch("lib.orchestrator.CommandRunner.run", side_effect=codex_remains):
-            self.orchestrator.cleanup(run_id, cause="abandonment")
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=absent):
+            cleaned = self.orchestrator.cleanup(run_id, cause="abandonment")
             state = self.orchestrator.verify_cleanup(run_id, revoke_human_confirmed=False)
+        self.assertTrue(cleaned["cleanup_verified"])
+        self.assertTrue(state["cleanup_verified"])
+        self.assertFalse(self.orchestrator._paths(run_id).lima_home.exists())
 
-        self.assertFalse(state["cleanup_verified"])
-        attestation = json.loads(
-            (self.orchestrator._paths(run_id).cleanup / "attestations.jsonl")
-            .read_text()
-            .splitlines()[-1]
+    def test_cleanup_recognized_running_guest_uses_fixed_lima_calls_and_empty_home_rmdir(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        instance_dir = paths.lima_home / CODEX_INSTANCE
+        instance_dir.mkdir()
+        identity = LimaIdentity(
+            CODEX_INSTANCE,
+            "Running",
+            str(instance_dir),
+            "vz",
+            "aarch64",
+            4,
+            8589934592,
+            42949672960,
         )
-        self.assertEqual(attestation["observations"]["codex_instance"], "PRESENT")
-        self.assertEqual(attestation["observations"]["claude_instance"], "ABSENT")
+        append_jsonl(
+            paths.evidence / "lima-identities.jsonl",
+            identity.to_dict() | {"runtime": "codex", "stage": "post-start"},
+        )
+        for action in ("create", "start"):
+            for event, outcome in (("STARTED", None), ("COMPLETED", "SUCCESS")):
+                record = {
+                    "schema_version": 2,
+                    "record_type": "provision_attempt",
+                    "run_id": run_id,
+                    "runtime": "codex",
+                    "action": action,
+                    "event": event,
+                    "command_digest": "a" * 64,
+                    "observed_at": "2029-01-01T00:00:00Z",
+                }
+                if outcome is not None:
+                    record["outcome"] = outcome
+                append_jsonl(paths.evidence / "provision-attempts.jsonl", record)
+        warning = (
+            'time="2026-07-18T22:09:00+09:00" level=warning '
+            'msg="No instance found. Run `limactl create` to create an instance."'
+        )
+        status = "Running"
+        present = True
+
+        def recognized(argv, **_kwargs):
+            nonlocal status, present
+            if "list" in argv:
+                if not present:
+                    return subprocess.CompletedProcess(argv, 0, stdout="", stderr=warning)
+                value = {
+                    "name": CODEX_INSTANCE,
+                    "status": status,
+                    "dir": str(instance_dir),
+                    "vmType": "vz",
+                    "arch": "aarch64",
+                    "cpus": 4,
+                    "memory": 8589934592,
+                    "disk": 42949672960,
+                }
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout=json.dumps(value) + "\n", stderr=""
+                )
+            if "stop" in argv:
+                status = "Stopped"
+                return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+            if "delete" in argv:
+                instance_dir.rmdir()
+                present = False
+                return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+            if "print" in argv:
+                return subprocess.CompletedProcess(
+                    argv, 1, stdout="", stderr="Could not find service"
+                )
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=recognized) as runner:
+            state = self.orchestrator.cleanup(run_id, cause="abandonment")
+        calls = [call.args[0] for call in runner.call_args_list]
+        self.assertEqual(
+            [argv for argv in calls if "stop" in argv],
+            [("limactl", "--tty=false", "stop", CODEX_INSTANCE)],
+        )
+        self.assertEqual(
+            [argv for argv in calls if "delete" in argv],
+            [("limactl", "--tty=false", "delete", CODEX_INSTANCE)],
+        )
+        self.assertFalse(any("--force" in argv for argv in calls))
+        self.assertEqual(state["cleanup_disposition"], CleanupDisposition.CLEANUP_VERIFIED)
+        self.assertFalse(paths.lima_home.exists())
+
+    def test_cleanup_partial_directory_is_manual_without_destructive_calls(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        (paths.lima_home / CODEX_INSTANCE).mkdir()
+        warning = (
+            'time="2026-07-18T22:09:00+09:00" level=warning '
+            'msg="No instance found. Run `limactl create` to create an instance."'
+        )
+
+        def absent(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr=warning)
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=absent) as runner:
+            state = self.orchestrator.cleanup(run_id, cause="abandonment")
+        calls = [call.args[0] for call in runner.call_args_list]
+        self.assertFalse(any("stop" in argv or "delete" in argv for argv in calls))
+        self.assertTrue(paths.lima_home.is_dir())
+        self.assertEqual(state["cleanup_disposition"], CleanupDisposition.CLEANUP_MANUAL_REQUIRED)
+
+    def test_cleanup_identity_drift_is_manual_without_destructive_calls(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        instance_dir = paths.lima_home / CODEX_INSTANCE
+        instance_dir.mkdir()
+        recorded = LimaIdentity(
+            CODEX_INSTANCE,
+            "Stopped",
+            str(instance_dir),
+            "vz",
+            "aarch64",
+            4,
+            8589934592,
+            42949672959,
+        )
+        append_jsonl(
+            paths.evidence / "lima-identities.jsonl",
+            recorded.to_dict() | {"runtime": "codex", "stage": "post-create"},
+        )
+        for event, outcome in (("STARTED", None), ("COMPLETED", "SUCCESS")):
+            record = {
+                "schema_version": 2,
+                "record_type": "provision_attempt",
+                "run_id": run_id,
+                "runtime": "codex",
+                "action": "create",
+                "event": event,
+                "command_digest": "a" * 64,
+                "observed_at": "2029-01-01T00:00:00Z",
+            }
+            if outcome is not None:
+                record["outcome"] = outcome
+            append_jsonl(paths.evidence / "provision-attempts.jsonl", record)
+        live = json.dumps(
+            {
+                "name": CODEX_INSTANCE,
+                "status": "Stopped",
+                "dir": str(instance_dir),
+                "vmType": "vz",
+                "arch": "aarch64",
+                "cpus": 4,
+                "memory": 8589934592,
+                "disk": 42949672960,
+            }
+        )
+
+        def listed(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout=live + "\n", stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=listed) as runner:
+            state = self.orchestrator.cleanup(run_id, cause="abandonment")
+        calls = [call.args[0] for call in runner.call_args_list]
+        self.assertFalse(any("stop" in argv or "delete" in argv for argv in calls))
+        self.assertTrue(paths.lima_home.is_dir())
+        self.assertEqual(state["cleanup_disposition"], CleanupDisposition.CLEANUP_MANUAL_REQUIRED)
+
+    def test_cleanup_orphan_attempt_is_manual_without_destructive_calls(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        append_jsonl(
+            paths.evidence / "provision-attempts.jsonl",
+            {
+                "schema_version": 2,
+                "record_type": "provision_attempt",
+                "run_id": run_id,
+                "runtime": "codex",
+                "action": "create",
+                "event": "STARTED",
+                "command_digest": "a" * 64,
+                "observed_at": "2029-01-01T00:00:00Z",
+            },
+        )
+        warning = (
+            'time="2026-07-18T22:09:00+09:00" level=warning '
+            'msg="No instance found. Run `limactl create` to create an instance."'
+        )
+
+        def absent(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr=warning)
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=absent) as runner:
+            state = self.orchestrator.cleanup(run_id, cause="abandonment")
+        calls = [call.args[0] for call in runner.call_args_list]
+        self.assertFalse(any("stop" in argv or "delete" in argv for argv in calls))
+        self.assertTrue(paths.lima_home.is_dir())
+        self.assertEqual(state["cleanup_disposition"], CleanupDisposition.CLEANUP_MANUAL_REQUIRED)
+
+    def test_cleanup_rejects_unrelated_instance_without_destructive_calls(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        unrelated = json.dumps(
+            {
+                "name": "unrelated-lima-instance",
+                "status": "Stopped",
+                "dir": str(paths.lima_home / "unrelated-lima-instance"),
+                "vmType": "vz",
+                "arch": "aarch64",
+                "cpus": 4,
+                "memory": 8589934592,
+                "disk": 42949672960,
+            }
+        )
+
+        def listed(argv, **_kwargs):
+            if "list" in argv:
+                return subprocess.CompletedProcess(argv, 0, stdout=unrelated + "\n", stderr="")
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with patch("lib.orchestrator.CommandRunner.run", side_effect=listed) as runner:
+            state = self.orchestrator.cleanup(run_id, cause="abandonment")
+        calls = [call.args[0] for call in runner.call_args_list]
+        self.assertFalse(any("stop" in argv or "delete" in argv for argv in calls))
+        self.assertEqual(
+            state["cleanup_disposition"],
+            CleanupDisposition.CLEANUP_MANUAL_REQUIRED,
+        )
 
     def test_cleanup_waits_for_live_operation_without_false_unverified_record(self) -> None:
         run_id = "run-0001"
@@ -599,6 +882,7 @@ class OrchestratorTests(unittest.TestCase):
         watcher = Orchestrator(
             harness_root=self.harness,
             state_root=self.state_root,
+            lima_pool_root=self.lima_pool_root,
             driver_factory=lambda _paths: FakeDriver(),
             now=lambda: datetime(2029, 1, 1, tzinfo=UTC),
         )
@@ -640,7 +924,7 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(final_state["terminal_state"], TerminalState.BLOCKED)
         self.assertFalse((paths.evidence / "controls.jsonl").exists())
 
-    def test_failed_authentication_attempt_requires_logout_or_revoke(self) -> None:
+    def test_failed_authentication_attempt_requires_revoke_without_guest_logout(self) -> None:
         run_id = "run-0001"
         self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
         paths = self.orchestrator._paths(run_id)
@@ -668,9 +952,12 @@ class OrchestratorTests(unittest.TestCase):
             for call in runner.call_args_list
             if "logout" in call.args[0]
         ]
-        self.assertEqual(len(logout_calls), 1)
-        self.assertIn("codex", logout_calls[0])
+        self.assertEqual(logout_calls, [])
         self.assertTrue(state["account_revoke_required"])
+        self.assertEqual(
+            state["cleanup_disposition"],
+            CleanupDisposition.CLEANUP_MANUAL_REQUIRED,
+        )
 
 
 class PeerIsolationTests(unittest.TestCase):
@@ -864,18 +1151,131 @@ class C03DriverTests(unittest.TestCase):
             self.assertEqual(driver._guest_host_ipv4("codex"), "192.0.2.1")
 
 
+class LimaDriverProvisionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.pool_temporary = tempfile.TemporaryDirectory(prefix="ol-", dir="/private/tmp")
+        root = Path(self.temporary.name).resolve()
+        self.paths = RunPaths.for_run(
+            "run-0001",
+            root / "state",
+            Path(self.pool_temporary.name),
+        )
+        self.paths.create(instance_names=("outer-loop-week0-codex", "outer-loop-week0-claude"))
+        profiles = self.paths.frozen_harness / "profiles"
+        profiles.mkdir()
+        (profiles / "week0-codex.yaml").write_text("arch: aarch64\n")
+        (profiles / "week0-claude.yaml").write_text("arch: aarch64\n")
+        self.driver = LimaDriver(self.paths, HARNESS)
+
+    def tearDown(self) -> None:
+        self.pool_temporary.cleanup()
+        self.temporary.cleanup()
+
+    def test_create_both_stopped_before_start_and_record_attempts(self) -> None:
+        events: list[tuple[str, ...]] = []
+
+        def result(argv, **_kwargs):
+            command = tuple(argv)
+            events.append(command)
+            if "list" in command:
+                instance = command[-1]
+                action_commands = [item for item in events if "create" in item or "start" in item]
+                status = "Running" if any("start" in item and item[-1] == instance for item in action_commands) else "Stopped"
+                record = {
+                    "name": instance,
+                    "status": status,
+                    "dir": str(self.paths.lima_home / instance),
+                    "vmType": "vz",
+                    "arch": "aarch64",
+                    "cpus": 4,
+                    "memory": 8589934592,
+                    "disk": 42949672960,
+                }
+                return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(record) + "\n", stderr="")
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with (
+            patch.object(self.driver.runner, "run", side_effect=result),
+            patch.object(self.driver, "_install_harness"),
+            patch.object(self.driver, "_guest_policy_check", return_value={"verified": True}),
+            patch.object(self.driver, "_verify_peer_isolation", return_value={"verified": True}),
+        ):
+            phase = self.driver.provision("run-0001", self.paths.frozen_harness)
+
+        lifecycle = [argv for argv in events if "create" in argv or "start" in argv]
+        self.assertEqual([next(value for value in argv if value in {"create", "start"}) for argv in lifecycle], ["create", "create", "start", "start"])
+        for argv in lifecycle[:2]:
+            self.assertIn("--plain", argv)
+            self.assertIn("--mount-none", argv)
+            self.assertNotIn("start", argv)
+        for argv in lifecycle[2:]:
+            self.assertEqual(argv[:4], ("limactl", "--tty=false", "start", "--timeout=20m"))
+            self.assertEqual(len(argv), 5)
+        records = [
+            json.loads(line)
+            for line in (self.paths.evidence / "provision-attempts.jsonl")
+            .read_text()
+            .splitlines()
+        ]
+        self.assertEqual(len(records), 8)
+        self.assertEqual([record["event"] for record in records[::2]], ["STARTED"] * 4)
+        self.assertTrue(all(record["outcome"] == "SUCCESS" for record in records[1::2]))
+        self.assertEqual(len(phase.controls), 4)
+
+    def test_timeout_is_durably_classified_and_same_action_retry_is_rejected(self) -> None:
+        argv = (
+            "limactl",
+            "--tty=false",
+            "create",
+            "--name=outer-loop-week0-codex",
+        )
+        with patch.object(
+            self.driver.runner,
+            "run",
+            side_effect=BoundedCommandError("limactl", "TIMEOUT"),
+        ), self.assertRaises(BoundedCommandError):
+            self.driver._provision_attempt(
+                "run-0001",
+                "codex",
+                "create",
+                argv,
+                expected_status="Stopped",
+            )
+        records = [
+            json.loads(line)
+            for line in (self.paths.evidence / "provision-attempts.jsonl")
+            .read_text()
+            .splitlines()
+        ]
+        self.assertEqual(records[-1]["outcome"], "TIMEOUT")
+        with patch.object(self.driver.runner, "run") as runner, self.assertRaisesRegex(
+            ContractError, "retry rejected"
+        ):
+            self.driver._provision_attempt(
+                "run-0001",
+                "codex",
+                "create",
+                argv,
+                expected_status="Stopped",
+            )
+        runner.assert_not_called()
+
+
 class HandoffDriverTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
-        self.paths = RunPaths.for_run("run-0001", self.root / "state")
+        self.root = Path(self.temporary.name).resolve()
+        pool = self.root / "pool"
+        pool.mkdir(mode=0o700)
+        self.paths = RunPaths.for_run("run-0001", self.root / "state", pool)
         self.paths.create()
         self.bundle = self.paths.fixture_bundles / "forward"
         self.bundle.mkdir()
         self.manifest = self.bundle / "bundle-manifest.json"
         self.manifest.write_text('{"schema_version":1,"frozen_inventory":[]}')
         self.expected_digest = hashlib.sha256(self.manifest.read_bytes()).hexdigest()
-        self.driver = LimaDriver(self.paths, self.root / "state", HARNESS)
+        self.driver = LimaDriver(self.paths, HARNESS)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -889,11 +1289,29 @@ class HandoffDriverTests(unittest.TestCase):
         **_kwargs,
     ):
         if "--all-fields" in argv and argv[-1] == "outer-loop-week0-codex":
-            value = [{"name": argv[-1], "status": driver_status, "dir": "driver", "vmType": "vz", "arch": "aarch64"}]
-            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(value), stderr="")
+            value = {
+                "name": argv[-1],
+                "status": driver_status.title(),
+                "dir": str(self.paths.lima_home / argv[-1]),
+                "vmType": "vz",
+                "arch": "aarch64",
+                "cpus": 4,
+                "memory": 8589934592,
+                "disk": 42949672960,
+            }
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(value) + "\n", stderr="")
         if "--all-fields" in argv:
-            value = [{"name": argv[-1], "status": "running", "dir": "reviewer", "vmType": "vz", "arch": "aarch64"}]
-            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(value), stderr="")
+            value = {
+                "name": argv[-1],
+                "status": "Running",
+                "dir": str(self.paths.lima_home / argv[-1]),
+                "vmType": "vz",
+                "arch": "aarch64",
+                "cpus": 4,
+                "memory": 8589934592,
+                "disk": 42949672960,
+            }
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(value) + "\n", stderr="")
         if "python3" in argv:
             return subprocess.CompletedProcess(
                 argv,

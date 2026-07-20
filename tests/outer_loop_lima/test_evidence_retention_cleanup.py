@@ -14,7 +14,7 @@ from unittest.mock import patch
 HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
 sys.path.insert(0, str(HARNESS))
 
-from lib.cleanup import REQUIRED_ABSENCE, attempt_logout_once, collect_absence, verify_cleanup  # noqa: E402
+from lib.cleanup import REQUIRED_ABSENCE, collect_absence, verify_cleanup  # noqa: E402
 from lib.evidence import (  # noqa: E402
     append_jsonl,
     record_control,
@@ -52,15 +52,18 @@ class EvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaisesRegex(ContractError, "forbidden evidence"):
                 append_jsonl(
-                    Path(temporary) / "evidence.jsonl",
+                    Path(temporary).resolve() / "evidence.jsonl",
                     {"nested": [{"raw_jsonl": "must-not-land"}]},
                 )
 
     def test_final_approval_and_c08_do_not_change_approved_input(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            paths = RunPaths.for_run("run-0001", Path(temporary))
+            root = Path(temporary).resolve()
+            pool = root / "pool"
+            pool.mkdir(mode=0o700)
+            paths = RunPaths.for_run("run-0001", root / "state", pool)
             paths.create()
-            write_once(paths.evidence / "identity.json", {"schema_version": 1, "run_id": "run-0001"})
+            write_once(paths.evidence / "identity.json", {"schema_version": 2, "run_id": "run-0001"})
             c00 = record("C00")
             record_control(paths, c00)
             prepared = seal_input_digest(paths)
@@ -83,12 +86,30 @@ class EvidenceTests(unittest.TestCase):
             summary = (paths.evidence / "summary.md").read_text()
             self.assertIn("LIMA_CALIBRATION_READY_FOR_V3_DESIGN", summary)
             self.assertIn("real_task_allowed: no", summary)
+            self.assertIn("schema_version: 2", summary)
+
+    def test_legacy_runtime_identity_cannot_be_resealed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            pool = root / "pool"
+            pool.mkdir(mode=0o700)
+            paths = RunPaths.for_run("run-0001", root / "state", pool)
+            paths.create()
+            write_once(
+                paths.evidence / "identity.json",
+                {"schema_version": 1, "run_id": "run-0001"},
+            )
+            with self.assertRaisesRegex(ContractError, "read-only"):
+                seal_input_digest(paths)
 
     def test_seal_rejects_digest_mismatch_and_nonpassing_ready(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            paths = RunPaths.for_run("run-0001", Path(temporary))
+            root = Path(temporary).resolve()
+            pool = root / "pool"
+            pool.mkdir(mode=0o700)
+            paths = RunPaths.for_run("run-0001", root / "state", pool)
             paths.create()
-            write_once(paths.evidence / "identity.json", {"run_id": "run-0001"})
+            write_once(paths.evidence / "identity.json", {"schema_version": 2, "run_id": "run-0001"})
             with self.assertRaisesRegex(ContractError, "does not match"):
                 seal(
                     paths,
@@ -100,9 +121,12 @@ class EvidenceTests(unittest.TestCase):
 
     def test_ready_summary_is_removed_when_final_immutability_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            paths = RunPaths.for_run("run-0001", Path(temporary))
+            root = Path(temporary).resolve()
+            pool = root / "pool"
+            pool.mkdir(mode=0o700)
+            paths = RunPaths.for_run("run-0001", root / "state", pool)
             paths.create()
-            write_once(paths.evidence / "identity.json", {"run_id": "run-0001"})
+            write_once(paths.evidence / "identity.json", {"schema_version": 2, "run_id": "run-0001"})
             c00 = record("C00")
             record_control(paths, c00)
             prepared = seal_input_digest(paths)
@@ -144,11 +168,14 @@ class RetentionCleanupTests(unittest.TestCase):
             Path("/usr/bin/python3"),
             Path("/private/run/frozen/calibrate.py"),
             Path("/private/run/state"),
+            Path("/private/run/pool"),
             "run-0001",
             "2030-01-02T03:04:05Z",
         )
         self.assertIn("now_epoch", wrapper)
         self.assertIn("cleanup run-0001 --cause deadline", wrapper)
+        self.assertIn("--state-root /private/run/state", wrapper)
+        self.assertIn("--lima-pool-root /private/run/pool", wrapper)
         self.assertNotIn("retention-check", wrapper)
 
     def test_launch_agent_has_run_at_load_calendar_and_hourly_catchup(self) -> None:
@@ -168,14 +195,7 @@ class RetentionCleanupTests(unittest.TestCase):
             cleanup_due("2030-01-02T03:04:05Z", datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC))
         )
 
-    def test_logout_timeout_is_classified(self) -> None:
-        from subprocess import TimeoutExpired
-
-        with patch("lib.cleanup.subprocess.run", side_effect=TimeoutExpired(["logout"], 60)):
-            result = attempt_logout_once("codex", ["logout"])
-        self.assertEqual(result.classification, "TIMEOUT")
-
-    def test_cleanup_unknown_or_unconfirmed_revoke_remains_pending(self) -> None:
+    def test_cleanup_unknown_or_unconfirmed_revoke_requires_manual_action(self) -> None:
         absent = {name: "ABSENT" for name in REQUIRED_ABSENCE}
         verified = verify_cleanup(
             "run-0001",
@@ -194,6 +214,10 @@ class RetentionCleanupTests(unittest.TestCase):
             revoke_human_confirmed=False,
         )
         self.assertFalse(pending.cleanup_verified)
+        self.assertEqual(
+            pending.disposition,
+            CleanupDisposition.CLEANUP_MANUAL_REQUIRED,
+        )
         absent["listener"] = "ABSENT"
         revoke = verify_cleanup(
             "run-0001",
@@ -203,6 +227,10 @@ class RetentionCleanupTests(unittest.TestCase):
             revoke_human_confirmed=False,
         )
         self.assertFalse(revoke.cleanup_verified)
+        self.assertEqual(
+            revoke.disposition,
+            CleanupDisposition.CLEANUP_MANUAL_REQUIRED,
+        )
 
     def test_cleanup_readback_exception_becomes_unknown(self) -> None:
         diagnostics: dict[str, str] = {}
@@ -226,6 +254,7 @@ class RetentionCleanupTests(unittest.TestCase):
         )
         self.assertEqual(record.diagnostics, {"listener": "OSError"})
         self.assertEqual(record.to_dict()["diagnostics"], {"listener": "OSError"})
+        self.assertEqual(record.to_dict()["schema_version"], 2)
 
 
 if __name__ == "__main__":

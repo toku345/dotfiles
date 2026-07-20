@@ -11,7 +11,15 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 from lib.identities import canonical_json, sha256_file
-from lib.model import ApprovalRecord, ContractError, ControlRecord, RiskAcceptanceRecord, TerminalState
+from lib.model import (
+    ApprovalRecord,
+    ContractError,
+    ControlRecord,
+    ProvisionAttemptRecord,
+    RiskAcceptanceRecord,
+    RUNTIME_SCHEMA_VERSION,
+    TerminalState,
+)
 from lib.paths import RunPaths
 
 
@@ -75,10 +83,26 @@ def record_decision(
     paths: RunPaths, record: RiskAcceptanceRecord | ApprovalRecord | Mapping[str, object]
 ) -> None:
     value = record.to_dict() if hasattr(record, "to_dict") else dict(record)
+    if "schema_version" not in value:
+        value["schema_version"] = RUNTIME_SCHEMA_VERSION
+    if value.get("schema_version") != RUNTIME_SCHEMA_VERSION:
+        raise ContractError("runtime decision evidence must use schema version 2")
     append_jsonl(paths.evidence / "decisions.jsonl", value)
 
 
+def record_provision_attempt(paths: RunPaths, record: ProvisionAttemptRecord) -> None:
+    append_jsonl(paths.evidence / "provision-attempts.jsonl", record.to_dict())
+
+
 def seal_input_digest(paths: RunPaths) -> str:
+    identity_path = paths.evidence / "identity.json"
+    if identity_path.exists():
+        try:
+            identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ContractError("runtime identity evidence is unreadable") from exc
+        if not isinstance(identity, dict) or identity.get("schema_version") != RUNTIME_SCHEMA_VERSION:
+            raise ContractError("runtime schema 1 evidence is read-only and cannot be sealed")
     entries: list[dict[str, str]] = []
     for path in sorted(paths.evidence.rglob("*")):
         if not path.is_file() or path.name in {"summary.md", "controls.jsonl", "decisions.jsonl"}:
@@ -111,7 +135,9 @@ def seal_input_digest(paths: RunPaths) -> str:
             )
     if not entries:
         raise ContractError("cannot prepare an empty evidence seal")
-    return hashlib.sha256(canonical_json({"schema_version": 1, "entries": entries})).hexdigest()
+    return hashlib.sha256(
+        canonical_json({"schema_version": RUNTIME_SCHEMA_VERSION, "entries": entries})
+    ).hexdigest()
 
 
 def seal(
@@ -131,6 +157,7 @@ def seal(
     ):
         raise ContractError("ready seal requires all applicable controls to pass")
     summary = (
+        f"schema_version: {RUNTIME_SCHEMA_VERSION}\n"
         f"terminal_state: {terminal.value}\n"
         "real_task_allowed: no\n"
         f"seal_input_digest: {current_digest}\n"
@@ -145,7 +172,7 @@ def seal(
         if path.is_file() and path.name != "summary.md"
     ]
     terminal_digest = hashlib.sha256(
-        canonical_json({"schema_version": 1, "entries": terminal_entries})
+        canonical_json({"schema_version": RUNTIME_SCHEMA_VERSION, "entries": terminal_entries})
     ).hexdigest()
     summary += f"terminal_evidence_digest: {terminal_digest}\n"
     summary_path = paths.evidence / "summary.md"
