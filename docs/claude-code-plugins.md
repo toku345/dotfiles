@@ -118,7 +118,7 @@ DONE または blocked を返してください。"
   / `result.md` に置き、agmsg では path を送る
 - secret、credential、長大 diff 本文は agmsg に送らない
 - 依頼文には「1 回実行して DONE/blocked を返す」を入れ、自動往復ループを作らない
-- Codex monitor beta は通常使わない。v1.1.6 では shell function が推奨経路で、
+- Codex monitor beta は通常使わない。v1.1.10 では shell function が推奨経路で、
   global PATH shim は任意の互換経路として残っている
 
 ### 更新
