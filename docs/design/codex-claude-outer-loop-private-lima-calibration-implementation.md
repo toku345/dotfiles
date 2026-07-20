@@ -7,7 +7,7 @@ Status: Implemented for static review; no live calibration has run
 
 ## Scope
 
-This implementation adds the repository-managed calibration harness, two static Lima profiles, root-owned guest policy seeds, bounded runtime adapters, guarded sync/export code, typed evidence, retention/cleanup definitions, and hermetic tests. It does not create a VM, authenticate either runtime, register a LaunchAgent, run a live control, create v3, or authorize a real task.
+This implementation adds the repository-managed calibration harness, two static Lima profiles, root-owned guest policy seeds, bounded runtime adapters, guarded sync/export code, typed evidence, a run-specific fresh-guest lifecycle, retention/cleanup definitions, and hermetic tests. It does not create a VM, authenticate either runtime, register a LaunchAgent, run a live control, create v3, or authorize a real task.
 
 The only successful calibration terminal remains:
 
@@ -36,6 +36,7 @@ tools/outer-loop-lima-calibration/
 |-- lib/
 |   |-- model.py
 |   |-- paths.py
+|   |-- lima_state.py
 |   |-- identities.py
 |   |-- probes.py
 |   |-- sync_guard.py
@@ -79,7 +80,8 @@ The tools directory is ignored by chezmoi deployment and is repository-only. `ma
 | Lima profiles and guest provisioning | Two static YAML profiles, root provisioning, non-sudo `calibration` runtime, disabled mounts/forwarding/containerd | Render templates, contain credentials, mount authoritative repositories, install unpinned artifacts |
 | Runtime adapters and seeds | Root-owned policy, guest-local authentication state, tool-free smoke, effective-policy reads | Copy host authentication, allow API-key fallback, make managed policy runtime-writable |
 | Sync/export | Registered disposable staging, TTY confirmation, no-follow quarantine validation, stable inventories, canonical freeze | Sync authoritative repositories, silently follow/drop links, bundle mutable staging directly |
-| Evidence/retention/cleanup | Typed records, sanitization boundary, seal, LaunchAgent definition, cleanup attestation | Aggregate risk as control, overwrite failure evidence, store raw authentication material, mutate sealed evidence |
+| Fresh guest lifecycle | Short run-bound physical `LIMA_HOME`, strict Lima JSON Lines state, create/start identity, recognized-only cleanup | Reuse an existing/partial guest, infer absence from ambiguous output, quarantine or recursively delete partial layouts |
+| Evidence/retention/cleanup | Typed records, sanitization boundary, seal, LaunchAgent definition, cleanup attestation | Aggregate risk as control, overwrite failure evidence, store raw authentication material, mutate sealed evidence, promise deadline deletion without verified eligibility |
 
 ## Identity lock
 
@@ -124,20 +126,26 @@ verify-cleanup
 
 There is no `--yes`, arbitrary control selector, phase skip, or same-run retry. A mutating command takes one run ID and the arguments fixed for its phase. Approval requires stdin and stdout TTYs and exact re-entry of both the gate name and target digest. Human-readable prompts are not evidence; the resulting typed approval record is.
 
-The state machine permits only the next command in sequence. A subprocess has an explicit timeout and captured output is treated as untrusted. Started occurrences are written before execution and completion records are append-only. Each started operation holds an operator-owned run lock through its terminal state update. `status` reports a lock-held occurrence as `IN_PROGRESS` without mutation; only a lock-free started occurrence is orphaned, converted to `UNVERIFIED`, and transitioned to `BLOCKED`, after which only `status`, `cleanup`, and `verify-cleanup` remain available.
+The operational defaults are `~/.local/state/outer-loop/lima-prearm/v1` for logical state and `~/.local/state/ol` for the short physical Lima pool. `--lima-pool-root <absolute-path>` injects a separately validated pool. If `--state-root` selects a custom root, omitting `--lima-pool-root` is rejected before the first write; hermetic tests always inject both temporary roots. Relative paths, shell expansion, environment-derived fallback, and symlink ancestry are rejected. The resolved pool is propagated without re-derivation through `RunPaths`, every Lima subprocess, the retention wrapper and LaunchAgent read-back, cleanup, and `verify-cleanup`.
+
+The ten-character token is lowercase unpadded RFC 4648 Base32 over `SHA256(b"outer-loop-lima-pool-binding-v1\0" + canonical_state_root_bytes + b"\0" + run_id_ascii)`. The write-once registry detects token collisions rather than choosing a fallback token. Before any state or pool write, the harness computes Lima's longest fixed socket path with filesystem-encoded bytes and requires both the internal `<=95`-byte policy and Lima `2.1.4`'s `<104`-byte boundary.
+
+The state machine permits only the next command in sequence. A subprocess has an explicit timeout and captured output is treated as untrusted. Started control and provision occurrences are written before execution and completion records are append-only. Each started operation holds an operator-owned run lock through its terminal state update. `status` reports a lock-held occurrence as `IN_PROGRESS` without mutation; only a lock-free started occurrence is orphaned, converted to `UNVERIFIED`, and transitioned to `BLOCKED`. Provision cannot retry in the same run. Cleanup is attempted at most once; if it becomes `CLEANUP_MANUAL_REQUIRED`, only `status`, read-only diagnostics, and `verify-cleanup` remain available.
 
 ## Record model
 
-`ControlRecord`, `RiskAcceptanceRecord`, `ApprovalRecord`, and `CleanupRecord` are distinct record types. A control key is `run_id + control_id + occurrence + target`. Control results are only `PASS`, `FAIL`, `UNKNOWN`, or `UNVERIFIED`.
+New run state, evidence, seal input, and cleanup attestation use runtime `schema_version: 2`. Existing runtime schema 1 runs are read-only: no migration, backfill, mutation, or re-attestation is permitted, and every mutating command fails closed. The harness `manifest.json` remains schema 1 and is validated independently.
+
+`ControlRecord`, `RiskAcceptanceRecord`, `ApprovalRecord`, `LimaHomeBindingRecord`, `ProvisionAttemptRecord`, `LimaIdentity`, and `CleanupRecord` are distinct record types. A control key is `run_id + control_id + occurrence + target`. A provision attempt is appended as `STARTED` immediately before the exact `create` or `start` invocation, then receives a sanitized terminal record only after command and typed identity read-back. An orphan, duplicate, reordered, or contradictory attempt is never retried or used to justify destructive cleanup. Control results are only `PASS`, `FAIL`, `UNKNOWN`, or `UNVERIFIED`.
 
 `UNAVAILABLE_BASELINE` is an observation classification. `NOT_PROVIDED_ACCEPTED_RISK` is a risk disposition. Neither can appear as a control result. The control aggregator rejects non-control objects and specifically cannot consume `AR-02`.
 
 ## Gates and phases
 
-1. `init` creates a new run with an immutable RFC 3339 UTC retention deadline.
-2. `preflight` validates the lock, manifest, host identity, exact objective/prohibitions, terminal states, and risk records `AR-01` and `AR-02`.
-3. H1 `approve pre-vm` binds the lock digest, manifest digest, deadline, and both accepted risks.
-4. `provision` registers and reads back deadline retention before creating either guest, then creates both new guests and collects guest identities. It closes the deferred C00 aggregate and C01 only when every live observation passes.
+1. `init` creates a new runtime-schema-2 run with an immutable RFC 3339 UTC retention deadline. It resolves the logical state root and physical pool, checks the socket-path budget before the first write, allocates a fresh `~/.local/state/ol/<10-char-token>` physical home exclusively, and records the run/state/pool/token/home binding write-once. An existing token, binding, home, or node is not reused.
+2. `preflight` validates the lock, manifest, parser, host and physical-home identities, exact objective/prohibitions, terminal states, and risk records `AR-01` and `AR-02`. It parses Lima `2.1.4` output as JSON Lines and requires an empty namespace plus both fixed instance-directory and root-disk paths absent. JSON arrays, malformed or mistyped records, additional/mixed stderr, nonzero status, and non-canonical empty output are `UNKNOWN` and block.
+3. H1 `approve pre-vm` binds the lock, manifest and parser digests, deadline, both accepted risks, home binding, and preflight absence snapshot.
+4. `provision` registers and reads back deadline retention, revalidates the H1 identities and strict absence immediately before creation, and invokes no create operation if that recheck fails. It explicitly creates Codex and verifies its exact Stopped identity, creates Claude and verifies its exact Stopped identity, then starts and verifies each exact Running identity. Identity read-back requires exact `name`, `status`, canonical `dir`, `vmType=vz`, `arch=aarch64`, `cpus=4`, `memory=8589934592`, and `disk=42949672960`; integer fields reject booleans and other coercions. It closes the deferred C00 aggregate and C01 only when every live observation passes.
 5. The operator verifies Claude subscription code-paste login can begin without port forwarding. Infeasibility blocks without relaxing the boundary.
 6. H2 `approve pre-auth` binds C00, C01, and code-paste feasibility.
 7. `authenticate runtime`, `run isolation`, and `run sync-export` close C02/C03 initial and the direction-specific C04-C06 records in order. Each authentication attempt is durably marked before the interactive login command so cleanup cannot omit logout/revoke handling after a later classification failure.
@@ -145,7 +153,7 @@ The state machine permits only the next command in sequence. A subprocess has an
 9. `run restart` stop/starts both guests and reruns C02/C03 with occurrence `post_restart`.
 10. `prepare-seal` constructs the complete pre-approval seal-input digest.
 11. H4 `approve final-seal` binds that digest. `seal` closes C08 only if all required records pass and both guests are stopped.
-12. Passing guests remain stopped only until deadline/cohort/abandonment cleanup. No real-task authority is granted.
+12. Passing guests remain stopped only until deadline/cohort/abandonment cleanup. No real-task authority is granted; every state reports `real_task_allowed: false`.
 
 This source tree implements the state machine and command construction. Commands that would create guests, authenticate, register retention, or invoke model traffic are intentionally not executed during the implementation cycle.
 
@@ -187,14 +195,18 @@ C04-C06 run the fixed sync, diagnostic, quarantine, and freeze sequence once wit
 
 ## Retention and cleanup
 
-The frozen harness generates a LaunchAgent plist with `RunAtLoad: true`, deadline `StartCalendarInterval`, and `StartInterval: 3600`. The cleanup script independently parses the immutable deadline and exits without side effects before it is due. The orchestrator separately rejects and blocks every mutating operation whose start time is at or after the deadline, leaving only status and cleanup routes. A later live run must read back `launchctl bootstrap`, `launchctl print`, and a not-due kickstart before C02.
+The frozen harness generates a LaunchAgent plist with `RunAtLoad: true`, deadline `StartCalendarInterval`, and `StartInterval: 3600`. The cleanup script receives the exact resolved state and Lima-pool roots, independently parses the immutable deadline, and exits without side effects before it is due. The orchestrator separately rejects and blocks every mutating operation whose start time is at or after the deadline. A later live run must read back the exact wrapper, roots, run ID, and deadline through `launchctl bootstrap` and `launchctl print`, then run a not-due kickstart before C02.
 
-Deadline, abandonment, exposure, or cohort completion immediately blocks new runtime work. Cleanup acquires the same run lock used by phases and reloads state after any current phase completes; only an active marker that remains while cleanup owns the lock is classified as orphaned. It then tries each logout once with a 60-second timeout and removes both guest instances/disks regardless. Logout failure or exposure sets `account_revoke_required: true`. Cleanup is not verified until any provider-side revoke requirement is human-dispositioned.
+Deadline, abandonment, exposure, or cohort completion immediately blocks new runtime work. Cleanup acquires the same run lock used by phases and reloads state after any current phase completes. It first validates the write-once home binding, pool/home identity, provision-attempt sequence, recorded guest identities, strict JSON Lines list, and fixed paths. Only a fixed guest whose live identity exactly matches a recorded Stopped or Running identity is eligible. A recognized Running guest is stopped by fixed name, its Stopped identity is read back, and the fixed guest is deleted through Lima. Each destructive call has an immediate strict identity recheck. A recognized guest on one side may be cleaned only when the other side is proved absent or independently recognized. After strict namespace and fixed-path absence, the harness may call `rmdir` once only on a proved-empty, unchanged physical home.
 
-Verification reads back absence of instances, disks, staging, quarantine, raw tmp, listeners, LaunchAgent job, and plist. Unknown or present state yields `CLEANUP_PENDING` and calibration `BLOCKED`. Cleanup evidence is a separate attestation bound to the sealed digest; it never changes sealed evidence.
+If list state is `UNKNOWN`, a fixed directory is partial or unreadable, unrelated content exists, identity or binding drifts, provision evidence is orphaned/contradictory, a Lima call fails, the home is non-empty, or `rmdir` fails, cleanup performs no further destructive action and records `CLEANUP_MANUAL_REQUIRED` plus calibration `BLOCKED`. It does not infer partial candidates, quarantine them, unlink nodes, recursively delete, repair a Lima layout, generate a manual command, or retry cleanup in the same run. After operator action outside the harness, `verify-cleanup` performs only read-only checks and reaches `CLEANUP_VERIFIED` only when the strict namespace, fixed directories/disks, physical home, inactive LaunchAgent job, and any revoke disposition are all clear. The wrapper and plist remain as operator-owned evidence. Cleanup evidence is a separate schema-2 attestation bound to the sealed digest; it never changes sealed evidence.
+
+Retention therefore guarantees prohibition of new work and one safe cleanup attempt for recognized state, not deletion by the deadline. A guest, disk, or physical home can remain in `CLEANUP_MANUAL_REQUIRED` until the operator inspects and disposes it.
+
+`init` rejects a new live run while the same logical state root contains unresolved `CLEANUP_MANUAL_REQUIRED` state or the selected pool contains an unexplained/unbound entry. Read-only diagnostics may identify the recorded run ID, roots, fixed names, instance directories, disks, and binding/evidence paths, but the harness does not prescribe or execute their removal.
 
 ## Static verification
 
-CI and local verification run Python `unittest` on Python `3.14.5`, ShellCheck on guest shell, and `limactl validate --tty=false` for both profiles on macOS. CI never starts a VM. Tests cover C00-C08 model contracts, lock/manifest drift, risk/control separation, crash recovery, sync/export negative shapes, retention catch-up, cleanup uncertainty, sanitizer leakage, and the immutable historical paths.
+CI and local verification run Python `unittest` on Python `3.14.5`, ShellCheck on guest shell, and `limactl validate --tty=false` for both profiles on macOS. CI never starts a VM. Tests use temporary logical and physical roots and cover C00-C08 model contracts, lock/manifest drift, strict zero/one/multiple-object JSON Lines parsing, socket-path budget, run-bound pool propagation, preflight/pre-create absence, explicit create/Stopped/start/Running ordering, provision attempt orphans, risk/control separation, sync/export negative shapes, retention catch-up without destructive retry, recognized cleanup, zero-destructive manual-required routing, sanitizer leakage, runtime-schema-1 immutability, and the immutable historical paths.
 
 Passing static checks proves only that the reviewed harness satisfies its hermetic contracts. It does not report any live C00-C08 result and cannot produce `LIMA_CALIBRATION_READY_FOR_V3_DESIGN`.
