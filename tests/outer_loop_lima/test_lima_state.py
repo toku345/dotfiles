@@ -28,6 +28,13 @@ WARNING = (
     'time="2026-07-18T22:09:00+09:00" level=warning '
     'msg="No instance found. Run `limactl create` to create an instance."'
 )
+WARNING_Z = (
+    'time="2026-07-18T13:09:00Z" level=warning '
+    'msg="No instance found. Run `limactl create` to create an instance."'
+)
+WARNING_WITHOUT_TIMESTAMP = (
+    'level=warning msg="No instance found. Run `limactl create` to create an instance."'
+)
 
 
 def identity(name: str, directory: str, *, status: str = "Stopped") -> dict[str, object]:
@@ -44,10 +51,29 @@ def identity(name: str, directory: str, *, status: str = "Stopped") -> dict[str,
 
 
 class LimaListParserTests(unittest.TestCase):
-    def test_canonical_warning_is_absent(self) -> None:
-        snapshot = parse_lima_list(0, "", WARNING)
-        self.assertEqual(snapshot.disposition, LimaListDisposition.ABSENT)
-        self.assertEqual(snapshot.record_count, 0)
+    def test_canonical_warning_with_offset_or_z_is_absent(self) -> None:
+        for warning in (WARNING, WARNING_Z):
+            with self.subTest(warning=warning):
+                snapshot = parse_lima_list(0, "", warning)
+                self.assertEqual(snapshot.disposition, LimaListDisposition.ABSENT)
+                self.assertEqual(snapshot.record_count, 0)
+
+    def test_unpinned_no_instance_warning_variants_are_unknown(self) -> None:
+        variants = (
+            WARNING_WITHOUT_TIMESTAMP,
+            'level=warning msg="No instance found for current filter."',
+            WARNING + "\nlevel=error msg=unexpected",
+            f"unexpected-prefix {WARNING_WITHOUT_TIMESTAMP}",
+            f'time="not-a-timestamp" {WARNING_WITHOUT_TIMESTAMP}',
+            f'time="2026-07-18T22:09:00" {WARNING_WITHOUT_TIMESTAMP}',
+            f'time="2026-07-18 22:09:00+09:00" {WARNING_WITHOUT_TIMESTAMP}',
+        )
+        for warning in variants:
+            with self.subTest(warning=warning):
+                self.assertEqual(
+                    parse_lima_list(0, "", warning).disposition,
+                    LimaListDisposition.UNKNOWN,
+                )
 
     def test_one_and_multiple_json_lines_are_recognized(self) -> None:
         codex = identity(CODEX_INSTANCE, "/private/tmp/ol/codex")

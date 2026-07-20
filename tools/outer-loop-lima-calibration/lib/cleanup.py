@@ -27,6 +27,7 @@ def verify_cleanup(
     *,
     account_revoke_required: bool,
     revoke_human_confirmed: bool,
+    manual_reason_code: str | None = None,
     diagnostics: dict[str, str] | None = None,
 ) -> CleanupRecord:
     missing = sorted(set(REQUIRED_ABSENCE).difference(observations))
@@ -36,7 +37,11 @@ def verify_cleanup(
     if missing or invalid:
         raise ContractError(f"cleanup observations incomplete missing={missing} invalid={invalid}")
     all_absent = all(observations[key] == "ABSENT" for key in REQUIRED_ABSENCE)
-    verified = all_absent and (not account_revoke_required or revoke_human_confirmed)
+    verified = (
+        all_absent
+        and manual_reason_code is None
+        and (not account_revoke_required or revoke_human_confirmed)
+    )
     return CleanupRecord(
         run_id=run_id,
         seal_digest=seal_digest,
@@ -48,6 +53,7 @@ def verify_cleanup(
         cleanup_verified=verified,
         account_revoke_required=account_revoke_required,
         observations=observations,
+        manual_reason_code=manual_reason_code,
         diagnostics=diagnostics or {},
     )
 

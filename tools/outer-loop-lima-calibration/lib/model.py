@@ -45,6 +45,34 @@ class CleanupDisposition(StrEnum):
     CLEANUP_VERIFIED = "CLEANUP_VERIFIED"
 
 
+class CleanupManualReason(StrEnum):
+    ORPHANED_OPERATION = "ORPHANED_OPERATION"
+    LIMA_LIST_UNKNOWN = "LIMA_LIST_UNKNOWN"
+    LIMA_HOME_UNRELATED_ENTRIES = "LIMA_HOME_UNRELATED_ENTRIES"
+    PROVISION_NOT_AUTOMATIC_CLEANUP_ELIGIBLE = (
+        "PROVISION_NOT_AUTOMATIC_CLEANUP_ELIGIBLE"
+    )
+    INSTANCE_DIRECTORY_LIST_MISMATCH = "INSTANCE_DIRECTORY_LIST_MISMATCH"
+    LIVE_IDENTITY_NOT_RECORDED = "LIVE_IDENTITY_NOT_RECORDED"
+    PRE_STOP_IDENTITY_MISMATCH = "PRE_STOP_IDENTITY_MISMATCH"
+    LIMA_STOP_FAILED = "LIMA_STOP_FAILED"
+    POST_STOP_IDENTITY_MISMATCH = "POST_STOP_IDENTITY_MISMATCH"
+    PRE_DELETE_IDENTITY_MISMATCH = "PRE_DELETE_IDENTITY_MISMATCH"
+    LIMA_DELETE_FAILED = "LIMA_DELETE_FAILED"
+    POST_DELETE_NAMESPACE_NOT_ABSENT = "POST_DELETE_NAMESPACE_NOT_ABSENT"
+    POST_DELETE_FIXED_PATH_PRESENT = "POST_DELETE_FIXED_PATH_PRESENT"
+    PHYSICAL_LIMA_HOME_NOT_EMPTY = "PHYSICAL_LIMA_HOME_NOT_EMPTY"
+    PROVISIONED_HOME_REQUIRES_MANUAL_VERIFICATION = (
+        "PROVISIONED_HOME_REQUIRES_MANUAL_VERIFICATION"
+    )
+    LIMA_HOME_RMDIR_FAILED = "LIMA_HOME_RMDIR_FAILED"
+    LIMA_HOME_REMAINED = "LIMA_HOME_REMAINED"
+    RETENTION_DISABLE_FAILED = "RETENTION_DISABLE_FAILED"
+    OBSERVATION_INCONCLUSIVE = "OBSERVATION_INCONCLUSIVE"
+    HUMAN_DISPOSITION_REQUIRED = "HUMAN_DISPOSITION_REQUIRED"
+    ATTESTATION_NOT_VERIFIED = "ATTESTATION_NOT_VERIFIED"
+
+
 class LimaListDisposition(StrEnum):
     ABSENT = "ABSENT"
     RECOGNIZED = "RECOGNIZED"
@@ -299,6 +327,7 @@ class CleanupRecord:
     cleanup_verified: bool
     account_revoke_required: bool
     observations: Mapping[str, str]
+    manual_reason_code: str | None = None
     diagnostics: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -308,6 +337,15 @@ class CleanupRecord:
             raise ContractError("cleanup verification and disposition disagree")
         if not self.run_id or not self.seal_digest:
             raise ContractError("cleanup record must bind run and seal")
+        if self.manual_reason_code is not None:
+            if type(self.manual_reason_code) is not str:
+                raise ContractError("cleanup manual reason code must be a string")
+            try:
+                CleanupManualReason(self.manual_reason_code)
+            except ValueError as exc:
+                raise ContractError("cleanup manual reason code is not allowlisted") from exc
+            if self.cleanup_verified:
+                raise ContractError("verified cleanup cannot retain a manual reason")
         if not set(self.diagnostics).issubset(self.observations):
             raise ContractError("cleanup diagnostics must identify observed checks")
         if any(not value for value in self.diagnostics.values()):

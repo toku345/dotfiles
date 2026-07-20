@@ -10,6 +10,7 @@ import stat
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Mapping
 
 from lib.model import ContractError, LimaHomeBindingRecord, RUNTIME_SCHEMA_VERSION
 
@@ -19,6 +20,20 @@ STATE_ROOT = Path.home() / ".local/state/outer-loop/lima-prearm/v1"
 DEFAULT_LIMA_POOL_ROOT = Path.home() / ".local/state/ol"
 POOL_BINDING_DOMAIN = b"outer-loop-lima-pool-binding-v1\0"
 TOKEN_LENGTH = 10
+LIMA_BINDING_DIGEST_FIELDS = (
+    "run_id",
+    "state_root",
+    "logical_run_root",
+    "lima_pool_root",
+    "token",
+    "lima_home",
+    "pool_device",
+    "pool_inode",
+    "home_device",
+    "home_inode",
+    "owner_uid",
+    "mode",
+)
 
 
 def parse_utc_deadline(value: str) -> datetime:
@@ -107,6 +122,16 @@ def derive_lima_home_token(state_root: Path, run_id: str) -> str:
 
 def _canonical_json(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode() + b"\n"
+
+
+def canonical_lima_binding_digest(fields: Mapping[str, object]) -> str:
+    if set(fields) != set(LIMA_BINDING_DIGEST_FIELDS):
+        raise ContractError("Lima home binding digest fields are invalid")
+    payload = {
+        "schema_version": RUNTIME_SCHEMA_VERSION,
+        **{name: fields[name] for name in LIMA_BINDING_DIGEST_FIELDS},
+    }
+    return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
 def _write_exclusive(path: Path, payload: object, mode: int = 0o600) -> None:
@@ -215,6 +240,20 @@ class RunPaths:
             bindings.mkdir(mode=0o700)
         validate_private_directory(bindings)
 
+    def _validate_allocation_preconditions(self, *, allow_pool_create: bool) -> None:
+        ensure_no_symlink_ancestors(self.lima_pool_root)
+        pool_info = _lstat(self.lima_pool_root)
+        if pool_info is None:
+            if not allow_pool_create:
+                raise ContractError("explicit Lima pool root must already exist")
+            return
+        validate_private_directory(self.lima_pool_root)
+        bindings = self.lima_pool_root / ".bindings"
+        if _lstat(bindings) is not None:
+            validate_private_directory(bindings)
+        if _lstat(self.binding_registry) is not None or _lstat(self.lima_home) is not None:
+            raise ContractError("Lima home token is already allocated and cannot be reused")
+
     def allocate_lima_home(
         self,
         *,
@@ -254,14 +293,11 @@ class RunPaths:
                 "owner_uid": home_info.st_uid,
                 "mode": stat.S_IMODE(home_info.st_mode),
             }
-            digest_input = {"schema_version": RUNTIME_SCHEMA_VERSION, **binding_fields}
             binding = LimaHomeBindingRecord(
                 **(
                     binding_fields
                     | {
-                        "binding_digest": hashlib.sha256(
-                            _canonical_json(digest_input)
-                        ).hexdigest()
+                        "binding_digest": canonical_lima_binding_digest(binding_fields)
                     }
                 )
             )
@@ -301,7 +337,18 @@ class RunPaths:
             registry = json.loads(data)
         except (OSError, json.JSONDecodeError) as exc:
             raise ContractError("Lima home binding registry is unavailable") from exc
-        if not isinstance(registry, dict) or registry != expected:
+        if not isinstance(registry, dict):
+            raise ContractError("Lima home binding registry drifted")
+        try:
+            binding_fields = {
+                name: registry[name]
+                for name in LIMA_BINDING_DIGEST_FIELDS
+            }
+        except KeyError as exc:
+            raise ContractError("Lima home binding registry digest fields are incomplete") from exc
+        if registry.get("binding_digest") != canonical_lima_binding_digest(binding_fields):
+            raise ContractError("Lima home binding registry digest drifted")
+        if registry != expected:
             raise ContractError("Lima home binding registry drifted")
         return registry
 
@@ -324,8 +371,13 @@ class RunPaths:
             mode=registry.get("mode", -1),
             binding_digest=registry.get("binding_digest", ""),
         )
+        binding_fields = {
+            name: getattr(binding, name)
+            for name in LIMA_BINDING_DIGEST_FIELDS
+        }
         if (
-            binding.run_id != self.run_id
+            binding.binding_digest != canonical_lima_binding_digest(binding_fields)
+            or binding.run_id != self.run_id
             or binding.state_root != str(self.state_root)
             or binding.logical_run_root != str(self.root)
             or binding.lima_pool_root != str(self.lima_pool_root)
@@ -366,9 +418,10 @@ class RunPaths:
     ) -> LimaHomeBindingRecord:
         if allow_pool_create is None:
             allow_pool_create = self.lima_pool_root == Path(os.path.abspath(DEFAULT_LIMA_POOL_ROOT))
-        binding = self.allocate_lima_home(
+        self.validate_socket_budget(instance_names)
+        self._validate_allocation_preconditions(allow_pool_create=allow_pool_create)
+        self.create_logical_run()
+        return self.allocate_lima_home(
             allow_pool_create=allow_pool_create,
             instance_names=instance_names,
         )
-        self.create_logical_run()
-        return binding
