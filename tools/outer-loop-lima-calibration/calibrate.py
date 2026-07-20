@@ -14,7 +14,7 @@ sys.dont_write_bytecode = True
 
 from lib.model import ContractError
 from lib.orchestrator import Orchestrator
-from lib.paths import STATE_ROOT
+from lib.paths import DEFAULT_LIMA_POOL_ROOT, STATE_ROOT
 
 
 def add_run_id(parser: argparse.ArgumentParser) -> None:
@@ -26,7 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Fail-closed Private Lima pre-arm calibration",
         allow_abbrev=False,
     )
-    parser.add_argument("--state-root", type=Path, default=STATE_ROOT)
+    parser.add_argument("--state-root", type=Path)
+    parser.add_argument("--lima-pool-root", type=Path)
     commands = parser.add_subparsers(dest="command", required=True)
 
     init_parser = commands.add_parser("init", allow_abbrev=False)
@@ -145,11 +146,23 @@ def dispatch(args: argparse.Namespace, orchestrator: Orchestrator) -> dict[str, 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    orchestrator = Orchestrator(
-        harness_root=Path(__file__).resolve().parent,
-        state_root=args.state_root,
-    )
     try:
+        state_root = args.state_root if args.state_root is not None else STATE_ROOT
+        if not state_root.is_absolute():
+            raise ContractError("state root must be an absolute path")
+        if args.lima_pool_root is None:
+            if args.state_root is not None and state_root != STATE_ROOT:
+                raise ContractError("custom state root requires --lima-pool-root")
+            lima_pool_root = DEFAULT_LIMA_POOL_ROOT
+        else:
+            lima_pool_root = args.lima_pool_root
+        if not lima_pool_root.is_absolute():
+            raise ContractError("Lima pool root must be an absolute path")
+        orchestrator = Orchestrator(
+            harness_root=Path(__file__).resolve().parent,
+            state_root=state_root,
+            lima_pool_root=lima_pool_root,
+        )
         result = dispatch(args, orchestrator)
     except ContractError as exc:
         print(

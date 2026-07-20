@@ -7,7 +7,6 @@ import ipaddress
 import json
 import os
 import platform
-import re
 import secrets
 import shlex
 import shutil
@@ -23,6 +22,7 @@ from lib.evidence import (
     append_jsonl,
     record_control,
     record_decision,
+    record_provision_attempt,
     seal,
     seal_input_digest,
     write_once,
@@ -37,6 +37,18 @@ from lib.identities import (
     validate_versions_lock,
     verify_binary_identity,
 )
+from lib.lima_state import (
+    CLAUDE_INSTANCE,
+    CODEX_INSTANCE,
+    FIXED_INSTANCES,
+    LimaListSnapshot,
+    fixed_identity_map,
+    inspect_top_level,
+    parse_lima_list,
+    parser_contract_digest,
+    path_disposition,
+    validate_expected_identity,
+)
 from lib.model import (
     ApprovalRecord,
     ContractError,
@@ -44,12 +56,27 @@ from lib.model import (
     ControlRecord,
     ControlResult,
     ObservationClass,
+    CleanupDisposition,
+    CleanupManualReason,
+    CleanupRecord,
+    LimaIdentity,
+    LimaListDisposition,
+    ProvisionAttemptEvent,
+    ProvisionAttemptOutcome,
+    ProvisionAttemptRecord,
     RiskAcceptanceRecord,
     RiskDisposition,
+    RUNTIME_SCHEMA_VERSION,
     TerminalState,
     aggregate_controls,
 )
-from lib.paths import RunPaths, ensure_private_directory, parse_utc_deadline, validate_run_id
+from lib.paths import (
+    DEFAULT_LIMA_POOL_ROOT,
+    RunPaths,
+    ensure_private_directory,
+    parse_utc_deadline,
+    validate_run_id,
+)
 from lib.probes import (
     ExecutionReceipt,
     OneShotCanary,
@@ -64,45 +91,18 @@ from lib.retention import (
     launchctl_commands,
     render_deadline_wrapper,
     render_launch_agent,
+    validate_launchctl_print_readback,
+    validate_wrapper_readback,
 )
 from lib.sync_guard import validate_sync_invocation
 
 
-CODEX_INSTANCE = "outer-loop-week0-codex"
-CLAUDE_INSTANCE = "outer-loop-week0-claude"
 RUNTIMES = ("codex", "claude")
 HANDOFF_DIRECTIONS = ("forward", "reverse")
-LIMA_HOME_RELATIVE = Path("lima-home")
 COMPLETE_RECEIPT_PREFIX = "OUTER_LOOP_RECEIPT_COMPLETE:"
 NETWORK_DENIED_EXIT = 77
 NETWORK_DENIED_MARKER = "OUTER_LOOP_NETWORK_DENIED"
 OPERATION_LOCK_NAME = "operation.lock"
-NO_INSTANCE_WARNING = (
-    'level=warning msg="No instance found. Run `limactl create` to create an instance."'
-)
-LIMA_LOG_TIMESTAMP_RE = re.compile(
-    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})"
-)
-
-
-def _is_pinned_no_instance_warning(line: str) -> bool:
-    timestamp_prefix, separator, message = line.partition('" ')
-    if (
-        separator != '" '
-        or not timestamp_prefix.startswith('time="')
-        or message != NO_INSTANCE_WARNING
-    ):
-        return False
-    timestamp = timestamp_prefix.removeprefix('time="')
-    if LIMA_LOG_TIMESTAMP_RE.fullmatch(timestamp) is None:
-        return False
-    try:
-        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    return parsed.tzinfo is not None
-
-
 class Phase:
     INITIALIZED = "INITIALIZED"
     PREFLIGHTED = "PREFLIGHTED"
@@ -146,6 +146,12 @@ class CalibrationDriver(Protocol):
     def stop_for_seal(self, run_id: str) -> dict[str, object]: ...
 
 
+class BoundedCommandError(ContractError):
+    def __init__(self, command: str, classification: str) -> None:
+        super().__init__(f"bounded command failed: {command}")
+        self.classification = classification
+
+
 class CommandRunner:
     def __init__(self, lima_home: Path) -> None:
         self.lima_home = lima_home
@@ -180,8 +186,12 @@ class CommandRunner:
                 pass_fds=pass_fds,
                 preexec_fn=enter_pinned_directory,
             )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise ContractError(f"bounded command failed: {argv[0]}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise BoundedCommandError(str(argv[0]), "TIMEOUT") from exc
+        except OSError as exc:
+            raise BoundedCommandError(str(argv[0]), "UNAVAILABLE") from exc
+        except subprocess.SubprocessError as exc:
+            raise BoundedCommandError(str(argv[0]), "UNAVAILABLE") from exc
 
 
 class LimaDriver:
@@ -193,15 +203,14 @@ class LimaDriver:
     this driver never accepts an arbitrary control ID.
     """
 
-    def __init__(self, paths: RunPaths, state_root: Path, harness_root: Path) -> None:
+    def __init__(self, paths: RunPaths, harness_root: Path) -> None:
         self.paths = paths
-        self.state_root = state_root
         self.harness_root = harness_root
         self.repository_root = next(
             (candidate for candidate in (harness_root, *harness_root.parents) if (candidate / ".git").exists()),
             harness_root,
         )
-        self.runner = CommandRunner(state_root / LIMA_HOME_RELATIVE)
+        self.runner = CommandRunner(paths.lima_home)
 
     @staticmethod
     def _record(
@@ -288,25 +297,147 @@ class LimaDriver:
         )
         self._shell(instance, ("sudo", "/bin/sh", "-ceu", setup), timeout=1800)
 
-    def _list_identity(self, instance: str) -> dict[str, object]:
+    def _list_identity(
+        self,
+        runtime: str,
+        *,
+        expected_status: str,
+        stage: str,
+    ) -> LimaIdentity:
+        instance = self._instance(runtime)
         result = self.runner.run(
             ("limactl", "--tty=false", "list", "--all-fields", "--format=json", instance),
             timeout=30,
+            check=False,
+        )
+        snapshot = parse_lima_list(result.returncode, result.stdout, result.stderr)
+        if snapshot.disposition is not LimaListDisposition.RECOGNIZED or len(snapshot.identities) != 1:
+            raise ContractError("Lima identity read-back was not exactly one recognized instance")
+        identity = snapshot.identities[0]
+        validate_expected_identity(
+            identity,
+            name=instance,
+            status=expected_status,
+            directory=self.paths.lima_home / instance,
+        )
+        append_jsonl(
+            self.paths.evidence / "lima-identities.jsonl",
+            identity.to_dict() | {"runtime": runtime, "stage": stage},
+        )
+        return identity
+
+    def _provision_attempt(
+        self,
+        run_id: str,
+        runtime: str,
+        action: str,
+        argv: tuple[str, ...],
+        *,
+        expected_status: str,
+    ) -> LimaIdentity:
+        attempt_path = self.paths.evidence / "provision-attempts.jsonl"
+        if attempt_path.exists():
+            try:
+                for line in attempt_path.read_text(encoding="utf-8").splitlines():
+                    value = json.loads(line)
+                    if (
+                        value.get("schema_version") != RUNTIME_SCHEMA_VERSION
+                        or value.get("record_type") != "provision_attempt"
+                    ):
+                        raise ContractError("provision attempt evidence schema drifted")
+                    if value.get("runtime") == runtime and value.get("action") == action:
+                        raise ContractError("same-run provision attempt retry rejected")
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ContractError("provision attempt evidence is unreadable") from exc
+        observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        command_digest = hashlib.sha256(
+            canonical_json(
+                {
+                    "argv": argv,
+                    "lima_home": str(self.paths.lima_home),
+                    "expected_status": expected_status,
+                }
+            )
+        ).hexdigest()
+        record_provision_attempt(
+            self.paths,
+            ProvisionAttemptRecord(
+                run_id,
+                runtime,
+                action,
+                ProvisionAttemptEvent.STARTED,
+                command_digest,
+                observed_at,
+            ),
         )
         try:
-            value = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise ContractError("Lima identity output was not JSON") from exc
-        records = value if isinstance(value, list) else [value]
-        if len(records) != 1 or not isinstance(records[0], dict):
-            raise ContractError("Lima identity did not contain exactly one instance")
-        identity = records[0]
-        if identity.get("name") != instance or str(identity.get("status", "")).lower() != "running":
-            raise ContractError("Lima instance identity/status mismatch")
-        return {
-            key: identity.get(key)
-            for key in ("name", "status", "vmType", "arch", "cpus", "memory", "disk", "dir")
-        }
+            result = self.runner.run(argv, timeout=1500 if action == "create" else 720, check=False)
+        except BoundedCommandError as exc:
+            outcome = (
+                ProvisionAttemptOutcome.TIMEOUT
+                if exc.classification == "TIMEOUT"
+                else ProvisionAttemptOutcome.UNAVAILABLE
+            )
+            record_provision_attempt(
+                self.paths,
+                ProvisionAttemptRecord(
+                    run_id,
+                    runtime,
+                    action,
+                    ProvisionAttemptEvent.COMPLETED,
+                    command_digest,
+                    datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    outcome,
+                ),
+            )
+            raise
+        if result.returncode != 0:
+            record_provision_attempt(
+                self.paths,
+                ProvisionAttemptRecord(
+                    run_id,
+                    runtime,
+                    action,
+                    ProvisionAttemptEvent.COMPLETED,
+                    command_digest,
+                    datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    ProvisionAttemptOutcome.NONZERO,
+                ),
+            )
+            raise ContractError(f"Lima {action} returned nonzero")
+        try:
+            identity = self._list_identity(
+                runtime,
+                expected_status=expected_status,
+                stage=f"post-{action}",
+            )
+        except ContractError:
+            record_provision_attempt(
+                self.paths,
+                ProvisionAttemptRecord(
+                    run_id,
+                    runtime,
+                    action,
+                    ProvisionAttemptEvent.COMPLETED,
+                    command_digest,
+                    datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    ProvisionAttemptOutcome.IDENTITY_MISMATCH,
+                ),
+            )
+            raise
+        record_provision_attempt(
+            self.paths,
+            ProvisionAttemptRecord(
+                run_id,
+                runtime,
+                action,
+                ProvisionAttemptEvent.COMPLETED,
+                command_digest,
+                datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                ProvisionAttemptOutcome.SUCCESS,
+            ),
+        )
+        return identity
 
     def _guest_policy_check(self, runtime: str) -> dict[str, object]:
         instance = self._instance(runtime)
@@ -423,15 +554,17 @@ class LimaDriver:
 
     def provision(self, run_id: str, frozen_harness: Path) -> PhaseResult:
         del frozen_harness
-        identities: dict[str, object] = {}
+        stopped_identities: dict[str, LimaIdentity] = {}
         for runtime in RUNTIMES:
             instance = self._instance(runtime)
-            self.runner.run(
+            stopped_identities[runtime] = self._provision_attempt(
+                run_id,
+                runtime,
+                "create",
                 (
                     "limactl",
                     "--tty=false",
-                    "start",
-                    "--timeout=20m",
+                    "create",
                     f"--name={instance}",
                     "--plain",
                     "--mount-none",
@@ -443,13 +576,29 @@ class LimaDriver:
                     "--disk=40",
                     str(self._profile(runtime)),
                 ),
-                timeout=1500,
+                expected_status="Stopped",
+            )
+        identities: dict[str, object] = {}
+        for runtime in RUNTIMES:
+            instance = self._instance(runtime)
+            identity = self._provision_attempt(
+                run_id,
+                runtime,
+                "start",
+                ("limactl", "--tty=false", "start", "--timeout=20m", instance),
+                expected_status="Running",
             )
             self._install_harness(runtime)
-            identity = self._list_identity(instance)
             policy = self._guest_policy_check(runtime)
-            identities[runtime] = {"instance": identity, "policy": policy}
-        if identities["codex"]["instance"]["dir"] == identities["claude"]["instance"]["dir"]:
+            identities[runtime] = {
+                "created_instance": stopped_identities[runtime].to_dict(),
+                "instance": identity.to_dict(),
+                "policy": policy,
+            }
+        if (
+            stopped_identities["codex"].directory
+            == stopped_identities["claude"].directory
+        ):
             raise ContractError("guest disk identity is shared")
         peer_isolation = self._verify_peer_isolation()
         controls: list[ControlRecord] = []
@@ -1242,24 +1391,63 @@ class LimaDriver:
         stopped_result = self.runner.run(
             ("limactl", "--tty=false", "list", "--all-fields", "--format=json", driver_instance),
             timeout=30,
+            check=False,
         )
-        stopped_value = json.loads(stopped_result.stdout)
-        stopped = stopped_value[0] if isinstance(stopped_value, list) else stopped_value
-        if not isinstance(stopped, dict) or str(stopped.get("status", "")).lower() != "stopped":
+        stopped_snapshot = parse_lima_list(
+            stopped_result.returncode,
+            stopped_result.stdout,
+            stopped_result.stderr,
+        )
+        if (
+            stopped_snapshot.disposition is not LimaListDisposition.RECOGNIZED
+            or len(stopped_snapshot.identities) != 1
+        ):
             raise ContractError("handoff driver stop identity mismatch")
+        stopped = stopped_snapshot.identities[0]
+        try:
+            validate_expected_identity(
+                stopped,
+                name=driver_instance,
+                status="Stopped",
+                directory=self.paths.lima_home / driver_instance,
+            )
+        except ContractError as exc:
+            raise ContractError("handoff driver stop identity mismatch") from exc
         reviewer_identity = self.runner.run(
             ("limactl", "--tty=false", "list", "--all-fields", "--format=json", reviewer_instance),
             timeout=30,
+            check=False,
         )
-        reviewer_value = json.loads(reviewer_identity.stdout)
-        reviewer = reviewer_value[0] if isinstance(reviewer_value, list) else reviewer_value
-        if not isinstance(reviewer, dict):
+        reviewer_snapshot = parse_lima_list(
+            reviewer_identity.returncode,
+            reviewer_identity.stdout,
+            reviewer_identity.stderr,
+        )
+        if (
+            reviewer_snapshot.disposition is not LimaListDisposition.RECOGNIZED
+            or len(reviewer_snapshot.identities) != 1
+        ):
             raise ContractError("handoff reviewer identity unavailable")
-        if str(reviewer.get("status", "")).lower() != "running":
+        reviewer = reviewer_snapshot.identities[0]
+        if reviewer.status == "Stopped":
             self.runner.run(
                 ("limactl", "--tty=false", "start", "--timeout=10m", reviewer_instance),
                 timeout=720,
             )
+            reviewer_runtime = "codex" if reviewer_instance == CODEX_INSTANCE else "claude"
+            reviewer = self._list_identity(
+                reviewer_runtime,
+                expected_status="Running",
+                stage=f"handoff-{direction}-reviewer",
+            )
+        elif reviewer.status != "Running":
+            raise ContractError("handoff reviewer identity unavailable")
+        validate_expected_identity(
+            reviewer,
+            name=reviewer_instance,
+            status="Running",
+            directory=self.paths.lima_home / reviewer_instance,
+        )
         bundle = self.paths.fixture_bundles / direction
         manifest = bundle / "bundle-manifest.json"
         expected_digest = sha256_file(manifest)
@@ -1311,9 +1499,7 @@ class LimaDriver:
             raise ContractError("handoff reviewer digest mismatch")
         evidence = {
             "direction": direction,
-            "driver": {
-                key: stopped.get(key) for key in ("name", "status", "dir", "vmType", "arch")
-            },
+            "driver": stopped.to_dict(),
             "reviewer": reviewer_instance,
             "bundle_manifest_digest": expected_digest,
             "reviewer_digest": verified,
@@ -1323,21 +1509,29 @@ class LimaDriver:
         )
 
     def restart(self, run_id: str) -> PhaseResult:
-        for instance in (CODEX_INSTANCE, CLAUDE_INSTANCE):
+        for runtime in RUNTIMES:
+            instance = self._instance(runtime)
             listed = self.runner.run(
-                ("limactl", "--tty=false", "list", "--format=json", instance),
+                ("limactl", "--tty=false", "list", "--all-fields", "--format=json", instance),
                 timeout=30,
+                check=False,
             )
-            value = json.loads(listed.stdout)
-            record = value[0] if isinstance(value, list) else value
-            if not isinstance(record, dict):
+            snapshot = parse_lima_list(listed.returncode, listed.stdout, listed.stderr)
+            if snapshot.disposition is not LimaListDisposition.RECOGNIZED or len(snapshot.identities) != 1:
                 raise ContractError("restart identity unavailable")
-            if str(record.get("status", "")).lower() == "running":
+            identity = snapshot.identities[0]
+            if identity.status == "Running":
                 self.runner.run(("limactl", "--tty=false", "stop", instance), timeout=180)
+            elif identity.status != "Stopped":
+                raise ContractError("restart identity status is not safe")
             self.runner.run(("limactl", "--tty=false", "start", "--timeout=10m", instance), timeout=720)
         controls: list[ControlRecord] = []
         for runtime in RUNTIMES:
-            identity = self._list_identity(self._instance(runtime))
+            identity = self._list_identity(
+                runtime,
+                expected_status="Running",
+                stage="post-restart",
+            )
             policy = self._guest_policy_check(runtime)
             classification = self._collect_runtime_classification(runtime, "post_restart")
             controls.append(
@@ -1346,7 +1540,7 @@ class LimaDriver:
                     "C02",
                     "post_restart",
                     runtime,
-                    {"identity": identity, "policy": policy, **classification},
+                    {"identity": identity.to_dict(), "policy": policy, **classification},
                     "run restart",
                 )
             )
@@ -1357,19 +1551,15 @@ class LimaDriver:
     def stop_for_seal(self, run_id: str) -> dict[str, object]:
         del run_id
         identities: dict[str, object] = {}
-        for instance in (CODEX_INSTANCE, CLAUDE_INSTANCE):
+        for runtime in RUNTIMES:
+            instance = self._instance(runtime)
             self.runner.run(("limactl", "--tty=false", "stop", instance), timeout=180)
-            result = self.runner.run(
-                ("limactl", "--tty=false", "list", "--all-fields", "--format=json", instance),
-                timeout=30,
+            identity = self._list_identity(
+                runtime,
+                expected_status="Stopped",
+                stage="pre-seal-stopped",
             )
-            value = json.loads(result.stdout)
-            record = value[0] if isinstance(value, list) else value
-            if not isinstance(record, dict) or str(record.get("status", "")).lower() != "stopped":
-                raise ContractError("guest did not reach stopped state")
-            identities[instance] = {
-                key: record.get(key) for key in ("name", "status", "dir", "vmType", "arch")
-            }
+            identities[instance] = identity.to_dict()
         return identities
 
 
@@ -1379,6 +1569,7 @@ class Orchestrator:
         *,
         harness_root: Path,
         state_root: Path,
+        lima_pool_root: Path,
         driver_factory: Callable[[RunPaths], CalibrationDriver] | None = None,
         stdin_isatty: Callable[[], bool] | None = None,
         stdout_isatty: Callable[[], bool] | None = None,
@@ -1386,9 +1577,12 @@ class Orchestrator:
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self.harness_root = harness_root.resolve(strict=True)
-        self.state_root = state_root.resolve(strict=False)
+        if not Path(state_root).is_absolute() or not Path(lima_pool_root).is_absolute():
+            raise ContractError("state and Lima pool roots must be absolute")
+        self.state_root = Path(os.path.abspath(state_root))
+        self.lima_pool_root = Path(os.path.abspath(lima_pool_root))
         self._driver_factory = driver_factory or (
-            lambda paths: LimaDriver(paths, self.state_root, self.harness_root)
+            lambda paths: LimaDriver(paths, self.harness_root)
         )
         self._stdin_isatty = stdin_isatty or sys.stdin.isatty
         self._stdout_isatty = stdout_isatty or sys.stdout.isatty
@@ -1397,12 +1591,20 @@ class Orchestrator:
         self._operation_locks: dict[str, int] = {}
 
     def _paths(self, run_id: str) -> RunPaths:
-        return RunPaths.for_run(validate_run_id(run_id), self.state_root)
+        return RunPaths.for_run(
+            validate_run_id(run_id),
+            self.state_root,
+            self.lima_pool_root,
+        )
 
     @staticmethod
-    def _state_template(run_id: str, deadline: str) -> dict[str, object]:
+    def _state_template(
+        run_id: str,
+        deadline: str,
+        binding: dict[str, object],
+    ) -> dict[str, object]:
         return {
-            "schema_version": 1,
+            "schema_version": RUNTIME_SCHEMA_VERSION,
             "run_id": run_id,
             "retention_deadline": deadline,
             "phase": Phase.INITIALIZED,
@@ -1415,11 +1617,49 @@ class Orchestrator:
             "approval_targets": {},
             "seal_input_digest": None,
             "seal_digest": None,
+            "preflight_snapshot_digest": None,
             "cleanup_started": False,
             "cleanup_cause": None,
+            "cleanup_disposition": CleanupDisposition.NOT_STARTED,
+            "cleanup_manual_reason_code": None,
             "account_revoke_required": False,
             "cleanup_verified": False,
+            "retention_job_inactive": False,
+            "lima_home_binding": binding,
+            "pre_cleanup_terminal_state": None,
+            "pre_cleanup_phase": None,
         }
+
+    def _assert_new_run_allowed(self) -> None:
+        runs = self.state_root / "runs"
+        if runs.exists():
+            try:
+                candidates = tuple(runs.iterdir())
+            except OSError as exc:
+                raise ContractError("existing run state cannot be inspected") from exc
+            for candidate in candidates:
+                state_file = candidate / "work" / "state.json"
+                if not state_file.exists():
+                    continue
+                try:
+                    existing = load_json(state_file)
+                except Exception as exc:
+                    raise ContractError("existing run state is unreadable") from exc
+                if (
+                    existing.get("schema_version") == RUNTIME_SCHEMA_VERSION
+                    and existing.get("cleanup_disposition")
+                    == CleanupDisposition.CLEANUP_MANUAL_REQUIRED
+                    and existing.get("cleanup_verified") is not True
+                ):
+                    raise ContractError("unresolved manual cleanup blocks a new live run")
+        if self.lima_pool_root.exists():
+            try:
+                entries = tuple(self.lima_pool_root.iterdir())
+            except OSError as exc:
+                raise ContractError("Lima pool cannot be inspected") from exc
+            unexpected = [entry.name for entry in entries if entry.name not in {".bindings", ".pool.lock"}]
+            if unexpected:
+                raise ContractError("existing physical Lima home blocks a new live run")
 
     def init(self, run_id: str, deadline: str) -> dict[str, object]:
         validate_run_id(run_id)
@@ -1429,34 +1669,60 @@ class Orchestrator:
         paths = self._paths(run_id)
         if paths.root.exists() or paths.root.is_symlink():
             raise ContractError("run id already exists and cannot be retried")
-        paths.create()
-        ensure_private_directory(self.state_root / LIMA_HOME_RELATIVE)
-        state = self._state_template(run_id, deadline)
+        self._assert_new_run_allowed()
+        binding = paths.create(
+            allow_pool_create=self.lima_pool_root == Path(os.path.abspath(DEFAULT_LIMA_POOL_ROOT)),
+            instance_names=FIXED_INSTANCES,
+        )
+        binding_value = binding.to_dict()
+        state = self._state_template(run_id, deadline, binding_value)
+        write_once(paths.evidence / "lima-home-binding.json", binding_value)
         write_once(
             paths.evidence / "retention.json",
-            {"schema_version": 1, "run_id": run_id, "retention_deadline": deadline},
+            {
+                "schema_version": RUNTIME_SCHEMA_VERSION,
+                "run_id": run_id,
+                "retention_deadline": deadline,
+                "state_root": str(self.state_root),
+                "lima_pool_root": str(self.lima_pool_root),
+            },
         )
         self._save(paths, state)
         return state
 
-    def _load(self, paths: RunPaths) -> dict[str, object]:
+    def _load(self, paths: RunPaths, *, allow_legacy: bool = False) -> dict[str, object]:
         state = load_json(paths.state_file)
-        if state.get("schema_version") != 1 or state.get("run_id") != paths.run_id:
+        if state.get("run_id") != paths.run_id:
             raise ContractError("run state identity mismatch")
+        if state.get("schema_version") == 1:
+            if not allow_legacy:
+                raise ContractError("runtime schema 1 is read-only; start a new run")
+            if state.get("real_task_allowed") is not False:
+                raise ContractError("run state attempted to grant real-task authority")
+            return state
+        if state.get("schema_version") != RUNTIME_SCHEMA_VERSION:
+            raise ContractError("run state schema is unsupported")
         parse_utc_deadline(str(state.get("retention_deadline", "")))
         retention = load_json(paths.evidence / "retention.json")
         if (
-            retention.get("schema_version") != 1
+            retention.get("schema_version") != RUNTIME_SCHEMA_VERSION
             or retention.get("run_id") != paths.run_id
             or retention.get("retention_deadline") != state.get("retention_deadline")
+            or retention.get("state_root") != str(self.state_root)
+            or retention.get("lima_pool_root") != str(self.lima_pool_root)
         ):
             raise ContractError("immutable retention deadline drift")
+        binding = state.get("lima_home_binding")
+        if type(binding) is not dict or binding.get("schema_version") != RUNTIME_SCHEMA_VERSION:
+            raise ContractError("Lima home binding state is invalid")
         if state.get("real_task_allowed") is not False:
             raise ContractError("run state attempted to grant real-task authority")
         return state
 
     @staticmethod
     def _save(paths: RunPaths, state: dict[str, object]) -> None:
+        if state.get("schema_version") != RUNTIME_SCHEMA_VERSION:
+            raise ContractError("legacy or unknown runtime state cannot be mutated")
         ensure_private_directory(paths.work)
         temporary = paths.work / f".state.{os.getpid()}.tmp"
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -1764,6 +2030,70 @@ class Orchestrator:
         if failures:
             raise ContractError(f"controls did not pass: {failures}")
 
+    def _validate_lima_binding(
+        self,
+        paths: RunPaths,
+        state: dict[str, object],
+    ) -> dict[str, object]:
+        binding = state.get("lima_home_binding")
+        if type(binding) is not dict:
+            raise ContractError("Lima home binding is missing")
+        paths.validate_lima_home_binding(binding)
+        evidence = load_json(paths.evidence / "lima-home-binding.json")
+        if evidence != binding:
+            raise ContractError("Lima home binding evidence drifted")
+        return binding
+
+    def _capture_lima_snapshot(self, paths: RunPaths) -> LimaListSnapshot:
+        result = CommandRunner(paths.lima_home).run(
+            ("limactl", "--tty=false", "list", "--all-fields", "--format=json"),
+            timeout=30,
+            check=False,
+        )
+        return parse_lima_list(result.returncode, result.stdout, result.stderr)
+
+    def _freshness_evidence(
+        self,
+        paths: RunPaths,
+        state: dict[str, object],
+        *,
+        stage: str,
+    ) -> dict[str, object]:
+        binding = self._validate_lima_binding(paths, state)
+        socket_lengths = paths.validate_socket_budget(FIXED_INSTANCES)
+        snapshot = self._capture_lima_snapshot(paths)
+        top_level = inspect_top_level(paths.lima_home)
+        path_states = {
+            "codex_instance_directory": path_disposition(paths.lima_home / CODEX_INSTANCE),
+            "codex_root_disk": path_disposition(paths.lima_home / CODEX_INSTANCE / "disk"),
+            "claude_instance_directory": path_disposition(paths.lima_home / CLAUDE_INSTANCE),
+            "claude_root_disk": path_disposition(paths.lima_home / CLAUDE_INSTANCE / "disk"),
+        }
+        evidence = {
+            "schema_version": RUNTIME_SCHEMA_VERSION,
+            "record_type": "lima_freshness_snapshot",
+            "stage": stage,
+            "binding_digest": binding.get("binding_digest"),
+            "parser_contract_digest": parser_contract_digest(),
+            "socket_path_bytes": socket_lengths,
+            "list": snapshot.to_evidence(),
+            "top_level": top_level.to_evidence(),
+            "paths": path_states,
+        }
+        if snapshot.disposition is not LimaListDisposition.ABSENT:
+            raise ContractError("fresh Lima namespace was not strictly absent")
+        if (
+            top_level.disposition != "CLEAN"
+            or top_level.fixed_directories
+            or top_level.administrative_directories
+            or top_level.unknown_entries
+        ):
+            raise ContractError("fresh Lima home was not empty")
+        if any(value != "ABSENT" for value in path_states.values()):
+            raise ContractError("fresh Lima instance or disk path was not absent")
+        evidence["snapshot_digest"] = hashlib.sha256(canonical_json(evidence)).hexdigest()
+        return evidence
+
     def preflight(self, run_id: str) -> dict[str, object]:
         paths = self._paths(run_id)
         state = self._load(paths)
@@ -1800,6 +2130,8 @@ class Orchestrator:
             if host["os"] != "Darwin" or host["machine"] != "arm64":
                 raise ContractError("preflight requires Private Mac arm64 host")
             self._freeze_harness(paths, manifest_path)
+            freshness = self._freshness_evidence(paths, state, stage="preflight")
+            write_once(paths.evidence / "lima-preflight-snapshot.json", freshness)
             lock_digest = sha256_file(lock_path)
             manifest_digest = sha256_file(manifest_path)
             constraints = {
@@ -1829,7 +2161,7 @@ class Orchestrator:
             for risk in risks:
                 record_decision(paths, risk)
             identity = {
-                "schema_version": 1,
+                "schema_version": RUNTIME_SCHEMA_VERSION,
                 "run_id": run_id,
                 "objective": "calibrate Private Lima guests before v3 design",
                 "prohibitions": [
@@ -1844,6 +2176,9 @@ class Orchestrator:
                 "retention_deadline": state["retention_deadline"],
                 "lock_digest": lock_digest,
                 "manifest_digest": manifest_digest,
+                "parser_contract_digest": parser_contract_digest(),
+                "lima_home_binding": state["lima_home_binding"],
+                "lima_freshness_snapshot_digest": freshness["snapshot_digest"],
                 "host": host,
                 "accepted_risks": [risk.to_dict() for risk in risks],
             }
@@ -1857,10 +2192,14 @@ class Orchestrator:
                         "manifest_digest": manifest_digest,
                         "retention_deadline": state["retention_deadline"],
                         "accepted_risks": [risk.to_dict() for risk in risks],
+                        "lima_home_binding": state["lima_home_binding"],
+                        "parser_contract_digest": parser_contract_digest(),
+                        "lima_freshness_snapshot_digest": freshness["snapshot_digest"],
                     }
                 )
             ).hexdigest()
             state["approval_targets"]["pre-vm"] = target
+            state["preflight_snapshot_digest"] = freshness["snapshot_digest"]
             self._finish(paths, state, "preflight", Phase.PREFLIGHTED)
             return state
         except Exception as exc:
@@ -1930,6 +2269,14 @@ class Orchestrator:
 
         def action(driver: CalibrationDriver) -> PhaseResult:
             self._register_retention(paths)
+            validate_manifest(self.harness_root)
+            validate_manifest(paths.frozen_harness)
+            current = self._load(paths)
+            if not isinstance(current.get("preflight_snapshot_digest"), str):
+                raise ContractError("preflight freshness snapshot is not bound to H1")
+            self._validate_h1_binding(paths, current)
+            freshness = self._freshness_evidence(paths, current, stage="pre-create")
+            append_jsonl(paths.evidence / "lima-provision-snapshots.jsonl", freshness)
             return driver.provision(run_id, paths.frozen_harness)
 
         state = self._run_phase(
@@ -1948,6 +2295,21 @@ class Orchestrator:
         self._save(self._paths(run_id), state)
         return state
 
+    def _validate_h1_binding(self, paths: RunPaths, state: dict[str, object]) -> None:
+        identity = load_json(paths.evidence / "identity.json")
+        if (
+            identity.get("schema_version") != RUNTIME_SCHEMA_VERSION
+            or identity.get("manifest_digest")
+            != sha256_file(self.harness_root / "manifest.json")
+            or identity.get("manifest_digest")
+            != sha256_file(paths.frozen_harness / "manifest.json")
+            or identity.get("parser_contract_digest") != parser_contract_digest()
+            or identity.get("lima_home_binding") != state.get("lima_home_binding")
+            or identity.get("lima_freshness_snapshot_digest")
+            != state.get("preflight_snapshot_digest")
+        ):
+            raise ContractError("H1 harness, parser, or freshness binding drifted")
+
     def _register_retention(self, paths: RunPaths) -> None:
         state = self._load(paths)
         lock = load_json(paths.frozen_harness / "versions.lock.json")
@@ -1958,6 +2320,7 @@ class Orchestrator:
             python_path,
             paths.frozen_harness / "calibrate.py",
             self.state_root,
+            self.lima_pool_root,
             paths.run_id,
             str(state["retention_deadline"]),
         )
@@ -1978,9 +2341,22 @@ class Orchestrator:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-        runner = CommandRunner(self.state_root / LIMA_HOME_RELATIVE)
-        for command in launchctl_commands(paths.run_id, plist, os.getuid()):
-            runner.run(command, timeout=30)
+        runner = CommandRunner(paths.lima_home)
+        bootstrap, print_job, kickstart = launchctl_commands(
+            paths.run_id,
+            plist,
+            os.getuid(),
+        )
+        runner.run(bootstrap, timeout=30)
+        readback = runner.run(print_job, timeout=30)
+        validate_launchctl_print_readback(
+            readback.stdout,
+            target=print_job[-1],
+            plist=plist,
+            wrapper=wrapper,
+        )
+        validate_wrapper_readback(wrapper, wrapper_text)
+        runner.run(kickstart, timeout=30)
 
     def approve_pre_auth(self, run_id: str, *, code_paste_feasible: bool) -> dict[str, object]:
         if not code_paste_feasible:
@@ -2155,7 +2531,24 @@ class Orchestrator:
 
     def status(self, run_id: str) -> dict[str, object]:
         paths = self._paths(run_id)
-        state = self._load(paths)
+        state = self._load(paths, allow_legacy=True)
+        if state.get("schema_version") == 1:
+            return {
+                "run_id": run_id,
+                "schema_version": 1,
+                "phase": state.get("phase"),
+                "terminal_state": state.get("terminal_state"),
+                "operation_state": "LEGACY_READ_ONLY",
+                "active_operation": None,
+                "real_task_allowed": False,
+                "retention_deadline": state.get("retention_deadline"),
+                "seal_digest": state.get("seal_digest"),
+                "cleanup_started": state.get("cleanup_started", False),
+                "cleanup_verified": state.get("cleanup_verified", False),
+                "cleanup_disposition": "LEGACY_READ_ONLY",
+                "cleanup_manual_reason_code": None,
+                "cleanup_diagnostics": None,
+            }
         active = state.get("active_operation")
         operation_state = "IDLE"
         active_name: str | None = None
@@ -2176,8 +2569,12 @@ class Orchestrator:
                 finally:
                     fcntl.flock(descriptor, fcntl.LOCK_UN)
                     os.close(descriptor)
+        cleanup_diagnostics = None
+        if state.get("cleanup_disposition") == CleanupDisposition.CLEANUP_MANUAL_REQUIRED:
+            cleanup_diagnostics = self._manual_cleanup_status(paths, state)
         return {
             "run_id": run_id,
+            "schema_version": state["schema_version"],
             "phase": state["phase"],
             "terminal_state": state["terminal_state"],
             "operation_state": operation_state,
@@ -2187,12 +2584,59 @@ class Orchestrator:
             "seal_digest": state.get("seal_digest"),
             "cleanup_started": state.get("cleanup_started", False),
             "cleanup_verified": state.get("cleanup_verified", False),
+            "cleanup_disposition": state.get("cleanup_disposition"),
+            "cleanup_manual_reason_code": state.get("cleanup_manual_reason_code"),
+            "retention_job_inactive": state.get("retention_job_inactive", False),
+            "cleanup_diagnostics": cleanup_diagnostics,
+        }
+
+    @staticmethod
+    def _manual_cleanup_status(
+        paths: RunPaths,
+        state: dict[str, object],
+    ) -> dict[str, object]:
+        binding = state.get("lima_home_binding")
+        recorded_home = (
+            str(binding.get("lima_home"))
+            if type(binding) is dict and isinstance(binding.get("lima_home"), str)
+            else str(paths.lima_home)
+        )
+        home = Path(recorded_home)
+        return {
+            "run_id": paths.run_id,
+            "reason_code": state.get("cleanup_manual_reason_code"),
+            "state_root": str(paths.state_root),
+            "logical_run_root": str(paths.root),
+            "lima_pool_root": str(paths.lima_pool_root),
+            "lima_home": recorded_home,
+            "fixed_guests": {
+                "codex": {
+                    "name": CODEX_INSTANCE,
+                    "instance_directory": str(home / CODEX_INSTANCE),
+                    "root_disk": str(home / CODEX_INSTANCE / "disk"),
+                },
+                "claude": {
+                    "name": CLAUDE_INSTANCE,
+                    "instance_directory": str(home / CLAUDE_INSTANCE),
+                    "root_disk": str(home / CLAUDE_INSTANCE / "disk"),
+                },
+            },
+            "binding_registry": str(paths.binding_registry),
+            "binding_evidence": str(paths.evidence / "lima-home-binding.json"),
+            "provision_attempt_evidence": str(
+                paths.evidence / "provision-attempts.jsonl"
+            ),
+            "cleanup_attempt_evidence": str(paths.cleanup / "attempts.jsonl"),
+            "cleanup_attestation_evidence": str(
+                paths.cleanup / "attestations.jsonl"
+            ),
         }
 
     def cleanup(self, run_id: str, *, cause: str) -> dict[str, object]:
         if cause not in {"deadline", "abandonment", "exposure", "cohort-completion"}:
             raise ContractError("invalid cleanup cause")
         paths = self._paths(run_id)
+        self._load(paths)
         self._acquire_operation_lock(paths, blocking=True)
         try:
             return self._cleanup_locked(paths, cause=cause)
@@ -2203,134 +2647,604 @@ class Orchestrator:
         run_id = paths.run_id
         state = self._load(paths)
         if state.get("cleanup_started") is True:
-            return state
-        if state.get("active_operation") is not None:
-            self._block(
-                paths,
-                state,
-                "cleanup found an orphaned incomplete operation",
-                release_lock=False,
-            )
+            raise ContractError("same-run cleanup retry is prohibited")
         attempts = state.get("authentication_attempts", [])
         if not isinstance(attempts, list) or any(runtime not in RUNTIMES for runtime in attempts):
             raise ContractError("authentication attempt state is invalid")
-        authenticated_runtimes = tuple(
-            runtime for runtime in RUNTIMES if runtime in attempts
-        )
-        runner = CommandRunner(self.state_root / LIMA_HOME_RELATIVE)
-        logout: dict[str, str] = {}
-        if authenticated_runtimes:
-            logout_commands = {
-                "codex": (
-                    "limactl",
-                    "--tty=false",
-                    "shell",
-                    CODEX_INSTANCE,
-                    "sudo",
-                    "-u",
-                    "calibration",
-                    "env",
-                    "CODEX_HOME=/home/calibration/.codex",
-                    "codex",
-                    "logout",
-                ),
-                "claude": (
-                    "limactl",
-                    "--tty=false",
-                    "shell",
-                    CLAUDE_INSTANCE,
-                    "sudo",
-                    "-u",
-                    "calibration",
-                    "env",
-                    "CLAUDE_CONFIG_DIR=/home/calibration/.claude",
-                    "claude",
-                    "auth",
-                    "logout",
-                ),
-            }
-            for runtime in authenticated_runtimes:
-                command = logout_commands[runtime]
-                try:
-                    result = runner.run(command, timeout=60, check=False)
-                    logout[runtime] = "SUCCESS" if result.returncode == 0 else "FAILED"
-                except ContractError:
-                    logout[runtime] = "UNAVAILABLE_OR_TIMEOUT"
-        revoke_required = cause == "exposure" or any(value != "SUCCESS" for value in logout.values())
-        destructive_attempts: dict[str, str] = {}
-        for instance in (CODEX_INSTANCE, CLAUDE_INSTANCE):
-            try:
-                result = runner.run(
-                    ("limactl", "--tty=false", "delete", "--force", instance),
-                    timeout=180,
-                    check=False,
-                )
-            except ContractError:
-                destructive_attempts[f"delete:{instance}"] = "UNAVAILABLE_OR_TIMEOUT"
-            else:
-                destructive_attempts[f"delete:{instance}"] = (
-                    "SUCCESS" if result.returncode == 0 else "NONZERO"
-                )
-        label = f"{LABEL_PREFIX}.{run_id}"
-        try:
-            result = runner.run(
-                ("launchctl", "bootout", f"gui/{os.getuid()}/{label}"),
-                timeout=30,
-                check=False,
-            )
-        except ContractError:
-            destructive_attempts["launchagent:bootout"] = "UNAVAILABLE_OR_TIMEOUT"
-        else:
-            destructive_attempts["launchagent:bootout"] = (
-                "SUCCESS" if result.returncode == 0 else "NONZERO"
-            )
-        for path in (
-            paths.cleanup / f"{label}.plist",
-            paths.cleanup / "deadline-cleanup.sh",
-        ):
-            key = f"unlink:{path.name}"
-            try:
-                path.unlink(missing_ok=True)
-            except OSError as exc:
-                destructive_attempts[key] = f"FAILED_{type(exc).__name__}"
-            else:
-                destructive_attempts[key] = "SUCCESS"
-        for path in (
-            paths.work / "staging",
-            paths.work / "quarantine",
-            paths.work / "raw-tmp",
-            paths.work / "listeners",
-            paths.work / "sentinels",
-        ):
-            key = f"remove:{path.name}"
-            try:
-                if path.exists() or path.is_symlink():
-                    if not path.is_dir() or path.is_symlink():
-                        destructive_attempts[key] = "SKIPPED_UNSAFE_NODE"
-                        continue
-                    shutil.rmtree(path)
-                destructive_attempts[key] = "SUCCESS"
-            except OSError as exc:
-                destructive_attempts[key] = f"FAILED_{type(exc).__name__}"
+        revoke_required = cause == "exposure" or bool(attempts)
+        had_active_operation = state.get("active_operation") is not None
+        prior_terminal = state.get("terminal_state")
+        prior_phase = state.get("phase")
+        state["cleanup_started"] = True
+        state["cleanup_cause"] = cause
+        state["cleanup_disposition"] = CleanupDisposition.CLEANUP_MANUAL_REQUIRED
+        state["account_revoke_required"] = revoke_required
+        state["pre_cleanup_terminal_state"] = prior_terminal
+        state["pre_cleanup_phase"] = prior_phase
+        state["terminal_state"] = TerminalState.BLOCKED
+        state["phase"] = Phase.BLOCKED
+        state["active_operation"] = None
+        self._save(paths, state)
         append_jsonl(
             paths.cleanup / "attempts.jsonl",
             {
+                "schema_version": RUNTIME_SCHEMA_VERSION,
                 "record_type": "cleanup_attempt",
+                "event": "STARTED",
                 "run_id": run_id,
                 "cause": cause,
-                "logout": logout,
-                "destructive_attempts": destructive_attempts,
                 "account_revoke_required": revoke_required,
             },
         )
-        state["cleanup_started"] = True
-        state["cleanup_cause"] = cause
-        state["account_revoke_required"] = revoke_required
-        if state.get("terminal_state") != TerminalState.READY or cause == "exposure":
-            state["terminal_state"] = TerminalState.BLOCKED
-            state["phase"] = Phase.BLOCKED
+        if had_active_operation:
+            return self._manual_cleanup(paths, state, CleanupManualReason.ORPHANED_OPERATION)
+        try:
+            self._validate_lima_binding(paths, state)
+            snapshot = self._capture_lima_snapshot(paths)
+            top_level = inspect_top_level(paths.lima_home)
+            if snapshot.disposition is LimaListDisposition.UNKNOWN:
+                return self._manual_cleanup(paths, state, CleanupManualReason.LIMA_LIST_UNKNOWN)
+            if top_level.disposition != "CLEAN" or top_level.unknown_entries:
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.LIMA_HOME_UNRELATED_ENTRIES,
+                )
+            history = self._read_lima_identity_history(paths)
+            provision_started = (paths.evidence / "provision-attempts.jsonl").exists()
+            if not self._provision_evidence_allows_automatic_cleanup(paths, snapshot):
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.PROVISION_NOT_AUTOMATIC_CLEANUP_ELIGIBLE,
+                )
+            live = fixed_identity_map(snapshot) if snapshot.disposition is LimaListDisposition.RECOGNIZED else {}
+            if set(top_level.fixed_directories) != set(live):
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.INSTANCE_DIRECTORY_LIST_MISMATCH,
+                )
+            for identity in live.values():
+                if not any(self._same_lima_identity(identity, recorded) for recorded in history):
+                    return self._manual_cleanup(
+                        paths,
+                        state,
+                        CleanupManualReason.LIVE_IDENTITY_NOT_RECORDED,
+                    )
+            runner = CommandRunner(paths.lima_home)
+            for runtime, instance in (("codex", CODEX_INSTANCE), ("claude", CLAUDE_INSTANCE)):
+                identity = live.get(instance)
+                if identity is None:
+                    continue
+                if identity.status == "Running":
+                    if not self._cleanup_recheck(paths, identity):
+                        return self._manual_cleanup(
+                            paths,
+                            state,
+                            CleanupManualReason.PRE_STOP_IDENTITY_MISMATCH,
+                        )
+                    result = runner.run(
+                        ("limactl", "--tty=false", "stop", instance),
+                        timeout=180,
+                        check=False,
+                    )
+                    if result.returncode != 0:
+                        return self._manual_cleanup(
+                            paths,
+                            state,
+                            CleanupManualReason.LIMA_STOP_FAILED,
+                        )
+                    stopped = self._recognized_identity(paths, instance, "Stopped")
+                    if stopped is None or not self._same_lima_identity(identity, stopped, ignore_status=True):
+                        return self._manual_cleanup(
+                            paths,
+                            state,
+                            CleanupManualReason.POST_STOP_IDENTITY_MISMATCH,
+                        )
+                    identity = stopped
+                if identity.status != "Stopped" or not self._cleanup_recheck(paths, identity):
+                    return self._manual_cleanup(
+                        paths,
+                        state,
+                        CleanupManualReason.PRE_DELETE_IDENTITY_MISMATCH,
+                    )
+                result = runner.run(
+                    ("limactl", "--tty=false", "delete", instance),
+                    timeout=180,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    return self._manual_cleanup(
+                        paths,
+                        state,
+                        CleanupManualReason.LIMA_DELETE_FAILED,
+                    )
+            after = self._capture_lima_snapshot(paths)
+            if after.disposition is not LimaListDisposition.ABSENT:
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.POST_DELETE_NAMESPACE_NOT_ABSENT,
+                )
+            fixed_paths = tuple(
+                paths.lima_home / instance / suffix
+                for instance in FIXED_INSTANCES
+                for suffix in (Path(), Path("disk"))
+            )
+            if any(path_disposition(path) != "ABSENT" for path in fixed_paths):
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.POST_DELETE_FIXED_PATH_PRESENT,
+                )
+            top_after = inspect_top_level(paths.lima_home)
+            if (
+                top_after.disposition != "CLEAN"
+                or top_after.fixed_directories
+                or top_after.administrative_directories
+                or top_after.unknown_entries
+            ):
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.PHYSICAL_LIMA_HOME_NOT_EMPTY,
+                )
+            if provision_started:
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.PROVISIONED_HOME_REQUIRES_MANUAL_VERIFICATION,
+                )
+            self._validate_lima_binding(paths, state)
+            try:
+                paths.lima_home.rmdir()
+            except OSError:
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.LIMA_HOME_RMDIR_FAILED,
+                )
+            if path_disposition(paths.lima_home) != "ABSENT":
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.LIMA_HOME_REMAINED,
+                )
+            if not self._disable_retention_job(paths):
+                return self._manual_cleanup(
+                    paths,
+                    state,
+                    CleanupManualReason.RETENTION_DISABLE_FAILED,
+                    retention_disable_attempted=True,
+                )
+            state["retention_job_inactive"] = True
+        except ContractError:
+            return self._manual_cleanup(
+                paths,
+                state,
+                CleanupManualReason.OBSERVATION_INCONCLUSIVE,
+            )
+        if revoke_required or any(
+            path_disposition(path) != "ABSENT"
+            for path in (
+                paths.work / "staging",
+                paths.work / "quarantine",
+                paths.work / "raw-tmp",
+                paths.work / "listeners",
+            )
+        ):
+            return self._manual_cleanup(
+                paths,
+                state,
+                CleanupManualReason.HUMAN_DISPOSITION_REQUIRED,
+            )
+        record = self._cleanup_attestation_record(
+            paths,
+            state,
+            revoke_human_confirmed=False,
+        )
+        if not record.cleanup_verified:
+            return self._manual_cleanup(
+                paths,
+                state,
+                CleanupManualReason.ATTESTATION_NOT_VERIFIED,
+            )
+        append_jsonl(paths.cleanup / "attestations.jsonl", record.to_dict())
+        state["cleanup_disposition"] = CleanupDisposition.CLEANUP_VERIFIED
+        state["cleanup_verified"] = True
+        state["cleanup_manual_reason_code"] = None
+        if prior_terminal == TerminalState.READY and cause != "exposure":
+            state["terminal_state"] = TerminalState.READY
+            state["phase"] = prior_phase
+        append_jsonl(
+            paths.cleanup / "attempts.jsonl",
+            {
+                "schema_version": RUNTIME_SCHEMA_VERSION,
+                "record_type": "cleanup_attempt",
+                "event": "COMPLETED",
+                "run_id": run_id,
+                "outcome": "CLEANUP_VERIFIED",
+            },
+        )
         self._save(paths, state)
         return state
+
+    @staticmethod
+    def _same_lima_identity(
+        left: LimaIdentity,
+        right: LimaIdentity,
+        *,
+        ignore_status: bool = False,
+    ) -> bool:
+        return (
+            left.name == right.name
+            and (ignore_status or left.status == right.status)
+            and left.directory == right.directory
+            and left.vm_type == right.vm_type
+            and left.arch == right.arch
+            and left.cpus == right.cpus
+            and left.memory == right.memory
+            and left.disk == right.disk
+        )
+
+    @staticmethod
+    def _read_lima_identity_history(paths: RunPaths) -> tuple[LimaIdentity, ...]:
+        path = paths.evidence / "lima-identities.jsonl"
+        if not path.exists():
+            return ()
+        identities: list[LimaIdentity] = []
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for line in lines:
+                value = json.loads(line)
+                if value.get("schema_version") != RUNTIME_SCHEMA_VERSION:
+                    raise ContractError("Lima identity evidence schema drifted")
+                identities.append(
+                    LimaIdentity(
+                        name=value.get("name", ""),
+                        status=value.get("status", ""),
+                        directory=value.get("directory", ""),
+                        vm_type=value.get("vm_type", ""),
+                        arch=value.get("arch", ""),
+                        cpus=value.get("cpus"),
+                        memory=value.get("memory"),
+                        disk=value.get("disk"),
+                    )
+                )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ContractError("Lima identity evidence is unreadable") from exc
+        return tuple(identities)
+
+    @staticmethod
+    def _provision_evidence_allows_automatic_cleanup(
+        paths: RunPaths,
+        snapshot: LimaListSnapshot,
+    ) -> bool:
+        if snapshot.disposition not in {
+            LimaListDisposition.ABSENT,
+            LimaListDisposition.RECOGNIZED,
+        }:
+            return False
+        path = paths.evidence / "provision-attempts.jsonl"
+        if not path.exists():
+            return snapshot.disposition is LimaListDisposition.ABSENT
+        try:
+            records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not records:
+            return False
+        grouped: dict[tuple[str, str], list[ProvisionAttemptRecord]] = {}
+        for value in records:
+            if type(value) is not dict:
+                return False
+            required_fields = {
+                "schema_version",
+                "record_type",
+                "run_id",
+                "runtime",
+                "action",
+                "event",
+                "command_digest",
+                "observed_at",
+            }
+            if not required_fields.issubset(value) or set(value).difference(
+                required_fields | {"outcome"}
+            ):
+                return False
+            if (
+                value.get("schema_version") != RUNTIME_SCHEMA_VERSION
+                or value.get("record_type") != "provision_attempt"
+                or value.get("run_id") != paths.run_id
+                or type(value.get("runtime")) is not str
+                or type(value.get("action")) is not str
+                or type(value.get("event")) is not str
+                or type(value.get("command_digest")) is not str
+                or len(value["command_digest"]) != 64
+                or any(character not in "0123456789abcdef" for character in value["command_digest"])
+                or type(value.get("observed_at")) is not str
+                or not value["observed_at"]
+            ):
+                return False
+            try:
+                event = ProvisionAttemptEvent(value["event"])
+                raw_outcome = value.get("outcome")
+                outcome = (
+                    ProvisionAttemptOutcome(raw_outcome)
+                    if raw_outcome is not None
+                    else None
+                )
+                record = ProvisionAttemptRecord(
+                    run_id=value["run_id"],
+                    runtime=value["runtime"],
+                    action=value["action"],
+                    event=event,
+                    command_digest=value["command_digest"],
+                    observed_at=value["observed_at"],
+                    outcome=outcome,
+                )
+            except (ContractError, ValueError):
+                return False
+            grouped.setdefault((record.runtime, record.action), []).append(record)
+        for values in grouped.values():
+            if (
+                len(values) != 2
+                or values[0].event is not ProvisionAttemptEvent.STARTED
+                or values[1].event is not ProvisionAttemptEvent.COMPLETED
+                or values[1].outcome is not ProvisionAttemptOutcome.SUCCESS
+            ):
+                return False
+        present_names = {identity.name for identity in snapshot.identities}
+        for runtime, instance in (("codex", CODEX_INSTANCE), ("claude", CLAUDE_INSTANCE)):
+            has_create = (runtime, "create") in grouped
+            has_start = (runtime, "start") in grouped
+            if has_create != (instance in present_names) or (has_start and not has_create):
+                return False
+        if snapshot.disposition is LimaListDisposition.RECOGNIZED:
+            for identity in snapshot.identities:
+                runtime = "codex" if identity.name == CODEX_INSTANCE else "claude" if identity.name == CLAUDE_INSTANCE else ""
+                if not runtime or (runtime, "create") not in grouped:
+                    return False
+                if identity.status == "Running" and (runtime, "start") not in grouped:
+                    return False
+        return True
+
+    def _recognized_identity(
+        self,
+        paths: RunPaths,
+        instance: str,
+        status: str,
+    ) -> LimaIdentity | None:
+        snapshot = self._capture_lima_snapshot(paths)
+        if snapshot.disposition is not LimaListDisposition.RECOGNIZED:
+            return None
+        try:
+            identity = fixed_identity_map(snapshot).get(instance)
+        except ContractError:
+            return None
+        return identity if identity is not None and identity.status == status else None
+
+    def _cleanup_recheck(self, paths: RunPaths, expected: LimaIdentity) -> bool:
+        current = self._recognized_identity(paths, expected.name, expected.status)
+        return current is not None and self._same_lima_identity(expected, current)
+
+    def _manual_cleanup(
+        self,
+        paths: RunPaths,
+        state: dict[str, object],
+        reason: CleanupManualReason,
+        *,
+        retention_disable_attempted: bool = False,
+    ) -> dict[str, object]:
+        if not isinstance(reason, CleanupManualReason):
+            raise ContractError("cleanup manual reason must be allowlisted")
+        state["cleanup_disposition"] = CleanupDisposition.CLEANUP_MANUAL_REQUIRED
+        state["cleanup_verified"] = False
+        state["cleanup_manual_reason_code"] = reason.value
+        state["terminal_state"] = TerminalState.BLOCKED
+        state["phase"] = Phase.BLOCKED
+        append_jsonl(
+            paths.cleanup / "attempts.jsonl",
+            {
+                "schema_version": RUNTIME_SCHEMA_VERSION,
+                "record_type": "cleanup_attempt",
+                "event": "COMPLETED",
+                "run_id": paths.run_id,
+                "outcome": CleanupDisposition.CLEANUP_MANUAL_REQUIRED,
+                "reason_code": reason.value,
+                "reason_digest": hashlib.sha256(reason.value.encode()).hexdigest(),
+            },
+        )
+        self._save(paths, state)
+        if retention_disable_attempted:
+            state["retention_job_inactive"] = False
+        elif state.get("retention_job_inactive") is not True:
+            state["retention_job_inactive"] = self._disable_retention_job(paths)
+        self._save(paths, state)
+        self._append_cleanup_attestation(
+            paths,
+            state,
+            revoke_human_confirmed=False,
+            manual_reason=reason,
+        )
+        return state
+
+    @staticmethod
+    def _cleanup_seal_binding(paths: RunPaths, state: dict[str, object]) -> str:
+        binding = state.get("seal_digest")
+        if isinstance(binding, str):
+            return binding
+        return hashlib.sha256(
+            canonical_json(
+                {
+                    "run_id": paths.run_id,
+                    "retention_deadline": state["retention_deadline"],
+                    "preseal_cleanup": True,
+                    "schema_version": RUNTIME_SCHEMA_VERSION,
+                }
+            )
+        ).hexdigest()
+
+    def _collect_cleanup_observations(
+        self,
+        paths: RunPaths,
+        state: dict[str, object],
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        diagnostics: dict[str, str] = {}
+        try:
+            snapshot = self._capture_lima_snapshot(paths)
+        except ContractError as exc:
+            snapshot = None
+            diagnostics["codex_instance"] = type(exc).__name__
+            diagnostics["claude_instance"] = type(exc).__name__
+        list_absent = (
+            snapshot is not None
+            and snapshot.disposition is LimaListDisposition.ABSENT
+        )
+        list_unknown = (
+            snapshot is None
+            or snapshot.disposition is LimaListDisposition.UNKNOWN
+        )
+        listed_names: set[str] | None = None
+        if snapshot is not None and snapshot.disposition is LimaListDisposition.RECOGNIZED:
+            try:
+                listed_names = set(fixed_identity_map(snapshot))
+            except ContractError as exc:
+                list_unknown = True
+                diagnostics["codex_instance"] = type(exc).__name__
+                diagnostics["claude_instance"] = type(exc).__name__
+
+        def instance_absent(instance: str) -> bool | None:
+            if list_absent:
+                return True
+            if list_unknown or listed_names is None:
+                return None
+            return instance not in listed_names
+
+        def path_absent(path: Path) -> bool | None:
+            value = path_disposition(path)
+            return True if value == "ABSENT" else False if value == "PRESENT" else None
+
+        runner = CommandRunner(paths.lima_home)
+
+        def launchagent_absent() -> bool | None:
+            result = runner.run(
+                (
+                    "launchctl",
+                    "print",
+                    f"gui/{os.getuid()}/{LABEL_PREFIX}.{paths.run_id}",
+                ),
+                timeout=30,
+                check=False,
+            )
+            if result.returncode == 0:
+                return False
+            diagnostic = f"{result.stdout}\n{result.stderr}".lower()
+            if "could not find service" in diagnostic or "service not found" in diagnostic:
+                return True
+            raise ContractError("launchagent read-back was inconclusive")
+
+        try:
+            binding = state.get("lima_home_binding")
+            if type(binding) is not dict:
+                raise ContractError("Lima binding state is invalid")
+            paths.read_binding_registry(binding)
+            binding_valid = True
+        except ContractError as exc:
+            binding_valid = False
+            diagnostics["lima_home"] = type(exc).__name__
+        observations = collect_absence(
+            (
+                ("codex_instance", lambda: instance_absent(CODEX_INSTANCE)),
+                ("claude_instance", lambda: instance_absent(CLAUDE_INSTANCE)),
+                (
+                    "codex_instance_directory",
+                    lambda: path_absent(paths.lima_home / CODEX_INSTANCE),
+                ),
+                (
+                    "claude_instance_directory",
+                    lambda: path_absent(paths.lima_home / CLAUDE_INSTANCE),
+                ),
+                (
+                    "codex_root_disk",
+                    lambda: path_absent(paths.lima_home / CODEX_INSTANCE / "disk"),
+                ),
+                (
+                    "claude_root_disk",
+                    lambda: path_absent(paths.lima_home / CLAUDE_INSTANCE / "disk"),
+                ),
+                (
+                    "lima_home",
+                    lambda: path_absent(paths.lima_home) if binding_valid else None,
+                ),
+                ("staging", lambda: path_absent(paths.work / "staging")),
+                ("quarantine", lambda: path_absent(paths.work / "quarantine")),
+                ("raw_tmp", lambda: path_absent(paths.work / "raw-tmp")),
+                ("listener", lambda: path_absent(paths.work / "listeners")),
+                ("launchagent_job", launchagent_absent),
+            ),
+            diagnostics=diagnostics,
+        )
+        if set(observations) != set(REQUIRED_ABSENCE):
+            raise ContractError("cleanup read-back set drifted")
+        return observations, diagnostics
+
+    def _cleanup_attestation_record(
+        self,
+        paths: RunPaths,
+        state: dict[str, object],
+        *,
+        revoke_human_confirmed: bool,
+        manual_reason: CleanupManualReason | None = None,
+    ) -> CleanupRecord:
+        observations, diagnostics = self._collect_cleanup_observations(paths, state)
+        return verify_cleanup(
+            paths.run_id,
+            self._cleanup_seal_binding(paths, state),
+            observations,
+            account_revoke_required=bool(state.get("account_revoke_required")),
+            revoke_human_confirmed=revoke_human_confirmed,
+            manual_reason_code=manual_reason.value if manual_reason is not None else None,
+            diagnostics=diagnostics,
+        )
+
+    def _append_cleanup_attestation(
+        self,
+        paths: RunPaths,
+        state: dict[str, object],
+        *,
+        revoke_human_confirmed: bool,
+        manual_reason: CleanupManualReason | None = None,
+    ) -> CleanupRecord:
+        record = self._cleanup_attestation_record(
+            paths,
+            state,
+            revoke_human_confirmed=revoke_human_confirmed,
+            manual_reason=manual_reason,
+        )
+        append_jsonl(paths.cleanup / "attestations.jsonl", record.to_dict())
+        return record
+
+    def _disable_retention_job(self, paths: RunPaths) -> bool:
+        runner = CommandRunner(paths.lima_home)
+        target = f"gui/{os.getuid()}/{LABEL_PREFIX}.{paths.run_id}"
+        try:
+            current = runner.run(("launchctl", "print", target), timeout=30, check=False)
+        except ContractError:
+            return False
+        if current.returncode != 0:
+            diagnostic = f"{current.stdout}\n{current.stderr}".lower()
+            return "could not find service" in diagnostic or "service not found" in diagnostic
+        try:
+            stopped = runner.run(("launchctl", "bootout", target), timeout=30, check=False)
+            readback = runner.run(("launchctl", "print", target), timeout=30, check=False)
+        except ContractError:
+            return False
+        if stopped.returncode != 0 or readback.returncode == 0:
+            return False
+        diagnostic = f"{readback.stdout}\n{readback.stderr}".lower()
+        return "could not find service" in diagnostic or "service not found" in diagnostic
 
     def verify_cleanup(self, run_id: str, *, revoke_human_confirmed: bool) -> dict[str, object]:
         paths = self._paths(run_id)
@@ -2346,119 +3260,26 @@ class Orchestrator:
             append_jsonl(
                 paths.cleanup / "decisions.jsonl",
                 {
+                    "schema_version": RUNTIME_SCHEMA_VERSION,
                     "record_type": "revoke_confirmation",
                     "run_id": run_id,
                     "confirmed": True,
                     "confirmed_at": self._now().astimezone(UTC).isoformat().replace("+00:00", "Z"),
                 },
             )
-        runner = CommandRunner(self.state_root / LIMA_HOME_RELATIVE)
-
-        instance_names: set[str] | None = None
-
-        def instance_absent(instance_name: str) -> bool | None:
-            nonlocal instance_names
-            if instance_names is None:
-                result = runner.run(
-                    ("limactl", "--tty=false", "list", "--format=json"),
-                    timeout=30,
-                    check=False,
-                )
-                if result.returncode != 0:
-                    raise ContractError("limactl instance read-back failed")
-                output = result.stdout.strip()
-                if output:
-                    value = json.loads(output)
-                    if isinstance(value, dict):
-                        records = [value]
-                    elif isinstance(value, list):
-                        records = value
-                    else:
-                        raise ContractError("limactl instance read-back JSON type is invalid")
-                    names: set[str] = set()
-                    for record in records:
-                        if not isinstance(record, dict):
-                            raise ContractError("limactl instance record is invalid")
-                        name = record.get("name")
-                        if not isinstance(name, str) or not name.strip():
-                            raise ContractError("limactl instance name is invalid")
-                        names.add(name)
-                    instance_names = names
-                else:
-                    stderr_lines = [
-                        line.strip()
-                        for line in (result.stderr or "").splitlines()
-                        if line.strip()
-                    ]
-                    if len(stderr_lines) != 1 or not _is_pinned_no_instance_warning(
-                        stderr_lines[0]
-                    ):
-                        raise ContractError("limactl instance read-back returned no JSON")
-                    instance_names = set()
-            return instance_name not in instance_names
-
-        def path_absent(path: Path) -> bool:
-            return not path.exists() and not path.is_symlink()
-
-        def launchagent_absent() -> bool | None:
-            result = runner.run(
-                (
-                    "launchctl",
-                    "print",
-                    f"gui/{os.getuid()}/{LABEL_PREFIX}.{run_id}",
-                ),
-                timeout=30,
-                check=False,
-            )
-            if result.returncode == 0:
-                return False
-            diagnostic = f"{result.stdout}\n{result.stderr}".lower()
-            if "could not find service" in diagnostic or "service not found" in diagnostic:
-                return True
-            raise ContractError("launchagent read-back was inconclusive")
-
-        lima_home = self.state_root / LIMA_HOME_RELATIVE
-        label = f"{LABEL_PREFIX}.{run_id}"
-        diagnostics: dict[str, str] = {}
-        observations = collect_absence(
-            (
-                ("codex_instance", lambda: instance_absent(CODEX_INSTANCE)),
-                ("claude_instance", lambda: instance_absent(CLAUDE_INSTANCE)),
-                ("codex_disk", lambda: path_absent(lima_home / CODEX_INSTANCE)),
-                ("claude_disk", lambda: path_absent(lima_home / CLAUDE_INSTANCE)),
-                ("staging", lambda: path_absent(paths.work / "staging")),
-                ("quarantine", lambda: path_absent(paths.work / "quarantine")),
-                ("raw_tmp", lambda: path_absent(paths.work / "raw-tmp")),
-                ("listener", lambda: path_absent(paths.work / "listeners")),
-                ("launchagent_job", launchagent_absent),
-                ("launchagent_plist", lambda: path_absent(paths.cleanup / f"{label}.plist")),
-            ),
-            diagnostics=diagnostics,
-        )
-        if set(observations) != set(REQUIRED_ABSENCE):
-            raise ContractError("cleanup read-back set drifted")
-        binding = state.get("seal_digest")
-        if not isinstance(binding, str):
-            binding = hashlib.sha256(
-                canonical_json(
-                    {
-                        "run_id": run_id,
-                        "retention_deadline": state["retention_deadline"],
-                        "preseal_cleanup": True,
-                    }
-                )
-            ).hexdigest()
-        record = verify_cleanup(
-            run_id,
-            binding,
-            observations,
-            account_revoke_required=bool(state.get("account_revoke_required")),
+        record = self._append_cleanup_attestation(
+            paths,
+            state,
             revoke_human_confirmed=revoke_human_confirmed,
-            diagnostics=diagnostics,
         )
-        append_jsonl(paths.cleanup / "attestations.jsonl", record.to_dict())
         state["cleanup_verified"] = record.cleanup_verified
-        if not record.cleanup_verified:
+        state["cleanup_disposition"] = record.disposition
+        state["retention_job_inactive"] = (
+            record.observations.get("launchagent_job") == "ABSENT"
+        )
+        if record.cleanup_verified:
+            state["cleanup_manual_reason_code"] = None
+        else:
             state["terminal_state"] = TerminalState.BLOCKED
             state["phase"] = Phase.BLOCKED
         self._save(paths, state)
@@ -2482,7 +3303,11 @@ class Orchestrator:
         for line in lines:
             value = json.loads(line)
             key = value.get("key")
-            if value.get("record_type") != "control" or not isinstance(key, dict):
+            if (
+                value.get("schema_version") != RUNTIME_SCHEMA_VERSION
+                or value.get("record_type") != "control"
+                or not isinstance(key, dict)
+            ):
                 raise ContractError("non-control record found in control evidence")
             records.append(
                 ControlRecord(

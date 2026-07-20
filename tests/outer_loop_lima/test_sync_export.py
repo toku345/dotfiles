@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -74,6 +75,13 @@ class SyncGuardTests(unittest.TestCase):
         self.assertEqual(Path(result.stdout.strip()), parked.resolve())
         with self.assertRaisesRegex(ContractError, "identity changed"):
             guarded.verify_path_identity()
+
+    def test_command_runner_overrides_lima_home_with_injected_physical_home(self) -> None:
+        lima_home = self.root / "physical-home"
+        completed = subprocess.CompletedProcess(["limactl"], 0, stdout="", stderr="")
+        with patch("lib.orchestrator.subprocess.run", return_value=completed) as run:
+            CommandRunner(lima_home).run(("limactl", "--version"), timeout=5)
+        self.assertEqual(run.call_args.kwargs["env"]["LIMA_HOME"], str(lima_home))
 
     def test_non_tty_and_automation_flags_are_rejected(self) -> None:
         with self.assertRaisesRegex(ContractError, "TTY"):

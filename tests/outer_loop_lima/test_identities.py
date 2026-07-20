@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
+SHORT_TEMP_ROOT = Path("/tmp").resolve()
 sys.path.insert(0, str(HARNESS))
 
 from lib.identities import (  # noqa: E402
@@ -23,6 +24,7 @@ from lib.identities import (  # noqa: E402
     validate_versions_lock,
 )
 from lib.model import ContractError  # noqa: E402
+from lib.paths import RunPaths  # noqa: E402
 
 
 class IdentityTests(unittest.TestCase):
@@ -45,10 +47,14 @@ class IdentityTests(unittest.TestCase):
     def test_repository_manifest_is_complete(self) -> None:
         manifest = validate_manifest(HARNESS)
         self.assertGreater(len(manifest["files"]), 30)
+        self.assertIn("lib/lima_state.py", {record["path"] for record in manifest["files"]})
 
     def test_cli_init_does_not_write_bytecode_into_harness(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            tempfile.TemporaryDirectory(prefix="ol-", dir=SHORT_TEMP_ROOT) as pool_temporary,
+        ):
+            root = Path(temporary).resolve()
             harness = root / "harness"
             shutil.copytree(
                 HARNESS,
@@ -58,6 +64,7 @@ class IdentityTests(unittest.TestCase):
             environment = os.environ.copy()
             environment.pop("PYTHONDONTWRITEBYTECODE", None)
             environment.pop("PYTHONPYCACHEPREFIX", None)
+            pool = Path(pool_temporary)
 
             result = subprocess.run(
                 [
@@ -65,6 +72,8 @@ class IdentityTests(unittest.TestCase):
                     str(harness / "calibrate.py"),
                     "--state-root",
                     str(root / "state"),
+                    "--lima-pool-root",
+                    str(pool),
                     "init",
                     "run-0001",
                     "--retention-deadline",
@@ -80,6 +89,79 @@ class IdentityTests(unittest.TestCase):
             self.assertEqual(list(harness.rglob("*.pyc")), [])
             self.assertEqual(list(harness.rglob("__pycache__")), [])
             validate_manifest(harness)
+
+    def test_lima_binding_digest_is_recomputed_during_validation(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            tempfile.TemporaryDirectory(prefix="ol-", dir=SHORT_TEMP_ROOT) as pool_temporary,
+        ):
+            paths = RunPaths.for_run(
+                "run-0001",
+                Path(temporary).resolve() / "state",
+                Path(pool_temporary),
+            )
+            binding = paths.create(
+                instance_names=(
+                    "outer-loop-week0-codex",
+                    "outer-loop-week0-claude",
+                )
+            )
+            self.assertEqual(
+                paths.validate_lima_home_binding(binding.to_dict()),
+                binding,
+            )
+            tampered = binding.to_dict()
+            tampered["binding_digest"] = "0" * 64
+            paths.binding_registry.write_text(json.dumps(tampered), encoding="utf-8")
+            with self.assertRaisesRegex(ContractError, "registry digest drifted"):
+                paths.validate_lima_home_binding(tampered)
+
+    def test_binding_registry_digest_is_verified_without_physical_home(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            tempfile.TemporaryDirectory(prefix="ol-", dir=SHORT_TEMP_ROOT) as pool_temporary,
+        ):
+            paths = RunPaths.for_run(
+                "run-0001",
+                Path(temporary).resolve() / "state",
+                Path(pool_temporary),
+            )
+            binding = paths.create(
+                instance_names=(
+                    "outer-loop-week0-codex",
+                    "outer-loop-week0-claude",
+                )
+            )
+            paths.lima_home.rmdir()
+            tampered = binding.to_dict()
+            tampered["binding_digest"] = "0" * 64
+            paths.binding_registry.write_text(json.dumps(tampered), encoding="utf-8")
+
+            with self.assertRaisesRegex(ContractError, "registry digest drifted"):
+                paths.read_binding_registry(tampered)
+
+    def test_logical_run_failure_does_not_allocate_lima_pool(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            tempfile.TemporaryDirectory(prefix="ol-", dir=SHORT_TEMP_ROOT) as pool_temporary,
+        ):
+            paths = RunPaths.for_run(
+                "run-0001",
+                Path(temporary).resolve() / "state",
+                Path(pool_temporary),
+            )
+            paths.root.mkdir(mode=0o700, parents=True)
+            self.assertEqual(tuple(paths.lima_pool_root.iterdir()), ())
+            with self.assertRaisesRegex(ContractError, "run id already exists"):
+                paths.create(
+                    instance_names=(
+                        "outer-loop-week0-codex",
+                        "outer-loop-week0-claude",
+                    )
+                )
+            self.assertEqual(tuple(paths.lima_pool_root.iterdir()), ())
+            self.assertFalse(paths.lima_home.exists())
+            self.assertFalse(paths.binding_registry.exists())
 
     def test_lock_rejects_artifact_without_integrity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

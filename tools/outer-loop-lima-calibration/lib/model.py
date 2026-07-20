@@ -5,6 +5,9 @@ from enum import StrEnum
 from typing import Iterable, Mapping
 
 
+RUNTIME_SCHEMA_VERSION = 2
+
+
 class ContractError(ValueError):
     """A fail-closed calibration contract violation."""
 
@@ -38,7 +41,55 @@ class TerminalState(StrEnum):
 class CleanupDisposition(StrEnum):
     NOT_STARTED = "NOT_STARTED"
     CLEANUP_PENDING = "CLEANUP_PENDING"
+    CLEANUP_MANUAL_REQUIRED = "CLEANUP_MANUAL_REQUIRED"
     CLEANUP_VERIFIED = "CLEANUP_VERIFIED"
+
+
+class CleanupManualReason(StrEnum):
+    ORPHANED_OPERATION = "ORPHANED_OPERATION"
+    LIMA_LIST_UNKNOWN = "LIMA_LIST_UNKNOWN"
+    LIMA_HOME_UNRELATED_ENTRIES = "LIMA_HOME_UNRELATED_ENTRIES"
+    PROVISION_NOT_AUTOMATIC_CLEANUP_ELIGIBLE = (
+        "PROVISION_NOT_AUTOMATIC_CLEANUP_ELIGIBLE"
+    )
+    INSTANCE_DIRECTORY_LIST_MISMATCH = "INSTANCE_DIRECTORY_LIST_MISMATCH"
+    LIVE_IDENTITY_NOT_RECORDED = "LIVE_IDENTITY_NOT_RECORDED"
+    PRE_STOP_IDENTITY_MISMATCH = "PRE_STOP_IDENTITY_MISMATCH"
+    LIMA_STOP_FAILED = "LIMA_STOP_FAILED"
+    POST_STOP_IDENTITY_MISMATCH = "POST_STOP_IDENTITY_MISMATCH"
+    PRE_DELETE_IDENTITY_MISMATCH = "PRE_DELETE_IDENTITY_MISMATCH"
+    LIMA_DELETE_FAILED = "LIMA_DELETE_FAILED"
+    POST_DELETE_NAMESPACE_NOT_ABSENT = "POST_DELETE_NAMESPACE_NOT_ABSENT"
+    POST_DELETE_FIXED_PATH_PRESENT = "POST_DELETE_FIXED_PATH_PRESENT"
+    PHYSICAL_LIMA_HOME_NOT_EMPTY = "PHYSICAL_LIMA_HOME_NOT_EMPTY"
+    PROVISIONED_HOME_REQUIRES_MANUAL_VERIFICATION = (
+        "PROVISIONED_HOME_REQUIRES_MANUAL_VERIFICATION"
+    )
+    LIMA_HOME_RMDIR_FAILED = "LIMA_HOME_RMDIR_FAILED"
+    LIMA_HOME_REMAINED = "LIMA_HOME_REMAINED"
+    RETENTION_DISABLE_FAILED = "RETENTION_DISABLE_FAILED"
+    OBSERVATION_INCONCLUSIVE = "OBSERVATION_INCONCLUSIVE"
+    HUMAN_DISPOSITION_REQUIRED = "HUMAN_DISPOSITION_REQUIRED"
+    ATTESTATION_NOT_VERIFIED = "ATTESTATION_NOT_VERIFIED"
+
+
+class LimaListDisposition(StrEnum):
+    ABSENT = "ABSENT"
+    RECOGNIZED = "RECOGNIZED"
+    UNKNOWN = "UNKNOWN"
+
+
+class ProvisionAttemptEvent(StrEnum):
+    STARTED = "STARTED"
+    COMPLETED = "COMPLETED"
+
+
+class ProvisionAttemptOutcome(StrEnum):
+    SUCCESS = "SUCCESS"
+    NONZERO = "NONZERO"
+    TIMEOUT = "TIMEOUT"
+    UNAVAILABLE = "UNAVAILABLE"
+    IDENTITY_MISMATCH = "IDENTITY_MISMATCH"
 
 
 CONTROL_IDS = tuple(f"C{number:02d}" for number in range(9))
@@ -90,6 +141,7 @@ class ControlRecord:
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
+        data["schema_version"] = RUNTIME_SCHEMA_VERSION
         data["record_type"] = "control"
         data["key"]["stable_id"] = self.key.stable_id()
         return data
@@ -112,7 +164,11 @@ class RiskAcceptanceRecord:
             raise ContractError("risk acceptance fields must be non-empty")
 
     def to_dict(self) -> dict[str, object]:
-        return {"record_type": "risk_acceptance", **asdict(self)}
+        return {
+            "schema_version": RUNTIME_SCHEMA_VERSION,
+            "record_type": "risk_acceptance",
+            **asdict(self),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +186,137 @@ class ApprovalRecord:
             raise ContractError("approval fields must be non-empty")
 
     def to_dict(self) -> dict[str, object]:
-        return {"record_type": "approval", **asdict(self)}
+        return {
+            "schema_version": RUNTIME_SCHEMA_VERSION,
+            "record_type": "approval",
+            **asdict(self),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class LimaIdentity:
+    name: str
+    status: str
+    directory: str
+    vm_type: str
+    arch: str
+    cpus: int
+    memory: int
+    disk: int
+
+    def __post_init__(self) -> None:
+        if not all((self.name, self.status, self.directory, self.vm_type, self.arch)):
+            raise ContractError("Lima identity string fields must be non-empty")
+        if self.status not in {"Stopped", "Running"}:
+            raise ContractError("Lima identity status must be Stopped or Running")
+        if type(self.cpus) is not int or type(self.memory) is not int or type(self.disk) is not int:
+            raise ContractError("Lima identity resource fields must be exact integers")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": RUNTIME_SCHEMA_VERSION,
+            "record_type": "lima_identity",
+            **asdict(self),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class LimaHomeBindingRecord:
+    run_id: str
+    state_root: str
+    logical_run_root: str
+    lima_pool_root: str
+    token: str
+    lima_home: str
+    pool_device: int
+    pool_inode: int
+    home_device: int
+    home_inode: int
+    owner_uid: int
+    mode: int
+    binding_digest: str
+
+    def __post_init__(self) -> None:
+        if not all(
+            type(value) is str
+            for value in (
+                self.run_id,
+                self.state_root,
+                self.logical_run_root,
+                self.lima_pool_root,
+                self.token,
+                self.lima_home,
+                self.binding_digest,
+            )
+        ):
+            raise ContractError("Lima home binding string fields must be exact strings")
+        if not all(
+            type(value) is int
+            for value in (
+                self.pool_device,
+                self.pool_inode,
+                self.home_device,
+                self.home_inode,
+                self.owner_uid,
+                self.mode,
+            )
+        ):
+            raise ContractError("Lima home binding identity fields must be exact integers")
+        if not all(
+            (
+                self.run_id,
+                self.state_root,
+                self.logical_run_root,
+                self.lima_pool_root,
+                self.token,
+                self.lima_home,
+                self.binding_digest,
+            )
+        ):
+            raise ContractError("Lima home binding fields must be non-empty")
+        if len(self.token) != 10 or len(self.binding_digest) != 64:
+            raise ContractError("Lima home binding token or digest is invalid")
+        if self.mode != 0o700:
+            raise ContractError("Lima home binding mode must be 0700")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": RUNTIME_SCHEMA_VERSION,
+            "record_type": "lima_home_binding",
+            **asdict(self),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProvisionAttemptRecord:
+    run_id: str
+    runtime: str
+    action: str
+    event: ProvisionAttemptEvent
+    command_digest: str
+    observed_at: str
+    outcome: ProvisionAttemptOutcome | None = None
+
+    def __post_init__(self) -> None:
+        if self.runtime not in {"codex", "claude"} or self.action not in {"create", "start"}:
+            raise ContractError("invalid provision attempt target")
+        if not isinstance(self.event, ProvisionAttemptEvent):
+            raise ContractError("invalid provision attempt event")
+        if len(self.command_digest) != 64 or not self.run_id or not self.observed_at:
+            raise ContractError("provision attempt fields must be non-empty")
+        if self.event is ProvisionAttemptEvent.STARTED and self.outcome is not None:
+            raise ContractError("STARTED provision attempt cannot have an outcome")
+        if self.event is ProvisionAttemptEvent.COMPLETED and not isinstance(
+            self.outcome, ProvisionAttemptOutcome
+        ):
+            raise ContractError("COMPLETED provision attempt requires an outcome")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": RUNTIME_SCHEMA_VERSION,
+            "record_type": "provision_attempt",
+            **asdict(self),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +327,7 @@ class CleanupRecord:
     cleanup_verified: bool
     account_revoke_required: bool
     observations: Mapping[str, str]
+    manual_reason_code: str | None = None
     diagnostics: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -150,13 +337,26 @@ class CleanupRecord:
             raise ContractError("cleanup verification and disposition disagree")
         if not self.run_id or not self.seal_digest:
             raise ContractError("cleanup record must bind run and seal")
+        if self.manual_reason_code is not None:
+            if type(self.manual_reason_code) is not str:
+                raise ContractError("cleanup manual reason code must be a string")
+            try:
+                CleanupManualReason(self.manual_reason_code)
+            except ValueError as exc:
+                raise ContractError("cleanup manual reason code is not allowlisted") from exc
+            if self.cleanup_verified:
+                raise ContractError("verified cleanup cannot retain a manual reason")
         if not set(self.diagnostics).issubset(self.observations):
             raise ContractError("cleanup diagnostics must identify observed checks")
         if any(not value for value in self.diagnostics.values()):
             raise ContractError("cleanup diagnostics must be non-empty")
 
     def to_dict(self) -> dict[str, object]:
-        return {"record_type": "cleanup", **asdict(self)}
+        return {
+            "schema_version": RUNTIME_SCHEMA_VERSION,
+            "record_type": "cleanup",
+            **asdict(self),
+        }
 
 
 @dataclass(frozen=True, slots=True)

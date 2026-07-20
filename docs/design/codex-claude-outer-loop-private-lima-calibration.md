@@ -46,6 +46,7 @@ real_task_allowed: no
 - Prove a guarded, disposable staging workflow in which no Lima sync operation targets an authoritative repository.
 - Freeze and digest exact exported bytes before transferring them through the operator to the other guest.
 - Calibrate both Codex-driver to Claude-reviewer and Claude-driver to Codex-reviewer handoffs.
+- Prove that every calibration run allocates a fresh, short, run-bound Lima namespace and never silently reuses an existing or partial guest.
 - Preserve immutable failure evidence and fail closed on missing, ambiguous, or unsanitizable observations.
 
 ## Non-goals
@@ -59,6 +60,8 @@ real_task_allowed: no
 - Protecting against compromise of the operator, macOS host, hypervisor, kernel, filesystem implementation, model provider, or subscription account.
 - Allowing tasks that require downloads, arbitrary Web access, MCP, browser automation, cloud credentials, SSH credentials, or other external-state access in the first cohort.
 - Reproducing v2's all-descendant hard-link creation denial or exhaustive execution-group quiescence proof inside a guest.
+- Automatically classifying, quarantining, repairing, or recursively deleting an unknown or partial Lima filesystem layout.
+- Guaranteeing unattended guest deletion by the retention deadline when safe cleanup eligibility cannot be proved.
 
 ## Considered approaches
 
@@ -76,22 +79,25 @@ Private Mac
 |-- authoritative repository
 |     `-- never mounted or passed directly to Lima --sync
 |
-|-- operator-owned state (0700)
-|     |-- calibration evidence
-|     |-- immutable fixture
-|     |-- disposable input staging
-|     |-- export quarantine
-|     `-- frozen handoff bundles
+|-- operator-owned logical state (0700)
+|     `-- runs/<run-id>/
+|           |-- calibration evidence
+|           |-- write-once Lima-home binding
+|           |-- immutable fixture
+|           |-- disposable input staging
+|           |-- export quarantine
+|           `-- frozen handoff bundles
 |
-|-- dedicated LIMA_HOME (0700)
-|     |-- week0-codex
-|     |     |-- independent VM disk
-|     |     |-- no host mounts or SSH-agent forwarding
-|     |     `-- guest-local CODEX_HOME
-|     `-- week0-claude
-|           |-- independent VM disk
-|           |-- no host mounts or SSH-agent forwarding
-|           `-- guest-local CLAUDE_CONFIG_DIR
+|-- short physical Lima pool (0700)
+|     `-- ~/.local/state/ol/<10-char-token>/ (run-specific LIMA_HOME)
+|           |-- outer-loop-week0-codex
+|           |     |-- independent VM disk
+|           |     |-- no host mounts or SSH-agent forwarding
+|           |     `-- guest-local CODEX_HOME
+|           `-- outer-loop-week0-claude
+|                 |-- independent VM disk
+|                 |-- no host mounts or SSH-agent forwarding
+|                 `-- guest-local CLAUDE_CONFIG_DIR
 |
 `-- operator
       `-- sole mover of staged input, quarantined export, and frozen bundles
@@ -99,7 +105,9 @@ Private Mac
 
 The macOS operator, pinned Lima binary and template, pinned host and guest rsync implementations, VM boundary, guest kernel, runtime sandboxes, root-owned guest policy, calibration harness, export validator, evidence sanitizer, and digest implementation are trusted for this pilot. Agents and repository content are untrusted. The guests do not trust each other and share no writable storage.
 
-The dedicated `LIMA_HOME` prevents unrelated instances or inherited local state from entering the calibration identity. Each guest is created with explicit plain, no-mount, and no-containerd settings supported by the selected pinned Lima release. The stored effective configuration and the guest mount table must independently prove that the host home and repository are not mounted. Dynamic port forwarding and SSH-agent forwarding are disabled; the operator's loopback-only Lima management channel is not exposed as an agent tool.
+Each run receives a fresh physical `LIMA_HOME` at `~/.local/state/ol/<10-char-token>`. The token is the first ten lowercase unpadded Base32 characters of a domain-separated SHA-256 over the canonical state root and ASCII run ID. The pool registry, run state, and evidence record that binding write-once. After checking the socket budget before the first write, `init` creates the logical run tree before allocating the physical home; a logical-state failure therefore cannot consume a pool token. Existing tokens, homes, filesystem nodes, binding collisions, symlink ancestry, or path-identity drift block before guest creation; they are never reused. A crash or write failure during physical allocation can still leave an orphan home or binding. Week 0 accepts that fail-closed residual risk and requires operator inspection rather than automatic rollback or reuse. The short physical path is required because Lima's macOS Unix-socket path budget is stricter than the logical evidence path: the harness accepts at most 95 filesystem bytes for each longest candidate socket path while also enforcing Lima's `<104`-byte boundary. `--lima-pool-root` allows a separately validated absolute pool for hermetic tests or an explicit operator override. A custom `--state-root` without an explicit pool is rejected before the first write.
+
+Preflight requires the strict Lima namespace to be empty and both fixed instance directories and root-disk paths to be absent. H1 digest-binds the home binding, manifest and parser identities, and that absence snapshot. Provisioning registers and reads back retention, repeats the same semantic absence check immediately before creation, then executes explicit `create -> Stopped identity -> start -> Running identity` transitions. Lima `2.1.4` list output is parsed as JSON Lines; JSON arrays, malformed records, mixed or additional stderr, unexpected types, and non-canonical empty output are `UNKNOWN`. Each guest is created with explicit plain, no-mount, and no-containerd settings supported by the selected pinned Lima release. The stored effective configuration and the guest mount table must independently prove that the host home and repository are not mounted. Dynamic port forwarding and SSH-agent forwarding are disabled; the operator's loopback-only Lima management channel is not exposed as an agent tool.
 
 Each guest separates the trusted provisioning/operator account from a dedicated non-sudo runtime account. Codex or Claude Code, its tools, and repository commands run only as the runtime account. The runtime account owns its workspace and necessary authentication state but cannot use `sudo` or `su`, join privileged groups, modify the root-owned harness, managed policy, sandbox configuration, runtime binary, or trusted seed, or reach the operator control channel. Calibration proves both denied mutation and denied privilege escalation with harmless controls. If a runtime cannot keep its authentication state writable while enforcing an immutable managed policy layer, that runtime blocks rather than falling back to a writable policy.
 
@@ -125,7 +133,7 @@ Codex authenticates inside its guest with ChatGPT device authentication. Claude 
 
 Authentication evidence is deliberately non-sensitive: CLI version and binary digest, configuration digest, credential node type and ownership, directory/file modes, `st_nlink == 1`, an allowlisted authentication-method classification, login-status exit code, and a fixed tool-free smoke result. It never retains credential bytes, credential hashes or sizes, account email, workspace ID, device code, login URL, raw status output, raw environment output, or raw JSONL that may contain identity data.
 
-The same guests are stopped and retained after a passing calibration so that a later v3 package can bind to the calibrated VM, disk, runtime, managed-policy, authentication-method classification, and smoke result. Credential bytes remain opaque and have no recorded identity. A human-approved retention deadline is recorded before login. Any relogin, credential replacement, or authentication-method change is operator-declared drift and reruns `C02`. Abandonment, deadline expiry, credential exposure, or cohort completion requires logout, account-side revocation when applicable, instance deletion, disk deletion, and verified absence from the dedicated `LIMA_HOME`.
+The same guests are stopped and retained after a passing calibration so that a later v3 package can bind to the calibrated VM, disk, runtime, managed-policy, authentication-method classification, and smoke result. Credential bytes remain opaque and have no recorded identity. A human-approved retention deadline is recorded before login. Any relogin, credential replacement, or authentication-method change is operator-declared drift and reruns `C02`. Abandonment, deadline expiry, credential exposure, or cohort completion requires logout, account-side revocation when applicable, instance deletion, disk deletion, and verified absence from the run-specific physical `LIMA_HOME`.
 
 ## Network boundary
 
@@ -191,13 +199,13 @@ evidence seal and guest stop
 
 ### Host preflight
 
-Record the Private Mac OS and architecture; Lima, profiles, VM driver, rsync, Python, runtime, sandbox dependency, harness manifest, validator, and sanitizer identities; separately typed `AR-01` and `AR-02` risk acceptances; the immutable UTC retention deadline; the exact objective and prohibitions; and the two allowed terminal states. Verify a private operator state root and dedicated `LIMA_HOME`. No real repository or task is present.
+Record the Private Mac OS and architecture; Lima, profiles, VM driver, rsync, Python, runtime, sandbox dependency, harness manifest, validator, parser, and sanitizer identities; separately typed `AR-01` and `AR-02` risk acceptances; the immutable UTC retention deadline; the exact objective and prohibitions; and the two allowed calibration terminal states. Verify the private logical state root, the short run-specific physical `LIMA_HOME`, their write-once binding, the socket-path budget, the empty Lima namespace, and fixed-path absence. No real repository or task is present.
 
 The currently observed macOS `rsync` identifies itself as OpenRSYNC with rsync `2.6.9` compatibility. It is neither accepted nor rejected by version string alone. The disposable sync controls determine compatibility. If they fail for a proved rsync reason, installing and pinning GNU rsync requires a human decision and a new calibration run.
 
 ### Trusted provisioning
 
-Create empty guests before target code or credentials exist. Install and pin required guest packages, host and guest rsync implementations, runtime CLIs, Linux sandbox dependencies, root-owned managed policy, and reviewed seed configuration under operator authority. Create a dedicated non-sudo runtime account and prove that it cannot modify trusted components or enter the provisioning account. Disable runtime auto-update before authentication and capture all non-secret identities. Provisioning network access ends before any agent-controlled command runs.
+After retention registration and a second strict absence check, create both guests explicitly and verify each exact Stopped identity before starting either one. Then start each fixed-name guest and require the corresponding exact Running identity. A create/start attempt is durably recorded before invocation and completed only after typed identity read-back; an orphan, duplicate, contradiction, timeout, identity mismatch, or any other non-`SUCCESS` outcome blocks the run, forbids same-run provision retry, and makes automatic cleanup ineligible. Install and pin required guest packages, host and guest rsync implementations, runtime CLIs, Linux sandbox dependencies, root-owned managed policy, and reviewed seed configuration under operator authority. Create a dedicated non-sudo runtime account and prove that it cannot modify trusted components or enter the provisioning account. Disable runtime auto-update before authentication and capture all non-secret identities. Provisioning network access ends before any agent-controlled command runs.
 
 ### Authentication and isolation
 
@@ -237,6 +245,9 @@ Evidence remains outside repositories and synchronized directories under an oper
 |-- frozen-harness/
 |-- evidence/
 |   |-- identity.json
+|   |-- lima-home-binding.json
+|   |-- lima-preflight-snapshot.json
+|   |-- provision-attempts.jsonl
 |   |-- controls.jsonl
 |   |-- decisions.jsonl
 |   |-- summary.md
@@ -244,17 +255,27 @@ Evidence remains outside repositories and synchronized directories under an oper
 `-- cleanup/
 ```
 
-The operator root and run directories use mode `0700`; evidence files use `0600`, then `0400` plus `uchg` after terminal sealing on macOS. Each control record binds `run_id + control_id + occurrence + target`, expected classification, observed sanitized classification, non-sensitive exit classification, evidence digest, and responsible operator step. Risk, approval, control, and cleanup records are different types. The final summary binds every control result, the overall terminal state, the human approval, immutable retention deadline, and sealed identity digest.
+The operator root, run directories, physical pool, and run-specific physical home use mode `0700`; evidence files use `0600`, then `0400` plus `uchg` after terminal sealing on macOS. New runtime state, evidence, seal input, and cleanup attestations use `schema_version: 2`. Existing runtime schema 1 records remain read-only: they are never migrated, backfilled, mutated, or re-attested, and any mutating command against them fails closed. The harness `manifest.json` independently remains schema 1. Each control record binds `run_id + control_id + occurrence + target`, expected classification, observed sanitized classification, non-sensitive exit classification, evidence digest, and responsible operator step. Risk, approval, provision-attempt, instance-identity, control, and cleanup records are different types. The final summary binds every control result, the overall terminal state, the human approval, immutable retention deadline, physical-home binding, and sealed identity digest.
 
 Raw login, environment, runtime JSONL, or command output that may contain identity or credential material remains in guest tmpfs only long enough to derive the allowed classification, then is destroyed. If sanitization cannot be proved, no raw material crosses and the control fails. Failure records are append-only and immutable; remediation starts a new run ID and never overwrites, retries, or pools the old result. Cleanup writes a separate attestation under `cleanup/`, bound to the seal digest, and never modifies sealed calibration evidence.
 
 ## Retention and cleanup
 
-`init` accepts one RFC 3339 UTC deadline. H1 approves it before VM creation; it cannot be extended or changed within the run. A frozen-harness LaunchAgent definition uses `RunAtLoad`, the deadline `StartCalendarInterval`, and hourly catch-up, while its script independently checks the absolute deadline and is side-effect-free before it is due. Independently of LaunchAgent scheduling, every mutating orchestrator operation checks the immutable deadline before it starts and blocks the run when the deadline is due; only `status`, `cleanup`, and `verify-cleanup` remain available. Registration and read-back occur only during a later approved live run.
+`init` accepts one RFC 3339 UTC deadline and resolves both the logical state root and physical Lima pool. H1 approves the deadline and the write-once run-to-home binding before VM creation; neither can be changed within the run. A frozen-harness LaunchAgent definition uses `RunAtLoad`, the deadline `StartCalendarInterval`, and hourly catch-up, while its script independently checks the absolute deadline and carries the exact resolved `--state-root` and `--lima-pool-root`. It is side-effect-free before the deadline. Independently of LaunchAgent scheduling, every mutating orchestrator operation checks the immutable deadline before it starts and blocks the run when the deadline is due. Registration and read-back occur only during a later approved live run.
 
-Deadline, abandonment, exposure, or cohort completion immediately prohibits new runtime work. Cleanup attempts each runtime logout once within 60 seconds, then removes both instances and disks regardless of logout outcome. Logout failure or suspected exposure sets `account_revoke_required: true`; cleanup remains unverified until the human records provider-side disposition. Instance, disk, staging, quarantine, raw tmp, listener, LaunchAgent job, and plist absence are all read back. Any unknown item ends calibration `BLOCKED` with cleanup disposition `CLEANUP_PENDING`.
+Deadline, abandonment, exposure, or cohort completion immediately prohibits new runtime work. Fixed-name Lima stop/delete is eligible only when every provision attempt has terminal outcome `SUCCESS`, the sequence is complete, and each live identity exactly matches a recorded Stopped or Running identity. Each Lima call is preceded by another strict identity check. Any non-success outcome or contradictory/orphaned evidence transitions directly to `CLEANUP_MANUAL_REQUIRED` without stop/delete.
 
-Every started operation holds an operator-owned advisory lock through completion. A concurrent `status` reports a lock-held occurrence as `IN_PROGRESS` without changing evidence or state. Cleanup serializes on that same lock and reloads committed state after the current operation finishes; it can classify a remaining active marker as orphaned only while it owns the lock. If a started control occurrence remains after its lock is released, `status` or cleanup appends `UNVERIFIED`, ends the run `BLOCKED`, and permits only `status`, `cleanup`, and `verify-cleanup`. Remediation requires human approval, a new run ID, new guests, and full execution from `C00`; old guests, partial passes, and handoff bundles are not reused.
+Even after successful Lima stop/delete, real Lima administrative entries normally remain in the physical home. The harness does not delete or reinterpret them. Any administrative or unrelated residue, `UNKNOWN`, partial directory, identity/binding drift, failed Lima call, or unreadable path transitions to lifecycle disposition `CLEANUP_MANUAL_REQUIRED`, calibration terminal `BLOCKED`, and `real_task_allowed: no`, without direct filesystem deletion.
+
+Automatic `CLEANUP_VERIFIED` is limited to a never-provisioned run whose strict namespace and fixed paths are absent and whose bound physical home is identity-stable and completely empty. Only that case permits a one-shot `rmdir` of the empty home. Every other case reaches manual-required or remains unverified. The harness never quarantines, unlinks, recursively deletes, repairs, generates manual deletion commands, or retries cleanup in the same run.
+
+The manual transition records an allowlisted reason code and best-effort disables the retention job. Failure to prove job removal is itself recorded, while the persisted manual disposition and cleanup guard prevent hourly catch-up from retrying destructive cleanup. In manual-required state, `status` is the read-only diagnostics surface: it reports the reason code and recorded run ID, logical state/run roots, pool/home, fixed guest names, instance-directory and disk paths, binding registry, and evidence path without raw Lima output or mutation. After external operator action, read-only `verify-cleanup` may advance to `CLEANUP_VERIFIED` only when every required absence and revoke disposition is proved.
+
+Every started operation holds an operator-owned advisory lock through completion. A concurrent `status` reports a lock-held occurrence as `IN_PROGRESS` without changing evidence or state. Cleanup serializes on that same lock and reloads committed state after the current operation finishes; it can classify a remaining active marker as orphaned only while it owns the lock. If a started control or provision occurrence remains after its lock is released, `status` or cleanup appends `UNVERIFIED`, ends the run `BLOCKED`, and routes cleanup to `CLEANUP_MANUAL_REQUIRED` without destructive action. Remediation requires human approval, a new run ID, a newly allocated physical home, new guests, and full execution from `C00`; old guests, partial passes, and handoff bundles are not reused.
+
+The deadline mechanism guarantees neither deletion nor successful retention-job removal. Guest data, disks, administrative entries, and the physical home may remain until operator inspection and manual disposition.
+
+An unresolved `CLEANUP_MANUAL_REQUIRED` run in the same logical state root, an unbound pool entry, or an unexplained existing physical home blocks initialization of another live run. This prevents a new run from obscuring unresolved guest state. It does not turn the harness into a filesystem repair tool.
 
 ## Fail-closed routing
 
@@ -264,13 +285,18 @@ CALIBRATION_RUNNING
         +---- all controls pass ----> LIMA_CALIBRATION_READY_FOR_V3_DESIGN
         |
         `---- any other result -----> BLOCKED
+                                         |-- never provisioned + empty home
+                                         |     `--> CLEANUP_VERIFIED
                                          |
-                                         `-- human-approved remediation
-                                                |
-                                                `--> new run ID
+                                         |-- cleanup uncertainty
+                                         |     `--> CLEANUP_MANUAL_REQUIRED
+                                         |             `-- operator action
+                                         |                    `-- read-only verify --> CLEANUP_VERIFIED
+                                         |
+                                         `-- calibration remediation --> new run ID
 ```
 
-Setup infeasibility, authentication failure, unexpected mount or socket, cross-guest visibility, undeclared egress, unsafe sync behavior, export hazard, digest mismatch, missing or unsafe evidence, and drift all block the run. Isolation, egress, or transfer-boundary failures stop both guests and invalidate every derived output. Suspected credential exposure additionally requires export destruction, logout, account-side revocation where possible, and guest destruction.
+Setup infeasibility, authentication failure, unexpected mount or socket, cross-guest visibility, undeclared egress, unsafe sync behavior, export hazard, digest mismatch, missing or unsafe evidence, and drift all block the run. Isolation, egress, or transfer-boundary failures invalidate every derived output. A guest is stopped or deleted through Lima only when every attempt is successful and its strict recorded identity remains recognized; automatic cleanup verification is still unavailable after provisioning. Suspected credential exposure additionally requires export destruction, logout, account-side revocation where possible, and guest destruction, but the harness never claims that destruction succeeded without verified absence.
 
 This is pre-arm calibration, so failures are recorded as `BLOCKED`, not `PAUSED_HARD`. A future v3 cohort may define `PAUSED_HARD` for a failure after real-task authority begins, but calibration never invents that state.
 
@@ -309,6 +335,7 @@ Work Mac support and any Work/Private comparison require a later design, calibra
 - The same guest persists across the first cohort, so guest-local residue and credential lifetime last until cleanup or the retention deadline.
 - Tasks requiring dependency downloads, remote verification, browsers, MCP, cloud state, SSH, or other external access are initially ineligible.
 - A material version or configuration change can force both-runtime recalibration before the cohort continues.
+- A deadline cleanup can stop at `CLEANUP_MANUAL_REQUIRED`, leaving a guest, disk, or physical home for operator inspection.
 
 ### Risks
 
@@ -321,6 +348,8 @@ Work Mac support and any Work/Private comparison require a later design, calibra
 | Copy normalizes hazardous source metadata | Inspect source inside guest and destination on host; reject hazardous fixtures; avoid claims of perfect credential non-disclosure |
 | Network control blocks necessary work | First cohort selects offline-capable tasks; later exception requires human approval and recalibration |
 | Persistent guest drifts or retains residue | Bind identities, stop between phases, enforce retention deadline, recalibrate on drift, destroy after cohort or abandonment |
+| Cleanup cannot safely recognize a guest or partial layout | Perform no destructive action, record `CLEANUP_MANUAL_REQUIRED`, require operator inspection, and use read-only verification afterward |
+| Physical-home allocation fails after logical init | Never reuse the token/home; report recorded paths when state exists; accept manual inspection instead of automatic rollback |
 | Private success is overgeneralized to Work | Work explicitly deferred; no Work readiness or cross-environment claim |
 
 ## Design acceptance
