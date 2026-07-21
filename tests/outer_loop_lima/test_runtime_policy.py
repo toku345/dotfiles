@@ -21,6 +21,12 @@ from lib.model import ContractError  # noqa: E402
 from runtime import claude, codex  # noqa: E402
 
 
+HOST_STYLE_MOUNT_FILTER = (
+    "grep -Fvx '/mnt/lima-cidata' | "
+    "grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'"
+)
+
+
 def load_sanitizer():
     path = HARNESS / "guest" / "sanitize-auth.py"
     spec = importlib.util.spec_from_file_location("sanitize_auth", path)
@@ -46,6 +52,49 @@ def unflatten(flattened: dict[str, object]) -> dict[str, object]:
 
 
 class RuntimePolicyTests(unittest.TestCase):
+    def test_lima_cidata_is_the_only_allowed_lima_mount(self) -> None:
+        allowed = ("/", "/tmp", "/mnt/lima-cidata")
+        rejected = (
+            "/mnt/lima-9p",
+            "/mnt/lima-cidata/subdir",
+            "/mnt/lima-cidata-extra",
+            "/Users",
+            "/Users/example",
+            "/Volumes/example",
+            "/home/lima-provision/example/share",
+        )
+
+        allowed_result = subprocess.run(
+            ("/bin/sh", "-c", HOST_STYLE_MOUNT_FILTER),
+            input="\n".join(allowed) + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(allowed_result.returncode, 0)
+        for target in rejected:
+            with self.subTest(target=target):
+                result = subprocess.run(
+                    ("/bin/sh", "-c", HOST_STYLE_MOUNT_FILTER),
+                    input=f"/\n/mnt/lima-cidata\n{target}\n",
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0)
+
+        provision = (HARNESS / "guest" / "provision-common.sh").read_text()
+        orchestrator = (HARNESS / "lib" / "orchestrator.py").read_text()
+        for source in (provision, orchestrator):
+            self.assertIn("mount_targets=$(findmnt -rn -o TARGET)", source)
+            self.assertIn("grep -Fvx '/mnt/lima-cidata'", source)
+            self.assertIn(
+                "grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'",
+                source,
+            )
+        self.assertIn("if ! mount_targets=$(findmnt -rn -o TARGET); then", provision)
+        self.assertIn("mount_targets=$(findmnt -rn -o TARGET) &&", orchestrator)
+
     def test_guest_provisioning_removes_unpinned_apt_sources(self) -> None:
         script = (HARNESS / "guest" / "provision-common.sh").read_text()
         self.assertIn("outer-loop-disabled-sources", script)

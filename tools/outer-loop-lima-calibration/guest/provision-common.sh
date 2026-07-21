@@ -129,7 +129,14 @@ if sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null | grep -qx
   apparmor_status | grep -q 'outer-loop-bwrap'
 fi
 
-if findmnt -rn -o TARGET | grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'; then
+if ! mount_targets=$(findmnt -rn -o TARGET); then
+  echo 'failed to enumerate mounts' >&2
+  exit 1
+fi
+
+if printf '%s\n' "$mount_targets" \
+  | grep -Fvx '/mnt/lima-cidata' \
+  | grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'; then
   echo 'unexpected host-style mount detected' >&2
   exit 1
 fi

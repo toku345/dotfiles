@@ -15,6 +15,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Callable, Iterable, Protocol, Sequence
 
@@ -146,10 +147,24 @@ class CalibrationDriver(Protocol):
     def stop_for_seal(self, run_id: str) -> dict[str, object]: ...
 
 
+class BoundedCommandStage(StrEnum):
+    POST_START_HARNESS_COPY = "POST_START_HARNESS_COPY"
+    POST_START_HARNESS_SETUP = "POST_START_HARNESS_SETUP"
+    POST_START_POLICY_CHECK = "POST_START_POLICY_CHECK"
+    POST_START_IDENTITY_DIGEST = "POST_START_IDENTITY_DIGEST"
+    POST_START_PACKAGE_QUERY = "POST_START_PACKAGE_QUERY"
+
+
 class BoundedCommandError(ContractError):
-    def __init__(self, command: str, classification: str) -> None:
+    def __init__(
+        self,
+        command: str,
+        classification: str,
+        failure_stage: BoundedCommandStage | None = None,
+    ) -> None:
         super().__init__(f"bounded command failed: {command}")
         self.classification = classification
+        self.failure_stage = failure_stage
 
 
 class CommandRunner:
@@ -164,7 +179,10 @@ class CommandRunner:
         capture_output: bool = True,
         check: bool = True,
         cwd_fd: int | None = None,
+        failure_stage: BoundedCommandStage | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        if failure_stage is not None and type(failure_stage) is not BoundedCommandStage:
+            raise ContractError("bounded command failure stage is invalid")
         environment = os.environ.copy()
         environment["LIMA_HOME"] = str(self.lima_home)
         enter_pinned_directory: Callable[[], None] | None = None
@@ -187,11 +205,11 @@ class CommandRunner:
                 preexec_fn=enter_pinned_directory,
             )
         except subprocess.TimeoutExpired as exc:
-            raise BoundedCommandError(str(argv[0]), "TIMEOUT") from exc
+            raise BoundedCommandError(str(argv[0]), "TIMEOUT", failure_stage) from exc
         except OSError as exc:
-            raise BoundedCommandError(str(argv[0]), "UNAVAILABLE") from exc
+            raise BoundedCommandError(str(argv[0]), "UNAVAILABLE", failure_stage) from exc
         except subprocess.SubprocessError as exc:
-            raise BoundedCommandError(str(argv[0]), "UNAVAILABLE") from exc
+            raise BoundedCommandError(str(argv[0]), "UNAVAILABLE", failure_stage) from exc
 
 
 class LimaDriver:
@@ -249,11 +267,13 @@ class LimaDriver:
         *,
         timeout: int = 120,
         check: bool = True,
+        failure_stage: BoundedCommandStage | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return self.runner.run(
             ("limactl", "--tty=false", "shell", instance, *argv),
             timeout=timeout,
             check=check,
+            failure_stage=failure_stage,
         )
 
     def _install_harness(self, runtime: str) -> None:
@@ -270,6 +290,7 @@ class LimaDriver:
                 f"{instance}:{guest_root}",
             ),
             timeout=300,
+            failure_stage=BoundedCommandStage.POST_START_HARNESS_COPY,
         )
         setup = "\n".join(
             (
@@ -295,7 +316,12 @@ class LimaDriver:
                 f"sh $H/guest/provision-{runtime}.sh",
             )
         )
-        self._shell(instance, ("sudo", "/bin/sh", "-ceu", setup), timeout=1800)
+        self._shell(
+            instance,
+            ("sudo", "/bin/sh", "-ceu", setup),
+            timeout=1800,
+            failure_stage=BoundedCommandStage.POST_START_HARNESS_SETUP,
+        )
 
     def _list_identity(
         self,
@@ -447,7 +473,9 @@ class LimaDriver:
             "! sudo -u calibration sudo -n true 2>/dev/null && "
             "sudo -u calibration test ! -w /usr/local/share/outer-loop && "
             "sudo -u calibration test ! -w /etc && "
-            "! findmnt -rn -o TARGET | grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'"
+            "mount_targets=$(findmnt -rn -o TARGET) && "
+            "! printf '%s\\n' \"$mount_targets\" | grep -Fvx '/mnt/lima-cidata' | "
+            "grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'"
         )
         runtime_check = (
             "CODEX_HOME=/home/calibration/.codex codex --version | grep -qx 'codex-cli 0.144.5' && "
@@ -463,7 +491,12 @@ class LimaDriver:
             "cmp -s /etc/claude-code/srt-settings.json /usr/local/share/outer-loop/harness/seeds/claude/srt-settings.json && "
             "test \"$(stat -c '%U:%G:%a' /etc/claude-code/managed-settings.json)\" = root:root:644"
         )
-        self._shell(instance, ("sudo", "/bin/sh", "-ceu", f"{common} && {runtime_check}"), timeout=60)
+        self._shell(
+            instance,
+            ("sudo", "/bin/sh", "-ceu", f"{common} && {runtime_check}"),
+            timeout=60,
+            failure_stage=BoundedCommandStage.POST_START_POLICY_CHECK,
+        )
         common_paths = (
             "/usr/bin/bwrap",
             "/usr/bin/rsync",
@@ -512,6 +545,7 @@ class LimaDriver:
             instance,
             ("sudo", "sha256sum", *common_paths, *runtime_paths),
             timeout=60,
+            failure_stage=BoundedCommandStage.POST_START_IDENTITY_DIGEST,
         ).stdout
         digests: dict[str, str] = {}
         for line in digest_output.splitlines():
@@ -537,12 +571,13 @@ class LimaDriver:
                 "socat",
             ),
             timeout=30,
+            failure_stage=BoundedCommandStage.POST_START_PACKAGE_QUERY,
         ).stdout.splitlines()
         return {
             "runtime": runtime,
             "account_uid": 2000,
             "policy_owner": "root",
-            "mounts": "none",
+            "mounts": "no-host-mounts;exact-lima-cidata-allowed",
             "file_digests": digests,
             "packages": sorted(packages),
             "bundled_sandbox_runtime_identity": (
