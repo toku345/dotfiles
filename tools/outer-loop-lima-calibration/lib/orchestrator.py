@@ -149,6 +149,7 @@ class CalibrationDriver(Protocol):
 
 class BoundedCommandStage(StrEnum):
     POST_START_HARNESS_COPY = "POST_START_HARNESS_COPY"
+    POST_START_MOUNT_POLICY_CHECK = "POST_START_MOUNT_POLICY_CHECK"
     POST_START_HARNESS_SETUP = "POST_START_HARNESS_SETUP"
     POST_START_POLICY_CHECK = "POST_START_POLICY_CHECK"
     POST_START_IDENTITY_DIGEST = "POST_START_IDENTITY_DIGEST"
@@ -291,6 +292,12 @@ class LimaDriver:
             ),
             timeout=300,
             failure_stage=BoundedCommandStage.POST_START_HARNESS_COPY,
+        )
+        self._shell(
+            instance,
+            ("sudo", "/bin/sh", f"{guest_root}/guest/check-mount-policy.sh"),
+            timeout=30,
+            failure_stage=BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
         )
         setup = "\n".join(
             (
@@ -473,9 +480,7 @@ class LimaDriver:
             "! sudo -u calibration sudo -n true 2>/dev/null && "
             "sudo -u calibration test ! -w /usr/local/share/outer-loop && "
             "sudo -u calibration test ! -w /etc && "
-            "mount_targets=$(findmnt -rn -o TARGET) && "
-            "! printf '%s\\n' \"$mount_targets\" | grep -Fvx '/mnt/lima-cidata' | "
-            "grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'"
+            "sh /usr/local/share/outer-loop/harness/guest/check-mount-policy.sh"
         )
         runtime_check = (
             "CODEX_HOME=/home/calibration/.codex codex --version | grep -qx 'codex-cli 0.144.5' && "

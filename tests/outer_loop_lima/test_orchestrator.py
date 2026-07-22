@@ -609,7 +609,7 @@ class OrchestratorTests(unittest.TestCase):
         error = BoundedCommandError(
             "limactl",
             "UNAVAILABLE",
-            BoundedCommandStage.POST_START_HARNESS_SETUP,
+            BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
         )
         with (
             patch("calibrate.dispatch", side_effect=error),
@@ -630,7 +630,7 @@ class OrchestratorTests(unittest.TestCase):
             json.loads(output.getvalue()),
             {
                 "error": "bounded command failed: limactl",
-                "failure_stage": "POST_START_HARNESS_SETUP",
+                "failure_stage": "POST_START_MOUNT_POLICY_CHECK",
                 "real_task_allowed": False,
                 "terminal_state": "BLOCKED",
             },
@@ -1592,8 +1592,33 @@ class LimaDriverProvisionTests(unittest.TestCase):
             [call.kwargs["failure_stage"] for call in runner.call_args_list],
             [
                 BoundedCommandStage.POST_START_HARNESS_COPY,
+                BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
                 BoundedCommandStage.POST_START_HARNESS_SETUP,
             ],
+        )
+        mount_command = runner.call_args_list[1].args[0]
+        self.assertEqual(
+            mount_command[-3:],
+            ("sudo", "/bin/sh", "/tmp/outer-loop-harness/guest/check-mount-policy.sh"),
+        )
+
+    def test_mount_policy_failure_stops_before_harness_setup(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        failure = BoundedCommandError(
+            "limactl",
+            "UNAVAILABLE",
+            BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
+        )
+        with patch.object(
+            self.driver.runner,
+            "run",
+            side_effect=(completed, failure),
+        ) as runner, self.assertRaises(BoundedCommandError) as caught:
+            self.driver._install_harness("codex")
+        self.assertEqual(runner.call_count, 2)
+        self.assertEqual(
+            caught.exception.failure_stage,
+            BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
         )
 
     def test_post_start_policy_commands_use_fixed_failure_stages(self) -> None:
@@ -1618,7 +1643,7 @@ class LimaDriverProvisionTests(unittest.TestCase):
             ],
         )
         policy_command = shell.call_args_list[0].args[1][-1]
-        self.assertIn("grep -Fvx '/mnt/lima-cidata'", policy_command)
+        self.assertIn("guest/check-mount-policy.sh", policy_command)
         self.assertEqual(
             policy["mounts"],
             "no-host-mounts;exact-lima-cidata-allowed",

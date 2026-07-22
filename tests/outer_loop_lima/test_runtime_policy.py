@@ -83,17 +83,66 @@ class RuntimePolicyTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0)
 
+        mount_policy = (HARNESS / "guest" / "check-mount-policy.sh").read_text()
         provision = (HARNESS / "guest" / "provision-common.sh").read_text()
         orchestrator = (HARNESS / "lib" / "orchestrator.py").read_text()
-        for source in (provision, orchestrator):
-            self.assertIn("mount_targets=$(findmnt -rn -o TARGET)", source)
-            self.assertIn("grep -Fvx '/mnt/lima-cidata'", source)
-            self.assertIn(
-                "grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'",
-                source,
+        self.assertIn("if ! mount_targets=$(findmnt -rn -o TARGET); then", mount_policy)
+        self.assertIn("grep -Fvx '/mnt/lima-cidata'", mount_policy)
+        self.assertIn(
+            "grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'",
+            mount_policy,
+        )
+        self.assertNotIn("findmnt", provision)
+        self.assertEqual(orchestrator.count("guest/check-mount-policy.sh"), 2)
+
+    def test_mount_policy_script_fails_closed(self) -> None:
+        script = HARNESS / "guest" / "check-mount-policy.sh"
+        with tempfile.TemporaryDirectory() as temporary:
+            fake_bin = Path(temporary)
+            fake_id = fake_bin / "id"
+            fake_id.write_text("#!/bin/sh\nprintf '0\\n'\n")
+            fake_id.chmod(0o755)
+            fake_findmnt = fake_bin / "findmnt"
+            fake_findmnt.write_text(
+                "#!/bin/sh\n"
+                "if [ \"${FAKE_FINDMNT_RC:-0}\" -ne 0 ]; then\n"
+                "  exit \"$FAKE_FINDMNT_RC\"\n"
+                "fi\n"
+                "printf '%s\\n' \"$FAKE_MOUNT_TARGETS\"\n"
             )
-        self.assertIn("if ! mount_targets=$(findmnt -rn -o TARGET); then", provision)
-        self.assertIn("mount_targets=$(findmnt -rn -o TARGET) &&", orchestrator)
+            fake_findmnt.chmod(0o755)
+            environment = {
+                **os.environ,
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "FAKE_MOUNT_TARGETS": "/\n/mnt/lima-cidata",
+            }
+
+            allowed = subprocess.run(
+                ("/bin/sh", str(script)),
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(allowed.returncode, 0)
+
+            rejected = subprocess.run(
+                ("/bin/sh", str(script)),
+                env={**environment, "FAKE_MOUNT_TARGETS": "/\n/mnt/lima-cidata-extra"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+
+            unavailable = subprocess.run(
+                ("/bin/sh", str(script)),
+                env={**environment, "FAKE_FINDMNT_RC": "1"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(unavailable.returncode, 0)
 
     def test_guest_provisioning_removes_unpinned_apt_sources(self) -> None:
         script = (HARNESS / "guest" / "provision-common.sh").read_text()
