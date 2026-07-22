@@ -21,7 +21,11 @@ from lib.export_validator import (  # noqa: E402
 )
 from lib.model import ContractError  # noqa: E402
 from lib import sync_guard  # noqa: E402
-from lib.orchestrator import CommandRunner  # noqa: E402
+from lib.orchestrator import (  # noqa: E402
+    BoundedCommandError,
+    BoundedCommandStage,
+    CommandRunner,
+)
 from lib.sync_guard import validate_sync_invocation  # noqa: E402
 
 
@@ -82,6 +86,42 @@ class SyncGuardTests(unittest.TestCase):
         with patch("lib.orchestrator.subprocess.run", return_value=completed) as run:
             CommandRunner(lima_home).run(("limactl", "--version"), timeout=5)
         self.assertEqual(run.call_args.kwargs["env"]["LIMA_HOME"], str(lima_home))
+
+    def test_command_runner_preserves_safe_stage_without_subprocess_output(self) -> None:
+        secret = "secret-bearing-subprocess-output"
+        failure = subprocess.CalledProcessError(
+            1,
+            ["limactl"],
+            output=secret,
+            stderr=secret,
+        )
+        with (
+            patch("lib.orchestrator.subprocess.run", side_effect=failure),
+            self.assertRaises(BoundedCommandError) as caught,
+        ):
+            CommandRunner(self.root / "lima-home").run(
+                ("limactl", "--version"),
+                timeout=5,
+                failure_stage=BoundedCommandStage.POST_START_HARNESS_SETUP,
+            )
+        self.assertEqual(caught.exception.classification, "UNAVAILABLE")
+        self.assertEqual(
+            caught.exception.failure_stage,
+            BoundedCommandStage.POST_START_HARNESS_SETUP,
+        )
+        self.assertNotIn(secret, str(caught.exception))
+
+    def test_command_runner_rejects_untyped_failure_stage_before_spawn(self) -> None:
+        with (
+            patch("lib.orchestrator.subprocess.run") as run,
+            self.assertRaisesRegex(ContractError, "failure stage is invalid"),
+        ):
+            CommandRunner(self.root / "lima-home").run(
+                ("limactl", "--version"),
+                timeout=5,
+                failure_stage="POST_START_HARNESS_SETUP",  # type: ignore[arg-type]
+            )
+        run.assert_not_called()
 
     def test_non_tty_and_automation_flags_are_rejected(self) -> None:
         with self.assertRaisesRegex(ContractError, "TTY"):

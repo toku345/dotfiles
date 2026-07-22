@@ -42,6 +42,7 @@ from lib.lima_state import (  # noqa: E402
 )
 from lib.orchestrator import (  # noqa: E402
     BoundedCommandError,
+    BoundedCommandStage,
     LimaDriver,
     Orchestrator,
     Phase,
@@ -602,6 +603,57 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(diagnostic["exception_class"], "builtins.RuntimeError")
         self.assertEqual(len(diagnostic["diagnostic_id"]), 16)
         self.assertNotIn("secret-bearing detail", output.getvalue())
+
+    def test_bounded_cli_error_reports_only_allowlisted_failure_stage(self) -> None:
+        output = io.StringIO()
+        error = BoundedCommandError(
+            "limactl",
+            "UNAVAILABLE",
+            BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
+        )
+        with (
+            patch("calibrate.dispatch", side_effect=error),
+            redirect_stderr(output),
+        ):
+            result = calibrate_main(
+                [
+                    "--state-root",
+                    str(self.state_root),
+                    "--lima-pool-root",
+                    str(self.lima_pool_root),
+                    "status",
+                    "run-0001",
+                ]
+            )
+        self.assertEqual(result, 1)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {
+                "error": "bounded command failed: limactl",
+                "failure_stage": "POST_START_MOUNT_POLICY_CHECK",
+                "real_task_allowed": False,
+                "terminal_state": "BLOCKED",
+            },
+        )
+
+    def test_generic_contract_error_has_no_failure_stage(self) -> None:
+        output = io.StringIO()
+        with (
+            patch("calibrate.dispatch", side_effect=ContractError("safe contract failure")),
+            redirect_stderr(output),
+        ):
+            result = calibrate_main(
+                [
+                    "--state-root",
+                    str(self.state_root),
+                    "--lima-pool-root",
+                    str(self.lima_pool_root),
+                    "status",
+                    "run-0001",
+                ]
+            )
+        self.assertEqual(result, 1)
+        self.assertNotIn("failure_stage", json.loads(output.getvalue()))
 
     def test_custom_state_root_without_pool_is_rejected_before_write(self) -> None:
         output = io.StringIO()
@@ -1531,6 +1583,71 @@ class LimaDriverProvisionTests(unittest.TestCase):
         self.assertEqual([record["event"] for record in records[::2]], ["STARTED"] * 4)
         self.assertTrue(all(record["outcome"] == "SUCCESS" for record in records[1::2]))
         self.assertEqual(len(phase.controls), 4)
+
+    def test_post_start_harness_commands_use_fixed_failure_stages(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with patch.object(self.driver.runner, "run", return_value=completed) as runner:
+            self.driver._install_harness("codex")
+        self.assertEqual(
+            [call.kwargs["failure_stage"] for call in runner.call_args_list],
+            [
+                BoundedCommandStage.POST_START_HARNESS_COPY,
+                BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
+                BoundedCommandStage.POST_START_HARNESS_SETUP,
+            ],
+        )
+        mount_command = runner.call_args_list[1].args[0]
+        self.assertEqual(
+            mount_command[-3:],
+            ("sudo", "/bin/sh", "/tmp/outer-loop-harness/guest/check-mount-policy.sh"),
+        )
+
+    def test_mount_policy_failure_stops_before_harness_setup(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        failure = BoundedCommandError(
+            "limactl",
+            "UNAVAILABLE",
+            BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
+        )
+        with patch.object(
+            self.driver.runner,
+            "run",
+            side_effect=(completed, failure),
+        ) as runner, self.assertRaises(BoundedCommandError) as caught:
+            self.driver._install_harness("codex")
+        self.assertEqual(runner.call_count, 2)
+        self.assertEqual(
+            caught.exception.failure_stage,
+            BoundedCommandStage.POST_START_MOUNT_POLICY_CHECK,
+        )
+
+    def test_post_start_policy_commands_use_fixed_failure_stages(self) -> None:
+        def result(_instance, argv, **_kwargs):
+            if "sha256sum" in argv:
+                paths = argv[argv.index("sha256sum") + 1 :]
+                output = "\n".join(f"{'a' * 64}  {path}" for path in paths) + "\n"
+            elif argv[0] == "dpkg-query":
+                output = "python3=3.12.3-0ubuntu2\n"
+            else:
+                output = ""
+            return subprocess.CompletedProcess(argv, 0, stdout=output, stderr="")
+
+        with patch.object(self.driver, "_shell", side_effect=result) as shell:
+            policy = self.driver._guest_policy_check("codex")
+        self.assertEqual(
+            [call.kwargs["failure_stage"] for call in shell.call_args_list],
+            [
+                BoundedCommandStage.POST_START_POLICY_CHECK,
+                BoundedCommandStage.POST_START_IDENTITY_DIGEST,
+                BoundedCommandStage.POST_START_PACKAGE_QUERY,
+            ],
+        )
+        policy_command = shell.call_args_list[0].args[1][-1]
+        self.assertIn("guest/check-mount-policy.sh", policy_command)
+        self.assertEqual(
+            policy["mounts"],
+            "no-host-mounts;exact-lima-cidata-allowed",
+        )
 
     def test_timeout_is_durably_classified_and_same_action_retry_is_rejected(self) -> None:
         argv = (

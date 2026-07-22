@@ -13,7 +13,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 from lib.model import ContractError
-from lib.orchestrator import Orchestrator
+from lib.orchestrator import BoundedCommandError, Orchestrator
 from lib.paths import DEFAULT_LIMA_POOL_ROOT, STATE_ROOT
 
 
@@ -165,15 +165,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         result = dispatch(args, orchestrator)
     except ContractError as exc:
+        diagnostic = {
+            "terminal_state": "BLOCKED",
+            "real_task_allowed": False,
+            "error": str(exc),
+        }
+        if isinstance(exc, BoundedCommandError) and exc.failure_stage is not None:
+            diagnostic["failure_stage"] = exc.failure_stage.value
         print(
-            json.dumps(
-                {
-                    "terminal_state": "BLOCKED",
-                    "real_task_allowed": False,
-                    "error": str(exc),
-                },
-                sort_keys=True,
-            ),
+            json.dumps(diagnostic, sort_keys=True),
             file=sys.stderr,
         )
         return 1
