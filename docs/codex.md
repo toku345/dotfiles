@@ -103,19 +103,32 @@ Codex CLI の TUI footer は baseline で最小限の常時表示にする。
 
 ## review profile
 
-通常の Codex session は baseline の `gpt-5.6-sol` を使う。`$pr-review` は multi-agent V1 を必要とするため、直接 chezmoi 管理する独立 profile で `gpt-5.5` を選択する。
+通常の Codex session と `$pr-review` は `gpt-5.6-sol` を使う。レビュー用途では、直接 chezmoi 管理する独立 profile で reasoning effort だけを切り替える。
 
-- `review.config.toml`: `gpt-5.5` / `medium`
-- `review_deep.config.toml`: `gpt-5.5` / `high`
-- `review_audit.config.toml`: `gpt-5.5` / `xhigh`
+- `review.config.toml`: `gpt-5.6-sol` / `medium`
+- `review_deep.config.toml`: `gpt-5.6-sol` / `high`
+- `review_audit.config.toml`: `gpt-5.6-sol` / `xhigh`
 
-これらの profile は `~/.codex/config.toml` の local-only section を持たず、`~/.codex/<profile>.config.toml` として直接管理する。したがって profile の更新は `config.chezmoi.toml` の hash gate 対象ではない。通常 session の baseline と `run_after_check-codex-config.sh` による live config 保護は従来どおり維持する。
+これらの profile は `multi_agent` を有効にし、現在の model metadata が選ぶ V2 runtime で動作する。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は `config.chezmoi.toml` の hash gate 対象ではない。通常 session の baseline と `run_after_check-codex-config.sh` による live config 保護は従来どおり維持する。
 
-multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。
+multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。`$pr-review` は実際に公開された tool schema を検査し、V1/V2 のどちらにも対応する。
 
 ```bash
 codex exec --profile review -C <repo> '$pr-review --base <base>'
 ```
+
+checked-in の legacy V1 profile は置かない。V2 runtime に互換性問題が再発した場合は、次の one-shot command で `gpt-5.5` / V1 に退避する。
+
+```bash
+codex \
+  -c 'features.multi_agent=true' \
+  -c 'features.multi_agent_v2=false' \
+  exec --model gpt-5.5 \
+  -C '<repo-root>' \
+  '$pr-review --base <base>'
+```
+
+runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は isolated `CODEX_HOME` と `/tmp` の fixture を使い、live config や chezmoi target を変更しない。`chezmoi apply` は変更を main に merge した後だけ実行する。
 
 `model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常 session の baseline は `high` とし、review用途では profile を明示的に切り替える。
 

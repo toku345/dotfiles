@@ -1,8 +1,8 @@
 # Codex PR Review Migration — Design Doc
 
 Parent tracking: [Issue #206](https://github.com/toku345/dotfiles/issues/206)
-Current compatibility work: [Issue #295](https://github.com/toku345/dotfiles/issues/295)
-Status: Draft (2026-07-13, rev.9 — Codex multi-agent V1 runtime gate)
+Current compatibility work: [Issue #297](https://github.com/toku345/dotfiles/issues/297)
+Status: Draft (2026-07-22, rev.10 — Codex multi-agent V1/V2 runtime adapter)
 
 ## Context
 
@@ -21,9 +21,10 @@ Additionally:
 ## Goals
 
 - **Credit economy**: eliminate `claude -p` from the review path
-- **Maintainability**: 1144 lines bash → Skill (target `~150–180` lines, accommodating explicit specialist applicability logic, scope-ref propagation, no-PR fail-closed gate, clean-worktree / unchanged-HEAD guard, authoritative diff packet handling, and Stage-1/2 sequential gate) + 8 `.toml` agents + 3 LICENSE + 1 NOTICE files
+- **Maintainability**: replace 1144 lines of bash with one declarative Skill, 8 focused `.toml` agents, 3 LICENSE files, and 1 NOTICE file while keeping runtime adaptation and gate invariants explicit
 - **Quality**: preserve the 6 specialist perspectives from `pr-review-toolkit` + the security and adversarial perspectives currently in `SEC` / `ADV`
 - **Architectural clarity**: move from "3 legs" (accident) to "specialist-first" (intentional)
+- **Runtime compatibility**: preserve the verified V1 contract while making the standard `gpt-5.6-sol` review profiles use the V2 collaboration schema without weakening fail-closed coverage
 - **License hygiene**: bundle prompts only from Apache-2.0 / MIT sources with attribution, bundled LICENSE files, and NOTICE preservation where required by Apache-2.0 §4(d)
 
 ## Non-goals
@@ -32,7 +33,7 @@ Additionally:
 - DGX Spark + OpenCode local-LLM fallback — separate Issue, separate timeline
 - Activation of the `code-review` plugin from `anthropics/claude-plugins-official` (distinct from `pr-review-toolkit`) — out of scope
 - Running `codex exec` (with this skill) from within an enclosing Claude Code session — nested-bwrap "Permission denied" infinite spawn-retry incident verified in `~/.codex/history.jsonl` (2026-03). Same constraint as the legacy `triple-review` per `private_dot_claude/CLAUDE.md` `Git / PR 規約`.
-- A Codex multi-agent V2 adapter — separated into [Issue #297](https://github.com/toku345/dotfiles/issues/297); this design keeps the active `$pr-review` path V1-only.
+- A permanently checked-in legacy V1 profile — V1 remains available through an explicit one-shot rollback command, not a second managed profile family.
 
 ## Alternatives considered
 
@@ -70,14 +71,15 @@ The following corrections were applied during the brainstorming session that pro
 9. **Runtime smoke + prompt cleanup (rev.6)**: After `chezmoi apply`, `codex exec '$pr-review --base main'` (session `019e399e-81aa-7ea2-9ec5-3764a0cf4726`) loaded the installed skill, honored explicit-base `gh` bypass, spawned custom agents with `agent_type`, handled the 6-thread limit by closing completed agents before starting the deferred specialist, skipped Stage 2 after Critical findings, and completed the final dirty-worktree guard. Follow-up fixes normalized `security-reviewer` severities for Stage-2 gating, made worktree-guard command failures fatal, removed Claude-specific active description examples, and weakened an overbroad memory-safety false-positive exclusion.
 10. **HEAD drift + case normalization hardening (rev.7)**: A follow-up `$pr-review --base main` found that a clean final worktree does not prove the reviewed commit is still `HEAD`, and that title-case-only `Severity: High` matching can miss the security prompt's uppercase `HIGH` / `MEDIUM` convention. Corrected: the skill records `git rev-parse HEAD` before diff collection, passes that `HEAD_REF` to specialists, checks it again before aggregation, treats security severity case-insensitively, records diff packet hash/byte-count expectations for large or truncated diffs, and extends the bundle verifier so every agent scope contract requires `HEAD_REF`, packet-hash, and fatal-on-missing-context language.
 11. **Authoritative packet + coverage-failure hardening (rev.8)**: A second follow-up `$pr-review --base main` found that rev.7 still used symbolic `HEAD` in collection commands, made diff packets conditional, and did not explicitly abort when a specialist returned a fatal coverage error. Corrected: all collection commands bind to `$HEAD_REF`, every review always gets an authoritative diff packet with byte count and SHA-256, specialist coverage failures fail closed before Stage 2 or aggregation, explicit branch bases are fetch-backed and pinned to `$BASE_COMMIT`, and security-reviewer now allows read-only packet/hash inspection while still forbidding exploit reproduction and writes.
-12. **Multi-agent V1/V2 compatibility investigation (rev.9)**: Draft [PR #296](https://github.com/toku345/dotfiles/pull/296) tried a dual V1/V2 adapter on Codex CLI 0.144.1. Exposing V2 spawn metadata with `[features.multi_agent_v2] hide_spawn_agent_metadata = false` conflicted with the reserved collaboration schema under `gpt-5.6-sol` and caused HTTP 400 before skill execution. Inspection of Codex 0.144.1, 0.144.2, and 0.144.3 found the relevant selection and schema-generation logic unchanged: `model_info.multi_agent_version` takes precedence over feature fallback, and the selected version is fixed for the session. The model catalog selects V2 for `gpt-5.6-sol`; `gpt-5.5` has no model-level selector and reaches V1 through the review profile's `multi_agent = true` / `multi_agent_v2 = false`. PR #296 was closed without merge. The replacement scope keeps a pure V1 orchestrator, refuses other schemas before repository access or specialist spawn, and tracks V2 support separately in [Issue #297](https://github.com/toku345/dotfiles/issues/297).
+12. **Multi-agent V1/V2 compatibility investigation (rev.9)**: Draft [PR #296](https://github.com/toku345/dotfiles/pull/296) tried a dual V1/V2 adapter on Codex CLI 0.144.1. Exposing V2 spawn metadata with `[features.multi_agent_v2] hide_spawn_agent_metadata = false` conflicted with the reserved collaboration schema under `gpt-5.6-sol` and caused HTTP 400 before skill execution. Inspection of Codex 0.144.1, 0.144.2, and 0.144.3 found the relevant selection and schema-generation logic unchanged: `model_info.multi_agent_version` takes precedence over feature fallback, and the selected version is fixed for the session. The model catalog selects V2 for `gpt-5.6-sol`; `gpt-5.5` has no model-level selector and reaches V1 through feature fallback. PR #296 was closed without merge. This failure is historical evidence against the metadata override, not evidence that the current reserved V2 collaboration tools are unusable.
+13. **V2 adapter rollout (rev.10)**: [Issue #297](https://github.com/toku345/dotfiles/issues/297) re-tested the actual V2 schema exposed to a fresh `gpt-5.6-sol` process. Named custom specialists could be spawned and their final results delivered through the collaboration envelope. The selected design therefore recognizes the runtime from its exposed tool shapes, retains V1 behavior unchanged, and adds a bounded V2 scheduler with explicit ownership, result-integrity, and cleanup rules. It does not revive any code from closed PR #296.
 
 ## Selected approach: (α) Pure Codex Skill
 
 ### Layout
 
 ```text
-~/.codex/skills/pr-review/SKILL.md         # orchestrator (~150–180 lines, user-authored, MIT)
+~/.codex/skills/pr-review/SKILL.md         # orchestrator (user-authored, MIT)
                                             # Local Codex 0.130.0 install path verified in practice.
 ~/.codex/agents/
 ├── code-reviewer.toml                     # Apache-2.0 (Anthropic)
@@ -99,19 +101,30 @@ Source tree (chezmoi): `private_dot_codex/skills/pr-review/` and `private_dot_co
 ### Invocation
 
 ```bash
-# Current V1-only invocation. Start a new process; do not reuse a V2 session.
+# Standard path: all managed review profiles use gpt-5.6-sol and the current V2 runtime.
 codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'
 ```
 
-The non-interactive `$pr-review` argv mention was originally verified locally on Codex CLI 0.130.0. That historical PoC remains valid for skill loading, but the current runtime contract also requires the `review` profile so that `gpt-5.5` selects multi-agent V1. The original `codex exec /pr-review` draft (slash-command-style) is **not correct** — slash commands are an interactive-only surface.
+`review`, `review_deep`, and `review_audit` select `gpt-5.6-sol` at `medium`, `high`, and `xhigh` effort respectively. They enable `multi_agent` but do not force a version; the current model metadata selects V2. The original `codex exec /pr-review` draft (slash-command-style) is **not correct** — slash commands are an interactive-only surface.
+
+There is no checked-in legacy profile. If a Codex/model-catalog upgrade breaks V2, use this explicit one-shot V1 fallback in a fresh process:
+
+```bash
+codex \
+  -c 'features.multi_agent=true' \
+  -c 'features.multi_agent_v2=false' \
+  exec --model gpt-5.5 \
+  -C '<repo-root>' \
+  '$pr-review --base <base>'
+```
 
 **Multi-agent runtime contract**:
 
-- Normal Codex sessions remain on `gpt-5.6-sol`, whose model metadata selects V2 in the Codex 0.144.1–0.144.3 catalog. Feature flags do not override that model-level selection.
-- `$pr-review` starts in a new `codex exec --profile review` process. The review profile selects `gpt-5.5` and enables `multi_agent` while disabling `multi_agent_v2`, producing the V1 tool family in the currently verified catalog.
-- The selected multi-agent version is fixed for the session and inherited by child agents. Switching models inside an existing V2 session is not a supported path back to V1.
-- Before any Git or shell command and before specialist spawn, the skill resolves deferred tool definitions if necessary and accepts only the V1 schema shape: `spawn_agent(agent_type, message)` returning `agent_id`, `wait_agent(targets)`, and `close_agent`. V2, mixed, unknown, incomplete, and unavailable schemas all fail closed without a probe spawn.
-- Do not configure `hide_spawn_agent_metadata = false`, and do not fall back to generic/default agents when the named V1 roles are unavailable. V2 adapter work belongs to [Issue #297](https://github.com/toku345/dotfiles/issues/297).
+- The selected multi-agent version is fixed for the session and inherited by child agents. The skill inspects the actually exposed tool definitions before Git inspection or spawning; configuration intent alone is not proof of the runtime.
+- V1 is accepted only for the verified `spawn_agent(agent_type, message)` → `agent_id`, targeted `wait_agent(targets)`, and `close_agent` family. Existing V1 scheduling and close behavior remains unchanged.
+- V2 is accepted only for the reserved collaboration family: `spawn_agent(task_name, message, agent_type?, fork_turns?, model?, reasoning_effort?)`, `wait_agent(timeout_ms?)`, `list_agents`, and `interrupt_agent(target)`. `task_name` and `message` are required; `wait_agent` has no `targets`, and this family has no `close_agent`. Optional unrelated non-discriminating fields are allowed, but fields that alter identity, wait, or cleanup semantics are incompatible. V2 always uses named specialist roles with `fork_turns="none"`, inherits model/effort, and never falls back to a generic/default agent.
+- Mixed, unknown, incomplete, or unavailable schemas fail closed without a probe spawn. Do not configure `hide_spawn_agent_metadata = false`.
+- Every specialist prompt includes a developer-level control-plane ban. During `$pr-review`, a specialist may inspect the authoritative packet and repository but may not call spawn/send/follow-up/wait/list/interrupt collaboration tools; it returns only its own final answer. This keeps the agent tree flat and owned by the orchestrator.
 
 **Preconditions** (skill aborts with actionable error message if any fails):
 
@@ -139,13 +152,42 @@ The orchestrator is repo-agnostic. Migrated prompts keep some upstream examples 
 - Current skill output is a human-reviewed gate: run `codex exec '...'`, inspect the report, and create the PR only after resolving Critical/Important findings or consciously accepting them.
 - Do not chain PR creation with `&& gh pr create` until a wrapper or machine-readable result contract can make Critical findings produce a reliable non-zero exit.
 
+**Validation and rollout boundary**:
+
+- Pre-merge runtime validation uses an isolated `CODEX_HOME` and a committed fixture repository under `/tmp`; it may reuse authentication by reference but must not modify the live Codex home, live chezmoi targets, or the main source branch.
+- Manual smoke evidence records only sanitized metadata: CLI version, date, implementation commit, base/head commits, effective model and effort, runtime schema, applicable roles, observed concurrency/refill, whether Stage 2 ran, session ID, and candidate/config hash. Raw JSONL, prompts, credentials, and specialist payloads are not retained as design evidence.
+- CI remains responsible for deterministic static/verifier coverage; live `codex exec` smoke remains manual because credentials, network access, and the server-side model catalog are external inputs.
+- `chezmoi apply` is post-merge only. Commit, push, PR publication, and Issue closure are separate operations and are not implied by successful local validation.
+
 **Scope alignment** (continuation of Issue #186 fix direction):
 
 The orchestrator skill resolves a **single base ref** via `gh pr view --json baseRefName,baseRefOid` when a PR base is needed, or uses the caller's explicit base when one is supplied, and **passes that resolved ref to every spawned specialist as context**. No specialist re-detects scope independently, so scope divergence is removed by construction; reviewer completeness remains a separate fail-closed gate.
 
 **Sequential dependency for `code-simplifier`**:
 
-The orchestrator implements a 2-stage flow: spawn the Stage-1 set in parallel, await completion of all, evaluate Stage-1 findings, then conditionally spawn `code-simplifier` only if Stage-1 surfaces no Critical findings. `wait_agent` is treated as a polling primitive, not an all-agent barrier: the parent records every expected `agent_id`, repeatedly waits on the remaining set with explicit timeouts, and fails closed on timeout, empty output, unusable output, malformed/missing coverage sentinels, packet hash mismatch, or fatal coverage errors. Stage 2 is advisory-only and repeats the same scope, sentinel, packet-hash, and read-only contracts so the review gate cannot dirty the worktree or silently aggregate partial coverage.
+The orchestrator implements a 2-stage flow: run the Stage-1 set, require complete valid coverage, evaluate its findings, then run advisory-only `code-simplifier` only when Stage 1 has no Critical findings. Both runtime adapters preserve the same scope, sentinel, packet-hash, deadline, and read-only contracts. In V2, Stage 2 also requires the same matching `FINAL_ANSWER` plus completed terminal status, delivery grace, and stage-deadline contract as Stage 1. Empty or unusable output, malformed/missing coverage sentinels, packet mismatch, fatal coverage errors, timeout, or partial delivery fails closed before aggregation.
+
+V2 adds an explicit scheduler because its collaboration API is notification-oriented rather than a targeted result barrier:
+
+- Start from a fresh agent tree. Any pre-existing descendant aborts the run before spawn.
+- Keep at most 3 run-owned V2 children active. Task names use `prr_<random-suffix>_s<stage>_<role>_a<attempt>`, so ownership and retry identity remain unambiguous.
+- Treat `wait_agent` only as a wake-up notification and `list_agents` only as status. The authoritative result is a `FINAL_ANSWER` envelope whose `Sender` exactly matches the canonical path recorded for the task; the envelope's `Task name` is the recipient and is never child identity.
+- A task is usable only after both a valid authoritative final payload and a terminal status are observed. If status becomes terminal first, allow delivery to catch up for at most 60 seconds without extending the stage deadline.
+- Ignore interim `MESSAGE` payloads; they do not reset any timeout. Ignore byte-identical duplicate finals, but abort on conflicting duplicate finals, a run-owned task disappearing before usability, a name/path collision, or any unexpected descendant. A completed usable task may later disappear from the runtime's retained/LRU status view without invalidating its recorded evidence.
+- On a spawn error, reconcile the requested name with `list_agents`. If the task exists, track that single task. If it is absent and the error is an explicit capacity error, retry once under a new attempt name; any ambiguous partial success or other error aborts.
+- Before refilling capacity, harvest and validate every newly delivered run-owned final; one invalid result aborts without dispatching more work.
+- On abnormal termination, stop pending dispatch, drain notifications/status once, interrupt only run-owned tasks or their unexpected descendants that remain running, then confirm none remains running. Never aggregate partial results.
+
+V2 task state is monotonic:
+
+| State | Evidence | Next action |
+|---|---|---|
+| queued | applicable role not yet spawned | spawn when fewer than 3 run-owned tasks are active |
+| running | canonical path exists and status is non-terminal | wait for notification, then reconcile status and envelopes |
+| final-seen | valid `FINAL_ANSWER` received, status not terminal | retain payload and continue within the stage deadline |
+| terminal-seen | completed terminal status observed, final not delivered | enter delivery grace, capped at 60 seconds and the stage deadline |
+| usable | valid final plus terminal status | release capacity and schedule the next queued role |
+| fatal | timeout, conflict, pre-usable disappearance, unexpected descendant, invalid coverage, or ambiguous spawn | owned cleanup and fail closed |
 
 ### Conditional specialist spawning
 
@@ -162,8 +204,8 @@ full_diff_packet = git diff $BASE_COMMIT...$HEAD_REF > /tmp/pr-review-diff.*
 packet_sha256 = sha256(full_diff_packet)
 operational_paths = Codex skills/agents, hooks, workflows, scripts, and managed runtime config
 expected_stage1 = ordered specialist list from applicability rules
-spawn up to 6 Stage 1 specialists
-wait/record/close completed agents, then spawn queued specialists until none remain
+if runtime is V1: use the existing agent_id/targeted-wait/close scheduler
+if runtime is V2: require a fresh tree and spawn up to 3 uniquely named Stage 1 tasks
 spawn(code-reviewer)         # always in ordered list
 spawn(security-reviewer)     # always in ordered list
 spawn(adversarial-reviewer)  # always in ordered list
@@ -171,7 +213,7 @@ if changed_files includes code paths:        spawn(pr-test-analyzer)
 if full_diff_packet changes docs/comments: spawn(comment-analyzer)
 if changed_files includes code paths:        spawn(silent-failure-hunter)
 if full_diff_packet introduces or modifies type/schema definitions: spawn(type-design-analyzer)
-await all with wait_agent polling over remaining agent IDs
+await all within the stage deadline; V2 reconciles FINAL_ANSWER sender + terminal status
 abort if any specialist reports fatal coverage error or packet/scope verification failure
 if no Critical findings:
     spawn(code-simplifier)  # advisory-only Stage 2; same sentinel/hash checks
@@ -189,7 +231,7 @@ git status --porcelain --untracked-files=normal must still be clean and HEAD mus
 | `type-design-analyzer` | Full diff introduces type/schema declarations or modifies hunks inside existing type/schema definitions |
 | `code-simplifier` | Stage 2: only when Stage 1 has no Critical findings; advisory-only in this workflow |
 
-**On parallelism limits**: the always-spawned group (3) plus all four conditional specialists is 7 possible Stage-1 specialists — one above Codex's default `agents.max_threads = 6`. The skill therefore uses bounded fanout: spawn up to 6, wait for a completed specialist, close it after recording output, then spawn the queued specialist. No scheduled specialist may be dropped because of the thread limit.
+**On parallelism limits**: the always-spawned group (3) plus all four conditional specialists is 7 possible Stage-1 specialists. V1 retains its existing bounded fanout/close behavior. V2 deliberately caps active run-owned children at 3 and refills a slot as soon as a task becomes usable, including when one fast task completes while two slow tasks remain. No applicable specialist may be dropped because of capacity, completion ordering, or the runtime's agent-list presentation.
 
 ### License compliance
 
@@ -271,10 +313,11 @@ Version note: the initial design and Phase 3 PoC references intentionally retain
 - [ ] **gh-auth precondition verified**: smoke test on a system with stale `gh` auth aborts early with a recovery hint, not a silent silent-fail downstream
 - [ ] **Sandbox-blocked-`gh` precondition verified**: smoke test invoking the skill under an inadequate `--sandbox` mode (whichever Phase 3 determined insufficient) aborts early with a recovery hint specifying the correct `--sandbox` flag (and mentions the `--base <branch>` escape hatch), rather than failing mid-flow on the gh shell-out
 - [ ] `codex exec` on a tiny test PR completes end-to-end (smoke test)
-- [x] **V1 review-profile runtime smoke verified for Issue #295**: Codex CLI 0.144.2 loaded the candidate `review.config.toml`, selected `gpt-5.5`, exposed the V1 `spawn_agent(agent_type, message)` / `wait_agent(targets)` / `close_agent` family, spawned the complete specialist set plus Stage 2 against immutable base `7bcac805c99c70e0a9f7bdc3dd82657ed6b19b72`, and passed the final clean-worktree / unchanged-HEAD guards (session `019f5aa4-c5ce-77d0-9d65-67b739a99c90`). The smoke command was `CODEX_HOME=<isolated-candidate-home> codex exec --ephemeral --profile review -C <repo-root> '$pr-review --base <immutable-base>'`.
-- [x] **V2 and missing-profile runtime failures verified for Issue #295**: overriding the candidate review process to `gpt-5.6-sol`, and separately omitting `review.config.toml` so profile lookup silently fell back to the `gpt-5.6-sol` baseline, both reached the V2/mixed/unknown fail-closed message before Git inspection or specialist spawn.
+- [x] **V1 rollback contract retained from Issue #295**: Codex CLI 0.144.2 selected `gpt-5.5`, exposed the V1 `spawn_agent(agent_type, message)` / targeted `wait_agent(targets)` / `close_agent` family, ran all applicable specialists plus Stage 2 against immutable base `7bcac805c99c70e0a9f7bdc3dd82657ed6b19b72`, and passed final clean-worktree / unchanged-HEAD guards (session `019f5aa4-c5ce-77d0-9d65-67b739a99c90`). Revision 10 preserves that adapter while moving the managed profiles to V2.
+- [x] **V2 schema and named-role probe for Issue #297**: a fresh Codex CLI 0.145.0 / `gpt-5.6-sol` process exposed the reserved V2 collaboration schema, spawned named custom roles with `fork_turns="none"`, delivered authoritative `FINAL_ANSWER` envelopes, and reused capacity for a later fourth role without losing the completed task set. This was a schema/scheduler probe, not the full review gate.
+- [ ] **Isolated dual-runtime gate smoke**: against a committed `/tmp` fixture and isolated `CODEX_HOME`, prove the managed `review` profile is effectively `gpt-5.6-sol` / `medium` / V2, max-3 refill works while two slower tasks remain, Stage 2 completes, and all final guards pass. Separately prove the exact one-shot fallback is effectively `gpt-5.5` / `medium` / V1 and exercises targeted wait/close. A missing profile that falls back to baseline `gpt-5.6-sol` / `high` / V2 must not count as the V1 case.
 
-Current verification boundary: CI checks bundle integrity and static contract drift via `tests/codex/verify_pr_review_bundle.py`, and `tests/codex/test_verify_pr_review_bundle_negative.py` proves selected high-risk verifier regressions fail closed. Static checks now cover review-profile structure and model selection, rejection of legacy profile tables and `hide_spawn_agent_metadata`, the V1 runtime sentinel/schema/retry contract, severity normalization, fatal-on-missing-context wording, `$HEAD_REF`-bound collection, authoritative diff-packet hash requirements, and negative mutations for high-risk drift. CI does **not** run live `codex exec` requests because they depend on credentials, network access, and the current server-side model catalog; the Issue #295 V1 and fail-closed cases above are a manual compatibility smoke to repeat after relevant Codex upgrades. Until Phase 5 compares the new skill against legacy `triple-review` on historical PRs, legacy `triple-review` remains the fallback / authoritative gate for cutover decisions.
+Current verification boundary: CI checks bundle integrity and static contract drift via `tests/codex/verify_pr_review_bundle.py`, and `tests/codex/test_verify_pr_review_bundle_negative.py` proves selected high-risk verifier regressions fail closed. Static checks cover the three `gpt-5.6-sol` review profiles, rejection of legacy profile tables and `hide_spawn_agent_metadata`, both runtime schemas, V2 ownership/result/state transitions, specialist control-plane bans, severity normalization, fatal-on-missing-context wording, `$HEAD_REF`-bound collection, authoritative diff-packet hash requirements, and negative mutations for high-risk drift. CI does **not** run live `codex exec` requests because credentials, network access, and the server-side model catalog are external inputs. Manual smoke uses the isolated boundary and sanitized evidence policy above, and must be repeated after relevant Codex/model-catalog upgrades.
 
 **Phase 5 (T9)**:
 - [ ] 3 historical PRs reviewed by both old `triple-review` and new Codex skill
@@ -301,8 +344,10 @@ Current verification boundary: CI checks bundle integrity and static contract dr
 |---|---|---|
 | Codex-routed specialist quality < Claude-routed equivalent | Medium | E2E test (Phase 5) on 3 historical PRs catalogues deltas. If material gaps appear, fix by per-specialist `model` field or by language-specific specialists |
 | **Same-model adversarial review weakened** — `adversarial-reviewer.toml` was originally meant to bring Codex's "outside perspective" into Claude Code's flow. Running Codex inside Codex may dilute the cross-model property | **Medium** | Phase 5 explicitly catalogues legacy-ADV-vs-new-ADV finding diversity. If degradation is material, options: (a) keep a single Claude leg for ADV only (partial Hybrid), (b) pin a distinct Codex model for `adversarial-reviewer.toml` via `model` field, (c) accept and document the trade-off |
-| **Model-selected multi-agent version or schema may drift** — Codex 0.144.1–0.144.3 selects V2 for normal `gpt-5.6-sol` sessions while the `gpt-5.5` review profile reaches V1 through feature fallback | Low–Medium | The verifier pins the independent review profiles and V1 schema contract, the skill rejects non-V1 exposure before repository inspection or spawn, and the manual live smoke is repeated after relevant Codex/model-catalog upgrades. V2 adapter work remains isolated in Issue #297 |
-| **Codex non-interactive invocation or profile loading may drift** — `codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'` and `~/.codex/review.config.toml` are CLI behavior dependencies | Low | Session `019f5aa4-c5ce-77d0-9d65-67b739a99c90` verified candidate profile loading, V1 tool exposure, and end-to-end specialist execution on Codex CLI 0.144.2. Re-run the recorded smoke after Codex CLI upgrades or before final cutover |
+| **Model-selected multi-agent version or schema may drift** — managed `gpt-5.6-sol` profiles currently select V2, while the explicit `gpt-5.5` rollback reaches V1 through feature fallback | Low–Medium | The skill recognizes only the two exact exposed schemas and fails closed on mixed/unknown shapes. Static verification pins both adapters; isolated manual smoke records effective model/effort/schema and is repeated after relevant Codex/model-catalog upgrades |
+| **V2 notification/status ordering causes partial aggregation** — final delivery can race terminal status, and an agent list is not an authoritative result store | Low–Medium | Require matching `FINAL_ANSWER` sender plus terminal status, allow a bounded 60-second delivery grace inside the stage deadline, reject conflicts/pre-usable disappearance/unexpected descendants, and aggregate only after every applicable task is usable |
+| **V2 spawn ambiguity or nested descendants escape ownership** | Low | Use unique run/stage/role/attempt names, reconcile every spawn error before retrying, retry only an explicit absent capacity failure once, ban specialist control-plane tools at developer level, and interrupt only run-owned tasks/descendants during abnormal cleanup |
+| **Codex non-interactive invocation or profile loading may drift** — `codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'` and `~/.codex/review.config.toml` are CLI behavior dependencies | Low | Isolated smoke proves effective model, effort, and schema instead of trusting the requested profile name. Missing-profile fallback is an explicit negative case; the one-shot V1 command remains the rollback path |
 | **`gh` execution blocked under Codex sandbox** — `codex exec --sandbox read-only` (or default) may restrict `gh`'s TLS path (analogous to Claude Code's macOS Seatbelt restriction documented in AGENTS.md `Sandbox Gotchas`; Codex subagents inherit the parent sandbox per docs). Skill cannot then resolve PR base ref | Medium | Phase 3 PoC verifies `gh` runnability under each sandbox mode per OS. Invocation documents both possibilities (read-only or workspace-write). Skill preflight detects sandbox-blocked `gh` and aborts with recovery hint specifying the correct `--sandbox` flag. Escape hatches: explicit `--base <branch>` or `--allow-no-pr` / `ALLOW_NO_PR=1` bypass `gh` entirely |
 | License attribution gap (header missing in some `.toml`; NOTICE preservation overlooked) | Low | CI runs `tests/codex/verify_pr_review_bundle.py`: per-file header presence, expected source commit/copyright/license, bundled LICENSE/NOTICE SHA-256 pins, and `codex-plugin-cc` NOTICE reference are mechanically verified |
 | 30-min+ reviews emerge → sleep timer fires mid-review | Low | Empirical: previous "long" runs were stuck, not running. If real long-compute emerges, add a thin `caffeinate` wrapper at that point (YAGNI now) |
@@ -312,9 +357,9 @@ Current verification boundary: CI checks bundle integrity and static contract dr
 
 ## References
 
-- [Issue #295](https://github.com/toku345/dotfiles/issues/295) — current V1-only compatibility work
-- [Closed PR #296](https://github.com/toku345/dotfiles/pull/296) — abandoned V1/V2 dual-adapter investigation
-- [Issue #297](https://github.com/toku345/dotfiles/issues/297) — separate multi-agent V2 adapter work
+- [Issue #297](https://github.com/toku345/dotfiles/issues/297) — current multi-agent V2 rollout and dual-runtime adapter work
+- [Issue #295](https://github.com/toku345/dotfiles/issues/295) — completed V1 compatibility baseline retained by the rollback adapter
+- [Closed PR #296](https://github.com/toku345/dotfiles/pull/296) — abandoned metadata-override experiment; historical failure, not the current implementation base
 - [Codex 0.144.3 session selector](https://github.com/openai/codex/blob/rust-v0.144.3/codex-rs/core/src/session/mod.rs#L3109-L3122) — model metadata precedence and session-fixed version selection
 - [Codex 0.144.3 feature fallback](https://github.com/openai/codex/blob/rust-v0.144.3/codex-rs/core/src/config/mod.rs#L1410-L1417) — V2/V1 feature fallback when model metadata is absent
 - [Issue #206](https://github.com/toku345/dotfiles/issues/206) — parent tracking Issue
