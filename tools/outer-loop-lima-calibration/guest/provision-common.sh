@@ -128,8 +128,3 @@ apparmor_parser --replace /etc/apparmor.d/outer-loop-bwrap
 if sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null | grep -qx '1'; then
   apparmor_status | grep -q 'outer-loop-bwrap'
 fi
-
-if findmnt -rn -o TARGET | grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'; then
-  echo 'unexpected host-style mount detected' >&2
-  exit 1
-fi

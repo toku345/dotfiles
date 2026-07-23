@@ -44,8 +44,9 @@ tar -xJf "$TMP/node.tar.xz" --strip-components=1 -C /opt/node-24.18.0
 tar -xzf "$TMP/codex-platform.tgz" --strip-components=1 -C /opt/codex-0.144.5/package
 tar -xzf "$TMP/codex-base.tgz" --strip-components=1 -C /opt/codex-0.144.5/package
 chown -R root:root /opt/node-24.18.0 /opt/codex-0.144.5
-find /opt/node-24.18.0 /opt/codex-0.144.5 -type d -exec chmod go-w {} +
-find /opt/node-24.18.0 /opt/codex-0.144.5 -type f -exec chmod go-w {} +
+find /opt/node-24.18.0 /opt/codex-0.144.5 -type d -exec chmod 0755 {} +
+find /opt/node-24.18.0 /opt/codex-0.144.5 -type f -perm /111 -exec chmod 0755 {} +
+find /opt/node-24.18.0 /opt/codex-0.144.5 -type f ! -perm /111 -exec chmod 0644 {} +
 
 install -m 0755 -o root -g root /dev/null /usr/local/bin/codex
 printf '%s\n' \
@@ -54,6 +55,7 @@ printf '%s\n' \
   'exec /opt/node-24.18.0/bin/node /opt/codex-0.144.5/package/bin/codex.js "$@"' \
   > /usr/local/bin/codex
 
+install -d -m 0755 -o root -g root /etc/codex
 install -m 0644 -o root -g root /usr/local/share/outer-loop/seeds/codex-config.toml /etc/codex/config.toml
 install -m 0644 -o root -g root /usr/local/share/outer-loop/seeds/codex-requirements.toml /etc/codex/requirements.toml
 test ! -e /etc/codex/managed_config.toml

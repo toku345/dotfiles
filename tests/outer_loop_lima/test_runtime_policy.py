@@ -21,6 +21,12 @@ from lib.model import ContractError  # noqa: E402
 from runtime import claude, codex  # noqa: E402
 
 
+HOST_STYLE_MOUNT_FILTER = (
+    "grep -Fvx '/mnt/lima-cidata' | "
+    "grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'"
+)
+
+
 def load_sanitizer():
     path = HARNESS / "guest" / "sanitize-auth.py"
     spec = importlib.util.spec_from_file_location("sanitize_auth", path)
@@ -46,11 +52,143 @@ def unflatten(flattened: dict[str, object]) -> dict[str, object]:
 
 
 class RuntimePolicyTests(unittest.TestCase):
+    def test_lima_cidata_is_the_only_allowed_lima_mount(self) -> None:
+        allowed = ("/", "/tmp", "/mnt/lima-cidata")
+        rejected = (
+            "/mnt/lima-9p",
+            "/mnt/lima-cidata/subdir",
+            "/mnt/lima-cidata-extra",
+            "/Users",
+            "/Users/example",
+            "/Volumes/example",
+            "/home/lima-provision/example/share",
+        )
+
+        allowed_result = subprocess.run(
+            ("/bin/sh", "-c", HOST_STYLE_MOUNT_FILTER),
+            input="\n".join(allowed) + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(allowed_result.returncode, 0)
+        for target in rejected:
+            with self.subTest(target=target):
+                result = subprocess.run(
+                    ("/bin/sh", "-c", HOST_STYLE_MOUNT_FILTER),
+                    input=f"/\n/mnt/lima-cidata\n{target}\n",
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0)
+
+        mount_policy = (HARNESS / "guest" / "check-mount-policy.sh").read_text()
+        provision = (HARNESS / "guest" / "provision-common.sh").read_text()
+        orchestrator = (HARNESS / "lib" / "orchestrator.py").read_text()
+        self.assertIn("if ! mount_targets=$(findmnt -rn -o TARGET); then", mount_policy)
+        self.assertIn("grep -Fvx '/mnt/lima-cidata'", mount_policy)
+        self.assertIn(
+            "grep -Eq '^/(Users|Volumes|mnt/lima-|home/lima-provision/.*share)'",
+            mount_policy,
+        )
+        self.assertNotIn("findmnt", provision)
+        self.assertEqual(orchestrator.count("guest/check-mount-policy.sh"), 2)
+
+    def test_mount_policy_script_fails_closed(self) -> None:
+        script = HARNESS / "guest" / "check-mount-policy.sh"
+        with tempfile.TemporaryDirectory() as temporary:
+            fake_bin = Path(temporary)
+            fake_id = fake_bin / "id"
+            fake_id.write_text("#!/bin/sh\nprintf '0\\n'\n")
+            fake_id.chmod(0o755)
+            fake_findmnt = fake_bin / "findmnt"
+            fake_findmnt.write_text(
+                "#!/bin/sh\n"
+                "if [ \"${FAKE_FINDMNT_RC:-0}\" -ne 0 ]; then\n"
+                "  exit \"$FAKE_FINDMNT_RC\"\n"
+                "fi\n"
+                "printf '%s\\n' \"$FAKE_MOUNT_TARGETS\"\n"
+            )
+            fake_findmnt.chmod(0o755)
+            environment = {
+                **os.environ,
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "FAKE_MOUNT_TARGETS": "/\n/mnt/lima-cidata",
+            }
+
+            allowed = subprocess.run(
+                ("/bin/sh", str(script)),
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(allowed.returncode, 0)
+
+            rejected = subprocess.run(
+                ("/bin/sh", str(script)),
+                env={**environment, "FAKE_MOUNT_TARGETS": "/\n/mnt/lima-cidata-extra"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+
+            unavailable = subprocess.run(
+                ("/bin/sh", str(script)),
+                env={**environment, "FAKE_FINDMNT_RC": "1"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(unavailable.returncode, 0)
+
     def test_guest_provisioning_removes_unpinned_apt_sources(self) -> None:
         script = (HARNESS / "guest" / "provision-common.sh").read_text()
         self.assertIn("outer-loop-disabled-sources", script)
         self.assertIn("-exec mv -t", script)
         self.assertNotIn("-exec chmod 000", script)
+
+    def test_codex_install_tree_permissions_are_deterministic(self) -> None:
+        script = (HARNESS / "guest" / "provision-codex.sh").read_text()
+        roots = "/opt/node-24.18.0 /opt/codex-0.144.5"
+        config_directory = "install -d -m 0755 -o root -g root /etc/codex"
+        self.assertIn(
+            f"find {roots} -type d -exec chmod 0755 {{}} +",
+            script,
+        )
+        self.assertIn(
+            f"find {roots} -type f -perm /111 -exec chmod 0755 {{}} +",
+            script,
+        )
+        self.assertIn(
+            f"find {roots} -type f ! -perm /111 -exec chmod 0644 {{}} +",
+            script,
+        )
+        self.assertNotIn("-exec chmod go-w", script)
+        self.assertIn(config_directory, script)
+        self.assertLess(
+            script.index(config_directory),
+            script.index("/etc/codex/config.toml"),
+        )
+
+    def test_claude_install_tree_permissions_are_deterministic(self) -> None:
+        script = (HARNESS / "guest" / "provision-claude.sh").read_text()
+        roots = "/opt/node-24.18.0 /opt/claude-2.1.211 /opt/srt-0.0.65"
+        self.assertIn(
+            f"find {roots} -type d -exec chmod 0755 {{}} +",
+            script,
+        )
+        self.assertIn(
+            f"find {roots} -type f -perm /111 -exec chmod 0755 {{}} +",
+            script,
+        )
+        self.assertIn(
+            f"find {roots} -type f ! -perm /111 -exec chmod 0644 {{}} +",
+            script,
+        )
+        self.assertNotIn("-exec chmod go-w", script)
 
     def test_runtime_policy_has_no_writable_receipt_channel(self) -> None:
         policy_files = (
