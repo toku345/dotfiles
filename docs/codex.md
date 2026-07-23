@@ -123,6 +123,7 @@ checked-in の legacy V1 profile は置かない。V2 runtime に互換性問題
 codex \
   -c 'features.multi_agent=true' \
   -c 'features.multi_agent_v2=false' \
+  -c 'model_reasoning_effort="medium"' \
   exec --model gpt-5.5 \
   -C '<repo-root>' \
   '$pr-review --base <base>'

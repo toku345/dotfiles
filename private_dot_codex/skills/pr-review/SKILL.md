@@ -94,7 +94,9 @@ Run these checks in order. If any fails, abort with the indicated actionable err
 After preconditions pass:
 
 1. **Collect the review inputs and classify the diff**:
-   - Run `git rev-parse HEAD` before collecting the diff and record it as `$HEAD_REF`.
+   - Run `git rev-parse HEAD` as an independent, preceding tool call and wait for it to complete before starting any other collection. Do not put HEAD recording in the same parallel tool call as status, log, file-list, or diff collection.
+   - Require that call to succeed and record its commit OID as immutable `$HEAD_REF`. If HEAD recording fails or does not return a commit OID, abort without starting collection.
+   - After recording `$HEAD_REF`, use that immutable OID for every later log, file-list, and diff command. Do not use symbolic `HEAD` for those commands.
    - Run `git status --short`, `git log --no-decorate "$BASE_COMMIT..$HEAD_REF"`, `git diff --name-only "$BASE_COMMIT"..."$HEAD_REF"`, and `git diff "$BASE_COMMIT"..."$HEAD_REF"`.
    - Require every command to exit successfully. If any collection command fails, abort loudly instead of reviewing partial input.
    - If the diff is genuinely empty, run the Final worktree guard immediately, then say `No committed changes relative to <base>; nothing to review.` and stop rather than emitting a normal green review. Do not skip the final worktree or HEAD checks on the empty-diff path.

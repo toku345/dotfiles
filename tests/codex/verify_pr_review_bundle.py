@@ -46,6 +46,7 @@ V1_ROLLBACK_COMMAND_SNIPPETS = (
     "codex \\",
     "-c 'features.multi_agent=true'",
     "-c 'features.multi_agent_v2=false'",
+    "-c 'model_reasoning_effort=\"medium\"'",
     "exec --model gpt-5.5",
     "-C '<repo-root>'",
     "'$pr-review --base <base>'",
@@ -248,7 +249,7 @@ REQUIRED_SKILL_SNIPPETS = [
 ]
 
 PROCEDURE_SKILL_SNIPPETS = [
-    "Run `git rev-parse HEAD` before collecting the diff and record it as `$HEAD_REF`",
+    "Run `git rev-parse HEAD` as an independent, preceding tool call",
     'git log --no-decorate "$BASE_COMMIT..$HEAD_REF"',
     'git diff --name-only "$BASE_COMMIT"..."$HEAD_REF"',
     'git diff "$BASE_COMMIT"..."$HEAD_REF"',
@@ -769,6 +770,28 @@ def verify_skill_contract() -> None:
         "omission and generic/default role fallback are forbidden",
         f"{SKILL}:procedure",
     )
+
+    collection = section_between(
+        procedure,
+        "1. **Collect the review inputs and classify the diff**",
+        "2. **Build the Stage 1 specialist set",
+        f"{SKILL}:input-collection",
+    )
+    for needle in (
+        "independent, preceding tool call",
+        "wait for it to complete before starting any other collection",
+        "Do not put HEAD recording in the same parallel tool call",
+        "record its commit OID as immutable `$HEAD_REF`",
+        "abort without starting collection",
+        "use that immutable OID for every later log, file-list, and diff command",
+        "Do not use symbolic `HEAD` for those commands",
+        'git log --no-decorate "$BASE_COMMIT..$HEAD_REF"',
+        'git diff --name-only "$BASE_COMMIT"..."$HEAD_REF"',
+        'git diff "$BASE_COMMIT"..."$HEAD_REF"',
+    ):
+        require_contains(collection, needle, f"{SKILL}:input-collection")
+    for needle in ("..HEAD", "...HEAD"):
+        require_not_contains(collection, needle, f"{SKILL}:input-collection")
 
     v2_dispatch = section_between(
         procedure,
