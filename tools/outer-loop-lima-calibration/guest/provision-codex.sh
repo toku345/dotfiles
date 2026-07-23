@@ -44,8 +44,9 @@ tar -xJf "$TMP/node.tar.xz" --strip-components=1 -C /opt/node-24.18.0
 tar -xzf "$TMP/codex-platform.tgz" --strip-components=1 -C /opt/codex-0.144.5/package
 tar -xzf "$TMP/codex-base.tgz" --strip-components=1 -C /opt/codex-0.144.5/package
 chown -R root:root /opt/node-24.18.0 /opt/codex-0.144.5
-find /opt/node-24.18.0 /opt/codex-0.144.5 -type d -exec chmod go-w {} +
-find /opt/node-24.18.0 /opt/codex-0.144.5 -type f -exec chmod go-w {} +
+find /opt/node-24.18.0 /opt/codex-0.144.5 -type d -exec chmod 0755 {} +
+find /opt/node-24.18.0 /opt/codex-0.144.5 -type f -perm /111 -exec chmod 0755 {} +
+find /opt/node-24.18.0 /opt/codex-0.144.5 -type f ! -perm /111 -exec chmod 0644 {} +
 
 install -m 0755 -o root -g root /dev/null /usr/local/bin/codex
 printf '%s\n' \
