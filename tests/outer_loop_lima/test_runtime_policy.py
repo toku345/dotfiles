@@ -150,6 +150,23 @@ class RuntimePolicyTests(unittest.TestCase):
         self.assertIn("-exec mv -t", script)
         self.assertNotIn("-exec chmod 000", script)
 
+    def test_codex_install_tree_permissions_are_deterministic(self) -> None:
+        script = (HARNESS / "guest" / "provision-codex.sh").read_text()
+        roots = "/opt/node-24.18.0 /opt/codex-0.144.5"
+        self.assertIn(
+            f"find {roots} -type d -exec chmod 0755 {{}} +",
+            script,
+        )
+        self.assertIn(
+            f"find {roots} -type f -perm /111 -exec chmod 0755 {{}} +",
+            script,
+        )
+        self.assertIn(
+            f"find {roots} -type f ! -perm /111 -exec chmod 0644 {{}} +",
+            script,
+        )
+        self.assertNotIn("-exec chmod go-w", script)
+
     def test_runtime_policy_has_no_writable_receipt_channel(self) -> None:
         policy_files = (
             HARNESS / "seeds" / "codex" / "config.toml",
