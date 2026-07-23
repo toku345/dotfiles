@@ -153,6 +153,29 @@ class RuntimePolicyTests(unittest.TestCase):
     def test_codex_install_tree_permissions_are_deterministic(self) -> None:
         script = (HARNESS / "guest" / "provision-codex.sh").read_text()
         roots = "/opt/node-24.18.0 /opt/codex-0.144.5"
+        config_directory = "install -d -m 0755 -o root -g root /etc/codex"
+        self.assertIn(
+            f"find {roots} -type d -exec chmod 0755 {{}} +",
+            script,
+        )
+        self.assertIn(
+            f"find {roots} -type f -perm /111 -exec chmod 0755 {{}} +",
+            script,
+        )
+        self.assertIn(
+            f"find {roots} -type f ! -perm /111 -exec chmod 0644 {{}} +",
+            script,
+        )
+        self.assertNotIn("-exec chmod go-w", script)
+        self.assertIn(config_directory, script)
+        self.assertLess(
+            script.index(config_directory),
+            script.index("/etc/codex/config.toml"),
+        )
+
+    def test_claude_install_tree_permissions_are_deterministic(self) -> None:
+        script = (HARNESS / "guest" / "provision-claude.sh").read_text()
+        roots = "/opt/node-24.18.0 /opt/claude-2.1.211 /opt/srt-0.0.65"
         self.assertIn(
             f"find {roots} -type d -exec chmod 0755 {{}} +",
             script,

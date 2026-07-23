@@ -75,8 +75,9 @@ tar -xzf "$TMP/commander.tgz" --strip-components=1 -C /opt/srt-0.0.65/node_modul
 tar -xzf "$TMP/node-forge.tgz" --strip-components=1 -C /opt/srt-0.0.65/node_modules/node-forge
 tar -xzf "$TMP/zod.tgz" --strip-components=1 -C /opt/srt-0.0.65/node_modules/zod
 chown -R root:root /opt/node-24.18.0 /opt/claude-2.1.211 /opt/srt-0.0.65
-find /opt/node-24.18.0 /opt/claude-2.1.211 /opt/srt-0.0.65 -type d -exec chmod go-w {} +
-find /opt/node-24.18.0 /opt/claude-2.1.211 /opt/srt-0.0.65 -type f -exec chmod go-w {} +
+find /opt/node-24.18.0 /opt/claude-2.1.211 /opt/srt-0.0.65 -type d -exec chmod 0755 {} +
+find /opt/node-24.18.0 /opt/claude-2.1.211 /opt/srt-0.0.65 -type f -perm /111 -exec chmod 0755 {} +
+find /opt/node-24.18.0 /opt/claude-2.1.211 /opt/srt-0.0.65 -type f ! -perm /111 -exec chmod 0644 {} +
 chmod 0755 /opt/claude-2.1.211/claude
 
 ln -sfn /opt/claude-2.1.211/claude /usr/local/bin/claude
