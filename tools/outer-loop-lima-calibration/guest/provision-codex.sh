@@ -55,6 +55,7 @@ printf '%s\n' \
   'exec /opt/node-24.18.0/bin/node /opt/codex-0.144.5/package/bin/codex.js "$@"' \
   > /usr/local/bin/codex
 
+install -d -m 0755 -o root -g root /etc/codex
 install -m 0644 -o root -g root /usr/local/share/outer-loop/seeds/codex-config.toml /etc/codex/config.toml
 install -m 0644 -o root -g root /usr/local/share/outer-loop/seeds/codex-requirements.toml /etc/codex/requirements.toml
 test ! -e /etc/codex/managed_config.toml
