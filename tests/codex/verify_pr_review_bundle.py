@@ -22,6 +22,7 @@ SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
 REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
 SEVERITY_RULES = SKILL_DIR / "references" / "severity-rules.json"
+V2_RUNTIME_CONTRACT = SKILL_DIR / "references" / "v2-runtime-contract.json"
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
 DESIGN_DOC = REPO_ROOT / "docs" / "design" / "codex-pr-review.md"
@@ -42,6 +43,41 @@ EXPECTED_REVIEW_PROFILES = {
 }
 
 RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1_V2"
+V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V1"
+EXPECTED_V2_RUNTIME_CONTRACT = {
+    "sentinel": V2_SCHEDULER_SENTINEL,
+    "version": 1,
+    "max_concurrency": 3,
+    "delivery_grace_ms": 60_000,
+    "stage_deadline_ms": {"stage1": 1_800_000, "stage2": 600_000},
+    "spawn": {
+        "max_retries": 1,
+        "retry_only_on_explicit_capacity_error": True,
+        "retry_requires_available_slot": True,
+        "require_new_attempt_name": True,
+    },
+    "result": {
+        "require_canonical_sender": True,
+        "require_final_payload": True,
+        "require_terminal_status": True,
+        "identical_duplicate": "ignore",
+        "conflicting_duplicate": "fatal",
+        "pre_usable_disappearance": "fatal",
+        "unexpected_descendant": "fatal",
+    },
+    "cleanup": {
+        "interrupt_running_owned_top_level": True,
+        "interrupt_running_owned_descendants": True,
+        "interrupt_orchestrator": False,
+        "interrupt_unrelated": False,
+        "require_no_running_owned_after_cleanup": True,
+    },
+    "aggregation": {
+        "require_exact_expected_roles": True,
+        "require_unique_canonical_tasks": True,
+        "require_all_usable": True,
+    },
+}
 V1_ROLLBACK_COMMAND_SNIPPETS = (
     "codex \\",
     "-c 'features.multi_agent=true'",
@@ -70,6 +106,9 @@ RUNTIME_CONTRACT_SNIPPETS = [
     "`list_agents(path_prefix?)`",
     "`interrupt_agent(target)`",
     "fresh agent tree",
+    "`references/v2-runtime-contract.json`",
+    V2_SCHEDULER_SENTINEL,
+    "machine-readable scheduler contract",
     "Missing, unresolved, incomplete, mixed, or unknown definitions are not compatible.",
     "mixed, incomplete, or unknown",
     "No specialist was spawned and no review was performed.",
@@ -552,6 +591,36 @@ def verify_severity_rules() -> None:
     require_contains(data.get("incomplete_evidence", ""), "do not silently drop it", f"{context}:incomplete_evidence")
 
 
+def verify_v2_runtime_contract() -> None:
+    context = str(V2_RUNTIME_CONTRACT)
+    if not V2_RUNTIME_CONTRACT.is_file():
+        fail(
+            "missing V2 runtime contract: "
+            f"{V2_RUNTIME_CONTRACT.relative_to(REPO_ROOT)}"
+        )
+    try:
+        data = json.loads(V2_RUNTIME_CONTRACT.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{context}: invalid JSON: {exc}")
+    if data != EXPECTED_V2_RUNTIME_CONTRACT:
+        fail(f"{context}: V2 scheduler contract mismatch")
+    skill = SKILL.read_text(encoding="utf-8")
+    prose_values = (
+        f"maximum of {data['max_concurrency']}",
+        f"{data['delivery_grace_ms'] // 1000}-second delivery grace",
+        (
+            f"monotonic {data['stage_deadline_ms']['stage1'] // 60_000}-minute "
+            "Stage 1 deadline"
+        ),
+        (
+            f"monotonic {data['stage_deadline_ms']['stage2'] // 60_000}-minute "
+            "Stage 2 deadline"
+        ),
+    )
+    for expected in prose_values:
+        require_contains(skill, expected, f"{context}:SKILL.md consistency")
+
+
 def verify_claude_share_templates() -> None:
     for name, include_line in EXPECTED_TMPL_INCLUDES.items():
         path = CLAUDE_REFS_DIR / name
@@ -885,6 +954,7 @@ def main() -> None:
     verify_review_criteria()
     verify_runtime_docs()
     verify_severity_rules()
+    verify_v2_runtime_contract()
     verify_claude_share_templates()
     verify_codex_config_profiles()
     verify_agent_toml()

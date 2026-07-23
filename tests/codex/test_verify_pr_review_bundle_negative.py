@@ -154,6 +154,20 @@ def main() -> None:
             "PR_REVIEW_RUNTIME_CONTRACT_V1_V2",
         ),
         (
+            "V2 scheduler contract grace drift",
+            "private_dot_codex/skills/pr-review/references/v2-runtime-contract.json",
+            '"delivery_grace_ms": 60000',
+            '"delivery_grace_ms": 120000',
+            "V2 scheduler contract mismatch",
+        ),
+        (
+            "V2 scheduler Stage 1 prose deadline drift",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "monotonic 30-minute Stage 1 deadline",
+            "monotonic 31-minute Stage 1 deadline",
+            "monotonic 30-minute Stage 1 deadline",
+        ),
+        (
             "V1 spawn discriminator removal",
             "private_dot_codex/skills/pr-review/SKILL.md",
             "must not accept `task_name` or `fork_turns`",

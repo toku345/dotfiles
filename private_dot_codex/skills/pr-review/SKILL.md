@@ -51,6 +51,7 @@ Run these checks in order. If any fails, abort with the indicated actionable err
      ```
 
    - For V2 only, call `list_agents` immediately after selection and require a **fresh agent tree**: the current orchestrator entry may exist, but it must have no descendant. Abort before repository inspection if listing fails, a descendant already exists, or the current tree cannot be identified unambiguously. This prevents this run from adopting, interrupting, or confusing another run's tasks.
+   - For V2 only, before repository inspection read `references/v2-runtime-contract.json`, require sentinel `PR_REVIEW_V2_SCHEDULER_CONTRACT_V1`, and use its timing, spawn, result, cleanup, and aggregation values as the machine-readable scheduler contract. Abort before repository inspection if the file is missing, malformed, unsupported, or conflicts with this prose.
 
 1. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with the command output and do not review an unknown worktree state. If output is non-empty (uncommitted tracked changes or untracked-non-ignored files), abort with:
    > "Worktree has uncommitted changes: \<list\>. The review covers committed branch diff only; uncommitted changes would be silently excluded. To inspect staged, unstaged, and untracked changes first, run `codex review --uncommitted`. Commit or stash all listed changes, then retry `$pr-review`. (See ADR 0020.)"

@@ -1,0 +1,37 @@
+{
+  "sentinel": "PR_REVIEW_V2_SCHEDULER_CONTRACT_V1",
+  "version": 1,
+  "max_concurrency": 3,
+  "delivery_grace_ms": 60000,
+  "stage_deadline_ms": {
+    "stage1": 1800000,
+    "stage2": 600000
+  },
+  "spawn": {
+    "max_retries": 1,
+    "retry_only_on_explicit_capacity_error": true,
+    "retry_requires_available_slot": true,
+    "require_new_attempt_name": true
+  },
+  "result": {
+    "require_canonical_sender": true,
+    "require_final_payload": true,
+    "require_terminal_status": true,
+    "identical_duplicate": "ignore",
+    "conflicting_duplicate": "fatal",
+    "pre_usable_disappearance": "fatal",
+    "unexpected_descendant": "fatal"
+  },
+  "cleanup": {
+    "interrupt_running_owned_top_level": true,
+    "interrupt_running_owned_descendants": true,
+    "interrupt_orchestrator": false,
+    "interrupt_unrelated": false,
+    "require_no_running_owned_after_cleanup": true
+  },
+  "aggregation": {
+    "require_exact_expected_roles": true,
+    "require_unique_canonical_tasks": true,
+    "require_all_usable": true
+  }
+}

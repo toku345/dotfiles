@@ -179,6 +179,9 @@ jobs:
       - name: Validate pr-review verifier fail-closed behavior
         run: python3 tests/codex/test_verify_pr_review_bundle_negative.py
 
+      - name: Validate pr-review V2 scheduler abnormal paths
+        run: python3 tests/codex/test_pr_review_v2_scheduler.py
+
   claude-pr-review-workflow:
     name: Claude pr-review Workflow Logic
     runs-on: ubuntu-latest
