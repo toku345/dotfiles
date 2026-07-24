@@ -147,11 +147,88 @@ def main() -> None:
             "features.multi_agent_v2 must not be pinned",
         ),
         (
+            "managed baseline disables approval escalation",
+            "private_dot_codex/private_config.chezmoi.toml",
+            'approval_policy = "on-request"',
+            'approval_policy = "never"',
+            "approval_policy must be 'on-request'",
+        ),
+        (
+            "managed baseline opens sandbox network",
+            "private_dot_codex/private_config.chezmoi.toml",
+            "network_access = false",
+            "network_access = true",
+            "network_access must be false",
+        ),
+        (
+            "managed baseline disables network proxy",
+            "private_dot_codex/private_config.chezmoi.toml",
+            "network_proxy = true",
+            "network_proxy = false",
+            "features.network_proxy must be true",
+        ),
+        (
+            "review profile overrides inherited approval",
+            "private_dot_codex/private_review.config.toml",
+            'sandbox_mode = "workspace-write"',
+            'sandbox_mode = "workspace-write"\napproval_policy = "on-request"',
+            "approval_policy must be inherited",
+        ),
+        (
+            "review profile overrides inherited network proxy",
+            "private_dot_codex/private_review.config.toml",
+            "multi_agent = true",
+            "multi_agent = true\nnetwork_proxy = true",
+            "features.network_proxy must be inherited",
+        ),
+        (
+            "review profile overrides inherited sandbox network",
+            "private_dot_codex/private_review.config.toml",
+            '[features]\nmulti_agent = true',
+            '[sandbox_workspace_write]\nnetwork_access = true\n\n[features]\nmulti_agent = true',
+            "[sandbox_workspace_write] must be inherited",
+        ),
+        (
             "V1/V2 runtime gate sentinel removal",
             "private_dot_codex/skills/pr-review/SKILL.md",
             "PR_REVIEW_RUNTIME_CONTRACT_V1_V2",
             "PR_REVIEW_RUNTIME_CONTRACT_REMOVED",
             "PR_REVIEW_RUNTIME_CONTRACT_V1_V2",
+        ),
+        (
+            "base-resolution retry limit widened",
+            "private_dot_codex/skills/pr-review/references/base-resolution-runtime-contract.json",
+            '"max_retries_per_operation": 1',
+            '"max_retries_per_operation": 2',
+            "base-resolution contract mismatch",
+        ),
+        (
+            "base-resolution persistent prefix enabled",
+            "private_dot_codex/skills/pr-review/references/base-resolution-runtime-contract.json",
+            '"allow_persistent_prefix": false',
+            '"allow_persistent_prefix": true',
+            "base-resolution contract mismatch",
+        ),
+        (
+            "base-resolution operation allowlist drift",
+            "private_dot_codex/skills/pr-review/references/base-resolution-runtime-contract.json",
+            '"remote_set_head": {',
+            '"push": {',
+            "base-resolution contract mismatch",
+        ),
+        (
+            "base-resolution transport precedence removed",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "Give a proven sandbox/transport denial precedence over credential-looking text",
+            "Treat credential-looking text as stale auth before checking transport denial",
+            "Give a proven sandbox/transport denial precedence over credential-looking text",
+        ),
+        (
+            "base-resolution persistent prefix allowed",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "Never request a persistent prefix approval",
+            "Request a reusable prefix approval",
+            "Never request a persistent prefix approval",
         ),
         (
             "V2 scheduler contract grace drift",
@@ -444,6 +521,17 @@ def main() -> None:
             repo = copy_fixture_repo(root / f"case-{index}")
             replace_once(repo / rel_path, old, new)
             assert_fails_closed(name, repo, expected)
+
+        missing_base_contract_repo = copy_fixture_repo(root / "missing-base-contract")
+        (
+            missing_base_contract_repo
+            / "private_dot_codex/skills/pr-review/references/base-resolution-runtime-contract.json"
+        ).unlink()
+        assert_fails_closed(
+            "missing base-resolution contract",
+            missing_base_contract_repo,
+            "missing base-resolution runtime contract",
+        )
 
         missing_profile_repo = copy_fixture_repo(root / "missing-review-profile")
         (missing_profile_repo / "private_dot_codex/private_review.config.toml").unlink()

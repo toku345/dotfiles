@@ -22,6 +22,9 @@ SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
 REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
 SEVERITY_RULES = SKILL_DIR / "references" / "severity-rules.json"
+BASE_RESOLUTION_CONTRACT = (
+    SKILL_DIR / "references" / "base-resolution-runtime-contract.json"
+)
 V2_RUNTIME_CONTRACT = SKILL_DIR / "references" / "v2-runtime-contract.json"
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
@@ -43,7 +46,69 @@ EXPECTED_REVIEW_PROFILES = {
 }
 
 RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1_V2"
+BASE_RESOLUTION_SENTINEL = "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V1"
 V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V1"
+EXPECTED_BASE_RESOLUTION_CONTRACT = {
+    "sentinel": BASE_RESOLUTION_SENTINEL,
+    "version": 1,
+    "operations": {
+        "pr_view": {
+            "argv": [
+                "gh",
+                "pr",
+                "view",
+                "--json",
+                "baseRefName,baseRefOid",
+                "--jq",
+                "[.baseRefName,.baseRefOid] | @tsv",
+            ],
+            "sandbox_first": True,
+            "debug_discriminator_env": {"GH_DEBUG": "api"},
+            "allow_elevated_retry": True,
+        },
+        "fetch_branch": {
+            "argv_template": [
+                "git",
+                "fetch",
+                "--quiet",
+                "origin",
+                "refs/heads/<validated-base>",
+            ],
+            "sandbox_first": True,
+            "allow_elevated_retry": True,
+        },
+        "fetch_default": {
+            "argv": ["git", "fetch", "--quiet", "origin"],
+            "sandbox_first": True,
+            "allow_elevated_retry": True,
+        },
+        "remote_set_head": {
+            "argv": ["git", "remote", "set-head", "origin", "--auto"],
+            "sandbox_first": True,
+            "allow_elevated_retry": True,
+        },
+    },
+    "escalation": {
+        "max_retries_per_operation": 1,
+        "require_same_invocation_fingerprint": True,
+        "allow_persistent_prefix": False,
+        "require_explicit_tool_field": "sandbox_permissions=require_escalated",
+        "transport_denial_precedes_credential_text": True,
+        "fatal_before_specialist_spawn": True,
+    },
+    "result_classification": {
+        "sandbox_or_transport_denial": "retry-elevated-once",
+        "credential_failure_after_github_response": "fatal-stale-auth",
+        "explicit_no_pr": "fatal-no-pr",
+        "ordinary_git_or_api_failure": "fatal",
+        "ambiguous_failure": "fatal",
+    },
+    "immutable_oid": {
+        "skip_gh": True,
+        "skip_fetch": True,
+        "skip_escalation": True,
+    },
+}
 EXPECTED_V2_RUNTIME_CONTRACT = {
     "sentinel": V2_SCHEDULER_SENTINEL,
     "version": 1,
@@ -105,6 +170,9 @@ RUNTIME_CONTRACT_SNIPPETS = [
     "Optional unrelated, non-discriminating fields may be present",
     "`list_agents(path_prefix?)`",
     "`interrupt_agent(target)`",
+    "`references/base-resolution-runtime-contract.json`",
+    BASE_RESOLUTION_SENTINEL,
+    "machine-readable base-resolution contract",
     "fresh agent tree",
     "`references/v2-runtime-contract.json`",
     V2_SCHEDULER_SENTINEL,
@@ -113,6 +181,21 @@ RUNTIME_CONTRACT_SNIPPETS = [
     "mixed, incomplete, or unknown",
     "No specialist was spawned and no review was performed.",
     "Do not fall back to default agents.",
+]
+
+BASE_RESOLUTION_SNIPPETS = [
+    "always try the ordinary sandbox first",
+    "sandbox_permissions=require_escalated",
+    "Never request a persistent prefix approval",
+    "exact original executable, argv, cwd, and ordinary environment once",
+    "do not run the origin-unscoped `gh auth status`",
+    "use the required PR lookup itself as the only GitHub auth/network probe",
+    "Give a proven sandbox/transport denial precedence over credential-looking text",
+    "original non-debug `gh pr view` invocation once",
+    "Do not persist or reproduce raw debug headers",
+    "through the scoped retry policy",
+    "do not run `gh`, fetch, or any elevated command",
+    "abort before specialist spawn",
 ]
 
 V2_RUNTIME_SNIPPETS = [
@@ -261,13 +344,13 @@ REQUIRED_SKILL_SNIPPETS = [
     "`--allow-no-pr` requires network access, `git fetch`, and `git remote set-head origin --auto`",
     "Auto-PR base resolution requires `gh pr view`, network access, and a verified fetch of the reported base branch",
     "they must supply an immutable base commit OID",
-    "Run `git fetch --quiet origin`; if it fails, abort instead of reviewing a possibly stale default branch.",
-    "Run `git remote set-head origin --auto`; if it fails, abort instead of trusting a stale local `origin/HEAD` symref.",
+    "Run `git fetch --quiet origin` through the scoped retry policy",
+    "Run `git remote set-head origin --auto` through the same policy",
     "Run `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`; if it fails or returns an empty value, abort instead of guessing a base.",
     "Strip the leading `origin/` from the captured value",
     "exactly two non-empty tab-separated fields",
-    "Validate the returned branch name with the same explicit-branch safety rules",
-    'Then run `git fetch --quiet origin "refs/heads/$BASE"`',
+    "Validate it with the same explicit-branch safety rules",
+    'Then run `git fetch --quiet origin "refs/heads/$BASE"` through the scoped retry policy',
     "verify it exactly equals the returned `baseRefOid`",
     'BASE_COMMIT=$(git rev-parse --verify "$BASE_REF^{commit}")',
     "operational_paths",
@@ -390,13 +473,14 @@ REQUIRED_CODEX_DOC_SNIPPETS = [
     "V1/V2",
     "checked-in の legacy V1 profile は置かない",
     "isolated `CODEX_HOME`",
+    "scoped escalation",
     "`chezmoi apply` は変更を main に merge した後だけ",
 ]
 
 REQUIRED_DESIGN_DOC_SNIPPETS = [
-    "rev.10",
+    "rev.11",
     "Issue #297",
-    "V1/V2 runtime adapter",
+    "V1/V2",
     "fresh agent tree",
     "at most 3",
     "FINAL_ANSWER",
@@ -409,6 +493,7 @@ REQUIRED_DESIGN_DOC_SNIPPETS = [
     'fork_turns="none"',
     "isolated `CODEX_HOME`",
     "Raw JSONL",
+    BASE_RESOLUTION_SENTINEL,
 ]
 
 FORBIDDEN_STALE_DESIGN_SNIPPETS = [
@@ -591,6 +676,30 @@ def verify_severity_rules() -> None:
     require_contains(data.get("incomplete_evidence", ""), "do not silently drop it", f"{context}:incomplete_evidence")
 
 
+def verify_base_resolution_contract() -> None:
+    context = str(BASE_RESOLUTION_CONTRACT)
+    if not BASE_RESOLUTION_CONTRACT.is_file():
+        fail(
+            "missing base-resolution runtime contract: "
+            f"{BASE_RESOLUTION_CONTRACT.relative_to(REPO_ROOT)}"
+        )
+    try:
+        data = json.loads(BASE_RESOLUTION_CONTRACT.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{context}: invalid JSON: {exc}")
+    if data != EXPECTED_BASE_RESOLUTION_CONTRACT:
+        fail(f"{context}: base-resolution contract mismatch")
+
+    skill = SKILL.read_text(encoding="utf-8")
+    for expected in (
+        f"sentinel `{data['sentinel']}`",
+        "retry limit",
+        "invocation-fingerprint",
+        "immutable-OID",
+    ):
+        require_contains(skill, expected, f"{context}:SKILL.md consistency")
+
+
 def verify_v2_runtime_contract() -> None:
     context = str(V2_RUNTIME_CONTRACT)
     if not V2_RUNTIME_CONTRACT.is_file():
@@ -645,6 +754,7 @@ def verify_codex_config_profiles() -> None:
     expected_baseline = {
         "model": "gpt-5.6-sol",
         "model_reasoning_effort": "high",
+        "approval_policy": "on-request",
         "sandbox_mode": "workspace-write",
     }
     for key, expected in expected_baseline.items():
@@ -657,6 +767,16 @@ def verify_codex_config_profiles() -> None:
         fail(f"{CODEX_BASELINE}: [features] must be a table")
     if baseline_features.get("multi_agent") is not True:
         fail(f"{CODEX_BASELINE}: features.multi_agent must be true")
+    if baseline_features.get("network_proxy") is not True:
+        fail(f"{CODEX_BASELINE}: features.network_proxy must be true")
+    sandbox_workspace_write = baseline.get("sandbox_workspace_write")
+    if not isinstance(sandbox_workspace_write, dict):
+        fail(f"{CODEX_BASELINE}: [sandbox_workspace_write] must be a table")
+    if sandbox_workspace_write.get("network_access") is not False:
+        fail(
+            f"{CODEX_BASELINE}: sandbox_workspace_write.network_access "
+            "must be false"
+        )
 
     legacy_profiles = baseline.get("profiles", {})
     if not isinstance(legacy_profiles, dict):
@@ -687,8 +807,20 @@ def verify_codex_config_profiles() -> None:
             fail(f"{path}: [features] must be a table")
         if features.get("multi_agent") is not True:
             fail(f"{path}: features.multi_agent must be true")
+        if "network_proxy" in features:
+            fail(
+                f"{path}: features.network_proxy must be inherited from "
+                "the managed baseline"
+            )
         if "multi_agent_v2" in features:
             fail(f"{path}: features.multi_agent_v2 must not be pinned in the managed V2 profile")
+        if "approval_policy" in data:
+            fail(f"{path}: approval_policy must be inherited from the managed baseline")
+        if "sandbox_workspace_write" in data:
+            fail(
+                f"{path}: [sandbox_workspace_write] must be inherited from "
+                "the managed baseline"
+            )
         require_no_hide_spawn_metadata(data, path)
 
 
@@ -806,6 +938,11 @@ def verify_skill_contract() -> None:
             f"{SKILL}: expected exactly one {RUNTIME_CONTRACT_SENTINEL!r} "
             f"sentinel, got {raw.count(RUNTIME_CONTRACT_SENTINEL)}"
         )
+    if raw.count(BASE_RESOLUTION_SENTINEL) != 1:
+        fail(
+            f"{SKILL}: expected exactly one {BASE_RESOLUTION_SENTINEL!r} "
+            f"sentinel, got {raw.count(BASE_RESOLUTION_SENTINEL)}"
+        )
     runtime_contract = section_between(
         raw,
         "0. **V1/V2 runtime contract**",
@@ -814,6 +951,8 @@ def verify_skill_contract() -> None:
     )
     for needle in RUNTIME_CONTRACT_SNIPPETS:
         require_contains(runtime_contract, needle, f"{SKILL}:V1/V2-runtime-contract")
+    for needle in BASE_RESOLUTION_SNIPPETS:
+        require_contains(raw, needle, f"{SKILL}:base-resolution-contract")
     for needle in V2_RUNTIME_SNIPPETS:
         require_contains(raw, needle, f"{SKILL}:V2-runtime-contract")
     stage1_heading = "2. **Build the Stage 1 specialist set and spawn it in parallel**"
@@ -822,6 +961,13 @@ def verify_skill_contract() -> None:
         fail(f"{SKILL}: runtime contract must run before repository inspection")
     if raw.index(RUNTIME_CONTRACT_SENTINEL) > raw.index(stage1_heading):
         fail(f"{SKILL}: runtime contract must run before specialist spawn")
+    if raw.index(BASE_RESOLUTION_SENTINEL) > raw.index("1. **Clean worktree**"):
+        fail(f"{SKILL}: base-resolution contract must run before repository inspection")
+    require_not_contains(
+        raw,
+        "Run `gh auth status`",
+        f"{SKILL}:origin-scoped-GitHub-probe",
+    )
 
     procedure = section_between(raw, "## Procedure", "## Output format", str(SKILL))
     for needle in PROCEDURE_SKILL_SNIPPETS:
@@ -954,6 +1100,7 @@ def main() -> None:
     verify_review_criteria()
     verify_runtime_docs()
     verify_severity_rules()
+    verify_base_resolution_contract()
     verify_v2_runtime_contract()
     verify_claude_share_templates()
     verify_codex_config_profiles()
