@@ -113,6 +113,8 @@ Codex CLI の TUI footer は baseline で最小限の常時表示にする。
 
 multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。`$pr-review` は実際に公開された tool schema を検査し、V1/V2 のどちらにも対応する。
 
+V2 scheduler は canonical `FINAL_ANSWER` に加え、明示的な `completed` または「成功した full-tree snapshot で running を確認済みの task が後続 snapshot から退役した」という qualified retirement lifecycle evidence を要求する。退役が先行した場合は60秒以内に FINAL が届かなければ fail-closed とし、未観測taskの消失・error/interrupted・conflicting FINAL は許容しない。
+
 ```bash
 codex exec --profile review -C <repo> '$pr-review --base <base>'
 ```

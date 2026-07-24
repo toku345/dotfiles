@@ -1,6 +1,6 @@
 {
-  "sentinel": "PR_REVIEW_V2_SCHEDULER_CONTRACT_V1",
-  "version": 1,
+  "sentinel": "PR_REVIEW_V2_SCHEDULER_CONTRACT_V2",
+  "version": 2,
   "max_concurrency": 3,
   "delivery_grace_ms": 60000,
   "stage_deadline_ms": {
@@ -16,11 +16,29 @@
   "result": {
     "require_canonical_sender": true,
     "require_final_payload": true,
-    "require_terminal_status": true,
+    "final_answer_runtime_semantics": "child-turn-completion",
+    "accepted_lifecycle_evidence": [
+      "completed_status",
+      "retired_after_observed_running"
+    ],
+    "retirement_requires_successful_full_tree_snapshot": true,
+    "retirement_requires_no_parent_interrupt": true,
     "identical_duplicate": "ignore",
     "conflicting_duplicate": "fatal",
-    "pre_usable_disappearance": "fatal",
+    "unobserved_disappearance": "fatal",
+    "error_or_interrupted": "fatal",
     "unexpected_descendant": "fatal"
+  },
+  "reconciliation": {
+    "cycle_order": [
+      "harvest_delivered_envelopes",
+      "list_full_tree",
+      "harvest_boundary_envelopes",
+      "evaluate_all_tasks",
+      "refill"
+    ],
+    "retain_usable_evidence_until_stage_aggregation": true,
+    "cleanup_is_monotonic_fatal": true
   },
   "cleanup": {
     "interrupt_running_owned_top_level": true,

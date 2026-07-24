@@ -26,11 +26,18 @@ CONTRACT_PATH = (
     / "references"
     / "v2-runtime-contract.json"
 )
+RETENTION_FIXTURE_PATH = (
+    REPO_ROOT
+    / "tests"
+    / "codex"
+    / "fixtures"
+    / "pr_review_v2_retention_refill.json"
+)
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-if CONTRACT.get("sentinel") != "PR_REVIEW_V2_SCHEDULER_CONTRACT_V1":
+if CONTRACT.get("sentinel") != "PR_REVIEW_V2_SCHEDULER_CONTRACT_V2":
     raise AssertionError(f"{CONTRACT_PATH}: unsupported scheduler contract")
 DELIVERY_GRACE_MS = CONTRACT["delivery_grace_ms"]
-STAGE_DEADLINE_MS = CONTRACT["stage_deadline_ms"]["stage1"]
+STAGE_DEADLINES_MS = CONTRACT["stage_deadline_ms"]
 MAX_CONCURRENCY = CONTRACT["max_concurrency"]
 
 
@@ -44,9 +51,13 @@ class TaskState(enum.Enum):
 class TaskEvidence:
     canonical_path: str
     role: str = ""
+    stage_deadline_ms: int = STAGE_DEADLINES_MS["stage1"]
     final_payload: str | None = None
     final_at_ms: int | None = None
-    terminal_at_ms: int | None = None
+    seen_running: bool = False
+    completed_at_ms: int | None = None
+    retired_at_ms: int | None = None
+    parent_interrupted: bool = False
     fatal_reason: str | None = None
 
     def receive_final(
@@ -56,10 +67,13 @@ class TaskEvidence:
         now_ms: int,
         *,
         valid: bool = True,
+        cleanup_started: bool = False,
     ) -> None:
         if sender != self.canonical_path:
             return
-        if not valid or not payload:
+        if cleanup_started:
+            self.fatal_reason = "final arrived after cleanup started"
+        elif not valid or not payload:
             self.fatal_reason = "invalid final payload"
         elif self.final_payload is None:
             self.final_payload = payload
@@ -73,39 +87,65 @@ class TaskEvidence:
         now_ms: int,
         *,
         present: bool = True,
+        full_snapshot: bool = True,
         unexpected_descendant: bool = False,
     ) -> None:
         if unexpected_descendant:
             self.fatal_reason = "unexpected descendant"
-        elif not present and self.state(now_ms) is not TaskState.USABLE:
-            self.fatal_reason = "task disappeared before usability"
+        elif not present:
+            if not full_snapshot:
+                self.fatal_reason = "task missing from incomplete snapshot"
+            elif self.parent_interrupted:
+                self.fatal_reason = "parent-interrupted task cannot retire successfully"
+            elif self.completed_at_ms is not None:
+                return
+            elif self.seen_running:
+                if self.retired_at_ms is None:
+                    self.retired_at_ms = now_ms
+            else:
+                self.fatal_reason = "task disappeared before observed running"
         elif status in {"error", "interrupted"}:
             self.fatal_reason = f"terminal failure status: {status}"
-        elif status == "completed" and self.terminal_at_ms is None:
-            self.terminal_at_ms = now_ms
+        elif status == "running":
+            self.seen_running = True
+        elif status == "completed" and self.completed_at_ms is None:
+            self.completed_at_ms = now_ms
+
+    def mark_parent_interrupted(self) -> None:
+        self.parent_interrupted = True
+
+    @property
+    def lifecycle_at_ms(self) -> int | None:
+        candidates = [
+            value
+            for value in (self.completed_at_ms, self.retired_at_ms)
+            if value is not None
+        ]
+        return min(candidates) if candidates else None
 
     def state(self, now_ms: int) -> TaskState:
         if self.fatal_reason is not None:
             return TaskState.FATAL
+        lifecycle_at_ms = self.lifecycle_at_ms
         if (
             self.final_payload is not None
             and self.final_at_ms is not None
-            and self.terminal_at_ms is not None
+            and lifecycle_at_ms is not None
         ):
-            if self.final_at_ms >= self.terminal_at_ms + DELIVERY_GRACE_MS:
+            if self.final_at_ms >= lifecycle_at_ms + DELIVERY_GRACE_MS:
                 self.fatal_reason = "final delivered after grace"
                 return TaskState.FATAL
-            if max(self.final_at_ms, self.terminal_at_ms) >= STAGE_DEADLINE_MS:
+            if max(self.final_at_ms, lifecycle_at_ms) >= self.stage_deadline_ms:
                 self.fatal_reason = "evidence completed after stage deadline"
                 return TaskState.FATAL
             return TaskState.USABLE
         if (
-            self.terminal_at_ms is not None
-            and now_ms - self.terminal_at_ms >= DELIVERY_GRACE_MS
+            lifecycle_at_ms is not None
+            and now_ms >= lifecycle_at_ms + DELIVERY_GRACE_MS
         ):
             self.fatal_reason = "final delivery grace expired"
             return TaskState.FATAL
-        if now_ms >= STAGE_DEADLINE_MS:
+        if now_ms >= self.stage_deadline_ms:
             self.fatal_reason = "stage deadline expired"
             return TaskState.FATAL
         return TaskState.WAITING
@@ -215,14 +255,16 @@ class TaskEvidenceTests(unittest.TestCase):
         self.assertIn("references/v2-runtime-contract.json", skill)
         self.assertIn(CONTRACT["sentinel"], skill)
 
-    def test_terminal_first_accepts_final_within_delivery_grace(self) -> None:
-        task = TaskEvidence(self.canonical)
-        task.observe_status("completed", 1_000)
-        self.assertIs(task.state(60_999), TaskState.WAITING)
-        task.receive_final(self.canonical, "COVERAGE_OK", 60_999)
-        self.assertIs(task.state(60_999), TaskState.USABLE)
+    def test_completed_first_accepts_final_within_delivery_grace(self) -> None:
+        for stage, deadline in STAGE_DEADLINES_MS.items():
+            with self.subTest(stage=stage):
+                task = TaskEvidence(self.canonical, stage_deadline_ms=deadline)
+                task.observe_status("completed", 1_000)
+                self.assertIs(task.state(60_999), TaskState.WAITING)
+                task.receive_final(self.canonical, "COVERAGE_OK", 60_999)
+                self.assertIs(task.state(60_999), TaskState.USABLE)
 
-    def test_terminal_first_fails_after_delivery_grace(self) -> None:
+    def test_completed_first_fails_at_delivery_grace_boundary(self) -> None:
         task = TaskEvidence(self.canonical)
         task.observe_status("completed", 1_000)
         self.assertIs(task.state(61_000), TaskState.FATAL)
@@ -235,6 +277,59 @@ class TaskEvidenceTests(unittest.TestCase):
         self.assertIs(task.state(61_000), TaskState.FATAL)
         self.assertEqual(task.fatal_reason, "final delivered after grace")
 
+    def test_final_first_qualified_retirement_is_usable(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.observe_status("running", 500)
+        task.receive_final(self.canonical, "COVERAGE_OK", 1_000)
+        self.assertIs(task.state(1_000), TaskState.WAITING)
+        task.observe_status("", 1_100, present=False, full_snapshot=True)
+        self.assertIs(task.state(1_100), TaskState.USABLE)
+
+    def test_retirement_first_accepts_final_within_delivery_grace(self) -> None:
+        for stage, deadline in STAGE_DEADLINES_MS.items():
+            with self.subTest(stage=stage):
+                task = TaskEvidence(self.canonical, stage_deadline_ms=deadline)
+                task.observe_status("running", 500)
+                task.observe_status("", 1_000, present=False, full_snapshot=True)
+                self.assertIs(task.state(60_999), TaskState.WAITING)
+                task.receive_final(self.canonical, "COVERAGE_OK", 60_999)
+                self.assertIs(task.state(60_999), TaskState.USABLE)
+
+    def test_retirement_without_final_expires_at_delivery_grace(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.observe_status("running", 500)
+        task.observe_status("", 1_000, present=False, full_snapshot=True)
+        self.assertIs(task.state(61_000), TaskState.FATAL)
+        self.assertEqual(task.fatal_reason, "final delivery grace expired")
+
+    def test_running_and_final_alone_remain_waiting(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.observe_status("running", 500)
+        task.receive_final(self.canonical, "COVERAGE_OK", 1_000)
+        self.assertIs(task.state(1_000), TaskState.WAITING)
+
+    def test_unobserved_disappearance_is_fatal(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.observe_status("", 2_000, present=False, full_snapshot=True)
+        self.assertIs(task.state(2_000), TaskState.FATAL)
+        self.assertEqual(
+            task.fatal_reason,
+            "task disappeared before observed running",
+        )
+
+    def test_incomplete_snapshot_cannot_prove_retirement(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.observe_status("running", 1_000)
+        task.observe_status("", 2_000, present=False, full_snapshot=False)
+        self.assertIs(task.state(2_000), TaskState.FATAL)
+
+    def test_parent_interrupted_task_cannot_retire_successfully(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.observe_status("running", 1_000)
+        task.mark_parent_interrupted()
+        task.observe_status("", 2_000, present=False, full_snapshot=True)
+        self.assertIs(task.state(2_000), TaskState.FATAL)
+
     def test_identical_duplicate_final_is_idempotent(self) -> None:
         task = TaskEvidence(self.canonical)
         task.receive_final(self.canonical, "COVERAGE_OK", 1_000)
@@ -245,8 +340,29 @@ class TaskEvidenceTests(unittest.TestCase):
     def test_conflicting_duplicate_final_is_fatal(self) -> None:
         task = TaskEvidence(self.canonical)
         task.receive_final(self.canonical, "COVERAGE_OK", 1_000)
+        task.observe_status("completed", 1_100)
+        self.assertIs(task.state(1_100), TaskState.USABLE)
         task.receive_final(self.canonical, "different result", 1_500)
         self.assertIs(task.state(2_000), TaskState.FATAL)
+
+    def test_later_error_overrides_usable_evidence(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.receive_final(self.canonical, "COVERAGE_OK", 1_000)
+        task.observe_status("completed", 1_100)
+        self.assertIs(task.state(1_100), TaskState.USABLE)
+        task.observe_status("error", 1_200)
+        self.assertIs(task.state(1_200), TaskState.FATAL)
+
+    def test_cleanup_start_is_monotonic_fatal(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.observe_status("completed", 1_000)
+        task.receive_final(
+            self.canonical,
+            "COVERAGE_OK",
+            1_100,
+            cleanup_started=True,
+        )
+        self.assertIs(task.state(1_100), TaskState.FATAL)
 
     def test_unknown_sender_cannot_make_task_usable(self) -> None:
         task = TaskEvidence(self.canonical)
@@ -255,10 +371,12 @@ class TaskEvidenceTests(unittest.TestCase):
         self.assertIs(task.state(2_000), TaskState.WAITING)
 
     def test_evidence_completed_at_stage_deadline_is_fatal(self) -> None:
-        task = TaskEvidence(self.canonical)
-        task.receive_final(self.canonical, "COVERAGE_OK", STAGE_DEADLINE_MS - 1)
-        task.observe_status("completed", STAGE_DEADLINE_MS)
-        self.assertIs(task.state(STAGE_DEADLINE_MS), TaskState.FATAL)
+        for stage, deadline in STAGE_DEADLINES_MS.items():
+            with self.subTest(stage=stage):
+                task = TaskEvidence(self.canonical, stage_deadline_ms=deadline)
+                task.receive_final(self.canonical, "COVERAGE_OK", deadline - 1)
+                task.observe_status("completed", deadline)
+                self.assertIs(task.state(deadline), TaskState.FATAL)
 
     def test_unexpected_descendant_is_fatal(self) -> None:
         task = TaskEvidence(self.canonical)
@@ -269,10 +387,126 @@ class TaskEvidenceTests(unittest.TestCase):
         )
         self.assertIs(task.state(2_000), TaskState.FATAL)
 
-    def test_task_disappearance_before_usability_is_fatal(self) -> None:
-        task = TaskEvidence(self.canonical)
-        task.observe_status("running", 2_000, present=False)
-        self.assertIs(task.state(2_000), TaskState.FATAL)
+
+class RetentionReplay:
+    def __init__(self, stage: str) -> None:
+        deadline = STAGE_DEADLINES_MS[stage]
+        self.tasks = {
+            "/root/prr_token_s1_code_reviewer_a1": TaskEvidence(
+                "/root/prr_token_s1_code_reviewer_a1",
+                role="code-reviewer",
+                stage_deadline_ms=deadline,
+            ),
+            "/root/prr_token_s1_security_reviewer_a1": TaskEvidence(
+                "/root/prr_token_s1_security_reviewer_a1",
+                role="security-reviewer",
+                stage_deadline_ms=deadline,
+            ),
+            "/root/prr_token_s1_adversarial_reviewer_a1": TaskEvidence(
+                "/root/prr_token_s1_adversarial_reviewer_a1",
+                role="adversarial-reviewer",
+                stage_deadline_ms=deadline,
+            ),
+        }
+        self.deadline = deadline
+        self.actions: list[str] = []
+        self.usable_roles: set[str] = set()
+        self.fatal_reason: str | None = None
+
+    def record_new_usable(self, now_ms: int) -> None:
+        for task in self.tasks.values():
+            state = task.state(now_ms)
+            if state is TaskState.FATAL and self.fatal_reason is None:
+                self.fatal_reason = task.fatal_reason
+            elif state is TaskState.USABLE and task.role not in self.usable_roles:
+                self.usable_roles.add(task.role)
+                self.actions.append(f"usable:{task.role}")
+
+    def process(self, event: dict) -> None:
+        if self.fatal_reason is not None:
+            return
+        now_ms = event["now_ms"]
+        if event["type"] == "final":
+            task = self.tasks.get(event["sender"])
+            if task is None:
+                self.fatal_reason = "unknown final sender"
+                return
+            task.receive_final(
+                event["sender"],
+                event["payload"],
+                now_ms,
+                valid=event["valid"],
+            )
+            self.actions.append(f"record-final:{task.role}")
+            self.record_new_usable(now_ms)
+            return
+
+        if event["type"] == "refill":
+            if not self.usable_roles:
+                self.fatal_reason = "refill before usable task"
+                return
+            path = event["canonical_path"]
+            if path in self.tasks:
+                self.fatal_reason = "duplicate refill identity"
+                return
+            self.tasks[path] = TaskEvidence(
+                path,
+                role=event["role"],
+                stage_deadline_ms=self.deadline,
+            )
+            self.actions.append(f"refill:{event['role']}")
+            return
+
+        if event["type"] != "snapshot" or not event["full_tree"]:
+            self.fatal_reason = "missing successful full-tree snapshot"
+            return
+
+        statuses = event["statuses"]
+        for path, task in self.tasks.items():
+            was_running = task.seen_running
+            was_completed = task.completed_at_ms is not None
+            was_retired = task.retired_at_ms is not None
+            if path in statuses:
+                task.observe_status(statuses[path], now_ms, full_snapshot=True)
+            else:
+                task.observe_status("", now_ms, present=False, full_snapshot=True)
+            if task.seen_running and not was_running:
+                self.actions.append(f"observed-running:{task.role}")
+            if task.completed_at_ms is not None and not was_completed:
+                self.actions.append(f"observed-completed:{task.role}")
+            if task.retired_at_ms is not None and not was_retired:
+                self.actions.append(f"retired:{task.role}")
+        self.record_new_usable(now_ms)
+
+    def finish(self) -> None:
+        if self.fatal_reason is None:
+            self.actions.append("continue-dispatch")
+
+
+class RunLevelRetentionReplayTests(unittest.TestCase):
+    def test_sanitized_refill_retention_trace_continues_dispatch(self) -> None:
+        fixture = json.loads(RETENTION_FIXTURE_PATH.read_text(encoding="utf-8"))
+        replay = RetentionReplay(fixture["stage"])
+        for event in fixture["events"]:
+            replay.process(event)
+        replay.finish()
+        self.assertIsNone(replay.fatal_reason)
+        self.assertEqual(replay.actions, fixture["expected_actions"])
+        self.assertIn("code-reviewer", replay.usable_roles)
+        self.assertIn("security-reviewer", replay.usable_roles)
+
+    def test_incomplete_snapshot_trace_fails_closed(self) -> None:
+        fixture = json.loads(RETENTION_FIXTURE_PATH.read_text(encoding="utf-8"))
+        fixture["events"][-1]["full_tree"] = False
+        replay = RetentionReplay(fixture["stage"])
+        for event in fixture["events"]:
+            replay.process(event)
+        replay.finish()
+        self.assertEqual(
+            replay.fatal_reason,
+            "missing successful full-tree snapshot",
+        )
+        self.assertNotIn("continue-dispatch", replay.actions)
 
 
 class SpawnReconciliationTests(unittest.TestCase):
@@ -431,6 +665,7 @@ def main() -> None:
         unittest.defaultTestLoader.loadTestsFromTestCase(test_case)
         for test_case in (
             TaskEvidenceTests,
+            RunLevelRetentionReplayTests,
             SpawnReconciliationTests,
             CleanupAndAggregationTests,
         )

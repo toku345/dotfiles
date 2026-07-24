@@ -47,7 +47,7 @@ EXPECTED_REVIEW_PROFILES = {
 
 RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1_V2"
 BASE_RESOLUTION_SENTINEL = "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V1"
-V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V1"
+V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V2"
 EXPECTED_BASE_RESOLUTION_CONTRACT = {
     "sentinel": BASE_RESOLUTION_SENTINEL,
     "version": 1,
@@ -111,7 +111,7 @@ EXPECTED_BASE_RESOLUTION_CONTRACT = {
 }
 EXPECTED_V2_RUNTIME_CONTRACT = {
     "sentinel": V2_SCHEDULER_SENTINEL,
-    "version": 1,
+    "version": 2,
     "max_concurrency": 3,
     "delivery_grace_ms": 60_000,
     "stage_deadline_ms": {"stage1": 1_800_000, "stage2": 600_000},
@@ -124,11 +124,29 @@ EXPECTED_V2_RUNTIME_CONTRACT = {
     "result": {
         "require_canonical_sender": True,
         "require_final_payload": True,
-        "require_terminal_status": True,
+        "final_answer_runtime_semantics": "child-turn-completion",
+        "accepted_lifecycle_evidence": [
+            "completed_status",
+            "retired_after_observed_running",
+        ],
+        "retirement_requires_successful_full_tree_snapshot": True,
+        "retirement_requires_no_parent_interrupt": True,
         "identical_duplicate": "ignore",
         "conflicting_duplicate": "fatal",
-        "pre_usable_disappearance": "fatal",
+        "unobserved_disappearance": "fatal",
+        "error_or_interrupted": "fatal",
         "unexpected_descendant": "fatal",
+    },
+    "reconciliation": {
+        "cycle_order": [
+            "harvest_delivered_envelopes",
+            "list_full_tree",
+            "harvest_boundary_envelopes",
+            "evaluate_all_tasks",
+            "refill",
+        ],
+        "retain_usable_evidence_until_stage_aggregation": True,
+        "cleanup_is_monotonic_fatal": True,
     },
     "cleanup": {
         "interrupt_running_owned_top_level": True,
@@ -203,14 +221,20 @@ V2_RUNTIME_SNIPPETS = [
     'fork_turns="none"',
     "maximum of 3",
     "FINAL_ANSWER",
-    "terminal status",
+    "qualified retirement",
+    "observed with `running` status",
+    "successful full-tree snapshot",
+    "parent has never called `interrupt_agent`",
+    "child-turn completion",
+    "ordered reconciliation cycle",
     "60-second delivery grace",
     "wait_agent is notification-only",
     "list_agents is status-only",
     "unexpected descendant",
     "conflicting duplicate",
+    "cleanup start is monotonic fatal",
     "`Task name` identifies the recipient",
-    "harvest and validate **all** newly delivered run-owned finals before refilling any slot",
+    "harvest and validate **all** newly delivered run-owned finals",
     "one final notification/status drain",
     "no run-owned task or owned descendant remains running",
     "Partial aggregation",
@@ -395,7 +419,7 @@ PROCEDURE_SKILL_SNIPPETS = [
     "Dispatch the recorded set through the selected adapter",
     "Run at most 6 Stage 1 agents concurrently",
     "Never omit a scheduled role because of capacity",
-    "the V1 adapter closes every remaining running V1 ID",
+    "The V1 adapter closes every remaining running V1 ID",
     "same target description, `$BASE_REF`, `$BASE_COMMIT`, `$HEAD_REF`",
     "Apply the same first-line `COVERAGE_OK ...` / `FATAL_COVERAGE_ERROR ...` sentinel validation",
     "selected adapter",
@@ -474,21 +498,25 @@ REQUIRED_CODEX_DOC_SNIPPETS = [
     "checked-in の legacy V1 profile は置かない",
     "isolated `CODEX_HOME`",
     "scoped escalation",
+    "qualified retirement",
     "`chezmoi apply` は変更を main に merge した後だけ",
 ]
 
 REQUIRED_DESIGN_DOC_SNIPPETS = [
-    "rev.11",
+    "rev.12",
     "Issue #297",
     "V1/V2",
     "fresh agent tree",
     "at most 3",
     "FINAL_ANSWER",
-    "terminal status",
+    "qualified retirement",
+    "observed running",
+    "successful full-tree",
+    "retained-list run replay",
     "60-second delivery grace",
     "unexpected descendant",
     "conflicting duplicate",
-    "partial aggregation",
+    "Partial aggregation",
     "control-plane",
     'fork_turns="none"',
     "isolated `CODEX_HOME`",
@@ -725,6 +753,10 @@ def verify_v2_runtime_contract() -> None:
             f"monotonic {data['stage_deadline_ms']['stage2'] // 60_000}-minute "
             "Stage 2 deadline"
         ),
+        "completed status or qualified retirement",
+        "observed with `running` status",
+        "successful full-tree snapshot",
+        "cleanup start is monotonic fatal",
     )
     for expected in prose_values:
         require_contains(skill, expected, f"{context}:SKILL.md consistency")
@@ -1023,7 +1055,8 @@ def verify_skill_contract() -> None:
         "explicit capacity error",
         "retry once",
         "new `attempt` name",
-        "harvest and validate **all** newly delivered run-owned finals before refilling any slot",
+        "harvest and validate **all** newly delivered run-owned finals",
+        "Never refill between those steps",
     ):
         require_contains(v2_dispatch, needle, f"{SKILL}:V2-dispatch")
     for needle in ('fork_turns="all"', "`close_agent`"):
@@ -1036,7 +1069,7 @@ def verify_skill_contract() -> None:
         f"{SKILL}:V2-await",
     )
     for needle in (
-        "valid final payload plus completed terminal status",
+        "valid final payload plus completed status or qualified retirement",
         "60-second delivery grace",
         "wait_agent is notification-only",
         "list_agents is status-only",
@@ -1048,12 +1081,17 @@ def verify_skill_contract() -> None:
         "identical duplicate `FINAL_ANSWER`",
         "conflicting duplicate",
         "min(60000 ms, remaining stage budget, earliest active delivery-grace budget)",
-        "task disappearance** before usability is fatal",
+        "disappearance before observed running is not retirement evidence and is fatal",
+        "successful full-tree snapshot",
+        "parent has never called `interrupt_agent`",
+        "strictly before `grace_start + 60000 ms`",
+        "Retain the first valid payload",
+        "Run one final ordered reconciliation cycle before aggregation",
         "unexpected descendant",
         "Never interrupt the orchestrator or an unrelated path",
         "only on a still-running run-owned top-level task",
         "still-running unexpected descendant beneath one of its saved canonical paths",
-        "both independently observed pieces of evidence",
+        "cleanup start is monotonic fatal",
         "interrupt_agent",
         "one final notification/status drain",
         "no run-owned task or owned descendant remains running",
@@ -1073,9 +1111,11 @@ def verify_skill_contract() -> None:
         "one active specialist",
         'fork_turns="none"',
         "matched `FINAL_ANSWER` payload",
-        "independently observed terminal status",
+        "accepted lifecycle evidence",
+        "ordered tree reconciliation",
         "monotonic 10-minute Stage 2 deadline",
         "same canonical-identity state machine",
+        "completed-or-qualified-retirement lifecycle evidence",
         "60-second delivery grace",
         "Partial aggregation is forbidden here too",
     ):
