@@ -34,7 +34,7 @@ RETENTION_FIXTURE_PATH = (
     / "pr_review_v2_retention_refill.json"
 )
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-if CONTRACT.get("sentinel") != "PR_REVIEW_V2_SCHEDULER_CONTRACT_V2":
+if CONTRACT.get("sentinel") != "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3":
     raise AssertionError(f"{CONTRACT_PATH}: unsupported scheduler contract")
 DELIVERY_GRACE_MS = CONTRACT["delivery_grace_ms"]
 STAGE_DEADLINES_MS = CONTRACT["stage_deadline_ms"]
@@ -99,11 +99,13 @@ class TaskEvidence:
                 self.fatal_reason = "parent-interrupted task cannot retire successfully"
             elif self.completed_at_ms is not None:
                 return
-            elif self.seen_running:
+            elif self.seen_running or self.final_payload is not None:
                 if self.retired_at_ms is None:
                     self.retired_at_ms = now_ms
             else:
-                self.fatal_reason = "task disappeared before observed running"
+                self.fatal_reason = (
+                    "task disappeared before observed running or valid final"
+                )
         elif status in {"error", "interrupted"}:
             self.fatal_reason = f"terminal failure status: {status}"
         elif status == "running":
@@ -314,8 +316,26 @@ class TaskEvidenceTests(unittest.TestCase):
         self.assertIs(task.state(2_000), TaskState.FATAL)
         self.assertEqual(
             task.fatal_reason,
-            "task disappeared before observed running",
+            "task disappeared before observed running or valid final",
         )
+
+    def test_valid_final_allows_retirement_before_running_snapshot(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.receive_final(self.canonical, "COVERAGE_OK", 1_000)
+        task.observe_status("", 1_100, present=False, full_snapshot=True)
+        self.assertIs(task.state(1_100), TaskState.USABLE)
+
+    def test_invalid_final_does_not_allow_unobserved_retirement(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.receive_final(self.canonical, "COVERAGE_OK", 1_000, valid=False)
+        task.observe_status("", 1_100, present=False, full_snapshot=True)
+        self.assertIs(task.state(1_100), TaskState.FATAL)
+
+    def test_unknown_sender_final_does_not_allow_unobserved_retirement(self) -> None:
+        task = TaskEvidence(self.canonical)
+        task.receive_final("/root/unrelated", "COVERAGE_OK", 1_000)
+        task.observe_status("", 1_100, present=False, full_snapshot=True)
+        self.assertIs(task.state(1_100), TaskState.FATAL)
 
     def test_incomplete_snapshot_cannot_prove_retirement(self) -> None:
         task = TaskEvidence(self.canonical)
@@ -509,6 +529,242 @@ class RunLevelRetentionReplayTests(unittest.TestCase):
         self.assertNotIn("continue-dispatch", replay.actions)
 
 
+STAGE1_ROLES = (
+    "code-reviewer",
+    "security-reviewer",
+    "adversarial-reviewer",
+    "pr-test-analyzer",
+    "comment-analyzer",
+    "silent-failure-hunter",
+    "type-design-analyzer",
+)
+
+
+class SchedulerReplay:
+    """Drive ordered reconciliation and refill decisions from scheduler state."""
+
+    def __init__(self, roles: tuple[str, ...] = STAGE1_ROLES) -> None:
+        self.deadline = STAGE_DEADLINES_MS["stage1"]
+        self.pending_roles = list(roles)
+        self.tasks: dict[str, TaskEvidence] = {}
+        self.usable_roles: set[str] = set()
+        self.actions: list[str] = []
+        self.fatal_reason: str | None = None
+        self.max_active = 0
+        self.dispatch_available()
+
+    @staticmethod
+    def canonical_path(role: str) -> str:
+        return f"/root/prr_token_s1_{role.replace('-', '_')}_a1"
+
+    @property
+    def active_count(self) -> int:
+        return sum(
+            task.role not in self.usable_roles for task in self.tasks.values()
+        )
+
+    def dispatch_available(self) -> None:
+        while (
+            self.fatal_reason is None
+            and self.pending_roles
+            and self.active_count < MAX_CONCURRENCY
+        ):
+            role = self.pending_roles.pop(0)
+            path = self.canonical_path(role)
+            if path in self.tasks:
+                self.fatal_reason = "duplicate dispatch identity"
+                return
+            self.tasks[path] = TaskEvidence(
+                path,
+                role=role,
+                stage_deadline_ms=self.deadline,
+            )
+            self.actions.append(f"dispatch:{role}")
+            self.max_active = max(self.max_active, self.active_count)
+
+    def receive_finals(self, finals: list[dict], now_ms: int) -> None:
+        for final in finals:
+            task = self.tasks.get(final["sender"])
+            if task is None:
+                self.fatal_reason = "unknown final sender"
+                return
+            task.receive_final(
+                final["sender"],
+                final["payload"],
+                now_ms,
+                valid=final["valid"],
+            )
+            self.actions.append(f"record-final:{task.role}")
+
+    def observe_snapshot(
+        self,
+        statuses: dict[str, str],
+        now_ms: int,
+        *,
+        full_tree: bool,
+    ) -> None:
+        if not full_tree:
+            self.fatal_reason = "missing successful full-tree snapshot"
+            return
+        for path, task in self.tasks.items():
+            task.observe_status(
+                statuses.get(path, ""),
+                now_ms,
+                present=path in statuses,
+                full_snapshot=True,
+            )
+
+    def evaluate_all(self, now_ms: int) -> None:
+        for task in self.tasks.values():
+            state = task.state(now_ms)
+            if state is TaskState.FATAL and self.fatal_reason is None:
+                self.fatal_reason = task.fatal_reason
+            elif state is TaskState.USABLE and task.role not in self.usable_roles:
+                self.usable_roles.add(task.role)
+                self.actions.append(f"usable:{task.role}")
+
+    def reconcile_cycle(
+        self,
+        *,
+        now_ms: int,
+        delivered_before: list[dict],
+        statuses: dict[str, str],
+        delivered_boundary: list[dict] | None = None,
+        full_tree: bool = True,
+    ) -> None:
+        if self.fatal_reason is not None:
+            return
+        self.receive_finals(delivered_before, now_ms)
+        if self.fatal_reason is not None:
+            return
+        self.observe_snapshot(statuses, now_ms, full_tree=full_tree)
+        if self.fatal_reason is not None:
+            return
+        self.receive_finals(delivered_boundary or [], now_ms)
+        self.evaluate_all(now_ms)
+        if self.fatal_reason is None:
+            self.dispatch_available()
+
+
+def final_for(role: str, *, valid: bool = True) -> dict:
+    return {
+        "sender": SchedulerReplay.canonical_path(role),
+        "payload": f"COVERAGE_OK {role}",
+        "valid": valid,
+    }
+
+
+class SchedulerDispatchReplayTests(unittest.TestCase):
+    def test_scheduler_dispatches_all_roles_with_max_three_and_automatic_refill(
+        self,
+    ) -> None:
+        replay = SchedulerReplay()
+        code = replay.canonical_path("code-reviewer")
+        security = replay.canonical_path("security-reviewer")
+        adversarial = replay.canonical_path("adversarial-reviewer")
+        tests = replay.canonical_path("pr-test-analyzer")
+        comments = replay.canonical_path("comment-analyzer")
+        silent = replay.canonical_path("silent-failure-hunter")
+        types = replay.canonical_path("type-design-analyzer")
+
+        replay.reconcile_cycle(
+            now_ms=1_000,
+            delivered_before=[],
+            statuses={
+                code: "running",
+                security: "running",
+                adversarial: "running",
+            },
+        )
+        replay.reconcile_cycle(
+            now_ms=2_000,
+            delivered_before=[final_for("security-reviewer")],
+            statuses={
+                code: "running",
+                security: "completed",
+                adversarial: "running",
+            },
+        )
+        replay.reconcile_cycle(
+            now_ms=3_000,
+            delivered_before=[final_for("code-reviewer")],
+            statuses={
+                security: "completed",
+                adversarial: "running",
+                tests: "running",
+            },
+        )
+        replay.reconcile_cycle(
+            now_ms=4_000,
+            delivered_before=[
+                final_for("adversarial-reviewer"),
+                final_for("pr-test-analyzer"),
+            ],
+            statuses={
+                adversarial: "completed",
+                tests: "completed",
+                comments: "running",
+            },
+        )
+        replay.reconcile_cycle(
+            now_ms=5_000,
+            delivered_before=[
+                final_for("comment-analyzer"),
+                final_for("silent-failure-hunter"),
+                final_for("type-design-analyzer"),
+            ],
+            statuses={
+                comments: "completed",
+                silent: "completed",
+                types: "completed",
+            },
+        )
+
+        dispatched = [
+            action.removeprefix("dispatch:")
+            for action in replay.actions
+            if action.startswith("dispatch:")
+        ]
+        self.assertIsNone(replay.fatal_reason)
+        self.assertEqual(dispatched, list(STAGE1_ROLES))
+        self.assertEqual(replay.max_active, MAX_CONCURRENCY)
+        self.assertFalse(replay.pending_roles)
+        self.assertEqual(replay.usable_roles, set(STAGE1_ROLES))
+
+    def test_invalid_boundary_final_prevents_automatic_refill(self) -> None:
+        replay = SchedulerReplay()
+        replay.reconcile_cycle(
+            now_ms=1_000,
+            delivered_before=[final_for("security-reviewer")],
+            statuses={
+                replay.canonical_path("code-reviewer"): "running",
+                replay.canonical_path("security-reviewer"): "completed",
+                replay.canonical_path("adversarial-reviewer"): "running",
+            },
+            delivered_boundary=[final_for("code-reviewer", valid=False)],
+        )
+        dispatched = [
+            action for action in replay.actions if action.startswith("dispatch:")
+        ]
+        self.assertEqual(len(dispatched), MAX_CONCURRENCY)
+        self.assertEqual(replay.fatal_reason, "invalid final payload")
+        self.assertNotIn("dispatch:pr-test-analyzer", replay.actions)
+
+    def test_valid_final_and_first_snapshot_absence_release_capacity(self) -> None:
+        replay = SchedulerReplay()
+        replay.reconcile_cycle(
+            now_ms=1_000,
+            delivered_before=[final_for("code-reviewer")],
+            statuses={
+                replay.canonical_path("security-reviewer"): "running",
+                replay.canonical_path("adversarial-reviewer"): "running",
+            },
+        )
+        self.assertIsNone(replay.fatal_reason)
+        self.assertIn("usable:code-reviewer", replay.actions)
+        self.assertIn("dispatch:pr-test-analyzer", replay.actions)
+
+
 class SpawnReconciliationTests(unittest.TestCase):
     requested = "prr_token_s1_code_reviewer_a1"
 
@@ -666,6 +922,7 @@ def main() -> None:
         for test_case in (
             TaskEvidenceTests,
             RunLevelRetentionReplayTests,
+            SchedulerDispatchReplayTests,
             SpawnReconciliationTests,
             CleanupAndAggregationTests,
         )

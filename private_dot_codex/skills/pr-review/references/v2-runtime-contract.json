@@ -1,6 +1,6 @@
 {
-  "sentinel": "PR_REVIEW_V2_SCHEDULER_CONTRACT_V2",
-  "version": 2,
+  "sentinel": "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3",
+  "version": 3,
   "max_concurrency": 3,
   "delivery_grace_ms": 60000,
   "stage_deadline_ms": {
@@ -19,13 +19,15 @@
     "final_answer_runtime_semantics": "child-turn-completion",
     "accepted_lifecycle_evidence": [
       "completed_status",
-      "retired_after_observed_running"
+      "retired_after_observed_running",
+      "retired_after_valid_final"
     ],
     "retirement_requires_successful_full_tree_snapshot": true,
     "retirement_requires_no_parent_interrupt": true,
+    "retirement_without_running_requires_valid_final": true,
     "identical_duplicate": "ignore",
     "conflicting_duplicate": "fatal",
-    "unobserved_disappearance": "fatal",
+    "unobserved_disappearance_without_valid_final": "fatal",
     "error_or_interrupted": "fatal",
     "unexpected_descendant": "fatal"
   },

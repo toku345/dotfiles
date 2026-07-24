@@ -217,6 +217,13 @@ def main() -> None:
             "base-resolution contract mismatch",
         ),
         (
+            "allow-no-pr transition sequence weakened",
+            "private_dot_codex/skills/pr-review/references/base-resolution-runtime-contract.json",
+            '"pin_base_commit"',
+            '"use_symbolic_head"',
+            "base-resolution contract mismatch",
+        ),
+        (
             "base-resolution transport precedence removed",
             "private_dot_codex/skills/pr-review/SKILL.md",
             "Give a proven sandbox/transport denial precedence over credential-looking text",
@@ -256,6 +263,13 @@ def main() -> None:
             "private_dot_codex/skills/pr-review/references/v2-runtime-contract.json",
             '"retirement_requires_no_parent_interrupt": true',
             '"retirement_requires_no_parent_interrupt": false',
+            "V2 scheduler contract mismatch",
+        ),
+        (
+            "V2 final-backed retirement requirement removed",
+            "private_dot_codex/skills/pr-review/references/v2-runtime-contract.json",
+            '"retirement_without_running_requires_valid_final": true',
+            '"retirement_without_running_requires_valid_final": false',
             "V2 scheduler contract mismatch",
         ),
         (
@@ -422,9 +436,9 @@ def main() -> None:
         (
             "V2 unobserved disappearance tolerated",
             "private_dot_codex/skills/pr-review/SKILL.md",
-            "disappearance before observed running is not retirement evidence and is fatal",
-            "disappearance before observed running is accepted as retirement evidence",
-            "disappearance before observed running is not retirement evidence and is fatal",
+            "disappearance before both observed running and a valid matching final is not retirement evidence and is fatal",
+            "disappearance without evidence is accepted as retirement evidence",
+            "disappearance before both observed running and a valid matching final is not retirement evidence and is fatal",
         ),
         (
             "V2 bounded poll removal",

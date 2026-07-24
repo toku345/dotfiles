@@ -46,11 +46,11 @@ EXPECTED_REVIEW_PROFILES = {
 }
 
 RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1_V2"
-BASE_RESOLUTION_SENTINEL = "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V1"
-V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V2"
+BASE_RESOLUTION_SENTINEL = "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2"
+V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3"
 EXPECTED_BASE_RESOLUTION_CONTRACT = {
     "sentinel": BASE_RESOLUTION_SENTINEL,
-    "version": 1,
+    "version": 2,
     "operations": {
         "pr_view": {
             "argv": [
@@ -108,10 +108,37 @@ EXPECTED_BASE_RESOLUTION_CONTRACT = {
         "skip_fetch": True,
         "skip_escalation": True,
     },
+    "paths": {
+        "allow_no_pr": {
+            "sequence": [
+                "fetch_default",
+                "remote_set_head",
+                "resolve_default_head",
+                "pin_base_commit",
+            ],
+            "resolve_default_head_argv": [
+                "git",
+                "symbolic-ref",
+                "--quiet",
+                "--short",
+                "refs/remotes/origin/HEAD",
+            ],
+            "pin_base_commit_argv_template": [
+                "git",
+                "rev-parse",
+                "--verify",
+                "<origin-head>^{commit}",
+            ],
+            "require_fresh_default_fetch": True,
+            "require_remote_head_refresh": True,
+            "require_origin_head": True,
+            "require_immutable_base_commit": True,
+        },
+    },
 }
 EXPECTED_V2_RUNTIME_CONTRACT = {
     "sentinel": V2_SCHEDULER_SENTINEL,
-    "version": 2,
+    "version": 3,
     "max_concurrency": 3,
     "delivery_grace_ms": 60_000,
     "stage_deadline_ms": {"stage1": 1_800_000, "stage2": 600_000},
@@ -128,12 +155,14 @@ EXPECTED_V2_RUNTIME_CONTRACT = {
         "accepted_lifecycle_evidence": [
             "completed_status",
             "retired_after_observed_running",
+            "retired_after_valid_final",
         ],
         "retirement_requires_successful_full_tree_snapshot": True,
         "retirement_requires_no_parent_interrupt": True,
+        "retirement_without_running_requires_valid_final": True,
         "identical_duplicate": "ignore",
         "conflicting_duplicate": "fatal",
-        "unobserved_disappearance": "fatal",
+        "unobserved_disappearance_without_valid_final": "fatal",
         "error_or_interrupted": "fatal",
         "unexpected_descendant": "fatal",
     },
@@ -214,6 +243,7 @@ BASE_RESOLUTION_SNIPPETS = [
     "through the scoped retry policy",
     "do not run `gh`, fetch, or any elevated command",
     "abort before specialist spawn",
+    "`allow_no_pr` transition sequence",
 ]
 
 V2_RUNTIME_SNIPPETS = [
@@ -223,6 +253,7 @@ V2_RUNTIME_SNIPPETS = [
     "FINAL_ANSWER",
     "qualified retirement",
     "observed with `running` status",
+    "valid matching `FINAL_ANSWER`",
     "successful full-tree snapshot",
     "parent has never called `interrupt_agent`",
     "child-turn completion",
@@ -503,7 +534,7 @@ REQUIRED_CODEX_DOC_SNIPPETS = [
 ]
 
 REQUIRED_DESIGN_DOC_SNIPPETS = [
-    "rev.12",
+    "rev.13",
     "Issue #297",
     "V1/V2",
     "fresh agent tree",
@@ -512,7 +543,7 @@ REQUIRED_DESIGN_DOC_SNIPPETS = [
     "qualified retirement",
     "observed running",
     "successful full-tree",
-    "retained-list run replay",
+    "retained-list and scheduler-owned dispatch replays",
     "60-second delivery grace",
     "unexpected descendant",
     "conflicting duplicate",
@@ -724,6 +755,7 @@ def verify_base_resolution_contract() -> None:
         "retry limit",
         "invocation-fingerprint",
         "immutable-OID",
+        "`allow_no_pr` transition sequence",
     ):
         require_contains(skill, expected, f"{context}:SKILL.md consistency")
 
@@ -755,6 +787,7 @@ def verify_v2_runtime_contract() -> None:
         ),
         "completed status or qualified retirement",
         "observed with `running` status",
+        "valid matching `FINAL_ANSWER`",
         "successful full-tree snapshot",
         "cleanup start is monotonic fatal",
     )
@@ -1081,7 +1114,7 @@ def verify_skill_contract() -> None:
         "identical duplicate `FINAL_ANSWER`",
         "conflicting duplicate",
         "min(60000 ms, remaining stage budget, earliest active delivery-grace budget)",
-        "disappearance before observed running is not retirement evidence and is fatal",
+        "disappearance before both observed running and a valid matching final is not retirement evidence and is fatal",
         "successful full-tree snapshot",
         "parent has never called `interrupt_agent`",
         "strictly before `grace_start + 60000 ms`",

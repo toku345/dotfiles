@@ -26,8 +26,15 @@ FIXTURE_PATH = (
     / "fixtures"
     / "pr_review_base_resolution_escalation.json"
 )
+ALLOW_NO_PR_FIXTURE_PATH = (
+    REPO_ROOT
+    / "tests"
+    / "codex"
+    / "fixtures"
+    / "pr_review_allow_no_pr_base_resolution.json"
+)
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-if CONTRACT.get("sentinel") != "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V1":
+if CONTRACT.get("sentinel") != "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2":
     raise AssertionError(f"{CONTRACT_PATH}: unsupported base-resolution contract")
 
 DENIAL_RESULTS = {
@@ -44,6 +51,12 @@ class ReplayState(enum.Enum):
     FETCH_BRANCH = "fetch-branch"
     FETCH_BRANCH_ELEVATED = "fetch-branch-elevated"
     VERIFY_OID = "verify-oid"
+    FETCH_DEFAULT = "fetch-default"
+    FETCH_DEFAULT_ELEVATED = "fetch-default-elevated"
+    REMOTE_SET_HEAD = "remote-set-head"
+    REMOTE_SET_HEAD_ELEVATED = "remote-set-head-elevated"
+    RESOLVE_DEFAULT_HEAD = "resolve-default-head"
+    PIN_BASE_COMMIT = "pin-base-commit"
     CONTINUE = "continue"
     FATAL = "fatal"
 
@@ -104,11 +117,14 @@ def escalation_decision(
 
 
 class BaseResolutionReplay:
-    def __init__(self) -> None:
-        self.state = ReplayState.PR_VIEW
+    def __init__(self, *, allow_no_pr: bool = False) -> None:
+        self.state = (
+            ReplayState.FETCH_DEFAULT if allow_no_pr else ReplayState.PR_VIEW
+        )
         self.actions: list[str] = []
         self.original_invocations: dict[str, Invocation] = {}
         self.elevated_attempts: dict[str, int] = {}
+        self.base_ref: str | None = None
         self.specialist_spawn_allowed = False
 
     def fatal(self, reason: str) -> None:
@@ -255,6 +271,111 @@ class BaseResolutionReplay:
                 self.actions.append("continue")
                 self.state = ReplayState.CONTINUE
                 self.specialist_spawn_allowed = True
+            return
+
+        if self.state is ReplayState.FETCH_DEFAULT:
+            if event.operation != "fetch_default" or event.scope != "sandbox":
+                self.fatal("expected-sandbox-fetch-default")
+            elif event.result == "success":
+                self.actions.append("refresh-remote-head")
+                self.state = ReplayState.REMOTE_SET_HEAD
+            elif (
+                escalation_decision(
+                    event.operation,
+                    event.result,
+                    self.elevated_attempts.get(event.operation, 0),
+                )
+                == "retry-elevated"
+            ):
+                self.actions.append("retry-fetch-default-elevated")
+                self.state = ReplayState.FETCH_DEFAULT_ELEVATED
+            else:
+                self.fatal("ordinary-default-fetch-failure")
+            return
+
+        if self.state is ReplayState.FETCH_DEFAULT_ELEVATED:
+            if event.operation != "fetch_default" or event.scope != "elevated":
+                self.fatal("expected-elevated-fetch-default")
+            elif event.result == "success":
+                self.actions.append("refresh-remote-head")
+                self.state = ReplayState.REMOTE_SET_HEAD
+            else:
+                self.fatal("elevated-default-fetch-failed")
+            return
+
+        if self.state is ReplayState.REMOTE_SET_HEAD:
+            if event.operation != "remote_set_head" or event.scope != "sandbox":
+                self.fatal("expected-sandbox-remote-set-head")
+            elif event.result == "success":
+                self.actions.append("resolve-default-head")
+                self.state = ReplayState.RESOLVE_DEFAULT_HEAD
+            elif (
+                escalation_decision(
+                    event.operation,
+                    event.result,
+                    self.elevated_attempts.get(event.operation, 0),
+                )
+                == "retry-elevated"
+            ):
+                self.actions.append("retry-remote-set-head-elevated")
+                self.state = ReplayState.REMOTE_SET_HEAD_ELEVATED
+            else:
+                self.fatal("ordinary-remote-set-head-failure")
+            return
+
+        if self.state is ReplayState.REMOTE_SET_HEAD_ELEVATED:
+            if (
+                event.operation != "remote_set_head"
+                or event.scope != "elevated"
+            ):
+                self.fatal("expected-elevated-remote-set-head")
+            elif event.result == "success":
+                self.actions.append("resolve-default-head")
+                self.state = ReplayState.RESOLVE_DEFAULT_HEAD
+            else:
+                self.fatal("elevated-remote-set-head-failed")
+            return
+
+        if self.state is ReplayState.RESOLVE_DEFAULT_HEAD:
+            path_contract = CONTRACT["paths"]["allow_no_pr"]
+            if (
+                event.operation != "resolve_default_head"
+                or event.scope != "sandbox"
+                or event.invocation.argv
+                != tuple(path_contract["resolve_default_head_argv"])
+            ):
+                self.fatal("expected-default-head-resolution")
+            elif (
+                not event.result.startswith("origin/")
+                or event.result == "origin/"
+            ):
+                self.fatal("invalid-default-head")
+            else:
+                self.base_ref = event.result
+                self.actions.append("pin-base-commit")
+                self.state = ReplayState.PIN_BASE_COMMIT
+            return
+
+        if self.state is ReplayState.PIN_BASE_COMMIT:
+            path_contract = CONTRACT["paths"]["allow_no_pr"]
+            expected_argv = tuple(
+                f"{self.base_ref}^{{commit}}"
+                if value == "<origin-head>^{commit}"
+                else value
+                for value in path_contract["pin_base_commit_argv_template"]
+            )
+            if (
+                event.operation != "pin_base_commit"
+                or event.scope != "sandbox"
+                or event.invocation.argv != expected_argv
+            ):
+                self.fatal("expected-base-commit-pin")
+            elif event.result != "commit":
+                self.fatal("default-base-does-not-resolve-to-commit")
+            else:
+                self.actions.append("continue")
+                self.state = ReplayState.CONTINUE
+                self.specialist_spawn_allowed = True
 
 
 class BaseResolutionReplayTests(unittest.TestCase):
@@ -277,6 +398,85 @@ class BaseResolutionReplayTests(unittest.TestCase):
                 0,
             ),
             "retry-elevated",
+        )
+
+    def test_allow_no_pr_replays_fresh_default_base_and_pins_commit(self) -> None:
+        fixture = json.loads(ALLOW_NO_PR_FIXTURE_PATH.read_text(encoding="utf-8"))
+        replay = BaseResolutionReplay(allow_no_pr=True)
+        for raw_event in fixture["events"]:
+            replay.process(Event.from_dict(raw_event))
+        self.assertEqual(replay.actions, fixture["expected_actions"])
+        self.assertEqual(replay.base_ref, fixture["expected_base_ref"])
+        self.assertEqual(
+            replay.specialist_spawn_allowed,
+            fixture["expected_specialist_spawn_allowed"],
+        )
+
+    def test_allow_no_pr_remote_head_retry_preserves_invocation(self) -> None:
+        fixture = json.loads(ALLOW_NO_PR_FIXTURE_PATH.read_text(encoding="utf-8"))
+        fixture["events"][3]["invocation"]["argv"].append("--mismatch")
+        replay = BaseResolutionReplay(allow_no_pr=True)
+        for raw_event in fixture["events"]:
+            replay.process(Event.from_dict(raw_event))
+        self.assertIs(replay.state, ReplayState.FATAL)
+        self.assertFalse(replay.specialist_spawn_allowed)
+
+    def test_allow_no_pr_requires_origin_head_and_commit_pin(self) -> None:
+        fixture = json.loads(ALLOW_NO_PR_FIXTURE_PATH.read_text(encoding="utf-8"))
+        for event_index, result in ((4, "main"), (5, "not-a-commit")):
+            with self.subTest(event_index=event_index):
+                mutated = json.loads(json.dumps(fixture))
+                mutated["events"][event_index]["result"] = result
+                replay = BaseResolutionReplay(allow_no_pr=True)
+                for raw_event in mutated["events"]:
+                    replay.process(Event.from_dict(raw_event))
+                self.assertIs(replay.state, ReplayState.FATAL)
+                self.assertFalse(replay.specialist_spawn_allowed)
+
+        mismatched_pin = json.loads(json.dumps(fixture))
+        mismatched_pin["events"][5]["invocation"]["argv"][-1] = (
+            "origin/develop^{commit}"
+        )
+        replay = BaseResolutionReplay(allow_no_pr=True)
+        for raw_event in mismatched_pin["events"]:
+            replay.process(Event.from_dict(raw_event))
+        self.assertIs(replay.state, ReplayState.FATAL)
+        self.assertFalse(replay.specialist_spawn_allowed)
+
+    def test_allow_no_pr_contract_pins_full_transition_sequence(self) -> None:
+        self.assertEqual(
+            CONTRACT["paths"]["allow_no_pr"]["sequence"],
+            [
+                "fetch_default",
+                "remote_set_head",
+                "resolve_default_head",
+                "pin_base_commit",
+            ],
+        )
+        self.assertEqual(
+            CONTRACT["paths"]["allow_no_pr"]["resolve_default_head_argv"],
+            [
+                "git",
+                "symbolic-ref",
+                "--quiet",
+                "--short",
+                "refs/remotes/origin/HEAD",
+            ],
+        )
+        self.assertEqual(
+            CONTRACT["paths"]["allow_no_pr"]["pin_base_commit_argv_template"],
+            ["git", "rev-parse", "--verify", "<origin-head>^{commit}"],
+        )
+        self.assertTrue(
+            all(
+                CONTRACT["paths"]["allow_no_pr"][key]
+                for key in (
+                    "require_fresh_default_fetch",
+                    "require_remote_head_refresh",
+                    "require_origin_head",
+                    "require_immutable_base_commit",
+                )
+            )
         )
 
     def test_ordinary_fetch_error_does_not_escalate(self) -> None:

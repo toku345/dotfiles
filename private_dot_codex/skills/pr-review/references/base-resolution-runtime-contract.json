@@ -1,6 +1,6 @@
 {
-  "sentinel": "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V1",
-  "version": 1,
+  "sentinel": "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2",
+  "version": 2,
   "operations": {
     "pr_view": {
       "argv": [
@@ -70,5 +70,32 @@
     "skip_gh": true,
     "skip_fetch": true,
     "skip_escalation": true
+  },
+  "paths": {
+    "allow_no_pr": {
+      "sequence": [
+        "fetch_default",
+        "remote_set_head",
+        "resolve_default_head",
+        "pin_base_commit"
+      ],
+      "resolve_default_head_argv": [
+        "git",
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "refs/remotes/origin/HEAD"
+      ],
+      "pin_base_commit_argv_template": [
+        "git",
+        "rev-parse",
+        "--verify",
+        "<origin-head>^{commit}"
+      ],
+      "require_fresh_default_fetch": true,
+      "require_remote_head_refresh": true,
+      "require_origin_head": true,
+      "require_immutable_base_commit": true
+    }
   }
 }

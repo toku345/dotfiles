@@ -1,0 +1,114 @@
+{
+  "description": "Deterministic allow-no-pr replay covering fresh default fetch, remote HEAD refresh, and immutable base pinning.",
+  "events": [
+    {
+      "operation": "fetch_default",
+      "scope": "sandbox",
+      "approval": "not-required",
+      "result": "filesystem-denial",
+      "invocation": {
+        "argv": [
+          "git",
+          "fetch",
+          "--quiet",
+          "origin"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "fetch_default",
+      "scope": "elevated",
+      "approval": "approved",
+      "result": "success",
+      "invocation": {
+        "argv": [
+          "git",
+          "fetch",
+          "--quiet",
+          "origin"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "remote_set_head",
+      "scope": "sandbox",
+      "approval": "not-required",
+      "result": "filesystem-denial",
+      "invocation": {
+        "argv": [
+          "git",
+          "remote",
+          "set-head",
+          "origin",
+          "--auto"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "remote_set_head",
+      "scope": "elevated",
+      "approval": "approved",
+      "result": "success",
+      "invocation": {
+        "argv": [
+          "git",
+          "remote",
+          "set-head",
+          "origin",
+          "--auto"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "resolve_default_head",
+      "scope": "sandbox",
+      "approval": "not-required",
+      "result": "origin/main",
+      "invocation": {
+        "argv": [
+          "git",
+          "symbolic-ref",
+          "--quiet",
+          "--short",
+          "refs/remotes/origin/HEAD"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "pin_base_commit",
+      "scope": "sandbox",
+      "approval": "not-required",
+      "result": "commit",
+      "invocation": {
+        "argv": [
+          "git",
+          "rev-parse",
+          "--verify",
+          "origin/main^{commit}"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    }
+  ],
+  "expected_actions": [
+    "retry-fetch-default-elevated",
+    "refresh-remote-head",
+    "retry-remote-set-head-elevated",
+    "resolve-default-head",
+    "pin-base-commit",
+    "continue"
+  ],
+  "expected_base_ref": "origin/main",
+  "expected_specialist_spawn_allowed": true
+}
