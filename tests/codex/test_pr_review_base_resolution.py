@@ -116,6 +116,13 @@ def escalation_decision(
     return "retry-elevated"
 
 
+def expected_fixed_argv(operation: str) -> tuple[str, ...] | None:
+    operation_contract = CONTRACT["operations"].get(operation)
+    if not operation_contract or "argv" not in operation_contract:
+        return None
+    return tuple(operation_contract["argv"])
+
+
 class BaseResolutionReplay:
     def __init__(self, *, allow_no_pr: bool = False) -> None:
         self.state = (
@@ -139,6 +146,13 @@ class BaseResolutionReplay:
         if event.scope == "sandbox":
             if event.approval != "not-required":
                 self.fatal("sandbox-approval-invalid")
+                return False
+            expected_argv = expected_fixed_argv(event.operation)
+            if (
+                expected_argv is not None
+                and event.invocation.argv != expected_argv
+            ):
+                self.fatal("operation-invocation-mismatch")
                 return False
             if event.operation != "pr_view_debug":
                 self.original_invocations.setdefault(event.operation, event.invocation)
@@ -421,6 +435,27 @@ class BaseResolutionReplayTests(unittest.TestCase):
         self.assertIs(replay.state, ReplayState.FATAL)
         self.assertFalse(replay.specialist_spawn_allowed)
 
+    def test_allow_no_pr_rejects_wrong_initial_operation_argv(self) -> None:
+        fixture = json.loads(ALLOW_NO_PR_FIXTURE_PATH.read_text(encoding="utf-8"))
+        for sandbox_index, elevated_index in ((0, 1), (2, 3)):
+            operation = fixture["events"][sandbox_index]["operation"]
+            with self.subTest(operation=operation):
+                mutated = json.loads(json.dumps(fixture))
+                for event_index in (sandbox_index, elevated_index):
+                    mutated["events"][event_index]["invocation"]["argv"] = [
+                        "git",
+                        "status",
+                    ]
+                replay = BaseResolutionReplay(allow_no_pr=True)
+                for raw_event in mutated["events"]:
+                    replay.process(Event.from_dict(raw_event))
+                self.assertIs(replay.state, ReplayState.FATAL)
+                self.assertIn(
+                    "fatal:operation-invocation-mismatch",
+                    replay.actions,
+                )
+                self.assertFalse(replay.specialist_spawn_allowed)
+
     def test_allow_no_pr_requires_origin_head_and_commit_pin(self) -> None:
         fixture = json.loads(ALLOW_NO_PR_FIXTURE_PATH.read_text(encoding="utf-8"))
         for event_index, result in ((4, "main"), (5, "not-a-commit")):
@@ -532,12 +567,13 @@ class BaseResolutionReplayTests(unittest.TestCase):
 
     def test_elevated_retry_requires_identical_invocation(self) -> None:
         replay = BaseResolutionReplay()
+        original_argv = tuple(CONTRACT["operations"]["pr_view"]["argv"])
         original = Event(
             operation="pr_view",
             scope="sandbox",
             approval="not-required",
             result="transport-denial",
-            invocation=Invocation(("gh", "pr", "view"), "<repo>", ()),
+            invocation=Invocation(original_argv, "<repo>", ()),
         )
         replay.process(original)
         replay.process(
@@ -547,7 +583,7 @@ class BaseResolutionReplayTests(unittest.TestCase):
                 approval="not-required",
                 result="transport-denial",
                 invocation=Invocation(
-                    ("gh", "pr", "view"),
+                    original_argv,
                     "<repo>",
                     (("GH_DEBUG", "api"),),
                 ),
