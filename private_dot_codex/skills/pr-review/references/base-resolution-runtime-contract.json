@@ -1,0 +1,101 @@
+{
+  "sentinel": "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2",
+  "version": 2,
+  "operations": {
+    "pr_view": {
+      "argv": [
+        "gh",
+        "pr",
+        "view",
+        "--json",
+        "baseRefName,baseRefOid",
+        "--jq",
+        "[.baseRefName,.baseRefOid] | @tsv"
+      ],
+      "sandbox_first": true,
+      "debug_discriminator_env": {
+        "GH_DEBUG": "api"
+      },
+      "allow_elevated_retry": true
+    },
+    "fetch_branch": {
+      "argv_template": [
+        "git",
+        "fetch",
+        "--quiet",
+        "origin",
+        "refs/heads/<validated-base>"
+      ],
+      "sandbox_first": true,
+      "allow_elevated_retry": true
+    },
+    "fetch_default": {
+      "argv": [
+        "git",
+        "fetch",
+        "--quiet",
+        "origin"
+      ],
+      "sandbox_first": true,
+      "allow_elevated_retry": true
+    },
+    "remote_set_head": {
+      "argv": [
+        "git",
+        "remote",
+        "set-head",
+        "origin",
+        "--auto"
+      ],
+      "sandbox_first": true,
+      "allow_elevated_retry": true
+    }
+  },
+  "escalation": {
+    "max_retries_per_operation": 1,
+    "require_same_invocation_fingerprint": true,
+    "allow_persistent_prefix": false,
+    "require_explicit_tool_field": "sandbox_permissions=require_escalated",
+    "transport_denial_precedes_credential_text": true,
+    "fatal_before_specialist_spawn": true
+  },
+  "result_classification": {
+    "sandbox_or_transport_denial": "retry-elevated-once",
+    "credential_failure_after_github_response": "fatal-stale-auth",
+    "explicit_no_pr": "fatal-no-pr",
+    "ordinary_git_or_api_failure": "fatal",
+    "ambiguous_failure": "fatal"
+  },
+  "immutable_oid": {
+    "skip_gh": true,
+    "skip_fetch": true,
+    "skip_escalation": true
+  },
+  "paths": {
+    "allow_no_pr": {
+      "sequence": [
+        "fetch_default",
+        "remote_set_head",
+        "resolve_default_head",
+        "pin_base_commit"
+      ],
+      "resolve_default_head_argv": [
+        "git",
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "refs/remotes/origin/HEAD"
+      ],
+      "pin_base_commit_argv_template": [
+        "git",
+        "rev-parse",
+        "--verify",
+        "<origin-head>^{commit}"
+      ],
+      "require_fresh_default_fetch": true,
+      "require_remote_head_refresh": true,
+      "require_origin_head": true,
+      "require_immutable_base_commit": true
+    }
+  }
+}

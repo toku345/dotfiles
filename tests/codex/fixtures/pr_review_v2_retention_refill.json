@@ -1,0 +1,70 @@
+{
+  "source_session": "019f913c-70ef-71a0-a185-b1f3e23cc0bb",
+  "description": "Sanitized run-level replay of a valid FINAL_ANSWER followed by retained-list retirement after slot refill.",
+  "stage": "stage1",
+  "events": [
+    {
+      "type": "snapshot",
+      "full_tree": true,
+      "now_ms": 1000,
+      "statuses": {
+        "/root/prr_token_s1_code_reviewer_a1": "running",
+        "/root/prr_token_s1_security_reviewer_a1": "running",
+        "/root/prr_token_s1_adversarial_reviewer_a1": "running"
+      }
+    },
+    {
+      "type": "final",
+      "now_ms": 2000,
+      "sender": "/root/prr_token_s1_security_reviewer_a1",
+      "payload": "COVERAGE_OK security-reviewer",
+      "valid": true
+    },
+    {
+      "type": "snapshot",
+      "full_tree": true,
+      "now_ms": 2100,
+      "statuses": {
+        "/root/prr_token_s1_code_reviewer_a1": "running",
+        "/root/prr_token_s1_security_reviewer_a1": "completed",
+        "/root/prr_token_s1_adversarial_reviewer_a1": "running"
+      }
+    },
+    {
+      "type": "refill",
+      "now_ms": 2200,
+      "role": "pr-test-analyzer",
+      "canonical_path": "/root/prr_token_s1_pr_test_analyzer_a1"
+    },
+    {
+      "type": "final",
+      "now_ms": 2300,
+      "sender": "/root/prr_token_s1_code_reviewer_a1",
+      "payload": "COVERAGE_OK code-reviewer",
+      "valid": true
+    },
+    {
+      "type": "snapshot",
+      "full_tree": true,
+      "now_ms": 2400,
+      "statuses": {
+        "/root/prr_token_s1_adversarial_reviewer_a1": "running",
+        "/root/prr_token_s1_pr_test_analyzer_a1": "running"
+      }
+    }
+  ],
+  "expected_actions": [
+    "observed-running:code-reviewer",
+    "observed-running:security-reviewer",
+    "observed-running:adversarial-reviewer",
+    "record-final:security-reviewer",
+    "observed-completed:security-reviewer",
+    "usable:security-reviewer",
+    "refill:pr-test-analyzer",
+    "record-final:code-reviewer",
+    "retired:code-reviewer",
+    "observed-running:pr-test-analyzer",
+    "usable:code-reviewer",
+    "continue-dispatch"
+  ]
+}

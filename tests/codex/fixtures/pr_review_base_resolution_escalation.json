@@ -1,0 +1,127 @@
+{
+  "source_sessions": [
+    "019f9167-2c97-7a31-958c-61788856316a",
+    "019f913c-70ef-71a0-a185-b1f3e23cc0bb"
+  ],
+  "description": "Sanitized composite replay of sandbox-blocked GitHub access followed by scoped elevated base resolution.",
+  "events": [
+    {
+      "operation": "pr_view",
+      "scope": "sandbox",
+      "approval": "not-required",
+      "result": "transport-denial",
+      "invocation": {
+        "argv": [
+          "gh",
+          "pr",
+          "view",
+          "--json",
+          "baseRefName,baseRefOid",
+          "--jq",
+          "[.baseRefName,.baseRefOid] | @tsv"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "pr_view_debug",
+      "scope": "sandbox",
+      "approval": "not-required",
+      "result": "transport-denial",
+      "invocation": {
+        "argv": [
+          "gh",
+          "pr",
+          "view",
+          "--json",
+          "baseRefName,baseRefOid",
+          "--jq",
+          "[.baseRefName,.baseRefOid] | @tsv"
+        ],
+        "cwd": "<repo>",
+        "env": {
+          "GH_DEBUG": "api"
+        }
+      }
+    },
+    {
+      "operation": "pr_view",
+      "scope": "elevated",
+      "approval": "approved",
+      "result": "success",
+      "invocation": {
+        "argv": [
+          "gh",
+          "pr",
+          "view",
+          "--json",
+          "baseRefName,baseRefOid",
+          "--jq",
+          "[.baseRefName,.baseRefOid] | @tsv"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "fetch_branch",
+      "scope": "sandbox",
+      "approval": "not-required",
+      "result": "filesystem-denial",
+      "invocation": {
+        "argv": [
+          "git",
+          "fetch",
+          "--quiet",
+          "origin",
+          "refs/heads/main"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "fetch_branch",
+      "scope": "elevated",
+      "approval": "approved",
+      "result": "success",
+      "invocation": {
+        "argv": [
+          "git",
+          "fetch",
+          "--quiet",
+          "origin",
+          "refs/heads/main"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    },
+    {
+      "operation": "verify_oid",
+      "scope": "sandbox",
+      "approval": "not-required",
+      "result": "match",
+      "invocation": {
+        "argv": [
+          "git",
+          "rev-parse",
+          "--verify",
+          "FETCH_HEAD^{commit}"
+        ],
+        "cwd": "<repo>",
+        "env": {}
+      }
+    }
+  ],
+  "expected_actions": [
+    "run-pr-view-debug",
+    "retry-pr-view-elevated",
+    "validate-pr-metadata",
+    "retry-fetch-branch-elevated",
+    "verify-base-oid",
+    "continue"
+  ],
+  "expected_specialist_spawn_allowed": true
+}

@@ -1,0 +1,57 @@
+{
+  "sentinel": "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3",
+  "version": 3,
+  "max_concurrency": 3,
+  "delivery_grace_ms": 60000,
+  "stage_deadline_ms": {
+    "stage1": 1800000,
+    "stage2": 600000
+  },
+  "spawn": {
+    "max_retries": 1,
+    "retry_only_on_explicit_capacity_error": true,
+    "retry_requires_available_slot": true,
+    "require_new_attempt_name": true
+  },
+  "result": {
+    "require_canonical_sender": true,
+    "require_final_payload": true,
+    "final_answer_runtime_semantics": "child-turn-completion",
+    "accepted_lifecycle_evidence": [
+      "completed_status",
+      "retired_after_observed_running",
+      "retired_after_valid_final"
+    ],
+    "retirement_requires_successful_full_tree_snapshot": true,
+    "retirement_requires_no_parent_interrupt": true,
+    "retirement_without_running_requires_valid_final": true,
+    "identical_duplicate": "ignore",
+    "conflicting_duplicate": "fatal",
+    "unobserved_disappearance_without_valid_final": "fatal",
+    "error_or_interrupted": "fatal",
+    "unexpected_descendant": "fatal"
+  },
+  "reconciliation": {
+    "cycle_order": [
+      "harvest_delivered_envelopes",
+      "list_full_tree",
+      "harvest_boundary_envelopes",
+      "evaluate_all_tasks",
+      "refill"
+    ],
+    "retain_usable_evidence_until_stage_aggregation": true,
+    "cleanup_is_monotonic_fatal": true
+  },
+  "cleanup": {
+    "interrupt_running_owned_top_level": true,
+    "interrupt_running_owned_descendants": true,
+    "interrupt_orchestrator": false,
+    "interrupt_unrelated": false,
+    "require_no_running_owned_after_cleanup": true
+  },
+  "aggregation": {
+    "require_exact_expected_roles": true,
+    "require_unique_canonical_tasks": true,
+    "require_all_usable": true
+  }
+}

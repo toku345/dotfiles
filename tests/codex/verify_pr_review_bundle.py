@@ -22,7 +22,13 @@ SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
 REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
 SEVERITY_RULES = SKILL_DIR / "references" / "severity-rules.json"
+BASE_RESOLUTION_CONTRACT = (
+    SKILL_DIR / "references" / "base-resolution-runtime-contract.json"
+)
+V2_RUNTIME_CONTRACT = SKILL_DIR / "references" / "v2-runtime-contract.json"
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
+CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
+DESIGN_DOC = REPO_ROOT / "docs" / "design" / "codex-pr-review.md"
 
 EXPECTED_REVIEW_PROFILES = {
     "review": {
@@ -39,27 +45,246 @@ EXPECTED_REVIEW_PROFILES = {
     },
 }
 
-RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1"
-RUNTIME_RETRY_COMMAND = (
-    "codex exec --profile review -C '<repo-root>' "
-    "'$pr-review --base <same-base>'"
+RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1_V2"
+BASE_RESOLUTION_SENTINEL = "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2"
+V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3"
+EXPECTED_BASE_RESOLUTION_CONTRACT = {
+    "sentinel": BASE_RESOLUTION_SENTINEL,
+    "version": 2,
+    "operations": {
+        "pr_view": {
+            "argv": [
+                "gh",
+                "pr",
+                "view",
+                "--json",
+                "baseRefName,baseRefOid",
+                "--jq",
+                "[.baseRefName,.baseRefOid] | @tsv",
+            ],
+            "sandbox_first": True,
+            "debug_discriminator_env": {"GH_DEBUG": "api"},
+            "allow_elevated_retry": True,
+        },
+        "fetch_branch": {
+            "argv_template": [
+                "git",
+                "fetch",
+                "--quiet",
+                "origin",
+                "refs/heads/<validated-base>",
+            ],
+            "sandbox_first": True,
+            "allow_elevated_retry": True,
+        },
+        "fetch_default": {
+            "argv": ["git", "fetch", "--quiet", "origin"],
+            "sandbox_first": True,
+            "allow_elevated_retry": True,
+        },
+        "remote_set_head": {
+            "argv": ["git", "remote", "set-head", "origin", "--auto"],
+            "sandbox_first": True,
+            "allow_elevated_retry": True,
+        },
+    },
+    "escalation": {
+        "max_retries_per_operation": 1,
+        "require_same_invocation_fingerprint": True,
+        "allow_persistent_prefix": False,
+        "require_explicit_tool_field": "sandbox_permissions=require_escalated",
+        "transport_denial_precedes_credential_text": True,
+        "fatal_before_specialist_spawn": True,
+    },
+    "result_classification": {
+        "sandbox_or_transport_denial": "retry-elevated-once",
+        "credential_failure_after_github_response": "fatal-stale-auth",
+        "explicit_no_pr": "fatal-no-pr",
+        "ordinary_git_or_api_failure": "fatal",
+        "ambiguous_failure": "fatal",
+    },
+    "immutable_oid": {
+        "skip_gh": True,
+        "skip_fetch": True,
+        "skip_escalation": True,
+    },
+    "paths": {
+        "allow_no_pr": {
+            "sequence": [
+                "fetch_default",
+                "remote_set_head",
+                "resolve_default_head",
+                "pin_base_commit",
+            ],
+            "resolve_default_head_argv": [
+                "git",
+                "symbolic-ref",
+                "--quiet",
+                "--short",
+                "refs/remotes/origin/HEAD",
+            ],
+            "pin_base_commit_argv_template": [
+                "git",
+                "rev-parse",
+                "--verify",
+                "<origin-head>^{commit}",
+            ],
+            "require_fresh_default_fetch": True,
+            "require_remote_head_refresh": True,
+            "require_origin_head": True,
+            "require_immutable_base_commit": True,
+        },
+    },
+}
+EXPECTED_V2_RUNTIME_CONTRACT = {
+    "sentinel": V2_SCHEDULER_SENTINEL,
+    "version": 3,
+    "max_concurrency": 3,
+    "delivery_grace_ms": 60_000,
+    "stage_deadline_ms": {"stage1": 1_800_000, "stage2": 600_000},
+    "spawn": {
+        "max_retries": 1,
+        "retry_only_on_explicit_capacity_error": True,
+        "retry_requires_available_slot": True,
+        "require_new_attempt_name": True,
+    },
+    "result": {
+        "require_canonical_sender": True,
+        "require_final_payload": True,
+        "final_answer_runtime_semantics": "child-turn-completion",
+        "accepted_lifecycle_evidence": [
+            "completed_status",
+            "retired_after_observed_running",
+            "retired_after_valid_final",
+        ],
+        "retirement_requires_successful_full_tree_snapshot": True,
+        "retirement_requires_no_parent_interrupt": True,
+        "retirement_without_running_requires_valid_final": True,
+        "identical_duplicate": "ignore",
+        "conflicting_duplicate": "fatal",
+        "unobserved_disappearance_without_valid_final": "fatal",
+        "error_or_interrupted": "fatal",
+        "unexpected_descendant": "fatal",
+    },
+    "reconciliation": {
+        "cycle_order": [
+            "harvest_delivered_envelopes",
+            "list_full_tree",
+            "harvest_boundary_envelopes",
+            "evaluate_all_tasks",
+            "refill",
+        ],
+        "retain_usable_evidence_until_stage_aggregation": True,
+        "cleanup_is_monotonic_fatal": True,
+    },
+    "cleanup": {
+        "interrupt_running_owned_top_level": True,
+        "interrupt_running_owned_descendants": True,
+        "interrupt_orchestrator": False,
+        "interrupt_unrelated": False,
+        "require_no_running_owned_after_cleanup": True,
+    },
+    "aggregation": {
+        "require_exact_expected_roles": True,
+        "require_unique_canonical_tasks": True,
+        "require_all_usable": True,
+    },
+}
+V1_ROLLBACK_COMMAND_SNIPPETS = (
+    "codex \\",
+    "-c 'features.multi_agent=true'",
+    "-c 'features.multi_agent_v2=false'",
+    "-c 'model_reasoning_effort=\"medium\"'",
+    "exec --model gpt-5.5",
+    "-C '<repo-root>'",
+    "'$pr-review --base <base>'",
 )
 RUNTIME_CONTRACT_SNIPPETS = [
-    "Before running any shell or Git command and before invoking any multi-agent tool",
+    "Before running any shell or Git command and before invoking any collaboration tool",
     "Tool discovery is allowed here; a probe spawn is not.",
-    "`spawn_agent` accepts `agent_type` and `message`",
-    "does not accept V2 fields `task_name` or `fork_turns`",
-    "supplies an `agent_id`",
-    "`wait_agent` accepts `targets`",
-    "`close_agent` is available for an `agent_id`",
-    "If tool discovery cannot resolve the required multi-agent definitions",
-    "ERROR: $pr-review could not resolve the required Codex multi-agent V1 tools after tool discovery.",
-    "ERROR: $pr-review requires the Codex multi-agent V1 schema, but this session exposes V2 or a mixed or unknown collaboration schema.",
+    "The V1 adapter",
+    "The V2 adapter",
+    "`spawn_agent(agent_type,message)`",
+    "both arguments required",
+    "must not accept `task_name` or `fork_turns`",
+    "targeted `wait_agent(targets)`",
+    "`close_agent(agent_id)`",
+    "`spawn_agent(task_name,message,agent_type?,fork_turns?,model?,reasoning_effort?)`",
+    "with `task_name` and `message` required",
+    "untargeted `wait_agent(timeout_ms?)`",
+    "must not accept `targets`",
+    "`close_agent` must not be part of this family",
+    "Optional unrelated, non-discriminating fields may be present",
+    "`list_agents(path_prefix?)`",
+    "`interrupt_agent(target)`",
+    "`references/base-resolution-runtime-contract.json`",
+    BASE_RESOLUTION_SENTINEL,
+    "machine-readable base-resolution contract",
+    "fresh agent tree",
+    "`references/v2-runtime-contract.json`",
+    V2_SCHEDULER_SENTINEL,
+    "machine-readable scheduler contract",
+    "Missing, unresolved, incomplete, mixed, or unknown definitions are not compatible.",
+    "mixed, incomplete, or unknown",
     "No specialist was spawned and no review was performed.",
-    RUNTIME_RETRY_COMMAND,
-    "hide_spawn_agent_metadata = false",
     "Do not fall back to default agents.",
-    "https://github.com/toku345/dotfiles/issues/297",
+]
+
+BASE_RESOLUTION_SNIPPETS = [
+    "always try the ordinary sandbox first",
+    "sandbox_permissions=require_escalated",
+    "Never request a persistent prefix approval",
+    "exact original executable, argv, cwd, and ordinary environment once",
+    "do not run the origin-unscoped `gh auth status`",
+    "use the required PR lookup itself as the only GitHub auth/network probe",
+    "Give a proven sandbox/transport denial precedence over credential-looking text",
+    "original non-debug `gh pr view` invocation once",
+    "Do not persist or reproduce raw debug headers",
+    "through the scoped retry policy",
+    "do not run `gh`, fetch, or any elevated command",
+    "abort before specialist spawn",
+    "`allow_no_pr` transition sequence",
+]
+
+V2_RUNTIME_SNIPPETS = [
+    "`prr_<run_token>_s<stage>_",
+    'fork_turns="none"',
+    "maximum of 3",
+    "FINAL_ANSWER",
+    "qualified retirement",
+    "observed with `running` status",
+    "valid matching `FINAL_ANSWER`",
+    "successful full-tree snapshot",
+    "parent has never called `interrupt_agent`",
+    "child-turn completion",
+    "ordered reconciliation cycle",
+    "60-second delivery grace",
+    "wait_agent is notification-only",
+    "list_agents is status-only",
+    "unexpected descendant",
+    "conflicting duplicate",
+    "cleanup start is monotonic fatal",
+    "`Task name` identifies the recipient",
+    "harvest and validate **all** newly delivered run-owned finals",
+    "one final notification/status drain",
+    "no run-owned task or owned descendant remains running",
+    "Partial aggregation",
+    "explicit capacity error",
+    "attempt",
+    "canonical",
+    "stage deadline",
+    "Do not call any collaboration/subagent tools; return only your final review response.",
+]
+
+AGENT_CONTROL_PLANE_SNIPPETS = [
+    "do not call any collaboration or subagent control-plane tool",
+    "spawn_agent",
+    "send_message",
+    "followup_task",
+    "wait_agent",
+    "list_agents",
+    "interrupt_agent",
+    "final response",
 ]
 
 # The Claude-side copies are drift-proof only while they stay one-line
@@ -174,13 +399,13 @@ REQUIRED_SKILL_SNIPPETS = [
     "`--allow-no-pr` requires network access, `git fetch`, and `git remote set-head origin --auto`",
     "Auto-PR base resolution requires `gh pr view`, network access, and a verified fetch of the reported base branch",
     "they must supply an immutable base commit OID",
-    "Run `git fetch --quiet origin`; if it fails, abort instead of reviewing a possibly stale default branch.",
-    "Run `git remote set-head origin --auto`; if it fails, abort instead of trusting a stale local `origin/HEAD` symref.",
+    "Run `git fetch --quiet origin` through the scoped retry policy",
+    "Run `git remote set-head origin --auto` through the same policy",
     "Run `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`; if it fails or returns an empty value, abort instead of guessing a base.",
     "Strip the leading `origin/` from the captured value",
     "exactly two non-empty tab-separated fields",
-    "Validate the returned branch name with the same explicit-branch safety rules",
-    'Then run `git fetch --quiet origin "refs/heads/$BASE"`',
+    "Validate it with the same explicit-branch safety rules",
+    'Then run `git fetch --quiet origin "refs/heads/$BASE"` through the scoped retry policy',
     "verify it exactly equals the returned `baseRefOid`",
     'BASE_COMMIT=$(git rev-parse --verify "$BASE_REF^{commit}")',
     "operational_paths",
@@ -191,8 +416,8 @@ REQUIRED_SKILL_SNIPPETS = [
     "Scope contract: review only the orchestrator-provided `$BASE_COMMIT...$HEAD_REF` committed branch diff.",
     "Coverage sentinel contract",
     "Review-only contract: do not edit files",
-    "`wait_agent` with multiple targets returns when a target reaches a final status",
-    "timeout_ms` of 600000",
+    "The V1 adapter** treats targeted `wait_agent` as polling",
+    "`timeout_ms = min(600000",
     "Final worktree guard",
     "git status --porcelain --untracked-files=normal",
     "If `gh pr view` returned `baseRefOid`, keep `$BASE_REF=FETCH_HEAD` after the verified fetch/OID comparison",
@@ -201,7 +426,7 @@ REQUIRED_SKILL_SNIPPETS = [
 ]
 
 PROCEDURE_SKILL_SNIPPETS = [
-    "Run `git rev-parse HEAD` before collecting the diff and record it as `$HEAD_REF`",
+    "Run `git rev-parse HEAD` as an independent, preceding tool call",
     'git log --no-decorate "$BASE_COMMIT..$HEAD_REF"',
     'git diff --name-only "$BASE_COMMIT"..."$HEAD_REF"',
     'git diff "$BASE_COMMIT"..."$HEAD_REF"',
@@ -221,14 +446,14 @@ PROCEDURE_SKILL_SNIPPETS = [
     "Fail closed before Stage 2 or aggregation if any specialist output reports a fatal coverage error",
     "unable to verify the packet",
     "Review-only contract: do not edit files",
-    "`wait_agent` with multiple targets returns when a target reaches a final status",
-    "Spawn Stage 1 with a bounded fanout",
-    "Start at most 6 Stage 1 specialists at a time",
-    "Never drop a scheduled specialist because of the thread limit",
-    "close every remaining running Stage 1 agent",
+    "The V1 adapter** treats targeted `wait_agent` as polling",
+    "Dispatch the recorded set through the selected adapter",
+    "Run at most 6 Stage 1 agents concurrently",
+    "Never omit a scheduled role because of capacity",
+    "The V1 adapter closes every remaining running V1 ID",
     "same target description, `$BASE_REF`, `$BASE_COMMIT`, `$HEAD_REF`",
     "Apply the same first-line `COVERAGE_OK ...` / `FATAL_COVERAGE_ERROR ...` sentinel validation",
-    "close the running Stage 2 agent if it exists",
+    "selected adapter",
 ]
 
 CRITICAL_NORMALIZATION_SNIPPETS = [
@@ -296,6 +521,46 @@ REQUIRED_REVIEW_CRITERIA_SNIPPETS = [
     "review churn",
 ]
 
+REQUIRED_CODEX_DOC_SNIPPETS = [
+    '`review.config.toml`: `gpt-5.6-sol` / `medium`',
+    '`review_deep.config.toml`: `gpt-5.6-sol` / `high`',
+    '`review_audit.config.toml`: `gpt-5.6-sol` / `xhigh`',
+    "V1/V2",
+    "checked-in の legacy V1 profile は置かない",
+    "isolated `CODEX_HOME`",
+    "scoped escalation",
+    "qualified retirement",
+    "`chezmoi apply` は変更を main に merge した後だけ",
+]
+
+REQUIRED_DESIGN_DOC_SNIPPETS = [
+    "rev.13",
+    "Issue #297",
+    "V1/V2",
+    "fresh agent tree",
+    "at most 3",
+    "FINAL_ANSWER",
+    "qualified retirement",
+    "observed running",
+    "successful full-tree",
+    "retained-list and scheduler-owned dispatch replays",
+    "60-second delivery grace",
+    "unexpected descendant",
+    "conflicting duplicate",
+    "Partial aggregation",
+    "control-plane",
+    'fork_turns="none"',
+    "isolated `CODEX_HOME`",
+    "Raw JSONL",
+    BASE_RESOLUTION_SENTINEL,
+]
+
+FORBIDDEN_STALE_DESIGN_SNIPPETS = [
+    "the skill rejects non-V1 exposure",
+    "V2 adapter work remains isolated in Issue #297",
+    "current V1-only compatibility work",
+]
+
 FORBIDDEN_ACTIVE_AGENT_SNIPPETS = [
     "Task tool",
     "<Task tool",
@@ -359,6 +624,15 @@ def require_not_contains(text: str, needle: str, context: str) -> None:
         fail(f"{context}: forbidden stale text {needle!r}")
 
 
+def require_ordered_contains(text: str, needles: tuple[str, ...], context: str) -> None:
+    cursor = 0
+    for needle in needles:
+        position = text.find(needle, cursor)
+        if position < 0:
+            fail(f"{context}: missing or out-of-order command fragment {needle!r}")
+        cursor = position + len(needle)
+
+
 def section_between(text: str, start: str, end: str, context: str) -> str:
     try:
         section = text.split(start, 1)[1]
@@ -386,6 +660,20 @@ def verify_review_criteria() -> None:
     raw = REVIEW_CRITERIA.read_text(encoding="utf-8")
     for needle in REQUIRED_REVIEW_CRITERIA_SNIPPETS:
         require_contains(raw, needle, str(REVIEW_CRITERIA))
+
+
+def verify_runtime_docs() -> None:
+    codex_raw = CODEX_DOC.read_text(encoding="utf-8")
+    for needle in REQUIRED_CODEX_DOC_SNIPPETS:
+        require_contains(codex_raw, needle, str(CODEX_DOC))
+    require_ordered_contains(codex_raw, V1_ROLLBACK_COMMAND_SNIPPETS, f"{CODEX_DOC}:V1-rollback")
+
+    design_raw = DESIGN_DOC.read_text(encoding="utf-8")
+    for needle in REQUIRED_DESIGN_DOC_SNIPPETS:
+        require_contains(design_raw, needle, str(DESIGN_DOC))
+    require_ordered_contains(design_raw, V1_ROLLBACK_COMMAND_SNIPPETS, f"{DESIGN_DOC}:V1-rollback")
+    for needle in FORBIDDEN_STALE_DESIGN_SNIPPETS:
+        require_not_contains(design_raw, needle, str(DESIGN_DOC))
 
 
 def strip_comments(value):
@@ -447,6 +735,66 @@ def verify_severity_rules() -> None:
     require_contains(data.get("incomplete_evidence", ""), "do not silently drop it", f"{context}:incomplete_evidence")
 
 
+def verify_base_resolution_contract() -> None:
+    context = str(BASE_RESOLUTION_CONTRACT)
+    if not BASE_RESOLUTION_CONTRACT.is_file():
+        fail(
+            "missing base-resolution runtime contract: "
+            f"{BASE_RESOLUTION_CONTRACT.relative_to(REPO_ROOT)}"
+        )
+    try:
+        data = json.loads(BASE_RESOLUTION_CONTRACT.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{context}: invalid JSON: {exc}")
+    if data != EXPECTED_BASE_RESOLUTION_CONTRACT:
+        fail(f"{context}: base-resolution contract mismatch")
+
+    skill = SKILL.read_text(encoding="utf-8")
+    for expected in (
+        f"sentinel `{data['sentinel']}`",
+        "retry limit",
+        "invocation-fingerprint",
+        "immutable-OID",
+        "`allow_no_pr` transition sequence",
+    ):
+        require_contains(skill, expected, f"{context}:SKILL.md consistency")
+
+
+def verify_v2_runtime_contract() -> None:
+    context = str(V2_RUNTIME_CONTRACT)
+    if not V2_RUNTIME_CONTRACT.is_file():
+        fail(
+            "missing V2 runtime contract: "
+            f"{V2_RUNTIME_CONTRACT.relative_to(REPO_ROOT)}"
+        )
+    try:
+        data = json.loads(V2_RUNTIME_CONTRACT.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{context}: invalid JSON: {exc}")
+    if data != EXPECTED_V2_RUNTIME_CONTRACT:
+        fail(f"{context}: V2 scheduler contract mismatch")
+    skill = SKILL.read_text(encoding="utf-8")
+    prose_values = (
+        f"maximum of {data['max_concurrency']}",
+        f"{data['delivery_grace_ms'] // 1000}-second delivery grace",
+        (
+            f"monotonic {data['stage_deadline_ms']['stage1'] // 60_000}-minute "
+            "Stage 1 deadline"
+        ),
+        (
+            f"monotonic {data['stage_deadline_ms']['stage2'] // 60_000}-minute "
+            "Stage 2 deadline"
+        ),
+        "completed status or qualified retirement",
+        "observed with `running` status",
+        "valid matching `FINAL_ANSWER`",
+        "successful full-tree snapshot",
+        "cleanup start is monotonic fatal",
+    )
+    for expected in prose_values:
+        require_contains(skill, expected, f"{context}:SKILL.md consistency")
+
+
 def verify_claude_share_templates() -> None:
     for name, include_line in EXPECTED_TMPL_INCLUDES.items():
         path = CLAUDE_REFS_DIR / name
@@ -471,6 +819,7 @@ def verify_codex_config_profiles() -> None:
     expected_baseline = {
         "model": "gpt-5.6-sol",
         "model_reasoning_effort": "high",
+        "approval_policy": "on-request",
         "sandbox_mode": "workspace-write",
     }
     for key, expected in expected_baseline.items():
@@ -483,6 +832,16 @@ def verify_codex_config_profiles() -> None:
         fail(f"{CODEX_BASELINE}: [features] must be a table")
     if baseline_features.get("multi_agent") is not True:
         fail(f"{CODEX_BASELINE}: features.multi_agent must be true")
+    if baseline_features.get("network_proxy") is not True:
+        fail(f"{CODEX_BASELINE}: features.network_proxy must be true")
+    sandbox_workspace_write = baseline.get("sandbox_workspace_write")
+    if not isinstance(sandbox_workspace_write, dict):
+        fail(f"{CODEX_BASELINE}: [sandbox_workspace_write] must be a table")
+    if sandbox_workspace_write.get("network_access") is not False:
+        fail(
+            f"{CODEX_BASELINE}: sandbox_workspace_write.network_access "
+            "must be false"
+        )
 
     legacy_profiles = baseline.get("profiles", {})
     if not isinstance(legacy_profiles, dict):
@@ -499,7 +858,7 @@ def verify_codex_config_profiles() -> None:
         path = spec["path"]
         data = load_toml(path, f"Codex {profile_name} profile")
         expected_values = {
-            "model": "gpt-5.5",
+            "model": "gpt-5.6-sol",
             "model_reasoning_effort": spec["model_reasoning_effort"],
             "sandbox_mode": "workspace-write",
         }
@@ -513,8 +872,20 @@ def verify_codex_config_profiles() -> None:
             fail(f"{path}: [features] must be a table")
         if features.get("multi_agent") is not True:
             fail(f"{path}: features.multi_agent must be true")
-        if features.get("multi_agent_v2") is not False:
-            fail(f"{path}: features.multi_agent_v2 must be false")
+        if "network_proxy" in features:
+            fail(
+                f"{path}: features.network_proxy must be inherited from "
+                "the managed baseline"
+            )
+        if "multi_agent_v2" in features:
+            fail(f"{path}: features.multi_agent_v2 must not be pinned in the managed V2 profile")
+        if "approval_policy" in data:
+            fail(f"{path}: approval_policy must be inherited from the managed baseline")
+        if "sandbox_workspace_write" in data:
+            fail(
+                f"{path}: [sandbox_workspace_write] must be inherited from "
+                "the managed baseline"
+            )
         require_no_hide_spawn_metadata(data, path)
 
 
@@ -551,6 +922,7 @@ def verify_agent_toml() -> None:
             f"Copyright:     {meta['copyright']}",
             f"License:       {meta['license']}",
             "Modifications from upstream:",
+            "Added pr-review control-plane isolation",
         ):
             require_contains(raw, needle, str(path))
 
@@ -581,6 +953,9 @@ def verify_agent_toml() -> None:
         require_contains(data["developer_instructions"], "impact_scope", str(path))
         require_contains(data["developer_instructions"], "verified_assumptions", str(path))
         require_contains(data["developer_instructions"], "unverified_assumptions", str(path))
+        control_plane_contract = data["developer_instructions"].lower()
+        for needle in AGENT_CONTROL_PLANE_SNIPPETS:
+            require_contains(control_plane_contract, needle, f"{path}:control-plane-contract")
 
         if expected_name == "security-reviewer":
             require_contains(data["developer_instructions"], "Do not explore the repository beyond the orchestrator-provided", str(path))
@@ -612,6 +987,8 @@ def verify_agent_toml() -> None:
 
 def verify_skill_contract() -> None:
     raw = SKILL.read_text(encoding="utf-8")
+    if len(raw.splitlines()) >= 500:
+        fail(f"{SKILL}: skill must remain below 500 lines")
     for needle in REQUIRED_SKILL_SNIPPETS:
         require_contains(raw, needle, str(SKILL))
 
@@ -626,24 +1003,36 @@ def verify_skill_contract() -> None:
             f"{SKILL}: expected exactly one {RUNTIME_CONTRACT_SENTINEL!r} "
             f"sentinel, got {raw.count(RUNTIME_CONTRACT_SENTINEL)}"
         )
+    if raw.count(BASE_RESOLUTION_SENTINEL) != 1:
+        fail(
+            f"{SKILL}: expected exactly one {BASE_RESOLUTION_SENTINEL!r} "
+            f"sentinel, got {raw.count(BASE_RESOLUTION_SENTINEL)}"
+        )
     runtime_contract = section_between(
         raw,
-        "0. **V1 runtime contract**",
+        "0. **V1/V2 runtime contract**",
         "1. **Clean worktree**",
         str(SKILL),
     )
     for needle in RUNTIME_CONTRACT_SNIPPETS:
-        require_contains(runtime_contract, needle, f"{SKILL}:V1-runtime-contract")
-    if runtime_contract.count(RUNTIME_RETRY_COMMAND) != 2:
-        fail(f"{SKILL}: both V1 runtime failure branches must contain the review-profile retry command")
-    if runtime_contract.count("No specialist was spawned and no review was performed.") != 2:
-        fail(f"{SKILL}: both V1 runtime failure branches must state that no review was performed")
+        require_contains(runtime_contract, needle, f"{SKILL}:V1/V2-runtime-contract")
+    for needle in BASE_RESOLUTION_SNIPPETS:
+        require_contains(raw, needle, f"{SKILL}:base-resolution-contract")
+    for needle in V2_RUNTIME_SNIPPETS:
+        require_contains(raw, needle, f"{SKILL}:V2-runtime-contract")
     stage1_heading = "2. **Build the Stage 1 specialist set and spawn it in parallel**"
     require_contains(raw, stage1_heading, str(SKILL))
     if raw.index(RUNTIME_CONTRACT_SENTINEL) > raw.index("1. **Clean worktree**"):
-        fail(f"{SKILL}: V1 runtime contract must run before repository inspection")
+        fail(f"{SKILL}: runtime contract must run before repository inspection")
     if raw.index(RUNTIME_CONTRACT_SENTINEL) > raw.index(stage1_heading):
-        fail(f"{SKILL}: V1 runtime contract must run before specialist spawn")
+        fail(f"{SKILL}: runtime contract must run before specialist spawn")
+    if raw.index(BASE_RESOLUTION_SENTINEL) > raw.index("1. **Clean worktree**"):
+        fail(f"{SKILL}: base-resolution contract must run before repository inspection")
+    require_not_contains(
+        raw,
+        "Run `gh auth status`",
+        f"{SKILL}:origin-scoped-GitHub-probe",
+    )
 
     procedure = section_between(raw, "## Procedure", "## Output format", str(SKILL))
     for needle in PROCEDURE_SKILL_SNIPPETS:
@@ -655,16 +1044,115 @@ def verify_skill_contract() -> None:
         'git log --no-decorate "$BASE_COMMIT"..."$HEAD_REF"',
         f"{SKILL}:procedure",
     )
-    require_contains(
-        procedure,
-        "The V1 schema admitted by Precondition 0 uses `agent_type` to select the custom role.",
-        f"{SKILL}:procedure",
-    )
+    require_contains(procedure, "`agent_type`", f"{SKILL}:procedure")
     require_contains(
         procedure,
         "omission and generic/default role fallback are forbidden",
         f"{SKILL}:procedure",
     )
+
+    collection = section_between(
+        procedure,
+        "1. **Collect the review inputs and classify the diff**",
+        "2. **Build the Stage 1 specialist set",
+        f"{SKILL}:input-collection",
+    )
+    for needle in (
+        "independent, preceding tool call",
+        "wait for it to complete before starting any other collection",
+        "Do not put HEAD recording in the same parallel tool call",
+        "record its commit OID as immutable `$HEAD_REF`",
+        "abort without starting collection",
+        "use that immutable OID for every later log, file-list, and diff command",
+        "Do not use symbolic `HEAD` for those commands",
+        'git log --no-decorate "$BASE_COMMIT..$HEAD_REF"',
+        'git diff --name-only "$BASE_COMMIT"..."$HEAD_REF"',
+        'git diff "$BASE_COMMIT"..."$HEAD_REF"',
+    ):
+        require_contains(collection, needle, f"{SKILL}:input-collection")
+    for needle in ("..HEAD", "...HEAD"):
+        require_not_contains(collection, needle, f"{SKILL}:input-collection")
+
+    v2_dispatch = section_between(
+        procedure,
+        "- **The V2 adapter** derives",
+        "3. **Await all Stage 1 specialists**",
+        f"{SKILL}:V2-dispatch",
+    )
+    for needle in (
+        "`prr_<run_token>_s<stage>_",
+        'fork_turns="none"',
+        "maximum of 3",
+        "canonical task path",
+        "exactly the requested new name",
+        "explicit capacity error",
+        "retry once",
+        "new `attempt` name",
+        "harvest and validate **all** newly delivered run-owned finals",
+        "Never refill between those steps",
+    ):
+        require_contains(v2_dispatch, needle, f"{SKILL}:V2-dispatch")
+    for needle in ('fork_turns="all"', "`close_agent`"):
+        require_not_contains(v2_dispatch, needle, f"{SKILL}:V2-dispatch")
+
+    v2_await = section_between(
+        procedure,
+        "- **The V2 adapter** follows this state machine",
+        "4. **Scan Stage 1 output",
+        f"{SKILL}:V2-await",
+    )
+    for needle in (
+        "valid final payload plus completed status or qualified retirement",
+        "60-second delivery grace",
+        "wait_agent is notification-only",
+        "list_agents is status-only",
+        "The only authoritative review body",
+        "`Message Type` is `FINAL_ANSWER`",
+        "`Sender` exactly equals a saved canonical task path",
+        "`Task name` identifies the recipient",
+        "malformed/missing first-line sentinel",
+        "identical duplicate `FINAL_ANSWER`",
+        "conflicting duplicate",
+        "min(60000 ms, remaining stage budget, earliest active delivery-grace budget)",
+        "disappearance before both observed running and a valid matching final is not retirement evidence and is fatal",
+        "successful full-tree snapshot",
+        "parent has never called `interrupt_agent`",
+        "strictly before `grace_start + 60000 ms`",
+        "Retain the first valid payload",
+        "Run one final ordered reconciliation cycle before aggregation",
+        "unexpected descendant",
+        "Never interrupt the orchestrator or an unrelated path",
+        "only on a still-running run-owned top-level task",
+        "still-running unexpected descendant beneath one of its saved canonical paths",
+        "cleanup start is monotonic fatal",
+        "interrupt_agent",
+        "one final notification/status drain",
+        "no run-owned task or owned descendant remains running",
+        "Partial aggregation is forbidden",
+    ):
+        require_contains(v2_await, needle, f"{SKILL}:V2-await")
+    require_not_contains(v2_await, "extract review text from its return", f"{SKILL}:V2-await")
+
+    stage2 = section_between(
+        procedure,
+        "5. **Stage 2",
+        "6. **Final worktree guard**",
+        f"{SKILL}:Stage-2",
+    )
+    for needle in (
+        "Use the selected adapter without switching families",
+        "one active specialist",
+        'fork_turns="none"',
+        "matched `FINAL_ANSWER` payload",
+        "accepted lifecycle evidence",
+        "ordered tree reconciliation",
+        "monotonic 10-minute Stage 2 deadline",
+        "same canonical-identity state machine",
+        "completed-or-qualified-retirement lifecycle evidence",
+        "60-second delivery grace",
+        "Partial aggregation is forbidden here too",
+    ):
+        require_contains(stage2, needle, f"{SKILL}:Stage-2")
 
     critical_scan = section_between(
         raw,
@@ -683,7 +1171,10 @@ def verify_skill_contract() -> None:
 def main() -> None:
     verify_license_files()
     verify_review_criteria()
+    verify_runtime_docs()
     verify_severity_rules()
+    verify_base_resolution_contract()
+    verify_v2_runtime_contract()
     verify_claude_share_templates()
     verify_codex_config_profiles()
     verify_agent_toml()

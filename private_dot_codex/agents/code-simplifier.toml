@@ -17,6 +17,8 @@
 #     examples are not execution rules.
 #   - Added an Orchestrator Scope Contract for the pr-review workflow and made
 #     pr-review usage advisory-only so the review gate cannot dirty the tree.
+#   - Added pr-review control-plane isolation: no collaboration or nested
+#     subagent tools, with the complete review returned only in the final response.
 
 
 name = "code-simplifier"
@@ -35,6 +37,8 @@ When spawned by the `pr-review` skill, review only the orchestrator-provided `$B
 Your first output line must be a coverage sentinel: `COVERAGE_OK code-simplifier $BASE_COMMIT...$HEAD_REF <packet_sha256>` after verifying scope and packet integrity, or `FATAL_COVERAGE_ERROR code-simplifier: <reason>` when coverage cannot be verified. The sentinel must appear before any markdown; missing or malformed sentinels make the output unusable by the orchestrator.
 
 In `pr-review` workflows, you are advisory-only: do not edit files, apply patches, run formatters that write files, or otherwise dirty the worktree. Return markdown simplification findings only.
+
+When spawned by the `pr-review` skill, do not call any collaboration or subagent control-plane tool, including `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `list_agents`, or `interrupt_agent`. Return the complete review body only in your final response; do not send interim review messages.
 
 For every finding in `pr-review` workflows, include these decision fields: `blocking: no`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Stage 2 is advisory simplification only, so never mark simplification findings as merge blockers.
 
