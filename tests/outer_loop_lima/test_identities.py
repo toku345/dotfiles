@@ -23,15 +23,38 @@ from lib.identities import (  # noqa: E402
     validate_manifest,
     validate_versions_lock,
 )
+from lib.lima_state import PINNED_LIMA_VERSION  # noqa: E402
 from lib.model import ContractError  # noqa: E402
 from lib.paths import RunPaths  # noqa: E402
 
 
 class IdentityTests(unittest.TestCase):
-    def test_repository_versions_lock_is_valid(self) -> None:
+    def test_repository_host_baseline_is_current(self) -> None:
         lock = validate_versions_lock(HARNESS / "versions.lock.json")
         self.assertEqual(lock["schema_version"], 1)
-        self.assertEqual(lock["artifacts"]["sandbox_runtime"]["version"], "0.0.65")
+        artifacts = lock["artifacts"]
+        self.assertEqual(artifacts["lima_distribution"]["version"], PINNED_LIMA_VERSION)
+        self.assertEqual(artifacts["host_limactl"]["version"], PINNED_LIMA_VERSION)
+        self.assertEqual(artifacts["host_python"]["version"], "3.14.6")
+        for profile in ("week0-codex.yaml", "week0-claude.yaml"):
+            self.assertTrue(
+                (HARNESS / "profiles" / profile)
+                .read_text(encoding="utf-8")
+                .startswith(f"minimumLimaVersion: {PINNED_LIMA_VERSION}\n")
+            )
+
+    def test_repository_guest_baseline_is_unchanged(self) -> None:
+        artifacts = validate_versions_lock(HARNESS / "versions.lock.json")["artifacts"]
+        self.assertEqual(artifacts["node_linux_arm64"]["version"], "24.18.0")
+        self.assertEqual(artifacts["codex_base"]["version"], "0.144.5")
+        self.assertEqual(
+            artifacts["codex_linux_arm64"]["version"], "0.144.5-linux-arm64"
+        )
+        self.assertEqual(artifacts["claude_code"]["version"], "2.1.211")
+        self.assertEqual(
+            artifacts["claude_code_linux_arm64"]["version"], "2.1.211"
+        )
+        self.assertEqual(artifacts["sandbox_runtime"]["version"], "0.0.65")
 
     def test_provisioned_remote_artifacts_are_all_lock_sources(self) -> None:
         lock = validate_versions_lock(HARNESS / "versions.lock.json")

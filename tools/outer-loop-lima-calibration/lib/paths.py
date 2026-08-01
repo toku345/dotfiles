@@ -20,6 +20,9 @@ STATE_ROOT = Path.home() / ".local/state/outer-loop/lima-prearm/v1"
 DEFAULT_LIMA_POOL_ROOT = Path.home() / ".local/state/ol"
 POOL_BINDING_DOMAIN = b"outer-loop-lima-pool-binding-v1\0"
 TOKEN_LENGTH = 10
+LIMA_LONGEST_SOCKET_NAME = "ssh.sock.1234567890123456"
+LIMA_DARWIN_UNIX_PATH_MAX = 104
+HARNESS_SOCKET_PATH_MAX = 95
 LIMA_BINDING_DIGEST_FIELDS = (
     "run_id",
     "state_root",
@@ -215,15 +218,18 @@ class RunPaths:
         return self.lima_pool_root / ".bindings" / f"{self.lima_home_token}.json"
 
     def socket_path_lengths(self, instance_names: tuple[str, ...]) -> dict[str, int]:
-        longest_socket = "ssh.sock.1234567890123456"
         return {
-            name: len(os.fsencode(self.lima_home / name / longest_socket))
+            name: len(os.fsencode(self.lima_home / name / LIMA_LONGEST_SOCKET_NAME))
             for name in instance_names
         }
 
     def validate_socket_budget(self, instance_names: tuple[str, ...]) -> dict[str, int]:
         lengths = self.socket_path_lengths(instance_names)
-        invalid = {name: size for name, size in lengths.items() if size > 95 or size >= 104}
+        invalid = {
+            name: size
+            for name, size in lengths.items()
+            if size > HARNESS_SOCKET_PATH_MAX or size >= LIMA_DARWIN_UNIX_PATH_MAX
+        }
         if invalid:
             raise ContractError(f"Lima socket path budget exceeded: {invalid}")
         return lengths

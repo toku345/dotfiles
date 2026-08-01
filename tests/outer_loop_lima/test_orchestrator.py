@@ -1566,13 +1566,46 @@ class LimaDriverProvisionTests(unittest.TestCase):
 
         lifecycle = [argv for argv in events if "create" in argv or "start" in argv]
         self.assertEqual([next(value for value in argv if value in {"create", "start"}) for argv in lifecycle], ["create", "create", "start", "start"])
-        for argv in lifecycle[:2]:
-            self.assertIn("--plain", argv)
-            self.assertIn("--mount-none", argv)
-            self.assertNotIn("start", argv)
-        for argv in lifecycle[2:]:
-            self.assertEqual(argv[:4], ("limactl", "--tty=false", "start", "--timeout=20m"))
-            self.assertEqual(len(argv), 5)
+        instances = ("outer-loop-week0-codex", "outer-loop-week0-claude")
+        expected_creates = tuple(
+            (
+                "limactl",
+                "--tty=false",
+                "create",
+                f"--name={instance}",
+                "--plain",
+                "--mount-none",
+                "--containerd=none",
+                "--arch=aarch64",
+                "--vm-type=vz",
+                "--cpus=4",
+                "--memory=8",
+                "--disk=40",
+                str(self.paths.frozen_harness / "profiles" / f"week0-{runtime}.yaml"),
+            )
+            for runtime, instance in zip(("codex", "claude"), instances, strict=True)
+        )
+        expected_starts = tuple(
+            ("limactl", "--tty=false", "start", "--timeout=20m", instance)
+            for instance in instances
+        )
+        self.assertEqual(tuple(lifecycle[:2]), expected_creates)
+        self.assertEqual(tuple(lifecycle[2:]), expected_starts)
+        identity_reads = [argv for argv in events if "list" in argv]
+        self.assertEqual(
+            tuple(identity_reads),
+            tuple(
+                (
+                    "limactl",
+                    "--tty=false",
+                    "list",
+                    "--all-fields",
+                    "--format=json",
+                    instance,
+                )
+                for instance in (*instances, *instances)
+            ),
+        )
         records = [
             json.loads(line)
             for line in (self.paths.evidence / "provision-attempts.jsonl")

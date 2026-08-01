@@ -34,6 +34,8 @@ LIMA_LOG_TIMESTAMP_RE = re.compile(
 EXPECTED_CPUS = 4
 EXPECTED_MEMORY_BYTES = 8 * 1024 * 1024 * 1024
 EXPECTED_DISK_BYTES = 40 * 1024 * 1024 * 1024
+PINNED_LIMA_VERSION = "2.2.0"
+RECOGNIZED_LIMA_STATUSES = ("Running", "Stopped")
 
 
 def is_pinned_no_instance_warning(line: str) -> bool:
@@ -79,12 +81,14 @@ def parser_contract_digest() -> str:
     return hashlib.sha256(
         canonical_json(
             {
-                "contract_version": 1,
-                "format": "lima-2.1.4-json-lines",
+                "contract_version": 2,
+                "format": f"lima-{PINNED_LIMA_VERSION}-json-lines",
                 "empty": "canonical-warning-only",
                 "stderr_with_stdout": "UNKNOWN",
                 "arrays": "UNKNOWN",
                 "duplicates": "UNKNOWN",
+                "accepted_statuses": list(RECOGNIZED_LIMA_STATUSES),
+                "broken_instances": "UNKNOWN",
             }
         )
     ).hexdigest()
@@ -106,6 +110,8 @@ def _identity_from_record(record: object) -> LimaIdentity:
     required_strings = ("name", "status", "dir", "vmType", "arch")
     if any(type(record.get(key)) is not str or not str(record[key]).strip() for key in required_strings):
         raise ContractError("Lima list identity string fields are invalid")
+    if record["status"] not in RECOGNIZED_LIMA_STATUSES:
+        raise ContractError("Lima list identity status is outside the pinned contract")
     for key in ("cpus", "memory", "disk"):
         if type(record.get(key)) is not int:
             raise ContractError("Lima list identity resource fields are invalid")
