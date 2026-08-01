@@ -3,19 +3,19 @@
   "generated_for": "Private Lima pre-arm calibration; no artifact may float",
   "artifacts": {
     "lima_distribution": {
-      "version": "2.1.4",
-      "source": "https://ghcr.io/v2/homebrew/core/lima/blobs/sha256:3c5700d39777426daf59dafdd7afaa34ac29d88ad9c5e4e345929d7cf55410c0",
-      "sha256": "3c5700d39777426daf59dafdd7afaa34ac29d88ad9c5e4e345929d7cf55410c0"
+      "version": "2.2.0",
+      "source": "https://ghcr.io/v2/homebrew/core/lima/blobs/sha256:9dfb60d4c7d0c6721eee679ab188d8b502ad61d1063c9914b830b66ce795b4a4",
+      "sha256": "9dfb60d4c7d0c6721eee679ab188d8b502ad61d1063c9914b830b66ce795b4a4"
     },
     "host_limactl": {
-      "version": "2.1.4",
+      "version": "2.2.0",
       "source": "/opt/homebrew/bin/limactl",
-      "sha256": "3957f467a116b4adb093cecef7af320b9d4ddec81eb95b613b95ad3c76821320"
+      "sha256": "af1b02dfe112e4aaebe0a97f67219762e71987c2c77b913286ecd01f97d3456b"
     },
     "host_python": {
-      "version": "3.14.5",
-      "source": "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/bin/python3.14",
-      "sha256": "2477b47fa3ae65b9574eb18a15edb364e96948eaa1875ad3f1c80d780efc9c12"
+      "version": "3.14.6",
+      "source": "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/bin/python3.14",
+      "sha256": "4f00ea2ad53d62437a6a3946b73c73614a97e8accdc5b96dc095ea1a0d9c6a56"
     },
     "host_rsync": {
       "version": "OpenRSYNC protocol 29; rsync 2.6.9 compatible",
