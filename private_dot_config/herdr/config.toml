@@ -1,0 +1,29 @@
+# Preserve the existing tmux muscle memory while adopting Herdr's
+# workspace/tab/pane model.
+onboarding = false
+
+[terminal]
+# New tabs and panes inherit the current workspace's working directory.
+new_cwd = "follow"
+
+[keys]
+prefix = "ctrl+t"
+
+# Keep Herdr defaults alongside the current tmux window bindings.
+new_tab = ["prefix+c", "prefix+ctrl+c"]
+next_tab = ["prefix+n", "prefix+ctrl+n"]
+previous_tab = ["prefix+p", "prefix+ctrl+p"]
+
+# Match tmux's next-pane and last-pane bindings.
+cycle_pane_next = ["prefix+tab", "prefix+o"]
+last_pane = "prefix+ctrl+o"
+
+# Keep Herdr's detach binding and accept the familiar tmux binding too.
+detach = ["prefix+q", "prefix+d"]
+
+# Explicitly stop the current persistent session, like tmux kill-session.
+[[keys.command]]
+key = "prefix+shift+q"
+type = "shell"
+command = "\"${HERDR_BIN_PATH:-herdr}\" server stop"
+description = "stop current Herdr session"
