@@ -15,13 +15,22 @@ sys.path.insert(0, str(HARNESS))
 from lib.lima_state import (  # noqa: E402
     CLAUDE_INSTANCE,
     CODEX_INSTANCE,
+    LIMA_ADMINISTRATIVE_DIRECTORIES,
+    PINNED_LIMA_VERSION,
+    RECOGNIZED_LIMA_STATUSES,
     inspect_top_level,
     parse_lima_list,
     path_disposition,
     validate_expected_identity,
 )
 from lib.model import ContractError, LimaListDisposition  # noqa: E402
-from lib.paths import RunPaths, derive_lima_home_token  # noqa: E402
+from lib.paths import (  # noqa: E402
+    HARNESS_SOCKET_PATH_MAX,
+    LIMA_DARWIN_UNIX_PATH_MAX,
+    LIMA_LONGEST_SOCKET_NAME,
+    RunPaths,
+    derive_lima_home_token,
+)
 
 
 WARNING = (
@@ -51,6 +60,10 @@ def identity(name: str, directory: str, *, status: str = "Stopped") -> dict[str,
 
 
 class LimaListParserTests(unittest.TestCase):
+    def test_parser_contract_is_pinned_to_lima_2_2_0(self) -> None:
+        self.assertEqual(PINNED_LIMA_VERSION, "2.2.0")
+        self.assertEqual(RECOGNIZED_LIMA_STATUSES, ("Running", "Stopped"))
+
     def test_canonical_warning_with_offset_or_z_is_absent(self) -> None:
         for warning in (WARNING, WARNING_Z):
             with self.subTest(warning=warning):
@@ -106,6 +119,12 @@ class LimaListParserTests(unittest.TestCase):
                     LimaListDisposition.UNKNOWN,
                 )
 
+    def test_broken_instance_is_unknown(self) -> None:
+        broken = identity(CODEX_INSTANCE, "/private/tmp/ol/codex", status="Broken")
+        snapshot = parse_lima_list(0, json.dumps(broken), "")
+        self.assertEqual(snapshot.disposition, LimaListDisposition.UNKNOWN)
+        self.assertEqual(snapshot.record_count, 0)
+
     def test_expected_identity_requires_exact_path_status_and_resources(self) -> None:
         expected_dir = Path("/private/tmp/ol/codex")
         snapshot = parse_lima_list(
@@ -132,14 +151,21 @@ class LimaHomeTests(unittest.TestCase):
     def test_top_level_is_no_follow_and_strict(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
-            (home / "_cache").mkdir()
+            for name in LIMA_ADMINISTRATIVE_DIRECTORIES:
+                (home / name).mkdir()
             (home / CODEX_INSTANCE).mkdir()
             clean = inspect_top_level(home)
             self.assertEqual(clean.disposition, "CLEAN")
             self.assertEqual(clean.fixed_directories, (CODEX_INSTANCE,))
-            (home / "unknown").mkdir()
-            self.assertEqual(inspect_top_level(home).disposition, "UNKNOWN")
-            (home / "unknown").rmdir()
+            self.assertEqual(
+                frozenset(clean.administrative_directories),
+                LIMA_ADMINISTRATIVE_DIRECTORIES,
+            )
+            for name in ("unknown", ".hidden", "_future"):
+                with self.subTest(name=name):
+                    (home / name).mkdir()
+                    self.assertEqual(inspect_top_level(home).disposition, "UNKNOWN")
+                    (home / name).rmdir()
             (home / "link").symlink_to(home / CODEX_INSTANCE)
             self.assertEqual(inspect_top_level(home).disposition, "UNKNOWN")
 
@@ -159,6 +185,10 @@ class LimaHomeTests(unittest.TestCase):
         self.assertNotEqual(first, derive_lima_home_token(Path("/private/state"), "run-0002"))
 
     def test_socket_budget_uses_bytes_and_enforces_internal_95_limit(self) -> None:
+        self.assertEqual(LIMA_LONGEST_SOCKET_NAME, "ssh.sock.1234567890123456")
+        self.assertEqual(len(LIMA_LONGEST_SOCKET_NAME.encode()), 25)
+        self.assertEqual(HARNESS_SOCKET_PATH_MAX, 95)
+        self.assertEqual(LIMA_DARWIN_UNIX_PATH_MAX, 104)
         private_mac = RunPaths.for_run(
             "run-0001",
             Path("/private/state"),
@@ -180,7 +210,7 @@ class LimaHomeTests(unittest.TestCase):
         non_ascii = RunPaths.for_run("run-0001", Path("/state"), Path("/private/tmp/あ"))
         self.assertEqual(
             non_ascii.socket_path_lengths((CLAUDE_INSTANCE,))[CLAUDE_INSTANCE],
-            len(os.fsencode(non_ascii.lima_home / CLAUDE_INSTANCE / "ssh.sock.1234567890123456")),
+            len(os.fsencode(non_ascii.lima_home / CLAUDE_INSTANCE / LIMA_LONGEST_SOCKET_NAME)),
         )
 
     def test_custom_state_requires_explicit_pool_and_allocation_is_write_once(self) -> None:

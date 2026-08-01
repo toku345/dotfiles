@@ -286,7 +286,7 @@ jobs:
       - name: Set up pinned Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.14.5"
+          python-version: "3.14.6"
 
       - name: Install ShellCheck
         run: |
@@ -320,7 +320,7 @@ jobs:
       - name: Install and identify Lima
         run: |
           brew install lima
-          test "$(limactl --version)" = "limactl version 2.1.4"
+          test "$(limactl --version)" = "limactl version 2.2.0"
 
       - name: Validate static profiles without starting a VM
         run: |
