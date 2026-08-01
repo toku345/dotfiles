@@ -13,6 +13,75 @@ FIXED_HARMLESS_CWD = "/home/calibration/workspace/harmless"
 TOOL_FREE_PROMPT = "Reply with exactly CALIBRATION_SMOKE_OK. Do not call any tool."
 SYSTEM_CONFIG = "/etc/codex/config.toml"
 SYSTEM_REQUIREMENTS = "/etc/codex/requirements.toml"
+CODEX_0144_BASE_VERSION = "0.144.5"
+CODEX_0144_LINUX_ARM64_VERSION = "0.144.5-linux-arm64"
+
+
+def _require_exact_string(
+    seed: Mapping[str, Any],
+    key: str,
+    expected: str,
+) -> None:
+    value = seed.get(key)
+    if not isinstance(value, str) or value != expected:
+        raise ContractError(f"Codex 0.144.5 seed value mismatch: {key}")
+
+
+def _require_exact_string_set(
+    seed: Mapping[str, Any],
+    key: str,
+    expected: frozenset[str],
+) -> None:
+    value = seed.get(key)
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ContractError(f"Codex 0.144.5 seed list is invalid: {key}")
+    if len(value) != len(set(value)):
+        raise ContractError(f"Codex 0.144.5 seed list contains duplicates: {key}")
+    if frozenset(value) != expected:
+        raise ContractError(f"Codex 0.144.5 seed values mismatch: {key}")
+
+
+def validate_codex_0144_seed_contract(
+    config_seed: Path,
+    requirements_seed: Path,
+    versions_lock: Mapping[str, Any],
+) -> None:
+    """Validate the frozen, version-specific Codex PermissionProfile seed contract."""
+
+    config = load_toml_flat(config_seed)
+    requirements = load_toml_flat(requirements_seed)
+
+    _require_exact_string(config, "approval_policy", "never")
+    _require_exact_string(config, "sandbox_mode", "workspace-write")
+    _require_exact_string(config, "web_search", "disabled")
+
+    _require_exact_string_set(
+        requirements,
+        "allowed_approval_policies",
+        frozenset({"never"}),
+    )
+    _require_exact_string_set(
+        requirements,
+        "allowed_sandbox_modes",
+        frozenset({"read-only", "workspace-write"}),
+    )
+    _require_exact_string_set(
+        requirements,
+        "allowed_web_search_modes",
+        frozenset({"disabled"}),
+    )
+
+    artifacts = versions_lock.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        raise ContractError("Codex 0.144.5 artifacts are missing from versions lock")
+    expected_versions = {
+        "codex_base": CODEX_0144_BASE_VERSION,
+        "codex_linux_arm64": CODEX_0144_LINUX_ARM64_VERSION,
+    }
+    for artifact_name, expected_version in expected_versions.items():
+        artifact = artifacts.get(artifact_name)
+        if not isinstance(artifact, Mapping) or artifact.get("version") != expected_version:
+            raise ContractError(f"Codex 0.144.5 artifact version mismatch: {artifact_name}")
 
 
 def login_command() -> list[str]:

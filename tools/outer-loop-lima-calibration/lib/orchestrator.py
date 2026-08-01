@@ -96,6 +96,7 @@ from lib.retention import (
     validate_wrapper_readback,
 )
 from lib.sync_guard import validate_sync_invocation
+from runtime.codex import validate_codex_0144_seed_contract
 
 
 RUNTIMES = ("codex", "claude")
@@ -483,14 +484,17 @@ class LimaDriver:
             "sh /usr/local/share/outer-loop/harness/guest/check-mount-policy.sh"
         )
         runtime_check = (
-            "CODEX_HOME=/home/calibration/.codex codex --version | grep -qx 'codex-cli 0.144.5' && "
-            "sudo -u calibration env CODEX_HOME=/home/calibration/.codex "
+            "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
+            "/usr/local/bin/codex --version | grep -qx 'codex-cli 0.144.5' && "
+            "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
             "PYTHONPATH=/usr/local/share/outer-loop/harness "
             "python3 -c \"from pathlib import Path; from runtime.codex import read_effective_config,validate_effective_policy; "
-            "c,r=read_effective_config(); validate_effective_policy(c,r,Path('/etc/codex/config.toml'),Path('/etc/codex/requirements.toml'))\""
+            "c,r=read_effective_config(binary='/usr/local/bin/codex'); "
+            "validate_effective_policy(c,r,Path('/etc/codex/config.toml'),Path('/etc/codex/requirements.toml'))\""
             if runtime == "codex"
-            else "CLAUDE_CONFIG_DIR=/home/calibration/.claude claude --version | grep -q '2.1.211' && "
-            "srt --version | grep -q '0.0.65' && "
+            else "sudo -H -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude "
+            "/usr/local/bin/claude --version | grep -q '2.1.211' && "
+            "sudo -H -u calibration /usr/local/bin/srt --version | grep -q '0.0.65' && "
             "cmp -s /etc/claude-code/managed-settings.json /usr/local/share/outer-loop/harness/seeds/claude/managed-settings.json && "
             "cmp -s /etc/claude-code/managed-mcp.json /usr/local/share/outer-loop/harness/seeds/claude/managed-mcp.json && "
             "cmp -s /etc/claude-code/srt-settings.json /usr/local/share/outer-loop/harness/seeds/claude/srt-settings.json && "
@@ -2170,6 +2174,14 @@ class Orchestrator:
             if host["os"] != "Darwin" or host["machine"] != "arm64":
                 raise ContractError("preflight requires Private Mac arm64 host")
             self._freeze_harness(paths, manifest_path)
+            frozen_lock = validate_versions_lock(
+                paths.frozen_harness / "versions.lock.json"
+            )
+            validate_codex_0144_seed_contract(
+                paths.frozen_harness / "seeds/codex/config.toml",
+                paths.frozen_harness / "seeds/codex/requirements.toml",
+                frozen_lock,
+            )
             freshness = self._freshness_evidence(paths, state, stage="preflight")
             write_once(paths.evidence / "lima-preflight-snapshot.json", freshness)
             lock_digest = sha256_file(lock_path)

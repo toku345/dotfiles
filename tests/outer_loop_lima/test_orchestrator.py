@@ -200,6 +200,7 @@ class OrchestratorTests(unittest.TestCase):
             patch("lib.orchestrator.platform.system", return_value="Darwin"),
             patch("lib.orchestrator.platform.machine", return_value="arm64"),
             patch.object(self.orchestrator, "_freeze_harness"),
+            patch("lib.orchestrator.validate_codex_0144_seed_contract"),
             patch.object(self.orchestrator, "_capture_lima_snapshot", return_value=absent_snapshot()),
         ):
             preflight = self.orchestrator.preflight(run_id)
@@ -242,6 +243,64 @@ class OrchestratorTests(unittest.TestCase):
         self.assertFalse(state["real_task_allowed"])
         status = self.orchestrator.status(run_id)
         self.assertEqual(status["terminal_state"], TerminalState.READY)
+
+    def test_preflight_validates_frozen_codex_seed_before_freshness(self) -> None:
+        run_id = "run-0001"
+        self.orchestrator.init(run_id, "2030-01-02T00:00:00Z")
+        paths = self.orchestrator._paths(run_id)
+        lock = {
+            "artifacts": {
+                name: {"source": f"/{name}", "sha256": "a" * 64, "version": "1"}
+                for name in ("host_python", "host_limactl", "host_rsync")
+            }
+        }
+        events: list[str] = []
+
+        def freeze(*_args: object) -> None:
+            events.append("freeze")
+
+        def reject_seed(config: Path, requirements: Path, frozen_lock: object) -> None:
+            events.append("validate-seed")
+            self.assertEqual(
+                config,
+                paths.frozen_harness / "seeds/codex/config.toml",
+            )
+            self.assertEqual(
+                requirements,
+                paths.frozen_harness / "seeds/codex/requirements.toml",
+            )
+            self.assertIs(frozen_lock, lock)
+            raise ContractError("Codex 0.144.5 seed contract mismatch")
+
+        with (
+            patch("lib.orchestrator.validate_versions_lock", return_value=lock) as versions,
+            patch("lib.orchestrator.validate_manifest", return_value={}),
+            patch("lib.orchestrator.verify_binary_identity", return_value={"verified": "yes"}),
+            patch("lib.orchestrator.platform.system", return_value="Darwin"),
+            patch("lib.orchestrator.platform.machine", return_value="arm64"),
+            patch.object(self.orchestrator, "_freeze_harness", side_effect=freeze),
+            patch(
+                "lib.orchestrator.validate_codex_0144_seed_contract",
+                side_effect=reject_seed,
+            ),
+            patch.object(self.orchestrator, "_freshness_evidence") as freshness,
+            patch("lib.orchestrator.CommandRunner.run") as runner,
+            self.assertRaisesRegex(ContractError, "seed contract mismatch"),
+        ):
+            self.orchestrator.preflight(run_id)
+
+        self.assertEqual(events, ["freeze", "validate-seed"])
+        self.assertEqual(versions.call_count, 2)
+        self.assertEqual(
+            versions.call_args_list[1].args[0],
+            paths.frozen_harness / "versions.lock.json",
+        )
+        freshness.assert_not_called()
+        runner.assert_not_called()
+        state = self.orchestrator._load(paths)
+        self.assertEqual(state["phase"], Phase.BLOCKED)
+        self.assertEqual(state["terminal_state"], TerminalState.BLOCKED)
+        self.assertEqual(state["approval_targets"], {})
 
     def test_phase_skip_and_same_run_retry_are_rejected(self) -> None:
         self.orchestrator.init("run-0001", "2030-01-02T00:00:00Z")
@@ -1634,16 +1693,61 @@ class LimaDriverProvisionTests(unittest.TestCase):
 
         with patch.object(self.driver, "_shell", side_effect=result) as shell:
             policy = self.driver._guest_policy_check("codex")
+            codex_calls = list(shell.call_args_list)
+            shell.reset_mock()
+            self.driver._guest_policy_check("claude")
+            claude_calls = list(shell.call_args_list)
         self.assertEqual(
-            [call.kwargs["failure_stage"] for call in shell.call_args_list],
+            [call.kwargs["failure_stage"] for call in codex_calls],
             [
                 BoundedCommandStage.POST_START_POLICY_CHECK,
                 BoundedCommandStage.POST_START_IDENTITY_DIGEST,
                 BoundedCommandStage.POST_START_PACKAGE_QUERY,
             ],
         )
-        policy_command = shell.call_args_list[0].args[1][-1]
-        self.assertIn("guest/check-mount-policy.sh", policy_command)
+        self.assertEqual(
+            [call.kwargs["failure_stage"] for call in claude_calls],
+            [
+                BoundedCommandStage.POST_START_POLICY_CHECK,
+                BoundedCommandStage.POST_START_IDENTITY_DIGEST,
+                BoundedCommandStage.POST_START_PACKAGE_QUERY,
+            ],
+        )
+        codex_command = codex_calls[0].args[1][-1]
+        claude_command = claude_calls[0].args[1][-1]
+        self.assertIn("guest/check-mount-policy.sh", codex_command)
+        self.assertIn(
+            "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
+            "/usr/local/bin/codex --version",
+            codex_command,
+        )
+        self.assertIn(
+            "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
+            "PYTHONPATH=/usr/local/share/outer-loop/harness python3 -c",
+            codex_command,
+        )
+        self.assertIn(
+            "read_effective_config(binary='/usr/local/bin/codex')",
+            codex_command,
+        )
+        self.assertNotIn(
+            "CODEX_HOME=/home/calibration/.codex codex --version",
+            codex_command,
+        )
+        self.assertIn(
+            "sudo -H -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude "
+            "/usr/local/bin/claude --version",
+            claude_command,
+        )
+        self.assertIn(
+            "sudo -H -u calibration /usr/local/bin/srt --version",
+            claude_command,
+        )
+        self.assertNotIn(
+            "CLAUDE_CONFIG_DIR=/home/calibration/.claude claude --version",
+            claude_command,
+        )
+        self.assertNotIn("&& srt --version", claude_command)
         self.assertEqual(
             policy["mounts"],
             "no-host-mounts;exact-lima-cidata-allowed",
