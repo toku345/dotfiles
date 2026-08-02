@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# hw: launch or address the Herdr named session for the current Git checkout.
+set -euo pipefail
+
+readonly PROGRAM_NAME="hw"
+readonly MAX_SESSION_NAME_LENGTH=40
+
+usage() {
+  cat <<'EOF'
+Usage: hw [HERDR_ARGS...]
+
+Launch or address the Herdr named session derived from the current Git
+checkout's top-level directory name.
+
+Session-routing options are intentionally rejected:
+  --session, --no-session, --remote, and a leading `session` subcommand
+
+Run `herdr` directly for the default machine-operations session, remote
+sessions, or cross-session management.
+EOF
+}
+
+error() {
+  printf '%s: %s\n' "$PROGRAM_NAME" "$1" >&2
+}
+
+resolve_executable() {
+  local name="$1"
+  local resolved
+
+  if ! resolved="$(type -P "$name")" || [[ -z "$resolved" ]]; then
+    error "required command not found on PATH: $name"
+    return 127
+  fi
+
+  printf '%s\n' "$resolved"
+}
+
+validate_args() {
+  local arg
+  local inspect=1
+
+  if [[ "${1:-}" == "session" ]]; then
+    error "the 'session' subcommand bypasses checkout-derived routing; run herdr directly"
+    return 2
+  fi
+
+  for arg in "$@"; do
+    if (( inspect == 0 )); then
+      continue
+    fi
+
+    case "$arg" in
+      --)
+        inspect=0
+        ;;
+      --session | --session=* | --no-session | --remote | --remote=*)
+        error "session-routing option is not allowed: $arg"
+        return 2
+        ;;
+    esac
+  done
+}
+
+derive_session_name() {
+  local raw_name="$1"
+  local cksum_bin="$2"
+  local tr_bin="$3"
+  local slug checksum_output checksum suffix prefix_length
+
+  if [[ "$raw_name" != "default" ]] \
+    && [[ "$raw_name" =~ ^[A-Za-z0-9._-]+$ ]] \
+    && (( ${#raw_name} <= MAX_SESSION_NAME_LENGTH )); then
+    printf '%s\n' "$raw_name"
+    return 0
+  fi
+
+  if ! slug="$(printf '%s' "$raw_name" | LC_ALL=C "$tr_bin" -cs 'A-Za-z0-9._-' '-')"; then
+    error "failed to normalize the checkout name with tr"
+    return 1
+  fi
+  while [[ "$slug" == -* ]]; do
+    slug="${slug#-}"
+  done
+  while [[ "$slug" == *- ]]; do
+    slug="${slug%-}"
+  done
+  if [[ -z "$slug" ]]; then
+    slug="session"
+  fi
+
+  if ! checksum_output="$(printf '%s' "$raw_name" | "$cksum_bin")"; then
+    error "failed to checksum the checkout name with cksum"
+    return 1
+  fi
+  read -r checksum _ <<< "$checksum_output"
+  if [[ ! "$checksum" =~ ^[0-9]+$ ]]; then
+    error "cksum returned an unexpected result"
+    return 1
+  fi
+
+  suffix="-$checksum"
+  prefix_length=$((MAX_SESSION_NAME_LENGTH - ${#suffix}))
+  if (( prefix_length < 1 )); then
+    error "checksum suffix exceeds the session-name limit"
+    return 1
+  fi
+
+  slug="${slug:0:prefix_length}"
+  while [[ "$slug" == *- ]]; do
+    slug="${slug%-}"
+  done
+  if [[ -z "$slug" ]]; then
+    slug="s"
+  fi
+
+  printf '%s%s\n' "$slug" "$suffix"
+}
+
+main() {
+  local git_bin herdr_bin cksum_bin tr_bin repo_root repo_root_output raw_name session_name
+
+  case "${1:-}" in
+    -h | --help)
+      usage
+      return 0
+      ;;
+  esac
+
+  validate_args "$@" || return $?
+
+  git_bin="$(resolve_executable git)" || return $?
+  herdr_bin="$(resolve_executable herdr)" || return $?
+  cksum_bin="$(resolve_executable cksum)" || return $?
+  tr_bin="$(resolve_executable tr)" || return $?
+
+  # Keep command substitution from stripping newline bytes that belong to the
+  # checkout path, then remove only Git's output record terminator.
+  if ! repo_root_output="$(
+    "$git_bin" rev-parse --show-toplevel &&
+      printf '\037'
+  )"; then
+    error "unable to resolve the current Git worktree"
+    printf 'For machine operations outside Git, run: herdr\n' >&2
+    return 2
+  fi
+  repo_root="${repo_root_output%$'\x1f'}"
+  if [[ "$repo_root" != *$'\n' ]]; then
+    error "git returned an unexpected worktree path"
+    return 1
+  fi
+  repo_root="${repo_root%$'\n'}"
+
+  raw_name="${repo_root##*/}"
+  session_name="$(derive_session_name "$raw_name" "$cksum_bin" "$tr_bin")" || return $?
+
+  printf '%s: checkout=%s session=%s\n' "$PROGRAM_NAME" "$repo_root" "$session_name" >&2
+
+  unset HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH
+  exec "$herdr_bin" --session "$session_name" "$@"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

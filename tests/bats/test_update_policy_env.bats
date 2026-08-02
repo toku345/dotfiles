@@ -63,6 +63,45 @@ assert_pattern_absent() {
   esac
 }
 
+brew_install_block_for_os() {
+  local os="$1"
+  local script="$2"
+
+  case "$os" in
+    darwin)
+      sed -n '/if \[ "$CHEZMOI_OS" = "darwin" \]/,/elif \[ "$CHEZMOI_OS" = "linux" \]/p' "$script"
+      ;;
+    linux)
+      sed -n '/elif \[ "$CHEZMOI_OS" = "linux" \]/,/^else$/p' "$script"
+      ;;
+    *)
+      echo "unsupported test OS: $os" >&2
+      return 2
+      ;;
+  esac
+}
+
+join_shell_continuations() {
+  awk '
+    {
+      current = $0
+      continued = sub(/[[:space:]]*\\[[:space:]]*$/, "", current)
+      if (logical == "") {
+        logical = current
+      } else {
+        logical = logical " " current
+      }
+      if (!continued) {
+        print logical
+        logical = ""
+      }
+    }
+    END {
+      if (logical != "") print logical
+    }
+  '
+}
+
 @test "dot_bashrc exports Homebrew policy env and ASDF_CONFIG_FILE" {
   run env -i \
     HOME="$BATS_TEST_TMPDIR/home" \
@@ -162,6 +201,30 @@ STUB
   [ "$(grep -c '^HOMEBREW_NO_AUTO_UPDATE=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_INSTALL_UPGRADE=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
+}
+
+@test "run-once installer includes Herdr in Homebrew packages on macOS and Linux" {
+  script="$REPO_ROOT/.chezmoiscripts/run_once_before_install-minimum-packages.sh"
+
+  for os in darwin linux; do
+    block="$(brew_install_block_for_os "$os" "$script")"
+    normalized="$(printf '%s\n' "$block" | join_shell_continuations)"
+    set +e
+    grep -Eq '^[[:space:]]*brew[[:space:]]+install([[:space:]]+[^[:space:]]+)*[[:space:]]+herdr([[:space:]]|$)' <<<"$normalized"
+    grep_status="$?"
+    set -e
+    case "$grep_status" in
+      0) ;;
+      1)
+        echo "Herdr missing from $os Homebrew package list" >&2
+        return 1
+        ;;
+      *)
+        echo "grep failed while checking $os Homebrew package list" >&2
+        return 2
+        ;;
+    esac
+  done
 }
 
 @test "managed asdf config disables the short-name repository" {

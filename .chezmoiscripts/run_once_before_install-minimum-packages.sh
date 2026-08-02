@@ -11,7 +11,7 @@ if [ "$CHEZMOI_OS" = "darwin" ]; then
     # ==== macOS: Homebrew ====
     brew update
     brew install coreutils git gitleaks git-delta starship fzf eza bat fd ripgrep
-    brew install tmux direnv shadowenv asdf age fish nano aspell gh
+    brew install tmux direnv shadowenv asdf age fish nano aspell gh herdr
     brew install coderabbitai/tap/git-gtr
     brew install --cask karabiner-elements
     brew install --cask font-fira-code-nerd-font font-fira-mono-nerd-font \
@@ -30,7 +30,7 @@ elif [ "$CHEZMOI_OS" = "linux" ]; then
 
     brew update
     brew install gh tmux starship fzf eza bat fd ripgrep \
-                 git-delta direnv nano aspell gitleaks asdf
+                 git-delta direnv nano aspell gitleaks asdf herdr
     brew install coderabbitai/tap/git-gtr
 
 else

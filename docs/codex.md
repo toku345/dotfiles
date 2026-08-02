@@ -98,6 +98,12 @@ Codex CLI の TUI footer は baseline で最小限の常時表示にする。
 - `context-remaining`
 - `five-hour-limit`
 - `codex-version`
+- `pull-request-number`
+- `branch-changes`
+- `run-state`
+- `task-progress`
+
+status line の項目ごとの色表示は `status_line_use_colors = true` で有効にする。
 
 `used-tokens` は長時間セッションの診断には有用だが、常時表示ではノイズになりやすいため baseline には入れない。必要な時は `/status` または `/statusline` で確認する。
 
