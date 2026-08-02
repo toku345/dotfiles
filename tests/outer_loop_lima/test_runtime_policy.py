@@ -146,18 +146,29 @@ class RuntimePolicyTests(unittest.TestCase):
                         self.codex_0144_lock(),
                     )
 
-    def test_codex_0144_seed_contract_rejects_missing_or_extra_sandbox_modes(self) -> None:
+    def test_codex_0144_seed_contract_rejects_missing_or_extra_allowed_values(self) -> None:
         cases = (
-            ("workspace-write",),
-            ("read-only", "workspace-write", "danger-full-access"),
+            {"allowed_approval_policies": ()},
+            {"allowed_approval_policies": ("never", "on-request")},
+            {"allowed_sandbox_modes": ("workspace-write",)},
+            {
+                "allowed_sandbox_modes": (
+                    "read-only",
+                    "workspace-write",
+                    "danger-full-access",
+                )
+            },
+            {"allowed_web_search_modes": ()},
+            {"allowed_web_search_modes": ("disabled", "live")},
         )
-        for allowed in cases:
-            with self.subTest(allowed=allowed), tempfile.TemporaryDirectory() as temporary:
+        for overrides in cases:
+            field = next(iter(overrides))
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as temporary:
                 config, requirements = self.codex_seed_contract(
                     Path(temporary),
-                    allowed_sandbox_modes=allowed,
+                    **overrides,
                 )
-                with self.assertRaisesRegex(ContractError, "allowed_sandbox_modes"):
+                with self.assertRaisesRegex(ContractError, field):
                     codex.validate_codex_0144_seed_contract(
                         config,
                         requirements,

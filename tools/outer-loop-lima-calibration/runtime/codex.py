@@ -46,7 +46,7 @@ def validate_codex_0144_seed_contract(
     requirements_seed: Path,
     versions_lock: Mapping[str, Any],
 ) -> None:
-    """Validate the frozen, version-specific Codex PermissionProfile seed contract."""
+    """Validate the reviewed policy subset and pinned versions in frozen Codex seeds."""
 
     config = load_toml_flat(config_seed)
     requirements = load_toml_flat(requirements_seed)

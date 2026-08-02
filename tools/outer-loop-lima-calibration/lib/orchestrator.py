@@ -484,17 +484,20 @@ class LimaDriver:
             "sh /usr/local/share/outer-loop/harness/guest/check-mount-policy.sh"
         )
         runtime_check = (
-            "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
-            "/usr/local/bin/codex --version | grep -qx 'codex-cli 0.144.5' && "
+            'codex_version="$(sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex '
+            '/usr/local/bin/codex --version)" && '
+            "printf '%s\\n' \"$codex_version\" | grep -qx 'codex-cli 0.144.5' && "
             "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
             "PYTHONPATH=/usr/local/share/outer-loop/harness "
             "python3 -c \"from pathlib import Path; from runtime.codex import read_effective_config,validate_effective_policy; "
             "c,r=read_effective_config(binary='/usr/local/bin/codex'); "
             "validate_effective_policy(c,r,Path('/etc/codex/config.toml'),Path('/etc/codex/requirements.toml'))\""
             if runtime == "codex"
-            else "sudo -H -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude "
-            "/usr/local/bin/claude --version | grep -q '2.1.211' && "
-            "sudo -H -u calibration /usr/local/bin/srt --version | grep -q '0.0.65' && "
+            else 'claude_version="$(sudo -H -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude '
+            '/usr/local/bin/claude --version)" && '
+            "printf '%s\\n' \"$claude_version\" | grep -q '2.1.211' && "
+            'srt_version="$(sudo -H -u calibration /usr/local/bin/srt --version)" && '
+            "printf '%s\\n' \"$srt_version\" | grep -q '0.0.65' && "
             "cmp -s /etc/claude-code/managed-settings.json /usr/local/share/outer-loop/harness/seeds/claude/managed-settings.json && "
             "cmp -s /etc/claude-code/managed-mcp.json /usr/local/share/outer-loop/harness/seeds/claude/managed-mcp.json && "
             "cmp -s /etc/claude-code/srt-settings.json /usr/local/share/outer-loop/harness/seeds/claude/srt-settings.json && "

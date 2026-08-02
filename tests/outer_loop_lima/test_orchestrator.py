@@ -1755,6 +1755,17 @@ class LimaDriverProvisionTests(unittest.TestCase):
             codex_command,
         )
         self.assertIn(
+            'codex_version="$(sudo -H -u calibration env '
+            'CODEX_HOME=/home/calibration/.codex '
+            '/usr/local/bin/codex --version)" &&',
+            codex_command,
+        )
+        self.assertIn(
+            "printf '%s\\n' \"$codex_version\" | grep -qx 'codex-cli 0.144.5'",
+            codex_command,
+        )
+        self.assertNotIn("/usr/local/bin/codex --version | grep", codex_command)
+        self.assertIn(
             "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
             "PYTHONPATH=/usr/local/share/outer-loop/harness python3 -c",
             codex_command,
@@ -1773,9 +1784,30 @@ class LimaDriverProvisionTests(unittest.TestCase):
             claude_command,
         )
         self.assertIn(
+            'claude_version="$(sudo -H -u calibration env '
+            'CLAUDE_CONFIG_DIR=/home/calibration/.claude '
+            '/usr/local/bin/claude --version)" &&',
+            claude_command,
+        )
+        self.assertIn(
+            "printf '%s\\n' \"$claude_version\" | grep -q '2.1.211'",
+            claude_command,
+        )
+        self.assertNotIn("/usr/local/bin/claude --version | grep", claude_command)
+        self.assertIn(
             "sudo -H -u calibration /usr/local/bin/srt --version",
             claude_command,
         )
+        self.assertIn(
+            'srt_version="$(sudo -H -u calibration '
+            '/usr/local/bin/srt --version)" &&',
+            claude_command,
+        )
+        self.assertIn(
+            "printf '%s\\n' \"$srt_version\" | grep -q '0.0.65'",
+            claude_command,
+        )
+        self.assertNotIn("/usr/local/bin/srt --version | grep", claude_command)
         self.assertNotIn(
             "CLAUDE_CONFIG_DIR=/home/calibration/.claude claude --version",
             claude_command,
@@ -1785,6 +1817,19 @@ class LimaDriverProvisionTests(unittest.TestCase):
             policy["mounts"],
             "no-host-mounts;exact-lima-cidata-allowed",
         )
+
+    def test_version_capture_preserves_nonzero_producer_status(self) -> None:
+        command = (
+            'version="$(printf \'codex-cli 0.144.5\\n\'; exit 7)" && '
+            "printf '%s\\n' \"$version\" | grep -qx 'codex-cli 0.144.5'"
+        )
+        result = subprocess.run(
+            ("/bin/sh", "-ceu", command),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
 
     def test_timeout_is_durably_classified_and_same_action_retry_is_rejected(self) -> None:
         argv = (
