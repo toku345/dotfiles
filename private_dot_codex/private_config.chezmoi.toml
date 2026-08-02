@@ -37,4 +37,9 @@ status_line = [
   "context-remaining",
   "five-hour-limit",
   "codex-version",
+  "pull-request-number",
+  "branch-changes",
+  "run-state",
+  "task-progress",
 ]
+status_line_use_colors = true
