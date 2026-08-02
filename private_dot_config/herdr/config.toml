@@ -2,6 +2,10 @@
 # workspace/tab/pane model.
 onboarding = false
 
+[ui]
+# Keep mouse-drag selection visible without copying it automatically.
+copy_on_select = false
+
 [terminal]
 # New panes, tabs, and workspaces inherit the source pane or workspace cwd
 # when no explicit cwd is provided.
