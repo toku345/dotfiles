@@ -266,6 +266,18 @@ jobs:
           bats --version
           fish --version
 
+      - name: Install Herdr with Homebrew
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          echo "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
+          brew install herdr
+          herdr --version
+
+      - name: Validate managed Herdr configuration
+        env:
+          HERDR_CONFIG_PATH: ${{ github.workspace }}/private_dot_config/herdr/config.toml
+        run: herdr config check
+
       - name: Run bats test suite
         run: bats tests/bats/
 
