@@ -119,7 +119,7 @@ derive_session_name() {
 }
 
 main() {
-  local git_bin herdr_bin cksum_bin tr_bin repo_root raw_name session_name
+  local git_bin herdr_bin cksum_bin tr_bin repo_root repo_root_output raw_name session_name
 
   case "${1:-}" in
     -h | --help)
@@ -135,11 +135,22 @@ main() {
   cksum_bin="$(resolve_executable cksum)" || return $?
   tr_bin="$(resolve_executable tr)" || return $?
 
-  if ! repo_root="$("$git_bin" rev-parse --show-toplevel)"; then
+  # Keep command substitution from stripping newline bytes that belong to the
+  # checkout path, then remove only Git's output record terminator.
+  if ! repo_root_output="$(
+    "$git_bin" rev-parse --show-toplevel &&
+      printf '\037'
+  )"; then
     error "unable to resolve the current Git worktree"
     printf 'For machine operations outside Git, run: herdr\n' >&2
     return 2
   fi
+  repo_root="${repo_root_output%$'\x1f'}"
+  if [[ "$repo_root" != *$'\n' ]]; then
+    error "git returned an unexpected worktree path"
+    return 1
+  fi
+  repo_root="${repo_root%$'\n'}"
 
   raw_name="${repo_root##*/}"
   session_name="$(derive_session_name "$raw_name" "$cksum_bin" "$tr_bin")" || return $?

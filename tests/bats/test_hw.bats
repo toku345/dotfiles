@@ -119,6 +119,21 @@ expected_checksum() {
   [ "$(session_arg)" = "foo-bar-$checksum" ]
 }
 
+@test "trailing newline in repository basename remains checksum-isolated" {
+  local raw_name=$'foo\n'
+  local repo="$BATS_TEST_TMPDIR/$raw_name"
+  local checksum
+  checksum="$(expected_checksum "$raw_name")"
+  init_repo "$repo"
+
+  cd "$repo"
+  run hw
+
+  [ "$status" -eq 0 ]
+  [ "$(session_arg)" = "foo-$checksum" ]
+  [ "$(session_arg)" != "foo" ]
+}
+
 @test "different invalid basenames do not normalize to the same session" {
   local first="$BATS_TEST_TMPDIR/foo bar"
   local second="$BATS_TEST_TMPDIR/foo@bar"

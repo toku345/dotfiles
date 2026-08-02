@@ -3,7 +3,8 @@
 onboarding = false
 
 [terminal]
-# New tabs and panes inherit the current workspace's working directory.
+# New panes, tabs, and workspaces inherit the source pane or workspace cwd
+# when no explicit cwd is provided.
 new_cwd = "follow"
 
 [keys]

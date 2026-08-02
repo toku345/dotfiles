@@ -23,7 +23,7 @@ Add a Bash launcher named `hw`, deployed as `~/.local/bin/hw`, that maps the cur
 - The checksum reduces avoidable collisions between different basenames that normalize to the same slug, but does not guarantee uniqueness. It intentionally does not include the full checkout path: two checkouts with the same basename still select the same session, matching the previous tmux convention and requiring checkout directory names to be unique in normal use.
 - `hw` forwards ordinary Herdr arguments to the derived named session, but rejects `--session`, `--no-session`, `--remote`, and the leading `session` management subcommand. Arguments after `--` are payload and are not inspected.
 - Before launching Herdr, `hw` removes inherited `HERDR_ENV`, `HERDR_SESSION`, and `HERDR_SOCKET_PATH` so an enclosing Herdr pane cannot trigger the nested-session guard or override the checkout-derived route.
-- Outside a Git checkout, `hw` fails and directs the operator to run `herdr`. There is no implicit fallback to the default session.
+- With its required commands available, `hw` fails outside a Git checkout and directs the operator to run `herdr`. There is no implicit fallback to the default session.
 - Running `herdr` directly from `$HOME` remains the machine-operations workflow and uses the default session.
 
 Keep the tmux-derived Herdr keybindings in `~/.config/herdr/config.toml`. `prefix+q` and `prefix+d` detach the client. `prefix+shift+q` runs `"${HERDR_BIN_PATH:-herdr}" server stop`; Herdr supplies custom shell commands with the active `HERDR_SOCKET_PATH`, so this stops the current named session rather than assuming the default session.
