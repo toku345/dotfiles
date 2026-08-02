@@ -4,6 +4,7 @@ import errno
 import hashlib
 import json
 import io
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1790,7 +1791,7 @@ class LimaDriverProvisionTests(unittest.TestCase):
             claude_command,
         )
         self.assertIn(
-            "printf '%s\\n' \"$claude_version\" | grep -q '2.1.211'",
+            "test \"$claude_version\" = '2.1.211 (Claude Code)'",
             claude_command,
         )
         self.assertNotIn("/usr/local/bin/claude --version | grep", claude_command)
@@ -1804,7 +1805,7 @@ class LimaDriverProvisionTests(unittest.TestCase):
             claude_command,
         )
         self.assertIn(
-            "printf '%s\\n' \"$srt_version\" | grep -q '0.0.65'",
+            "test \"$srt_version\" = '0.0.65'",
             claude_command,
         )
         self.assertNotIn("/usr/local/bin/srt --version | grep", claude_command)
@@ -1830,6 +1831,32 @@ class LimaDriverProvisionTests(unittest.TestCase):
             check=False,
         )
         self.assertNotEqual(result.returncode, 0)
+
+    def test_exact_version_comparison_rejects_noncanonical_output(self) -> None:
+        cases = (
+            ("2.1.211 (Claude Code)", "2.1.211 (Claude Code)", True),
+            ("2.1.211", "2.1.211 (Claude Code)", False),
+            ("2.1.2110 (Claude Code)", "2.1.211 (Claude Code)", False),
+            ("prefix 2.1.211 (Claude Code)", "2.1.211 (Claude Code)", False),
+            ("2x1y211 (Claude Code)", "2.1.211 (Claude Code)", False),
+            ("0.0.65", "0.0.65", True),
+            ("0.0.650", "0.0.65", False),
+            ("prefix 0.0.65", "0.0.65", False),
+            ("0x0y65", "0.0.65", False),
+        )
+        for actual, expected, accepted in cases:
+            with self.subTest(actual=actual, expected=expected):
+                command = (
+                    f"version={shlex.quote(actual)}; "
+                    f"test \"$version\" = {shlex.quote(expected)}"
+                )
+                result = subprocess.run(
+                    ("/bin/sh", "-ceu", command),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode == 0, accepted)
 
     def test_timeout_is_durably_classified_and_same_action_retry_is_rejected(self) -> None:
         argv = (

@@ -495,9 +495,9 @@ class LimaDriver:
             if runtime == "codex"
             else 'claude_version="$(sudo -H -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude '
             '/usr/local/bin/claude --version)" && '
-            "printf '%s\\n' \"$claude_version\" | grep -q '2.1.211' && "
+            "test \"$claude_version\" = '2.1.211 (Claude Code)' && "
             'srt_version="$(sudo -H -u calibration /usr/local/bin/srt --version)" && '
-            "printf '%s\\n' \"$srt_version\" | grep -q '0.0.65' && "
+            "test \"$srt_version\" = '0.0.65' && "
             "cmp -s /etc/claude-code/managed-settings.json /usr/local/share/outer-loop/harness/seeds/claude/managed-settings.json && "
             "cmp -s /etc/claude-code/managed-mcp.json /usr/local/share/outer-loop/harness/seeds/claude/managed-mcp.json && "
             "cmp -s /etc/claude-code/srt-settings.json /usr/local/share/outer-loop/harness/seeds/claude/srt-settings.json && "
