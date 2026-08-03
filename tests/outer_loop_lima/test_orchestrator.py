@@ -1762,10 +1762,13 @@ class LimaDriverProvisionTests(unittest.TestCase):
             codex_command,
         )
         self.assertIn(
-            "printf '%s\\n' \"$codex_version\" | grep -qx 'codex-cli 0.144.5'",
+            "test \"$codex_version\" = 'codex-cli 0.144.5'",
             codex_command,
         )
-        self.assertNotIn("/usr/local/bin/codex --version | grep", codex_command)
+        self.assertNotIn(
+            "printf '%s\\n' \"$codex_version\" | grep",
+            codex_command,
+        )
         self.assertIn(
             "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
             "PYTHONPATH=/usr/local/share/outer-loop/harness python3 -c",
@@ -1822,7 +1825,7 @@ class LimaDriverProvisionTests(unittest.TestCase):
     def test_version_capture_preserves_nonzero_producer_status(self) -> None:
         command = (
             'version="$(printf \'codex-cli 0.144.5\\n\'; exit 7)" && '
-            "printf '%s\\n' \"$version\" | grep -qx 'codex-cli 0.144.5'"
+            "test \"$version\" = 'codex-cli 0.144.5'"
         )
         result = subprocess.run(
             ("/bin/sh", "-ceu", command),
@@ -1834,6 +1837,8 @@ class LimaDriverProvisionTests(unittest.TestCase):
 
     def test_exact_version_comparison_rejects_noncanonical_output(self) -> None:
         cases = (
+            ("codex-cli 0.144.5", "codex-cli 0.144.5", True),
+            ("codex-cli 0.144.5\nunexpected", "codex-cli 0.144.5", False),
             ("2.1.211 (Claude Code)", "2.1.211 (Claude Code)", True),
             ("2.1.211", "2.1.211 (Claude Code)", False),
             ("2.1.2110 (Claude Code)", "2.1.211 (Claude Code)", False),

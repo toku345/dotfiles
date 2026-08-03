@@ -486,7 +486,7 @@ class LimaDriver:
         runtime_check = (
             'codex_version="$(sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex '
             '/usr/local/bin/codex --version)" && '
-            "printf '%s\\n' \"$codex_version\" | grep -qx 'codex-cli 0.144.5' && "
+            "test \"$codex_version\" = 'codex-cli 0.144.5' && "
             "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
             "PYTHONPATH=/usr/local/share/outer-loop/harness "
             "python3 -c \"from pathlib import Path; from runtime.codex import read_effective_config,validate_effective_policy; "
