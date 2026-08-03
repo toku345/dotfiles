@@ -52,6 +52,170 @@ def unflatten(flattened: dict[str, object]) -> dict[str, object]:
 
 
 class RuntimePolicyTests(unittest.TestCase):
+    @staticmethod
+    def codex_seed_contract(
+        root: Path,
+        *,
+        approval_policy: object = "never",
+        sandbox_mode: object = "workspace-write",
+        web_search: object = "disabled",
+        allowed_approval_policies: object = ("never",),
+        allowed_sandbox_modes: object = ("read-only", "workspace-write"),
+        allowed_web_search_modes: object = ("disabled",),
+    ) -> tuple[Path, Path]:
+        def toml_value(value: object) -> str:
+            if isinstance(value, str):
+                return json.dumps(value)
+            if isinstance(value, tuple):
+                return "[" + ", ".join(toml_value(item) for item in value) + "]"
+            if isinstance(value, bool):
+                return str(value).lower()
+            raise AssertionError(f"unsupported TOML fixture value: {value!r}")
+
+        config = root / "config.toml"
+        requirements = root / "requirements.toml"
+        config.write_text(
+            "\n".join(
+                (
+                    f"approval_policy = {toml_value(approval_policy)}",
+                    f"sandbox_mode = {toml_value(sandbox_mode)}",
+                    f"web_search = {toml_value(web_search)}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        requirements.write_text(
+            "\n".join(
+                (
+                    "allowed_approval_policies = "
+                    f"{toml_value(allowed_approval_policies)}",
+                    "allowed_sandbox_modes = "
+                    f"{toml_value(allowed_sandbox_modes)}",
+                    "allowed_web_search_modes = "
+                    f"{toml_value(allowed_web_search_modes)}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        return config, requirements
+
+    @staticmethod
+    def codex_0144_lock() -> dict[str, object]:
+        return {
+            "artifacts": {
+                "codex_base": {"version": "0.144.5"},
+                "codex_linux_arm64": {"version": "0.144.5-linux-arm64"},
+            }
+        }
+
+    def test_codex_0144_seed_contract_accepts_exact_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config, requirements = self.codex_seed_contract(Path(temporary))
+            codex.validate_codex_0144_seed_contract(
+                config,
+                requirements,
+                self.codex_0144_lock(),
+            )
+
+    def test_repository_codex_0144_seed_contract_is_valid(self) -> None:
+        lock = json.loads((HARNESS / "versions.lock.json").read_text(encoding="utf-8"))
+        codex.validate_codex_0144_seed_contract(
+            HARNESS / "seeds/codex/config.toml",
+            HARNESS / "seeds/codex/requirements.toml",
+            lock,
+        )
+
+    def test_codex_0144_seed_contract_rejects_active_value_mismatch(self) -> None:
+        cases = {
+            "approval_policy": "on-request",
+            "sandbox_mode": "read-only",
+            "web_search": "live",
+        }
+        for field, value in cases.items():
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                config, requirements = self.codex_seed_contract(
+                    Path(temporary),
+                    **{field: value},
+                )
+                with self.assertRaisesRegex(ContractError, field):
+                    codex.validate_codex_0144_seed_contract(
+                        config,
+                        requirements,
+                        self.codex_0144_lock(),
+                    )
+
+    def test_codex_0144_seed_contract_rejects_missing_or_extra_allowed_values(self) -> None:
+        cases = (
+            {"allowed_approval_policies": ()},
+            {"allowed_approval_policies": ("never", "on-request")},
+            {"allowed_sandbox_modes": ("workspace-write",)},
+            {
+                "allowed_sandbox_modes": (
+                    "read-only",
+                    "workspace-write",
+                    "danger-full-access",
+                )
+            },
+            {"allowed_web_search_modes": ()},
+            {"allowed_web_search_modes": ("disabled", "live")},
+        )
+        for overrides in cases:
+            field = next(iter(overrides))
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as temporary:
+                config, requirements = self.codex_seed_contract(
+                    Path(temporary),
+                    **overrides,
+                )
+                with self.assertRaisesRegex(ContractError, field):
+                    codex.validate_codex_0144_seed_contract(
+                        config,
+                        requirements,
+                        self.codex_0144_lock(),
+                    )
+
+    def test_codex_0144_seed_contract_rejects_duplicate_allowed_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config, requirements = self.codex_seed_contract(
+                Path(temporary),
+                allowed_sandbox_modes=("read-only", "workspace-write", "read-only"),
+            )
+            with self.assertRaisesRegex(ContractError, "duplicates"):
+                codex.validate_codex_0144_seed_contract(
+                    config,
+                    requirements,
+                    self.codex_0144_lock(),
+                )
+
+    def test_codex_0144_seed_contract_rejects_wrong_types(self) -> None:
+        cases = (
+            {"sandbox_mode": True},
+            {"allowed_sandbox_modes": "workspace-write"},
+            {"allowed_sandbox_modes": ("read-only", True)},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as temporary:
+                config, requirements = self.codex_seed_contract(
+                    Path(temporary),
+                    **overrides,
+                )
+                with self.assertRaises(ContractError):
+                    codex.validate_codex_0144_seed_contract(
+                        config,
+                        requirements,
+                        self.codex_0144_lock(),
+                    )
+
+    def test_codex_0144_seed_contract_rejects_pinned_version_mismatch(self) -> None:
+        for artifact_name in ("codex_base", "codex_linux_arm64"):
+            with self.subTest(artifact=artifact_name), tempfile.TemporaryDirectory() as temporary:
+                config, requirements = self.codex_seed_contract(Path(temporary))
+                lock = self.codex_0144_lock()
+                lock["artifacts"][artifact_name]["version"] = "drifted"
+                with self.assertRaisesRegex(ContractError, artifact_name):
+                    codex.validate_codex_0144_seed_contract(config, requirements, lock)
+
     def test_lima_cidata_is_the_only_allowed_lima_mount(self) -> None:
         allowed = ("/", "/tmp", "/mnt/lima-cidata")
         rejected = (
