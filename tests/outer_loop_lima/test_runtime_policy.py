@@ -419,6 +419,55 @@ class RuntimePolicyTests(unittest.TestCase):
                 requirements_seed,
             )
 
+    def test_codex_app_server_requests_match_pinned_wire_contract(self) -> None:
+        requests = [
+            json.loads(line)
+            for line in codex._request_lines(codex.FIXED_HARMLESS_CWD).splitlines()
+        ]
+        self.assertEqual(
+            requests[-1],
+            {"id": 3, "method": "configRequirements/read"},
+        )
+        self.assertNotIn("params", requests[-1])
+
+    def test_codex_effective_config_uses_jsonl_subprocess_lifecycle(self) -> None:
+        config_result = {
+            "config": {"approval_policy": "never"},
+            "origins": {},
+            "layers": [],
+        }
+        requirements_result = {
+            "requirements": {"allowedApprovalPolicies": ["never"]}
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            server = Path(temporary) / "fake-codex"
+            server.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "import sys\n"
+                "requests = [json.loads(line) for line in sys.stdin]\n"
+                "expected = {'id': 3, 'method': 'configRequirements/read'}\n"
+                "if requests[-1] != expected:\n"
+                "    raise SystemExit(64)\n"
+                "responses = [\n"
+                "    {'id': 1, 'result': {}},\n"
+                f"    {{'id': 2, 'result': {config_result!r}}},\n"
+                f"    {{'id': 3, 'result': {requirements_result!r}}},\n"
+                "]\n"
+                "for response in responses:\n"
+                "    print(json.dumps(response), flush=True)\n",
+                encoding="utf-8",
+            )
+            server.chmod(0o755)
+
+            observed_config, observed_requirements = codex.read_effective_config(
+                binary=str(server),
+                timeout=5,
+            )
+
+        self.assertEqual(observed_config, config_result)
+        self.assertEqual(observed_requirements, requirements_result)
+
     def test_codex_method_absence_is_blocking(self) -> None:
         output = "\n".join(
             (

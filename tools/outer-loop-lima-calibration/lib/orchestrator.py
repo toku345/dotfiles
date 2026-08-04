@@ -153,6 +153,8 @@ class BoundedCommandStage(StrEnum):
     POST_START_MOUNT_POLICY_CHECK = "POST_START_MOUNT_POLICY_CHECK"
     POST_START_HARNESS_SETUP = "POST_START_HARNESS_SETUP"
     POST_START_POLICY_CHECK = "POST_START_POLICY_CHECK"
+    POST_START_RUNTIME_VERSION_CHECK = "POST_START_RUNTIME_VERSION_CHECK"
+    POST_START_RUNTIME_POLICY_CHECK = "POST_START_RUNTIME_POLICY_CHECK"
     POST_START_IDENTITY_DIGEST = "POST_START_IDENTITY_DIGEST"
     POST_START_PACKAGE_QUERY = "POST_START_PACKAGE_QUERY"
 
@@ -483,31 +485,46 @@ class LimaDriver:
             "sudo -u calibration test ! -w /etc && "
             "sh /usr/local/share/outer-loop/harness/guest/check-mount-policy.sh"
         )
-        runtime_check = (
+        version_check = (
             'codex_version="$(sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex '
             '/usr/local/bin/codex --version)" && '
-            "test \"$codex_version\" = 'codex-cli 0.144.5' && "
+            "test \"$codex_version\" = 'codex-cli 0.144.5'"
+            if runtime == "codex"
+            else 'claude_version="$(sudo -H -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude '
+            '/usr/local/bin/claude --version)" && '
+            "test \"$claude_version\" = '2.1.211 (Claude Code)' && "
+            'srt_version="$(sudo -H -u calibration /usr/local/bin/srt --version)" && '
+            "test \"$srt_version\" = '0.0.65'"
+        )
+        policy_check = (
             "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
             "PYTHONPATH=/usr/local/share/outer-loop/harness "
             "python3 -c \"from pathlib import Path; from runtime.codex import read_effective_config,validate_effective_policy; "
             "c,r=read_effective_config(binary='/usr/local/bin/codex'); "
             "validate_effective_policy(c,r,Path('/etc/codex/config.toml'),Path('/etc/codex/requirements.toml'))\""
             if runtime == "codex"
-            else 'claude_version="$(sudo -H -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude '
-            '/usr/local/bin/claude --version)" && '
-            "test \"$claude_version\" = '2.1.211 (Claude Code)' && "
-            'srt_version="$(sudo -H -u calibration /usr/local/bin/srt --version)" && '
-            "test \"$srt_version\" = '0.0.65' && "
-            "cmp -s /etc/claude-code/managed-settings.json /usr/local/share/outer-loop/harness/seeds/claude/managed-settings.json && "
+            else "cmp -s /etc/claude-code/managed-settings.json /usr/local/share/outer-loop/harness/seeds/claude/managed-settings.json && "
             "cmp -s /etc/claude-code/managed-mcp.json /usr/local/share/outer-loop/harness/seeds/claude/managed-mcp.json && "
             "cmp -s /etc/claude-code/srt-settings.json /usr/local/share/outer-loop/harness/seeds/claude/srt-settings.json && "
             "test \"$(stat -c '%U:%G:%a' /etc/claude-code/managed-settings.json)\" = root:root:644"
         )
         self._shell(
             instance,
-            ("sudo", "/bin/sh", "-ceu", f"{common} && {runtime_check}"),
+            ("sudo", "/bin/sh", "-ceu", common),
             timeout=60,
             failure_stage=BoundedCommandStage.POST_START_POLICY_CHECK,
+        )
+        self._shell(
+            instance,
+            ("sudo", "/bin/sh", "-ceu", version_check),
+            timeout=60,
+            failure_stage=BoundedCommandStage.POST_START_RUNTIME_VERSION_CHECK,
+        )
+        self._shell(
+            instance,
+            ("sudo", "/bin/sh", "-ceu", policy_check),
+            timeout=60,
+            failure_stage=BoundedCommandStage.POST_START_RUNTIME_POLICY_CHECK,
         )
         common_paths = (
             "/usr/bin/bwrap",
