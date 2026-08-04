@@ -117,7 +117,7 @@ def _request_lines(cwd: str) -> str:
         },
         {"method": "initialized", "params": {}},
         {"id": 2, "method": "config/read", "params": {"cwd": cwd, "includeLayers": True}},
-        {"id": 3, "method": "configRequirements/read", "params": {}},
+        {"id": 3, "method": "configRequirements/read"},
     )
     return "".join(json.dumps(message, separators=(",", ":")) + "\n" for message in messages)
 

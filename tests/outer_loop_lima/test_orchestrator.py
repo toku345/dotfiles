@@ -1735,6 +1735,8 @@ class LimaDriverProvisionTests(unittest.TestCase):
             [call.kwargs["failure_stage"] for call in codex_calls],
             [
                 BoundedCommandStage.POST_START_POLICY_CHECK,
+                BoundedCommandStage.POST_START_RUNTIME_VERSION_CHECK,
+                BoundedCommandStage.POST_START_RUNTIME_POLICY_CHECK,
                 BoundedCommandStage.POST_START_IDENTITY_DIGEST,
                 BoundedCommandStage.POST_START_PACKAGE_QUERY,
             ],
@@ -1743,80 +1745,95 @@ class LimaDriverProvisionTests(unittest.TestCase):
             [call.kwargs["failure_stage"] for call in claude_calls],
             [
                 BoundedCommandStage.POST_START_POLICY_CHECK,
+                BoundedCommandStage.POST_START_RUNTIME_VERSION_CHECK,
+                BoundedCommandStage.POST_START_RUNTIME_POLICY_CHECK,
                 BoundedCommandStage.POST_START_IDENTITY_DIGEST,
                 BoundedCommandStage.POST_START_PACKAGE_QUERY,
             ],
         )
-        codex_command = codex_calls[0].args[1][-1]
-        claude_command = claude_calls[0].args[1][-1]
-        self.assertIn("guest/check-mount-policy.sh", codex_command)
+        codex_common_command = codex_calls[0].args[1][-1]
+        codex_version_command = codex_calls[1].args[1][-1]
+        codex_policy_command = codex_calls[2].args[1][-1]
+        claude_common_command = claude_calls[0].args[1][-1]
+        claude_version_command = claude_calls[1].args[1][-1]
+        claude_policy_command = claude_calls[2].args[1][-1]
+        self.assertEqual(codex_common_command, claude_common_command)
+        self.assertIn("guest/check-mount-policy.sh", codex_common_command)
         self.assertIn(
             "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
             "/usr/local/bin/codex --version",
-            codex_command,
+            codex_version_command,
         )
         self.assertIn(
             'codex_version="$(sudo -H -u calibration env '
             'CODEX_HOME=/home/calibration/.codex '
             '/usr/local/bin/codex --version)" &&',
-            codex_command,
+            codex_version_command,
         )
         self.assertIn(
             "test \"$codex_version\" = 'codex-cli 0.144.5'",
-            codex_command,
+            codex_version_command,
         )
         self.assertNotIn(
             "printf '%s\\n' \"$codex_version\" | grep",
-            codex_command,
+            codex_version_command,
         )
         self.assertIn(
             "sudo -H -u calibration env CODEX_HOME=/home/calibration/.codex "
             "PYTHONPATH=/usr/local/share/outer-loop/harness python3 -c",
-            codex_command,
+            codex_policy_command,
         )
         self.assertIn(
             "read_effective_config(binary='/usr/local/bin/codex')",
-            codex_command,
+            codex_policy_command,
         )
         self.assertNotIn(
             "CODEX_HOME=/home/calibration/.codex codex --version",
-            codex_command,
+            codex_version_command,
         )
         self.assertIn(
             "sudo -H -u calibration env CLAUDE_CONFIG_DIR=/home/calibration/.claude "
             "/usr/local/bin/claude --version",
-            claude_command,
+            claude_version_command,
         )
         self.assertIn(
             'claude_version="$(sudo -H -u calibration env '
             'CLAUDE_CONFIG_DIR=/home/calibration/.claude '
             '/usr/local/bin/claude --version)" &&',
-            claude_command,
+            claude_version_command,
         )
         self.assertIn(
             "test \"$claude_version\" = '2.1.211 (Claude Code)'",
-            claude_command,
+            claude_version_command,
         )
-        self.assertNotIn("/usr/local/bin/claude --version | grep", claude_command)
+        self.assertNotIn(
+            "/usr/local/bin/claude --version | grep",
+            claude_version_command,
+        )
         self.assertIn(
             "sudo -H -u calibration /usr/local/bin/srt --version",
-            claude_command,
+            claude_version_command,
         )
         self.assertIn(
             'srt_version="$(sudo -H -u calibration '
             '/usr/local/bin/srt --version)" &&',
-            claude_command,
+            claude_version_command,
         )
         self.assertIn(
             "test \"$srt_version\" = '0.0.65'",
-            claude_command,
+            claude_version_command,
         )
-        self.assertNotIn("/usr/local/bin/srt --version | grep", claude_command)
+        self.assertNotIn(
+            "/usr/local/bin/srt --version | grep",
+            claude_version_command,
+        )
         self.assertNotIn(
             "CLAUDE_CONFIG_DIR=/home/calibration/.claude claude --version",
-            claude_command,
+            claude_version_command,
         )
-        self.assertNotIn("&& srt --version", claude_command)
+        self.assertNotIn("&& srt --version", claude_version_command)
+        self.assertIn("managed-settings.json", claude_policy_command)
+        self.assertNotIn("/usr/local/bin/claude --version", claude_policy_command)
         self.assertEqual(
             policy["mounts"],
             "no-host-mounts;exact-lima-cidata-allowed",
