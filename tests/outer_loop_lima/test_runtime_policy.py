@@ -493,6 +493,7 @@ class RuntimePolicyTests(unittest.TestCase):
             server.write_text(
                 "#!/usr/bin/env python3\n"
                 "import json\n"
+                "import os\n"
                 "import select\n"
                 "import sys\n"
                 "def receive(expected):\n"
@@ -512,7 +513,12 @@ class RuntimePolicyTests(unittest.TestCase):
                 f"receive({{'id': 2, 'method': 'config/read', 'params': "
                 f"{{'cwd': {codex.FIXED_HARMLESS_CWD!r}, 'includeLayers': True}}}})\n"
                 "require_no_pending_request()\n"
-                f"print(json.dumps({{'id': 2, 'result': {config_result!r}}}), flush=True)\n"
+                "buffered = [\n"
+                "    {'method': 'server/notification', 'params': {}},\n"
+                f"    {{'id': 2, 'result': {config_result!r}}},\n"
+                "]\n"
+                "payload = ''.join(json.dumps(message) + '\\n' for message in buffered)\n"
+                "os.write(sys.stdout.fileno(), payload.encode())\n"
                 "receive({'id': 3, 'method': 'configRequirements/read'})\n"
                 f"print(json.dumps({{'id': 3, 'result': {requirements_result!r}}}), flush=True)\n",
                 encoding="utf-8",

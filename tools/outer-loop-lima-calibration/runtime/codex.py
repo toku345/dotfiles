@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import select
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, BinaryIO, Iterable, Mapping
 
 from lib.identities import EffectiveValue, compare_effective_seed, flatten_mapping, load_toml_flat
 from lib.model import ContractError
@@ -137,36 +138,59 @@ def _remaining_timeout(deadline: float) -> float:
     return remaining
 
 
-def _send_message(process: subprocess.Popen[str], message: Mapping[str, Any]) -> None:
+def _send_message(process: subprocess.Popen[bytes], message: Mapping[str, Any]) -> None:
     if process.stdin is None:
         raise ContractError("Codex app-server stdin is unavailable")
-    process.stdin.write(json.dumps(message, separators=(",", ":")) + "\n")
+    encoded = (json.dumps(message, separators=(",", ":")) + "\n").encode()
+    process.stdin.write(encoded)
     process.stdin.flush()
 
 
+class _JsonlReader:
+    def __init__(self, stream: BinaryIO) -> None:
+        self.stream = stream
+        self.buffer = bytearray()
+
+    def readline(self, deadline: float) -> bytes:
+        while True:
+            newline = self.buffer.find(b"\n")
+            if newline >= 0:
+                line = bytes(self.buffer[:newline])
+                del self.buffer[: newline + 1]
+                return line
+
+            readable, _, _ = select.select(
+                [self.stream],
+                [],
+                [],
+                _remaining_timeout(deadline),
+            )
+            if not readable:
+                raise subprocess.TimeoutExpired("codex app-server", 0)
+            chunk = os.read(self.stream.fileno(), 65536)
+            if chunk:
+                self.buffer.extend(chunk)
+                continue
+            if self.buffer:
+                line = bytes(self.buffer)
+                self.buffer.clear()
+                return line
+            return b""
+
+
 def _read_result(
-    process: subprocess.Popen[str],
+    reader: _JsonlReader,
     request_id: int,
     method: str,
     deadline: float,
 ) -> dict[str, Any]:
-    if process.stdout is None:
-        raise ContractError("Codex app-server stdout is unavailable")
     while True:
-        readable, _, _ = select.select(
-            [process.stdout],
-            [],
-            [],
-            _remaining_timeout(deadline),
-        )
-        if not readable:
-            raise subprocess.TimeoutExpired("codex app-server", 0)
-        raw_line = process.stdout.readline()
+        raw_line = reader.readline(deadline)
         if not raw_line:
             raise ContractError(f"Codex method unavailable or failed: {method}")
         try:
             message = json.loads(raw_line)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ContractError("Codex app-server emitted non-JSON stdout") from exc
         if not isinstance(message, dict) or message.get("id") != request_id:
             continue
@@ -179,25 +203,27 @@ def _read_result(
 def read_effective_config(
     binary: str = "codex", cwd: str = FIXED_HARMLESS_CWD, timeout: int = 20
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    process: subprocess.Popen[str] | None = None
+    process: subprocess.Popen[bytes] | None = None
     try:
         process = subprocess.Popen(
             [binary, "app-server", "--strict-config", "--listen", "stdio://"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            text=True,
-            bufsize=1,
+            bufsize=0,
         )
+        if process.stdout is None:
+            raise ContractError("Codex app-server stdout is unavailable")
+        reader = _JsonlReader(process.stdout)
         deadline = time.monotonic() + timeout
         initialize, initialized, config_read, requirements_read = _request_messages(cwd)
         _send_message(process, initialize)
-        _read_result(process, 1, "initialize", deadline)
+        _read_result(reader, 1, "initialize", deadline)
         _send_message(process, initialized)
         _send_message(process, config_read)
-        config = _read_result(process, 2, "config/read", deadline)
+        config = _read_result(reader, 2, "config/read", deadline)
         _send_message(process, requirements_read)
-        requirements = _read_result(process, 3, "configRequirements/read", deadline)
+        requirements = _read_result(reader, 3, "configRequirements/read", deadline)
         if process.stdin is not None:
             process.stdin.close()
         returncode = process.wait(timeout=_remaining_timeout(deadline))
