@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import select
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -102,7 +104,14 @@ def smoke_command() -> list[str]:
 
 
 def _request_lines(cwd: str) -> str:
-    messages = (
+    return "".join(
+        json.dumps(message, separators=(",", ":")) + "\n"
+        for message in _request_messages(cwd)
+    )
+
+
+def _request_messages(cwd: str) -> tuple[dict[str, Any], ...]:
+    return (
         {
             "id": 1,
             "method": "initialize",
@@ -119,43 +128,132 @@ def _request_lines(cwd: str) -> str:
         {"id": 2, "method": "config/read", "params": {"cwd": cwd, "includeLayers": True}},
         {"id": 3, "method": "configRequirements/read"},
     )
-    return "".join(json.dumps(message, separators=(",", ":")) + "\n" for message in messages)
+
+
+def _remaining_timeout(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired("codex app-server", 0)
+    return remaining
+
+
+def _send_message(process: subprocess.Popen[str], message: Mapping[str, Any]) -> None:
+    if process.stdin is None:
+        raise ContractError("Codex app-server stdin is unavailable")
+    process.stdin.write(json.dumps(message, separators=(",", ":")) + "\n")
+    process.stdin.flush()
+
+
+def _read_result(
+    process: subprocess.Popen[str],
+    request_id: int,
+    method: str,
+    deadline: float,
+) -> dict[str, Any]:
+    if process.stdout is None:
+        raise ContractError("Codex app-server stdout is unavailable")
+    while True:
+        readable, _, _ = select.select(
+            [process.stdout],
+            [],
+            [],
+            _remaining_timeout(deadline),
+        )
+        if not readable:
+            raise subprocess.TimeoutExpired("codex app-server", 0)
+        raw_line = process.stdout.readline()
+        if not raw_line:
+            raise ContractError(f"Codex method unavailable or failed: {method}")
+        try:
+            message = json.loads(raw_line)
+        except json.JSONDecodeError as exc:
+            raise ContractError("Codex app-server emitted non-JSON stdout") from exc
+        if not isinstance(message, dict) or message.get("id") != request_id:
+            continue
+        result = message.get("result")
+        if "error" in message or not isinstance(result, dict):
+            raise ContractError(f"Codex method unavailable or failed: {method}")
+        return result
 
 
 def read_effective_config(
     binary: str = "codex", cwd: str = FIXED_HARMLESS_CWD, timeout: int = 20
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    process: subprocess.Popen[str] | None = None
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             [binary, "app-server", "--strict-config", "--listen", "stdio://"],
-            input=_request_lines(cwd),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
+            bufsize=1,
         )
+        deadline = time.monotonic() + timeout
+        initialize, initialized, config_read, requirements_read = _request_messages(cwd)
+        _send_message(process, initialize)
+        _read_result(process, 1, "initialize", deadline)
+        _send_message(process, initialized)
+        _send_message(process, config_read)
+        config = _read_result(process, 2, "config/read", deadline)
+        _send_message(process, requirements_read)
+        requirements = _read_result(process, 3, "configRequirements/read", deadline)
+        if process.stdin is not None:
+            process.stdin.close()
+        returncode = process.wait(timeout=_remaining_timeout(deadline))
+        if returncode not in (0, -15):
+            raise ContractError(f"Codex app-server exited unexpectedly: {returncode}")
+        return config, requirements
+    except ContractError:
+        raise
     except (OSError, subprocess.SubprocessError) as exc:
         raise ContractError("Codex app-server introspection failed") from exc
-    responses: dict[int, dict[str, Any]] = {}
-    for raw_line in result.stdout.splitlines():
-        try:
-            message = json.loads(raw_line)
-        except json.JSONDecodeError as exc:
-            raise ContractError("Codex app-server emitted non-JSON stdout") from exc
-        if isinstance(message, dict) and isinstance(message.get("id"), int):
-            responses[message["id"]] = message
-    for request_id, method in ((1, "initialize"), (2, "config/read"), (3, "configRequirements/read")):
-        response = responses.get(request_id)
-        if response is None or "error" in response or "result" not in response:
-            raise ContractError(f"Codex method unavailable or failed: {method}")
-    if result.returncode not in (0, -15):
-        raise ContractError(f"Codex app-server exited unexpectedly: {result.returncode}")
-    return responses[2]["result"], responses[3]["result"]
+    finally:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        if process is not None:
+            for stream in (process.stdin, process.stdout):
+                if stream is not None and not stream.closed:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
 
 
 def _origin_name(metadata: Mapping[str, Any]) -> Mapping[str, Any]:
     name = metadata.get("name")
     return name if isinstance(name, dict) else {}
+
+
+def _format_origin(name: Mapping[str, Any]) -> str:
+    if name.get("type") == "system" and name.get("file") == SYSTEM_CONFIG:
+        return "system:/etc/codex/config.toml"
+    return json.dumps(name, sort_keys=True, separators=(",", ":"))
+
+
+def _effective_origin(origins: Mapping[str, Any], key: str, value: Any) -> str | None:
+    if not isinstance(value, list):
+        metadata = origins.get(key)
+        if not isinstance(metadata, dict):
+            return None
+        return _format_origin(_origin_name(metadata))
+    if not value:
+        return None
+
+    indexed_names: list[Mapping[str, Any]] = []
+    for index in range(len(value)):
+        indexed_metadata = origins.get(f"{key}.{index}")
+        if not isinstance(indexed_metadata, dict):
+            return None
+        indexed_names.append(_origin_name(indexed_metadata))
+    if all(name == indexed_names[0] for name in indexed_names[1:]):
+        return _format_origin(indexed_names[0])
+    return json.dumps(indexed_names, sort_keys=True, separators=(",", ":"))
 
 
 def normalize_config_response(response: Mapping[str, Any]) -> dict[str, EffectiveValue]:
@@ -179,14 +277,9 @@ def normalize_config_response(response: Mapping[str, Any]) -> dict[str, Effectiv
     flattened = flatten_mapping(config)
     normalized: dict[str, EffectiveValue] = {}
     for key, value in flattened.items():
-        metadata = origins.get(key)
-        if not isinstance(metadata, dict):
+        origin = _effective_origin(origins, key, value)
+        if origin is None:
             continue
-        name = _origin_name(metadata)
-        if name.get("type") == "system" and name.get("file") == SYSTEM_CONFIG:
-            origin = "system:/etc/codex/config.toml"
-        else:
-            origin = json.dumps(name, sort_keys=True, separators=(",", ":"))
         normalized[key] = EffectiveValue(value=value, origin=origin)
     return normalized
 
