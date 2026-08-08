@@ -119,7 +119,8 @@
     "claude-code-setup@claude-plugins-official": true,
     "hookify@claude-plugins-official": false,
     "skill-creator@claude-plugins-official": false,
-    "codex@openai-codex": true
+    "codex@openai-codex": true,
+    "claude-security@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "openai-codex": {
