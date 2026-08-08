@@ -4,6 +4,7 @@ Parent design: [Private Lima pre-arm calibration](codex-claude-outer-loop-privat
 Decisions: [ADR 0032](../adr/0032-private-lima-outer-loop-calibration-boundary.md), amended by [ADR 0033](../adr/0033-private-lima-runtime-main-process-egress-risk.md)
 Implementation base: `0df8b37005faabff6af73ffffff62470643ae134`
 Status: Implemented; live calibration has not reached a passing terminal
+Repository status: Historical snapshot retained in `toku345/dotfiles`; the active implementation is maintained in `toku345/private-outer-loop`.
 
 ## Scope
 

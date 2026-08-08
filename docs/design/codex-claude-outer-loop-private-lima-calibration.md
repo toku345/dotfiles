@@ -3,6 +3,7 @@
 Parent decisions: [ADR 0030](../adr/0030-codex-claude-outer-loop-pilot.md), [ADR 0031](../adr/0031-outer-loop-week0-v2-hard-link-boundary.md)
 Target decision: [ADR 0032](../adr/0032-private-lima-outer-loop-calibration-boundary.md), amended by [ADR 0033](../adr/0033-private-lima-runtime-main-process-egress-risk.md)
 Status: Accepted
+Repository status: Historical snapshot retained in `toku345/dotfiles`; the active implementation is maintained in `toku345/private-outer-loop`.
 
 ## Context
 

@@ -281,15 +281,15 @@ jobs:
       - name: Run bats test suite
         run: bats tests/bats/
 
-  private-lima-calibration:
-    name: Private Lima Calibration Unit Tests
+  protected-outer-loop-history:
+    name: Protected Outer Loop History
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
 
     steps:
-      - name: Checkout repository with implementation base
+      - name: Checkout repository with protected history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -300,45 +300,15 @@ jobs:
         with:
           python-version: "3.14.6"
 
-      - name: Install ShellCheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-
-      - name: Run calibration unit and negative tests
+      - name: Verify immutable outer-loop history
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 -m unittest discover -s tests/outer_loop_lima -p 'test_*.py'
+        run: python3 -m unittest discover -s tests/outer_loop_history -p 'test_*.py'
 
-      - name: Check guest provisioning shell
+      - name: Reject Python bytecode artifacts
         run: |
-          find tools/outer-loop-lima-calibration/guest \
-            -type f -name '*.sh' \
-            -exec shellcheck --severity=warning {} +
-
-  private-lima-profiles:
-    name: Private Lima Static Profiles
-    runs-on: macos-15
-
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install and identify Lima
-        run: |
-          brew install lima
-          test "$(limactl --version)" = "limactl version 2.2.0"
-
-      - name: Validate static profiles without starting a VM
-        run: |
-          limactl validate --tty=false \
-            tools/outer-loop-lima-calibration/profiles/week0-codex.yaml \
-            tools/outer-loop-lima-calibration/profiles/week0-claude.yaml
+          test -z "$(find tests/outer_loop_history -type d -name __pycache__ -print)"
+          test -z "$(find tests/outer_loop_history -type f -name '*.pyc' -print)"
 
   reusable-secret-scan:
     name: Reusable Secret Scan
