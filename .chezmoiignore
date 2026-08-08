@@ -7,8 +7,6 @@ AGENTS.md
 CLAUDE.local.md
 docs
 tests
-tools/outer-loop-lima-calibration
-
 # Linux: exclude macOS-only configs and scripts
 {{ if ne .chezmoi.os "darwin" }}
 .config/karabiner
