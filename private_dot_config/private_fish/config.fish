@@ -6,12 +6,7 @@ fish_config theme choose tomorrow-night-bright
 fish_add_path $HOME/.local/bin
 
 ## homebrew (OS-specific)
-# Homebrew update policy (ADR 0026): make routine updates deliberate. Security
-# fixes bypass this — see docs/security.md "When to bypass the cooldown".
-set -gx HOMEBREW_NO_AUTO_UPDATE 1
-set -gx HOMEBREW_NO_INSTALL_UPGRADE 1
-set -gx HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK 1
-set -gx HOMEBREW_CASK_OPTS --require-sha
+# Homebrew update policy is managed in ~/.homebrew/brew.env (ADR 0026).
 
 switch (uname)
     case Darwin

@@ -20,14 +20,33 @@ line_number_of() {
   grep -Fnx "$needle" "$file" | cut -d: -f1 | head -n1
 }
 
-assert_policy_env_output() {
+assert_shell_policy_output() {
+  grep -Fqx "ASDF_CONFIG_FILE=$BATS_TEST_TMPDIR/home/.config/asdf/.asdfrc" <<<"$output"
+
+  local variable
+  for variable in \
+    HOMEBREW_CASK_OPTS \
+    HOMEBREW_NO_AUTO_UPDATE \
+    HOMEBREW_NO_INSTALL_UPGRADE \
+    HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK \
+    HOMEBREW_UPDATE_TO_TAG \
+    HOMEBREW_VERIFY_ATTESTATIONS
+  do
+    if grep -Eq "^${variable}=" <<<"$output"; then
+      echo "$variable must be managed only in ~/.homebrew/brew.env" >&2
+      return 1
+    fi
+  done
+}
+
+assert_bootstrap_policy_output() {
   local expected
   for expected in \
-    "ASDF_CONFIG_FILE=$BATS_TEST_TMPDIR/home/.config/asdf/.asdfrc" \
     "HOMEBREW_CASK_OPTS=--require-sha" \
     "HOMEBREW_NO_AUTO_UPDATE=1" \
     "HOMEBREW_NO_INSTALL_UPGRADE=1" \
-    "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1"
+    "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1" \
+    "HOMEBREW_UPDATE_TO_TAG=1"
   do
     grep -Fqx "$expected" <<<"$output"
   done
@@ -35,6 +54,10 @@ assert_policy_env_output() {
   # Bare `! grep` is exempt from bats errexit tracking, so branch explicitly.
   if grep -Eq "^HOMEBREW_ASK=" <<<"$output"; then
     echo "HOMEBREW_ASK must not be exported (deprecated in current Homebrew)" >&2
+    return 1
+  fi
+  if grep -Eq "^HOMEBREW_VERIFY_ATTESTATIONS=" <<<"$output"; then
+    echo "HOMEBREW_VERIFY_ATTESTATIONS must not be exported during bootstrap" >&2
     return 1
   fi
 }
@@ -102,7 +125,27 @@ join_shell_continuations() {
   '
 }
 
-@test "dot_bashrc exports Homebrew policy env and ASDF_CONFIG_FILE" {
+@test "managed brew.env declares the canonical Homebrew policy" {
+  brew_env="$REPO_ROOT/dot_homebrew/brew.env"
+
+  for line in \
+    "HOMEBREW_NO_AUTO_UPDATE=1" \
+    "HOMEBREW_NO_INSTALL_UPGRADE=1" \
+    "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1" \
+    "HOMEBREW_CASK_OPTS=--require-sha" \
+    "HOMEBREW_UPDATE_TO_TAG=1" \
+    "HOMEBREW_VERIFY_ATTESTATIONS=1"
+  do
+    assert_line_present "$line" "$brew_env"
+  done
+
+  assert_pattern_absent "HOMEBREW_ASK" "$brew_env"
+  assert_pattern_absent "HOMEBREW_BUNDLE_NO_UPGRADE" "$brew_env"
+  assert_pattern_absent "HOMEBREW_ALLOWED_TAPS" "$brew_env"
+  assert_pattern_absent "HOMEBREW_NO_INSECURE_REDIRECT" "$brew_env"
+}
+
+@test "dot_bashrc leaves Homebrew policy to brew.env and exports ASDF_CONFIG_FILE" {
   run env -i \
     HOME="$BATS_TEST_TMPDIR/home" \
     PATH="/usr/bin:/bin" \
@@ -111,21 +154,23 @@ join_shell_continuations() {
       bash "$REPO_ROOT/dot_bashrc"
 
   [ "$status" -eq 0 ]
-  assert_policy_env_output
+  assert_shell_policy_output
 }
 
-@test "fish config declares the Homebrew policy env and ASDF_CONFIG_FILE" {
+@test "fish config leaves Homebrew policy to brew.env and declares ASDF_CONFIG_FILE" {
   fish_config="$REPO_ROOT/private_dot_config/private_fish/config.fish"
 
-  assert_line_present "set -gx HOMEBREW_NO_AUTO_UPDATE 1" "$fish_config"
-  assert_line_present "set -gx HOMEBREW_NO_INSTALL_UPGRADE 1" "$fish_config"
-  assert_line_present "set -gx HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK 1" "$fish_config"
-  assert_line_present "set -gx HOMEBREW_CASK_OPTS --require-sha" "$fish_config"
+  assert_pattern_absent "set -gx HOMEBREW_NO_AUTO_UPDATE" "$fish_config"
+  assert_pattern_absent "set -gx HOMEBREW_NO_INSTALL_UPGRADE" "$fish_config"
+  assert_pattern_absent "set -gx HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK" "$fish_config"
+  assert_pattern_absent "set -gx HOMEBREW_CASK_OPTS" "$fish_config"
+  assert_pattern_absent "set -gx HOMEBREW_UPDATE_TO_TAG" "$fish_config"
+  assert_pattern_absent "set -gx HOMEBREW_VERIFY_ATTESTATIONS" "$fish_config"
   assert_pattern_absent "HOMEBREW_ASK" "$fish_config"
   assert_line_present 'set -gx ASDF_CONFIG_FILE $HOME/.config/asdf/.asdfrc' "$fish_config"
 }
 
-@test "fish config exports the Homebrew policy env and ASDF_CONFIG_FILE when fish is available" {
+@test "fish config exports ASDF_CONFIG_FILE without duplicating Homebrew policy when fish is available" {
   if ! command -v fish >/dev/null; then
     if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
       echo "fish required to validate fish policy exports in CI" >&2
@@ -144,7 +189,7 @@ join_shell_continuations() {
     ' "$REPO_ROOT/private_dot_config/private_fish/config.fish"
 
   [ "$status" -eq 0 ]
-  assert_policy_env_output
+  assert_shell_policy_output
 }
 
 @test "run-once package installer exports Homebrew policy env before OS branch and brew calls" {
@@ -155,12 +200,14 @@ join_shell_continuations() {
   [ -n "$first_brew_line" ]
 
   assert_pattern_absent "HOMEBREW_ASK" "$script"
+  assert_pattern_absent "export HOMEBREW_VERIFY_ATTESTATIONS=" "$script"
 
   for line in \
     "export HOMEBREW_NO_AUTO_UPDATE=1" \
     "export HOMEBREW_NO_INSTALL_UPGRADE=1" \
     "export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1" \
-    "export HOMEBREW_CASK_OPTS=--require-sha"
+    "export HOMEBREW_CASK_OPTS=--require-sha" \
+    "export HOMEBREW_UPDATE_TO_TAG=1"
   do
     assert_line_present "$line" "$script"
     policy_line="$(line_number_of "$line" "$script")"
@@ -196,11 +243,12 @@ STUB
   brew_call_count="$(grep -c '^args=' "$BATS_TEST_TMPDIR/brew.log")"
   [ "$brew_call_count" -gt 0 ]
   [[ "$output" == *"args=update"* ]]
-  assert_pattern_absent '^HOMEBREW_ASK=' "$BATS_TEST_TMPDIR/brew.log"
+  assert_bootstrap_policy_output
   [ "$(grep -c '^HOMEBREW_CASK_OPTS=--require-sha$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_AUTO_UPDATE=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_INSTALL_UPGRADE=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
+  [ "$(grep -c '^HOMEBREW_UPDATE_TO_TAG=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
 }
 
 @test "run-once installer includes Herdr in Homebrew packages on macOS and Linux" {
