@@ -16,7 +16,7 @@ from unittest.mock import patch
 HARNESS = Path(__file__).parents[2] / "tools" / "outer-loop-lima-calibration"
 sys.path.insert(0, str(HARNESS))
 
-from lib.identities import load_toml_flat  # noqa: E402
+from lib.identities import compare_effective_seed, load_toml_flat  # noqa: E402
 from lib.model import ContractError  # noqa: E402
 from runtime import claude, codex  # noqa: E402
 
@@ -393,12 +393,20 @@ class RuntimePolicyTests(unittest.TestCase):
         config_seed = HARNESS / "seeds" / "codex" / "config.toml"
         requirements_seed = HARNESS / "seeds" / "codex" / "requirements.toml"
         expected_config = load_toml_flat(config_seed)
+        origins = {}
+        for key, value in expected_config.items():
+            if isinstance(value, list):
+                for index in range(len(value)):
+                    origins[f"{key}.{index}"] = {
+                        "name": {"type": "system", "file": "/etc/codex/config.toml"}
+                    }
+            else:
+                origins[key] = {
+                    "name": {"type": "system", "file": "/etc/codex/config.toml"}
+                }
         config_response = {
             "config": unflatten(expected_config),
-            "origins": {
-                key: {"name": {"type": "system", "file": "/etc/codex/config.toml"}}
-                for key in expected_config
-            },
+            "origins": origins,
             "layers": [{"name": {"type": "system", "file": "/etc/codex/config.toml"}}],
         }
         requirements = unflatten(
@@ -417,6 +425,47 @@ class RuntimePolicyTests(unittest.TestCase):
                 {"requirements": requirements},
                 config_seed,
                 requirements_seed,
+            )
+
+    def test_codex_indexed_list_origins_fail_closed(self) -> None:
+        key = "sandbox_workspace_write.writable_roots"
+        value = ["/home/calibration/workspace", "/home/calibration/other"]
+        system_origin = {"name": {"type": "system", "file": "/etc/codex/config.toml"}}
+        response = {
+            "config": {"sandbox_workspace_write": {"writable_roots": value}},
+            "origins": {f"{key}.0": system_origin, f"{key}.1": system_origin},
+            "layers": [],
+        }
+
+        observed = codex.normalize_config_response(response)
+        compare_effective_seed(
+            {key: value},
+            observed,
+            expected_origin="system:/etc/codex/config.toml",
+        )
+
+        del response["origins"][f"{key}.1"]
+        with self.assertRaisesRegex(ContractError, "missing=.*writable_roots"):
+            compare_effective_seed(
+                {key: value},
+                codex.normalize_config_response(response),
+                expected_origin="system:/etc/codex/config.toml",
+            )
+
+        response["origins"][f"{key}.1"] = {"name": {"type": "user"}}
+        with self.assertRaisesRegex(ContractError, "origins=.*writable_roots"):
+            compare_effective_seed(
+                {key: value},
+                codex.normalize_config_response(response),
+                expected_origin="system:/etc/codex/config.toml",
+            )
+
+        response["origins"] = {key: system_origin}
+        with self.assertRaisesRegex(ContractError, "missing=.*writable_roots"):
+            compare_effective_seed(
+                {key: value},
+                codex.normalize_config_response(response),
+                expected_origin="system:/etc/codex/config.toml",
             )
 
     def test_codex_app_server_requests_match_pinned_wire_contract(self) -> None:
@@ -444,18 +493,34 @@ class RuntimePolicyTests(unittest.TestCase):
             server.write_text(
                 "#!/usr/bin/env python3\n"
                 "import json\n"
+                "import os\n"
+                "import select\n"
                 "import sys\n"
-                "requests = [json.loads(line) for line in sys.stdin]\n"
-                "expected = {'id': 3, 'method': 'configRequirements/read'}\n"
-                "if requests[-1] != expected:\n"
-                "    raise SystemExit(64)\n"
-                "responses = [\n"
-                "    {'id': 1, 'result': {}},\n"
+                "def receive(expected):\n"
+                "    message = json.loads(sys.stdin.readline())\n"
+                "    if message != expected:\n"
+                "        raise SystemExit(64)\n"
+                "def require_no_pending_request():\n"
+                "    if select.select([sys.stdin], [], [], 0)[0]:\n"
+                "        raise SystemExit(65)\n"
+                "receive({'id': 1, 'method': 'initialize', 'params': "
+                "{'clientInfo': {'name': 'outer_loop_lima_calibration', "
+                "'title': 'Private Lima calibration', 'version': '1'}, "
+                "'capabilities': {'experimentalApi': True}}})\n"
+                "require_no_pending_request()\n"
+                "print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+                "receive({'method': 'initialized', 'params': {}})\n"
+                f"receive({{'id': 2, 'method': 'config/read', 'params': "
+                f"{{'cwd': {codex.FIXED_HARMLESS_CWD!r}, 'includeLayers': True}}}})\n"
+                "require_no_pending_request()\n"
+                "buffered = [\n"
+                "    {'method': 'server/notification', 'params': {}},\n"
                 f"    {{'id': 2, 'result': {config_result!r}}},\n"
-                f"    {{'id': 3, 'result': {requirements_result!r}}},\n"
                 "]\n"
-                "for response in responses:\n"
-                "    print(json.dumps(response), flush=True)\n",
+                "payload = ''.join(json.dumps(message) + '\\n' for message in buffered)\n"
+                "os.write(sys.stdout.fileno(), payload.encode())\n"
+                "receive({'id': 3, 'method': 'configRequirements/read'})\n"
+                f"print(json.dumps({{'id': 3, 'result': {requirements_result!r}}}), flush=True)\n",
                 encoding="utf-8",
             )
             server.chmod(0o755)
@@ -469,16 +534,23 @@ class RuntimePolicyTests(unittest.TestCase):
         self.assertEqual(observed_requirements, requirements_result)
 
     def test_codex_method_absence_is_blocking(self) -> None:
-        output = "\n".join(
-            (
-                json.dumps({"id": 1, "result": {}}),
-                json.dumps({"id": 2, "result": {}}),
+        with tempfile.TemporaryDirectory() as temporary:
+            server = Path(temporary) / "fake-codex"
+            server.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "import sys\n"
+                "json.loads(sys.stdin.readline())\n"
+                "print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+                "json.loads(sys.stdin.readline())\n"
+                "json.loads(sys.stdin.readline())\n"
+                "print(json.dumps({'id': 2, 'result': {}}), flush=True)\n"
+                "json.loads(sys.stdin.readline())\n",
+                encoding="utf-8",
             )
-        )
-        completed = subprocess.CompletedProcess([], 0, output, "")
-        with patch("runtime.codex.subprocess.run", return_value=completed):
+            server.chmod(0o755)
             with self.assertRaisesRegex(ContractError, "configRequirements/read"):
-                codex.read_effective_config()
+                codex.read_effective_config(binary=str(server), timeout=5)
 
     def test_smoke_event_validators_reject_tools(self) -> None:
         codex.validate_tool_free_events(
