@@ -461,7 +461,67 @@ STUB
   PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"bats gate requires a gated run"* ]]
+  # Assert the rendered MAX_BLOCKS, not just the static first line: if the
+  # variable is renamed or scoped away the instruction degrades silently.
+  [[ "$stderr" == *"its own 3-reminder auto-allow"* ]]
   [ ! -e "$marker" ]
+}
+
+# The reminder needs no binary, but with bats absent the suite cannot be run at
+# all, so blocking would only burn the reminder budget with an instruction
+# nobody can follow. Skipping is deliberate; pin it so the choice cannot drift.
+@test "codex: bats gate not installed -> skip note and exit 0, no reminder" {
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local shim="$BATS_TEST_TMPDIR/nobats-bin"
+  local tool resolved
+  mkdir -p "$shim"
+  for tool in bash git cksum awk sort cat rm mkdir mv head dirname; do
+    resolved=$(command -v "$tool" 2>/dev/null) || skip "$tool not resolvable"
+    ln -sf "$resolved" "$shim/$tool"
+  done
+  [ ! -e "$shim/bats" ] || skip "bats leaked into the shim PATH"
+
+  # `env -i` keeps the curated PATH out of this shell: an inline `PATH=... run`
+  # would leave the assignment behind and break bats' own teardown. The Codex
+  # hook derives its project dir from the cwd, so cd first.
+  run --separate-stderr env -i \
+    "PATH=$shim" \
+    "HOME=${HOME:-}" \
+    "XDG_STATE_HOME=$XDG_STATE_HOME" \
+    bash -c "cd '$PROJECT_DIR' && exec bash '$HOOK_VERIFY'" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"bats not installed; skipping bats gate"* ]]
+  [[ "$stderr" != *"bats gate requires a gated run"* ]]
+}
+
+# The reminder fires on every stop while tests/bats/ is dirty, whether or not
+# anything is wrong. Sharing the executing gates' counter would burn their
+# budget and auto-allow a genuine shellcheck failure early.
+@test "codex: bats reminder does not consume the executing gates' block budget" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(codex_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ ! -e "$state_file" ]
+  [ -f "$nag_file" ]
+  [ "$(cat "$nag_file")" = "1" ]
 }
 
 # -----------------------------------------------------------------------------

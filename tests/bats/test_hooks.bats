@@ -443,8 +443,107 @@ STUB
   PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"bats gate requires a gated run"* ]]
+  # The reminder interpolates MAX_BLOCKS. Assert the rendered number, not just
+  # the static first line: if MAX_BLOCKS is renamed or scoped away the message
+  # degrades to "its own -reminder auto-allow" and a first-line-only grep
+  # would still pass while the agent reads a malformed instruction.
+  [[ "$stderr" == *"its own 3-reminder auto-allow"* ]]
   # Critical: the suite must not have been executed by the hook.
   [ ! -e "$marker" ]
+}
+
+# The reminder needs no binary, but with bats absent the suite cannot be run at
+# all, so blocking would only burn the reminder budget with an instruction
+# nobody can follow. Skipping is deliberate; pin it so the choice cannot drift
+# silently now that the branch no longer executes anything.
+@test "bats gate: not installed -> skip note and exit 0, no reminder" {
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  # Build a PATH holding only what the hook needs, with no bats. Dropping whole
+  # PATH entries instead would also remove the `bash` that shares Homebrew's
+  # bin with bats, and the hook would die at its shebang (127) before reaching
+  # the branch under test.
+  local shim="$BATS_TEST_TMPDIR/nobats-bin"
+  local tool resolved
+  mkdir -p "$shim"
+  for tool in bash git cksum awk sort cat rm mkdir mv head dirname; do
+    resolved=$(command -v "$tool" 2>/dev/null) || skip "$tool not resolvable"
+    ln -sf "$resolved" "$shim/$tool"
+  done
+  [ ! -e "$shim/bats" ] || skip "bats leaked into the shim PATH"
+
+  # `env -i` with an explicit environment, and `bash <hook>` rather than the
+  # shebang, so nothing here mutates this shell's PATH — an inline
+  # `PATH=... run` would leave the assignment behind (bash keeps it for
+  # functions) and break bats' own teardown.
+  run --separate-stderr env -i \
+    "PATH=$shim" \
+    "HOME=${HOME:-}" \
+    "XDG_STATE_HOME=$XDG_STATE_HOME" \
+    "CLAUDE_PROJECT_DIR=$PROJECT_DIR" \
+    bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"bats not installed; skipping bats gate"* ]]
+  [[ "$stderr" != *"bats gate requires a gated run"* ]]
+}
+
+# The reminder fires on every stop while tests/bats/ is dirty, whether or not
+# anything is wrong. If it shared the executing gates' counter it would burn
+# their budget, so a genuine shellcheck failure in the same window would be
+# auto-allowed after the same 3 stops instead of continuing to block.
+@test "bats reminder does not consume the executing gates' block budget" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(claude_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  # The reminder advanced only its own counter; the executing gates' budget is
+  # untouched, so a shellcheck failure later still gets its full 3 blocks.
+  [ ! -e "$state_file" ]
+  [ -f "$nag_file" ]
+  [ "$(cat "$nag_file")" = "1" ]
+}
+
+# The reminder's own budget must still bound it, or a dirty tests/bats/ tree
+# would trap the turn in an endless stop loop.
+@test "bats reminder auto-allows at MAX_BLOCKS on its own counter" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(claude_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+  mkdir -p "$(dirname "$nag_file")"
+  printf '3' > "$nag_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"bats reminder issued 3 times consecutively"* ]]
+  [ ! -e "$nag_file" ]
 }
 
 # -----------------------------------------------------------------------------

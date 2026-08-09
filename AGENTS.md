@@ -128,7 +128,7 @@ Codex project-local hooks are checked in under `.codex/hooks/` and wired by `.co
 
 提供 Codex hook:
 
-- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`.codex/hooks/*.sh`・`*.fish` 変更時のみ shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-block-count.<repo-key>`) で自動許可。**bats suite は hook 内で実行しない** (Stop hook は permission system も sandbox も経由せず、`bats tests/bats/` は tree 内の全 `.bats` / `.bash` を実行するため)。`tests/bats/` 変更時は「`bats tests/bats/` を通常のコマンドとして自分で実行せよ」という指示付きで block する (Claude 側の hook も同じ契約)
+- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`.codex/hooks/*.sh`・`*.fish` 変更時のみ shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-block-count.<repo-key>`) で自動許可。**bats suite は hook 内で実行しない** (Stop hook は permission system も sandbox も経由せず、`bats tests/bats/` は tree 内の全 `.bats` / `.bash` を実行するため)。`tests/bats/` 変更時は「`bats tests/bats/` を通常のコマンドとして自分で実行せよ」という指示付きで block する (Claude 側の hook も同じ契約)。この bats reminder は実行を伴わず dirty な間ずっと発火するため **別 counter** (`stop-hook-bats-reminder-count.<repo-key>`) で独立に 3 回まで — budget を共有すると本物の shellcheck 失敗が reminder に巻き込まれて早期に自動許可される。`bats` 未インストール時は reminder を出さず skip
 - **`fish-syntax-check.sh`** — PostToolUse `Edit|Write`。`*.fish` 編集時に `fish -n` で構文チェック、エラー時 `decision: block` JSON
 
 Claude Code の machine-local hook 配線は `.claude/settings.local.json` 側で扱う。詳細は [docs/claude-code-hooks.md](docs/claude-code-hooks.md)。
@@ -136,7 +136,7 @@ Claude Code の machine-local hook 配線は `.claude/settings.local.json` 側�
 一行 gotcha:
 
 - macOS で pass / Ubuntu CI で fail する場合は `bats-docker-parity-runner` subagent で Docker Ubuntu 24.04 再走
-- Stop hook 無限ループ時は該当 runtime の block-count file を削除する。repo root で `repo_key=$(printf '%s' "$(pwd -P)" | cksum | awk '{print $1}')` 後、Codex は `rm "${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-block-count.$repo_key"`、Claude は `rm "${XDG_STATE_HOME:-$HOME/.local/state}/claude/project-hooks/stop-hook-block-count.$repo_key"`
+- Stop hook 無限ループ時は該当 runtime の counter file を削除する (block-count と bats-reminder-count の 2 種)。repo root で `repo_key=$(printf '%s' "$(pwd -P)" | cksum | awk '{print $1}')` 後、Codex は `rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-"*".$repo_key"`、Claude は `rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/claude/project-hooks/stop-hook-"*".$repo_key"`
 
 ## Claude Code Configuration Quirks
 
