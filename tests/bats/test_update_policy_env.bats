@@ -197,7 +197,10 @@ join_shell_continuations() {
 
   [ "$status" -eq 0 ]
   grep -Fqx "HOMEBREW_NO_VERIFY_ATTESTATIONS: set" <<<"$output"
-  grep -Fqx "HOMEBREW_VERIFY_ATTESTATIONS: false" <<<"$output"
+  if [[ $'\n'"$output"$'\n' == *$'\nHOMEBREW_VERIFY_ATTESTATIONS: set\n'* ]]; then
+    echo "bootstrap opt-out must disable HOMEBREW_VERIFY_ATTESTATIONS" >&2
+    return 1
+  fi
 }
 
 @test "dot_bashrc leaves Homebrew policy to brew.env and exports ASDF_CONFIG_FILE" {
