@@ -29,6 +29,7 @@ assert_shell_policy_output() {
     HOMEBREW_NO_AUTO_UPDATE \
     HOMEBREW_NO_INSTALL_UPGRADE \
     HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK \
+    HOMEBREW_NO_VERIFY_ATTESTATIONS \
     HOMEBREW_UPDATE_TO_TAG \
     HOMEBREW_VERIFY_ATTESTATIONS
   do
@@ -46,6 +47,7 @@ assert_bootstrap_policy_output() {
     "HOMEBREW_NO_AUTO_UPDATE=1" \
     "HOMEBREW_NO_INSTALL_UPGRADE=1" \
     "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1" \
+    "HOMEBREW_NO_VERIFY_ATTESTATIONS=1" \
     "HOMEBREW_UPDATE_TO_TAG=1"
   do
     grep -Fqx "$expected" <<<"$output"
@@ -143,6 +145,33 @@ join_shell_continuations() {
   assert_pattern_absent "HOMEBREW_BUNDLE_NO_UPGRADE" "$brew_env"
   assert_pattern_absent "HOMEBREW_ALLOWED_TAPS" "$brew_env"
   assert_pattern_absent "HOMEBREW_NO_INSECURE_REDIRECT" "$brew_env"
+  assert_pattern_absent "HOMEBREW_NO_VERIFY_ATTESTATIONS" "$brew_env"
+}
+
+@test "Homebrew reads the managed brew.env without shell exports" {
+  if ! command -v brew >/dev/null; then
+    if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+      echo "brew required to validate the managed Homebrew environment in CI" >&2
+      return 1
+    fi
+    skip "brew required to validate the managed Homebrew environment"
+  fi
+
+  policy_home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$policy_home/.homebrew"
+  cp "$REPO_ROOT/dot_homebrew/brew.env" "$policy_home/.homebrew/brew.env"
+
+  run env -i \
+    HOME="$policy_home" \
+    PATH="$PATH" \
+    HOMEBREW_NO_ANALYTICS=1 \
+    HOMEBREW_NO_INSTALL_FROM_API=1 \
+    brew config
+
+  [ "$status" -eq 0 ]
+  grep -Fqx "HOMEBREW_NO_AUTO_UPDATE: set" <<<"$output"
+  grep -Fqx "HOMEBREW_UPDATE_TO_TAG: set" <<<"$output"
+  grep -Fqx "HOMEBREW_VERIFY_ATTESTATIONS: set" <<<"$output"
 }
 
 @test "dot_bashrc leaves Homebrew policy to brew.env and exports ASDF_CONFIG_FILE" {
@@ -206,6 +235,7 @@ join_shell_continuations() {
     "export HOMEBREW_NO_AUTO_UPDATE=1" \
     "export HOMEBREW_NO_INSTALL_UPGRADE=1" \
     "export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1" \
+    "export HOMEBREW_NO_VERIFY_ATTESTATIONS=1" \
     "export HOMEBREW_CASK_OPTS=--require-sha" \
     "export HOMEBREW_UPDATE_TO_TAG=1"
   do
@@ -248,6 +278,7 @@ STUB
   [ "$(grep -c '^HOMEBREW_NO_AUTO_UPDATE=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_INSTALL_UPGRADE=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
+  [ "$(grep -c '^HOMEBREW_NO_VERIFY_ATTESTATIONS=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
   [ "$(grep -c '^HOMEBREW_UPDATE_TO_TAG=1$' "$BATS_TEST_TMPDIR/brew.log")" -eq "$brew_call_count" ]
 }
 
