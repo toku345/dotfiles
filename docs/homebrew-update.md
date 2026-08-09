@@ -54,7 +54,7 @@ brew developer state
 
 `brew upgrade --dry-run` に表示されたtargetとdependencyをすべて確認してから更新します。引数なしの`brew upgrade`は使用しません。
 
-`brew vulns` はFormula名とversionをOSV APIへ送信し、Caskは検査しません。外部送信が許可される環境でのみ実行してください。`brew verify` は対象Bottleをdownloadし、GitHubのattestation APIへ照会します。検証対象は`homebrew/core`のBottleであり、Cask、third-party Tap、source buildは対象外です。
+`brew vulns` は識別したupstream repository URLとrelease tag/versionをOSV APIへ`GIT` ecosystemのqueryとして送信し、返された脆弱性recordと対象versionの照合はローカルで行います。Caskは検査しません。外部送信が許可される環境でのみ実行してください。`brew verify` は対象Bottleをdownloadし、GitHubのattestation APIへ照会します。検証対象は`homebrew/core`のBottleであり、Cask、third-party Tap、source buildは対象外です。
 
 現行Homebrewでは`brew verify`はdeveloper commandであり、実行するとdeveloper modeが有効になります。`HOMEBREW_UPDATE_TO_TAG=1`により`brew update`は引き続きstable tagを選びますが、状態を明確に保つため更新セッションの最後に`brew developer off`を実行します。
 
@@ -84,8 +84,10 @@ brew reinstall <dependent>
 Caskはvendorがbuildしたartifactをinstallします。次の情報を確認します。
 
 ```sh
-brew info --cask --json=v2 <cask> \
-  | jq '.casks[0] | {token, version, sha256, auto_updates}'
+cask_json="$(brew info --cask --json=v2 <cask>)" &&
+  printf '%s\n' "$cask_json" |
+  jq -e '(.casks[0] // error("cask data is missing"))
+    | {token, version, sha256, auto_updates}'
 ```
 
 - `auto_updates: true`: アプリ自身の更新機構がHomebrew外で動く可能性がある
