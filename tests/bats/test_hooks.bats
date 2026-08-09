@@ -435,7 +435,8 @@ STUB
   chmod +x "$stub_dir/bats"
 
   # A plain *.bats file matches only the broad `tests/bats/*` case, so the
-  # shellcheck and fish gates stay quiet and errors[] holds just this entry.
+  # shellcheck and fish gates stay quiet, nothing lands in errors[], and this
+  # reminder is the sole notices[] entry.
   init_repo_with_relevant_file "tests/bats/dummy.bats" \
 '@test "noop" { true; }
 '
@@ -519,9 +520,11 @@ STUB
   [ "$(cat "$nag_file")" = "1" ]
 }
 
-# The reminder's own budget must still bound it, or a dirty tests/bats/ tree
-# would trap the turn in an endless stop loop.
-@test "bats reminder auto-allows at MAX_BLOCKS on its own counter" {
+# The reminder's own budget must bound it, and the auto-allow must leave the
+# counter at MAX_BLOCKS rather than deleting it. Deleting would make the next
+# stop read 0 and re-arm the reminder, so a dirty tests/bats/ tree would loop
+# 3-blocked-then-1-allowed forever with nothing the agent could do about it.
+@test "bats reminder auto-allows at MAX_BLOCKS and stays quiet afterwards" {
   local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
   mkdir -p "$stub_dir"
   cat > "$stub_dir/bats" <<'STUB'
@@ -543,6 +546,21 @@ STUB
   PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"bats reminder issued 3 times consecutively"* ]]
+  # Sentinel retained, not deleted — this is what stops the reminder re-arming.
+  [ -f "$nag_file" ]
+  [ "$(cat "$nag_file")" = "3" ]
+
+  # The very next stop, same dirty tree: silent, and still no reminder.
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"bats gate requires a gated run"* ]]
+
+  # Once tests/bats/ is clean again the sentinel is cleared, so a later change
+  # gets a fresh budget rather than being silenced forever.
+  git -C "$PROJECT_DIR" rm -q --cached "tests/bats/dummy.bats"
+  rm -f "$PROJECT_DIR/tests/bats/dummy.bats"
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
   [ ! -e "$nag_file" ]
 }
 

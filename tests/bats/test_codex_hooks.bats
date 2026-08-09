@@ -453,7 +453,8 @@ STUB
   chmod +x "$stub_dir/bats"
 
   # A plain *.bats file matches only the broad `tests/bats/*` case, so the
-  # shellcheck and fish gates stay quiet and errors[] holds just this entry.
+  # shellcheck and fish gates stay quiet, nothing lands in errors[], and this
+  # reminder is the sole notices[] entry.
   init_codex_repo "tests/bats/dummy.bats" \
 '@test "noop" { true; }
 '
@@ -522,6 +523,42 @@ STUB
   [ ! -e "$state_file" ]
   [ -f "$nag_file" ]
   [ "$(cat "$nag_file")" = "1" ]
+}
+
+# Twin parity: the Codex hook carries the identical reminder auto-allow, which
+# is the only bound preventing a dirty tests/bats/ tree from trapping the turn.
+# The auto-allow must leave the counter at MAX_BLOCKS rather than deleting it —
+# deleting would re-arm the reminder on the next stop, looping forever.
+@test "codex: bats reminder auto-allows at MAX_BLOCKS and stays quiet afterwards" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(codex_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+  mkdir -p "$(dirname "$nag_file")"
+  printf '3' > "$nag_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"bats reminder issued 3 times consecutively"* ]]
+  # Sentinel retained, not deleted — this is what stops the reminder re-arming.
+  [ -f "$nag_file" ]
+  [ "$(cat "$nag_file")" = "3" ]
+
+  # The very next stop, same dirty tree: silent, and still no reminder.
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"bats gate requires a gated run"* ]]
 }
 
 # -----------------------------------------------------------------------------

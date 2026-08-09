@@ -21,6 +21,7 @@ Stop event hook。`git diff HEAD` と untracked を走査し、`tests/bats/`・`
   - `bats` 未インストール時は reminder を出さずに skip する。実行手段が無い環境で従えない指示を出しても reminder budget を消費するだけで、検証は CI に委ねる方が筋が通るため (`tests/bats/test_hooks.bats` で固定)
 - 失敗時は exit 2 + stderr で Claude に feedback を返す
 - 連続ブロック上限は 3 回。**counter は 2 系統に分かれている**: 実際に実行される gate (shellcheck / `fish -n`) は `stop-hook-block-count.<repo-key>`、bats reminder は `stop-hook-bats-reminder-count.<repo-key>` (いずれも `${XDG_STATE_HOME:-$HOME/.local/state}/claude/project-hooks/` 配下)。reminder は `tests/bats/` が dirty な間は中身の正否に関わらず毎回発火するため、budget を共有すると本物の shellcheck 失敗が reminder に巻き込まれて早期に自動許可されてしまう
+  - **reminder の auto-allow は counter を削除せず 3 のまま残す** (sentinel)。削除すると次の stop で 0 に戻って再武装し、dirty な間ずっと「3 回ブロック → 1 回許可」を繰り返す無限ループになる。エージェント側にこれを解消する手段は無い (hook は tool call を観測できない)。counter は reminder が適用されなくなる箇所 — `tests/bats/` が clean に戻った時と bats 未インストール時 — でのみ削除される。つまり 1 つの dirty エピソードにつき 3 回だけ止め、以降は黙る
 
 ### `.claude/hooks/fish-syntax-check.sh`
 

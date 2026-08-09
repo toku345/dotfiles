@@ -160,7 +160,10 @@ count=$(read_block_count "$STATE_FILE")
 nag_count=$(read_block_count "$NAG_STATE_FILE")
 if [ "$count" -ge "$MAX_BLOCKS" ]; then
   remove_state_file "$STATE_FILE"
-  remove_state_file "$NAG_STATE_FILE"
+  # NAG_STATE_FILE is deliberately left alone: clearing it here would re-arm
+  # the reminder for a tests/bats/ change that is still dirty, restarting its
+  # budget on the next stop. It is cleared where the reminder genuinely stops
+  # applying — the clean-tree early exit and the notices-empty branch.
   echo "verify-on-stop: blocked $count times consecutively, allowing stop." >&2
   exit 0
 fi
@@ -181,7 +184,7 @@ if [ ${#bats_changed[@]} -gt 0 ]; then
     # through the normal permission-gated path where that decision is made.
     bats_msg="bats gate requires a gated run (files under tests/bats/ changed):"
     bats_msg+=$'\n''Run `bats tests/bats/` as a normal command, so the run goes through the permission/sandbox path this hook bypasses, then fix any failures.'
-    bats_msg+=$'\n'"This hook cannot observe tool calls, so it reminds again on each stop until its own $MAX_BLOCKS-reminder auto-allow."
+    bats_msg+=$'\n'"This hook cannot observe tool calls, so it reminds on each stop until its own $MAX_BLOCKS-reminder auto-allow, then stays quiet for the rest of this change."
     notices+=("$bats_msg")
   else
     # The reminder needs no binary, but with bats absent the suite cannot be
@@ -250,7 +253,12 @@ fi
 
 if [ ${#notices[@]} -gt 0 ]; then
   if [ "$nag_count" -ge "$MAX_BLOCKS" ]; then
-    remove_state_file "$NAG_STATE_FILE"
+    # Leave the counter at MAX_BLOCKS as a sentinel rather than deleting it.
+    # Deleting would make the next stop read 0 and re-arm the reminder, so a
+    # dirty tests/bats/ tree would loop 3-blocked-then-1-allowed forever with
+    # nothing the agent could do to satisfy it. The counter is cleared where
+    # the reminder stops applying: the clean-tree early exit and the
+    # notices-empty branch below.
     echo "verify-on-stop: bats reminder issued $nag_count times consecutively, allowing stop." >&2
   else
     blocking+=("${notices[@]}")
