@@ -128,7 +128,7 @@ Codex project-local hooks are checked in under `.codex/hooks/` and wired by `.co
 
 提供 Codex hook:
 
-- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`.codex/hooks/*.sh`・`*.fish` 変更時のみ bats / shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-block-count.<repo-key>`) で自動許可
+- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`.codex/hooks/*.sh`・`*.fish` 変更時のみ shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-block-count.<repo-key>`) で自動許可。**bats suite は hook 内で実行しない** (Stop hook は permission system も sandbox も経由せず、`bats tests/bats/` は tree 内の全 `.bats` / `.bash` を実行するため)。`tests/bats/` 変更時は「`bats tests/bats/` を通常のコマンドとして自分で実行せよ」という指示付きで block する (Claude 側の hook も同じ契約)
 - **`fish-syntax-check.sh`** — PostToolUse `Edit|Write`。`*.fish` 編集時に `fish -n` で構文チェック、エラー時 `decision: block` JSON
 
 Claude Code の machine-local hook 配線は `.claude/settings.local.json` 側で扱う。詳細は [docs/claude-code-hooks.md](docs/claude-code-hooks.md)。

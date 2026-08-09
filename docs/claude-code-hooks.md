@@ -14,8 +14,9 @@
 
 ### `.claude/hooks/verify-on-stop.sh`
 
-Stop event hook。`git diff HEAD` と untracked を走査し、`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`*.fish` のいずれかが変更されている時のみ対応する gate (bats / shellcheck / `fish -n`) を実行する。
+Stop event hook。`git diff HEAD` と untracked を走査し、`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`*.fish` のいずれかが変更されている時のみ対応する gate (shellcheck / `fish -n`) を実行する。
 
+- **bats suite は hook 自身が実行しない**: Stop hook は turn 終了時に自動発火し、permission system も Bash tool の sandbox も経由しない。`bats tests/bats/` は tree 内の全 `.bats` / `.bash` を shell code として source・実行するため、auto-approve されがちな `tests/bats/` への write が無確認のコマンド実行に化ける。`tests/bats/` 変更時は「`bats tests/bats/` を通常のコマンドとして (= permission-gated な経路で) 自分で実行せよ」という指示付きで stop をブロックする
 - 失敗時は exit 2 + stderr で Claude に feedback を返す
 - 連続ブロック上限は 3 回 (`${XDG_STATE_HOME:-$HOME/.local/state}/claude/project-hooks/stop-hook-block-count.<repo-key>`) で、超えたら自動許可しユーザーが復旧できるようにする
 

@@ -412,6 +412,42 @@ some_unused_var=42
 }
 
 # -----------------------------------------------------------------------------
+# The Stop hook must never execute the test tree itself. It runs automatically
+# at turn end, outside the permission system and outside the sandbox that Bash
+# tool calls get, and `bats tests/bats/` sources and runs every .bats/.bash
+# file in the tree — so auto-running it converted any (auto-approved) write
+# under tests/bats/ into unprompted command execution. The gate must instead
+# block and require the suite to be run through the gated tool path.
+# -----------------------------------------------------------------------------
+
+@test "bats gate blocks with instructions instead of executing the test tree" {
+  # A `bats` PATH stub that marks invocation: the stub makes `command -v bats`
+  # succeed (so this is the tool-installed path, not the not-installed skip),
+  # and the absent marker is the assertion that no repository test code ran.
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local marker="$BATS_TEST_TMPDIR/bats-was-invoked"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<STUB
+#!/usr/bin/env bash
+touch '$marker'
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  # A plain *.bats file matches only the broad `tests/bats/*` case, so the
+  # shellcheck and fish gates stay quiet and errors[] holds just this entry.
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"bats gate requires a gated run"* ]]
+  # Critical: the suite must not have been executed by the hook.
+  [ ! -e "$marker" ]
+}
+
+# -----------------------------------------------------------------------------
 # fish-syntax-check: PostToolUse hook on Edit/Write. Must skip silently for
 # unrelated paths and return a `decision: block` JSON envelope when the
 # edited *.fish file fails `fish -n`.

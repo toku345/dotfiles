@@ -72,8 +72,8 @@ fish_changed=()
 # Classification is content-agnostic: a deletion under tests/bats/ should
 # still trigger the bats gate (a removed test_helper.bash can break other
 # tests via coupling). The existence guard is applied per-operation —
-# only shellcheck and `fish -n` need a readable file; the bats gate runs
-# the whole tree regardless.
+# only shellcheck and `fish -n` need a readable file; the bats gate only
+# needs to know that the tree changed.
 for f in "${changed[@]}"; do
   case "$f" in
     # Shell helpers / stub binaries also need shellcheck. Match these
@@ -134,9 +134,17 @@ errors=()
 
 if [ ${#bats_changed[@]} -gt 0 ]; then
   if command -v bats >/dev/null 2>&1; then
-    if ! out=$(bats tests/bats/ 2>&1); then
-      errors+=("bats failed:"$'\n'"$out")
-    fi
+    # Never run the suite from here. A Stop hook fires automatically at the
+    # end of a turn, outside the permission system and outside the sandbox
+    # that Bash tool calls run under, and `bats tests/bats/` sources and
+    # executes every .bats/.bash file in that tree as shell code. Running it
+    # here would turn any write under tests/bats/ — routinely auto-approved —
+    # into unprompted command execution. Block instead, so the suite runs
+    # through the normal permission-gated path where that decision is made.
+    bats_msg="bats gate requires a gated run (files under tests/bats/ changed):"
+    bats_msg+=$'\n''Run `bats tests/bats/` as a normal command, so the run goes through the permission/sandbox path this hook bypasses, then fix any failures.'
+    bats_msg+=$'\n'"This hook cannot observe tool calls, so it blocks again on each stop until the $MAX_BLOCKS-block auto-allow."
+    errors+=("$bats_msg")
   else
     echo "verify-on-stop: bats not installed; skipping bats gate." >&2
   fi

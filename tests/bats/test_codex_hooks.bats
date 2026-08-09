@@ -432,6 +432,39 @@ some_unused_var=42
 }
 
 # -----------------------------------------------------------------------------
+# The Codex Stop hook must never execute the test tree either: it fires
+# automatically at turn end, outside the permission system and outside the
+# sandbox tool-issued commands get, and `bats tests/bats/` sources and runs
+# every .bats/.bash file in the tree. The gate must block and require the
+# suite to be run through the gated path instead.
+# -----------------------------------------------------------------------------
+
+@test "codex: bats gate blocks with instructions instead of executing the test tree" {
+  # The stub makes `command -v bats` succeed (tool-installed path, not the
+  # not-installed skip); the absent marker proves no repo test code ran.
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local marker="$BATS_TEST_TMPDIR/bats-was-invoked"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<STUB
+#!/usr/bin/env bash
+touch '$marker'
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  # A plain *.bats file matches only the broad `tests/bats/*` case, so the
+  # shellcheck and fish gates stay quiet and errors[] holds just this entry.
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"bats gate requires a gated run"* ]]
+  [ ! -e "$marker" ]
+}
+
+# -----------------------------------------------------------------------------
 # .codex/hooks.json is the only project-local wiring that makes the tested hook
 # scripts run. Keep a thin schema-independent assertion around the event names,
 # matcher, and command targets so script tests cannot pass while wiring drifts.
