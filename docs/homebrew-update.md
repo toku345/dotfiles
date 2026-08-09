@@ -31,28 +31,37 @@ gh auth status
 
 ```sh
 # Homebrew本体をstable tagへ、package metadataを最新状態へ更新する
-brew update
-
-# 通常対象と、自己更新/:latestを含むCaskの記録を別々に確認する
-brew outdated --verbose
-brew outdated --greedy --verbose
-
-# 例: ripgrepだけを確認して更新する
-brew upgrade --dry-run ripgrep
-brew vulns --deps ripgrep
-brew verify --deps ripgrep
-brew upgrade ripgrep
-
-# 更新後のlinkageと対象コマンドを確認する
-brew linkage --test
-rg --version
-
-# brew verifyが有効化したdeveloper modeを更新セッションの最後に戻す
-brew developer off
-brew developer state
+brew update &&
+  brew outdated --verbose &&
+  brew outdated --greedy --verbose &&
+  brew upgrade --dry-run ripgrep
 ```
 
-`brew upgrade --dry-run` に表示されたtargetとdependencyをすべて確認してから更新します。引数なしの`brew upgrade`は使用しません。
+ここまでの全コマンドが成功し、`brew upgrade --dry-run` に表示されたtargetとdependencyをすべて確認してから、次の更新ブロックを実行します。引数なしの`brew upgrade`は使用しません。
+
+```sh
+sh -c '
+operation_status=0
+cleanup_status=0
+
+brew vulns --deps ripgrep &&
+  brew verify --deps ripgrep &&
+  brew upgrade ripgrep &&
+  brew linkage --test &&
+  rg --version || operation_status=$?
+
+# brew verifyが有効化したdeveloper modeを成否にかかわらず戻す
+brew developer off || cleanup_status=$?
+brew developer state || cleanup_status=$?
+
+if [ "$operation_status" -ne 0 ] || [ "$cleanup_status" -ne 0 ]; then
+  echo "ERROR: Homebrew update or developer-mode cleanup failed; review the output above." >&2
+  exit 1
+fi
+'
+```
+
+このブロックは脆弱性検査またはattestation検証が失敗した時点でpackage更新を止めます。cleanupは常に実行し、更新処理またはdeveloper mode復帰のどちらかが失敗した場合はブロック全体を失敗として終了します。
 
 `brew vulns` は識別したupstream repository URLとrelease tag/versionをOSV APIへ`GIT` ecosystemのqueryとして送信し、返された脆弱性recordと対象versionの照合はローカルで行います。Caskは検査しません。外部送信が許可される環境でのみ実行してください。`brew verify` は対象Bottleをdownloadし、GitHubのattestation APIへ照会します。検証対象は`homebrew/core`のBottleであり、Cask、third-party Tap、source buildは対象外です。
 
@@ -118,7 +127,20 @@ gh auth status
 brew verify --deps <formula>
 ```
 
-`gh`が未導入または壊れている場合、`gh`自身はHomebrewのbootstrap例外としてattestation対象外です。`brew install gh`で復旧し、`gh auth login -h github.com`後に`brew verify gh`を実行します。検証後は成功・失敗にかかわらず`brew developer off`でdeveloper modeを戻します。`HOMEBREW_NO_VERIFY_ATTESTATIONS=1`による一時無効化は、`gh`bootstrapや障害切り分けに限定し、他Formulaの通常更新を通す目的では使用しません。
+`gh`の復旧操作だけは、事前attestationに必要な`gh`自身を利用できないためbootstrap例外として扱います。状態に応じて次のいずれか1つを実行します。
+
+```sh
+# 未導入の場合
+HOMEBREW_NO_VERIFY_ATTESTATIONS=1 brew install gh
+
+# インストール済みだが古い場合
+HOMEBREW_NO_VERIFY_ATTESTATIONS=1 brew upgrade gh
+
+# インストール済みだが実行できないなど、packageが壊れている場合
+HOMEBREW_NO_VERIFY_ATTESTATIONS=1 brew reinstall gh
+```
+
+復旧後は`gh auth login -h github.com`を実行し、`brew verify gh`で事後検証します。検証後は成功・失敗にかかわらず`brew developer off`でdeveloper modeを戻します。`HOMEBREW_NO_VERIFY_ATTESTATIONS=1`による一時無効化はこの復旧操作や障害切り分けに限定し、他Formulaの通常更新を通す目的では使用しません。
 
 ## Homebrew developer modeからの移行
 

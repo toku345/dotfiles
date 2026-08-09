@@ -174,6 +174,32 @@ join_shell_continuations() {
   grep -Fqx "HOMEBREW_VERIFY_ATTESTATIONS: set" <<<"$output"
 }
 
+@test "bootstrap attestation opt-out overrides managed brew.env on replay" {
+  if ! command -v brew >/dev/null; then
+    if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+      echo "brew required to validate the bootstrap attestation override in CI" >&2
+      return 1
+    fi
+    skip "brew required to validate the bootstrap attestation override"
+  fi
+
+  policy_home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$policy_home/.homebrew"
+  cp "$REPO_ROOT/dot_homebrew/brew.env" "$policy_home/.homebrew/brew.env"
+
+  run env -i \
+    HOME="$policy_home" \
+    PATH="$PATH" \
+    HOMEBREW_NO_ANALYTICS=1 \
+    HOMEBREW_NO_INSTALL_FROM_API=1 \
+    HOMEBREW_NO_VERIFY_ATTESTATIONS=1 \
+    brew config
+
+  [ "$status" -eq 0 ]
+  grep -Fqx "HOMEBREW_NO_VERIFY_ATTESTATIONS: set" <<<"$output"
+  grep -Fqx "HOMEBREW_VERIFY_ATTESTATIONS: false" <<<"$output"
+}
+
 @test "dot_bashrc leaves Homebrew policy to brew.env and exports ASDF_CONFIG_FILE" {
   run env -i \
     HOME="$BATS_TEST_TMPDIR/home" \
