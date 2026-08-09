@@ -63,7 +63,7 @@ fi
 
 このブロックは脆弱性検査またはattestation検証が失敗した時点でpackage更新を止めます。cleanupは常に実行し、更新処理またはdeveloper mode復帰のどちらかが失敗した場合はブロック全体を失敗として終了します。
 
-`brew vulns` は識別したupstream repository URLとrelease tag/versionをOSV APIへ`GIT` ecosystemのqueryとして送信し、返された脆弱性recordと対象versionの照合はローカルで行います。Caskは検査しません。外部送信が許可される環境でのみ実行してください。`brew verify` は対象Bottleをdownloadし、GitHubのattestation APIへ照会します。検証対象は`homebrew/core`のBottleであり、Cask、third-party Tap、source buildは対象外です。
+`brew vulns` はFormulaから識別したupstream repository URLとsource tag/versionをOSV APIへ`GIT` ecosystemのpackage queryとして送信します。OSVが返した候補は、同じtag/versionに対してHomebrewがローカルでも照合します。Caskは検査しません。外部送信が許可される環境でのみ実行してください。`brew verify` は対象Bottleをdownloadし、GitHubのattestation APIへ照会します。検証対象は`homebrew/core`のBottleであり、Cask、third-party Tap、source buildは対象外です。
 
 現行Homebrewでは`brew verify`はdeveloper commandであり、実行するとdeveloper modeが有効になります。`HOMEBREW_UPDATE_TO_TAG=1`により`brew update`は引き続きstable tagを選びますが、状態を明確に保つため更新セッションの最後に`brew developer off`を実行します。
 
