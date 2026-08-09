@@ -44,9 +44,9 @@ sh -c '
 operation_status=0
 cleanup_status=0
 
-brew vulns --deps ripgrep &&
-  brew verify --deps ripgrep &&
+brew verify --deps ripgrep &&
   brew upgrade ripgrep &&
+  brew vulns --deps ripgrep &&
   brew linkage --test &&
   rg --version || operation_status=$?
 
@@ -61,7 +61,7 @@ fi
 '
 ```
 
-このブロックは脆弱性検査またはattestation検証が失敗した時点でpackage更新を止めます。cleanupは常に実行し、更新処理またはdeveloper mode復帰のどちらかが失敗した場合はブロック全体を失敗として終了します。
+`brew verify` が失敗した場合はpackage更新前に停止します。`brew vulns` は更新後の導入済みversionを検査し、脆弱性が残るか検査自体が失敗した場合はブロック全体を失敗にします。導入済みの旧versionに脆弱性があっても修正版へのupgradeを妨げないため、`brew vulns` はupgrade後に実行します。cleanupは常に実行し、更新処理またはdeveloper mode復帰のどちらかが失敗した場合はブロック全体を失敗として終了します。
 
 `brew vulns` はFormulaから識別したupstream repository URLとsource tag/versionをOSV APIへ`GIT` ecosystemのpackage queryとして送信します。OSVが返した候補は、同じtag/versionに対してHomebrewがローカルでも照合します。Caskは検査しません。外部送信が許可される環境でのみ実行してください。`brew verify` は対象Bottleをdownloadし、GitHubのattestation APIへ照会します。検証対象は`homebrew/core`のBottleであり、Cask、third-party Tap、source buildは対象外です。
 
