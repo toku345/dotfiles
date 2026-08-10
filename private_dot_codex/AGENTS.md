@@ -26,6 +26,16 @@
 
 ## Git Commit Messages
 
+リポジトリの `AGENTS.md` / `CLAUDE.md` / `CONTRIBUTING.md` 等に固有規約が
+ある場合は、prefix や ticket ID の要件を含めてそちらを優先する。
+
+メッセージ本文の規則:
+- 件名は何を変更したかを簡潔に表す。
+- 変更理由が件名と diff から明らかな場合は、説明本文を付けない。
+- 半年後の読者が変更の必要性を件名と diff から復元できない場合は、理由を 1-3 文で説明する。
+- 本文には、原因、回避する問題・リスク、維持すべき制約、重要なトレードオフだけを残す。
+- diff の言い換え、実装経緯、レビュー回数、検証ログは PR または最終報告へ分離する。
+
 When you write or edit a git commit message, ensure the message ends with this trailer exactly once:
 
 Co-authored-by: Codex <noreply@openai.com>
