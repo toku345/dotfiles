@@ -147,6 +147,13 @@ jobs:
         run: |
           echo "=== Chezmoi Configuration Check ==="
 
+          brew_env_target="$(chezmoi --source . target-path dot_homebrew/brew.env)"
+          expected_brew_env_target="$HOME/.homebrew/brew.env"
+          if [ "$brew_env_target" != "$expected_brew_env_target" ]; then
+            echo "ERROR: dot_homebrew/brew.env maps to '$brew_env_target', expected '$expected_brew_env_target'" >&2
+            exit 1
+          fi
+
           # Check that managed files can be listed (excluding encrypted)
           echo "Managed files (excluding encrypted):"
           chezmoi managed --include=files --exclude=encrypted 2>/dev/null || true
