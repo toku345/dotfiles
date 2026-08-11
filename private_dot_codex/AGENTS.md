@@ -36,6 +36,7 @@
 - 変更理由が件名と diff から明らかな場合は、説明本文を付けない。
 - 半年後の読者が変更の必要性を件名と diff から復元できない場合は、理由を 1-3 文で説明する。
 - 本文には、原因、回避する問題・リスク、維持すべき制約、重要なトレードオフだけを残す。
+- コミット本文は 72 文字前後を目安に hard wrap する。URL、コード、trailer は折り返さない。
 - diff の言い換え、実装経緯、レビュー回数、検証ログは PR または最終報告へ分離する。
 
 When you write or edit a git commit message, ensure the message ends with this trailer exactly once:
