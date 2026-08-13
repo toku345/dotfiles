@@ -29,43 +29,39 @@ gh auth status
 
 通常更新は公開から7日を目安に保留します。security advisory、active exploit、作業を復旧するbreak/fixはこの待機期間を省略します。
 
-```sh
-# Homebrew本体をstable tagへ、package metadataを最新状態へ更新する
-brew update &&
-  brew outdated --verbose &&
-  brew outdated --greedy --verbose &&
-  brew upgrade --dry-run ripgrep
-```
-
-ここまでの全コマンドが成功し、`brew upgrade --dry-run` に表示されたtargetとdependencyをすべて確認してから、次の更新ブロックを実行します。引数なしの`brew upgrade`は使用しません。
+### Quick Start
 
 ```sh
-sh -c '
-operation_status=0
-cleanup_status=0
-
-brew verify --deps ripgrep &&
-  brew upgrade ripgrep &&
-  brew vulns --deps ripgrep &&
-  brew linkage --test &&
-  rg --version || operation_status=$?
-
-# brew verifyが有効化したdeveloper modeを成否にかかわらず戻す
-brew developer off || cleanup_status=$?
-brew developer state || cleanup_status=$?
-
-if [ "$operation_status" -ne 0 ] || [ "$cleanup_status" -ne 0 ]; then
-  echo "ERROR: Homebrew update or developer-mode cleanup failed; review the output above." >&2
-  exit 1
-fi
-'
+brew-reviewed-upgrade ripgrep -- rg --version
 ```
 
-`brew verify` が失敗した場合はpackage更新前に停止します。`brew vulns` は更新後の導入済みversionを検査し、脆弱性が残るか検査自体が失敗した場合はブロック全体を失敗にします。導入済みの旧versionに脆弱性があっても修正版へのupgradeを妨げないため、`brew vulns` はupgrade後に実行します。cleanupは常に実行し、更新処理またはdeveloper mode復帰のどちらかが失敗した場合はブロック全体を失敗として終了します。
+`brew-reviewed-upgrade`は、インストール済みでpinされていない`homebrew/core` Formulaを1件だけ処理します。Cask、複数Formula、third-party Tap、source buildは通常経路の対象外です。Formula固有の動作確認ができない場合だけ、明示的に次を使用します。
+
+```sh
+brew-reviewed-upgrade --no-check ripgrep
+```
+
+helperは管理ポリシー、GitHub CLI認証、Formulaの導入・pin・Bottle状態を確認してから`brew update`を実行します。対象が最新版なら何も更新せず成功終了します。更新対象がある場合はnamed outdated結果とdry-runを表示し、release notes、7日cooldownまたは例外、targetとdependencyの全変更を確認済みか1回だけ質問します。拒否またはEOFではFormulaを更新しませんが、先行するHomebrew本体とmetadataの更新は完了済みです。
+
+承認後はtargetと再帰dependencyのBottle attestation coverageを検査し、missing Bottle、件数・subject不一致、出力形式の変化をすべてfail-closedで停止します。その後、named upgrade、`brew vulns --deps`、global `brew linkage --test`、指定した動作確認を順番に実行します。どのstageも失敗後の処理を実行しません。`brew verify`が有効化するdeveloper modeは、成功、失敗、INT、TERMの全経路で復旧を試みます。更新処理とcleanupが両方失敗した場合は両方を報告し、更新処理の終了statusを維持します。
+
+`brew vulns`は更新後の導入済みversionを検査します。脆弱性が残るか検査自体が失敗した場合はhelper全体が失敗します。導入済みの旧versionに脆弱性があっても修正版へのupgradeを妨げないため、検査はupgrade後に実行します。引数なしの`brew upgrade`は使用しません。
 
 `brew vulns` はFormulaから識別したupstream repository URLとsource tag/versionをOSV APIへ`GIT` ecosystemのpackage queryとして送信します。OSVが返した候補は、同じtag/versionに対してHomebrewがローカルでも照合します。Caskは検査しません。外部送信が許可される環境でのみ実行してください。`brew verify` は対象Bottleをdownloadし、GitHubのattestation APIへ照会します。検証対象は`homebrew/core`のBottleであり、Cask、third-party Tap、source buildは対象外です。
 
 現行Homebrewでは`brew verify`はdeveloper commandであり、実行するとdeveloper modeが有効になります。`HOMEBREW_UPDATE_TO_TAG=1`により`brew update`は引き続きstable tagを選びますが、状態を明確に保つため更新セッションの最後に`brew developer off`を実行します。
+
+## 定期inventory
+
+個別更新とは分離して、少なくとも高権限CLIとpinしたpackageの四半期レビュー時に全体inventoryを確認します。この手順は一覧を更新・表示するだけで、FormulaやCaskをupgradeしません。
+
+```sh
+brew update &&
+  brew outdated --formula --verbose &&
+  brew outdated --cask --greedy --verbose
+```
+
+一覧から更新するFormulaを1件選び、release notesとcooldownを確認してQuick Startを実行します。Caskは後述の手順で個別にレビューします。
 
 ## dependentの修復
 
