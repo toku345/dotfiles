@@ -28,7 +28,7 @@
 
 リポジトリの `AGENTS.md` / `CLAUDE.md` / `CONTRIBUTING.md` 等に固有規約が
 ある場合は、prefix や ticket ID の要件を含めてそちらを優先する。ただし
-下記の `Co-authored-by: Codex` trailer 要件は repo 固有規約より優先して
+下記の `Co-authored-by: Codex <model-id>` trailer 要件は repo 固有規約より優先して
 維持する。
 
 コミットメッセージの規則:
@@ -39,13 +39,14 @@
 - コミット本文は 72 文字前後を目安に hard wrap する。URL、コード、trailer は折り返さない。
 - diff の言い換え、実装経緯、レビュー回数、検証ログは PR または最終報告へ分離する。
 
-When you write or edit a git commit message, ensure the message ends with this trailer exactly once:
+When you write or edit a git commit message, ensure the message ends with exactly one model-qualified Codex trailer in this form:
 
-Co-authored-by: Codex <noreply@openai.com>
+Co-authored-by: Codex <model-id> <noreply@openai.com>
 
 Rules:
-- Keep existing trailers and append this trailer at the end if missing.
-- Do not duplicate this trailer if it already exists.
+- Replace `<model-id>` with the exact model identifier used for the current session (for example, `gpt-5.6-sol`). Do not infer it from a config file, profile, or prior session. If the runtime does not expose the exact model identifier, stop before committing and ask the user.
+- Keep existing non-Codex trailers. Replace a legacy or stale Codex trailer with the current model-qualified form instead of appending a second Codex trailer.
+- Do not duplicate the Codex trailer if it already has the current model identifier.
 - Keep one blank line between the commit body and trailer block.
 
 ## Implementation Notes

@@ -151,7 +151,7 @@ runtime smoke は credentials と server-side model catalog に依存するた�
 
 ## commit attribution
 
-Codex CLI 0.131 系で `codex_git_commit` feature flag と `commit_attribution` config は削除された。baseline ではこれらの削除済み config は使わず、個人 preference として `~/.codex/AGENTS.md` に Co-authored-by trailer 指示を置く。
+Codex CLI 0.131 系で `codex_git_commit` feature flag と `commit_attribution` config は削除された。baseline ではこれらの削除済み config は使わず、個人 preference として `~/.codex/AGENTS.md` に実行時の model ID を含む Co-authored-by trailer 指示を置く。
 
 ## 通知
 
