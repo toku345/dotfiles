@@ -11,6 +11,9 @@ BREW_BIN=""
 JQ_BIN=""
 TEMP_DIR=""
 ACTIVE_PID=""
+MANAGED_LAUNCHING=0
+PENDING_SIGNAL_NAME=""
+PENDING_SIGNAL_STATUS=0
 DEVELOPER_CLEANUP_ARMED=0
 
 usage() {
@@ -53,9 +56,25 @@ capture_command() {
   fi
 }
 
+publish_managed_pid() {
+  ACTIVE_PID="$1"
+  MANAGED_LAUNCHING=0
+
+  if [[ -n "$PENDING_SIGNAL_NAME" ]]; then
+    local signal_name="$PENDING_SIGNAL_NAME"
+    local signal_status="$PENDING_SIGNAL_STATUS"
+    PENDING_SIGNAL_NAME=""
+    PENDING_SIGNAL_STATUS=0
+    handle_signal "$signal_name" "$signal_status"
+  fi
+}
+
 run_managed() {
+  PENDING_SIGNAL_NAME=""
+  PENDING_SIGNAL_STATUS=0
+  MANAGED_LAUNCHING=1
   "$@" <&0 &
-  ACTIVE_PID=$!
+  publish_managed_pid "$!"
 
   local status
   if wait "$ACTIVE_PID"; then
@@ -71,6 +90,14 @@ handle_signal() {
   local signal_name="$1"
   local status="$2"
   local child_status=0
+
+  if (( MANAGED_LAUNCHING )); then
+    if [[ -z "$PENDING_SIGNAL_NAME" ]]; then
+      PENDING_SIGNAL_NAME="$signal_name"
+      PENDING_SIGNAL_STATUS="$status"
+    fi
+    return 0
+  fi
 
   trap '' INT TERM
   if [[ -n "$ACTIVE_PID" ]]; then
@@ -146,7 +173,7 @@ install_lifecycle_traps() {
 
 validate_policy_file() {
   local policy_file="$HOME/$POLICY_FILE_RELATIVE"
-  local assignment expected name value count
+  local assignment expected name value count values_file forbidden_file
 
   if [[ ! -r "$policy_file" ]]; then
     error "managed Homebrew policy is missing or unreadable: $policy_file"
@@ -165,20 +192,34 @@ validate_policy_file() {
     expected="${assignment#*=}"
     count=0
     value=""
+    values_file="$TEMP_DIR/policy-values-$name"
+    if ! awk -F= -v key="$name" \
+      '$1 == key { sub(/^[^=]*=/, ""); print }' \
+      "$policy_file" >"$values_file"; then
+      error "could not parse managed Homebrew policy: $policy_file"
+      return 1
+    fi
     while IFS= read -r value; do
       count=$((count + 1))
       if [[ "$value" != "$expected" ]]; then
         error "$policy_file must set $name=$expected exactly once"
         return 1
       fi
-    done < <(awk -F= -v key="$name" '$1 == key { sub(/^[^=]*=/, ""); print }' "$policy_file")
+    done <"$values_file"
     if (( count != 1 )); then
       error "$policy_file must set $name=$expected exactly once"
       return 1
     fi
   done
 
-  if awk -F= '$1 == "HOMEBREW_NO_VERIFY_ATTESTATIONS" || $1 == "HOMEBREW_NO_ASK" { found=1 } END { exit !found }' "$policy_file"; then
+  forbidden_file="$TEMP_DIR/policy-forbidden"
+  if ! awk -F= \
+    '$1 == "HOMEBREW_NO_VERIFY_ATTESTATIONS" || $1 == "HOMEBREW_NO_ASK" { print }' \
+    "$policy_file" >"$forbidden_file"; then
+    error "could not scan managed Homebrew policy: $policy_file"
+    return 1
+  fi
+  if [[ -s "$forbidden_file" ]]; then
     error "$policy_file must not disable attestations or Homebrew ask mode"
     return 1
   fi
@@ -186,7 +227,7 @@ validate_policy_file() {
 
 validate_effective_policy() {
   local config_file="$TEMP_DIR/brew-config"
-  local required
+  local required grep_status
 
   if ! capture_command "$config_file" "$BREW_BIN" config; then
     error "brew config failed"
@@ -213,6 +254,12 @@ validate_effective_policy() {
   if grep -Eq '^HOMEBREW_(NO_VERIFY_ATTESTATIONS|NO_ASK): set$' "$config_file"; then
     error "effective environment disables attestations or Homebrew ask mode"
     return 1
+  else
+    grep_status=$?
+    if (( grep_status != 1 )); then
+      error "could not inspect effective Homebrew policy"
+      return 1
+    fi
   fi
 }
 
@@ -343,7 +390,8 @@ show_dry_run() {
   local formula="$1"
   local output_file="$TEMP_DIR/upgrade-dry-run"
 
-  if ! capture_command "$output_file" "$BREW_BIN" upgrade --formula --dry-run "$formula"; then
+  if ! HOMEBREW_NO_INSTALL_CLEANUP=1 \
+    capture_command "$output_file" "$BREW_BIN" upgrade --formula --dry-run "$formula"; then
     cat "$output_file"
     error "Homebrew dry-run failed"
     return 1
@@ -408,9 +456,8 @@ confirm_review() {
     error "confirmation input ended; brew update completed, but the Formula was not upgraded"
     return 1
   fi
-  reply="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
   case "$reply" in
-    y|yes) return 0 ;;
+    [yY]|[yY][eE][sS]) return 0 ;;
     *)
       error "upgrade rejected; brew update completed, but the Formula was not upgraded"
       return 1
@@ -508,6 +555,7 @@ main() {
   local outdated_status=0
   local expected_file
   local expected_count
+  local resolved_smoke=""
   local -a smoke_command=()
 
   case "${1:-}" in
@@ -542,6 +590,11 @@ main() {
   if [[ -z "$formula" || "$formula" == -* || "$formula" == *[[:space:]]* ]]; then
     error "invalid Formula name: $formula"
     return 2
+  fi
+
+  if (( ! no_check )); then
+    resolved_smoke="$(resolve_command "${smoke_command[0]}")" || return $?
+    smoke_command[0]="$resolved_smoke"
   fi
 
   BREW_BIN="$(resolve_command brew)" || return $?
@@ -597,7 +650,8 @@ main() {
 
   confirm_review "$canonical" || return $?
   verify_attestations "$canonical" "$expected_file" || return $?
-  run_stage "Upgrading $canonical" "$BREW_BIN" upgrade --formula --no-ask "$canonical" || return $?
+  HOMEBREW_NO_INSTALL_CLEANUP=1 \
+    run_stage "Upgrading $canonical" "$BREW_BIN" upgrade --formula --no-ask "$canonical" || return $?
   run_stage "Checking vulnerabilities for $canonical and dependencies" \
     "$BREW_BIN" vulns --deps "$canonical" || return $?
   run_stage "Checking global Homebrew linkage" "$BREW_BIN" linkage --test || return $?

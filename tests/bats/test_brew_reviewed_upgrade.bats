@@ -9,9 +9,11 @@ setup() {
   TEST_HOME="$BATS_TEST_TMPDIR/home"
   TEST_BIN="$BATS_TEST_TMPDIR/bin"
   BREW_STUB_LOG="$BATS_TEST_TMPDIR/brew.log"
+  BREW_STUB_ENV_LOG="$BATS_TEST_TMPDIR/brew-env.log"
   SMOKE_STUB_LOG="$BATS_TEST_TMPDIR/smoke.log"
   BREW_STUB_SIGNAL_MARKER="$BATS_TEST_TMPDIR/verify-started"
   BREW_STUB_SIGNAL_RESULT="$BATS_TEST_TMPDIR/verify-signal"
+  LAUNCH_CHILD_PID_FILE="$BATS_TEST_TMPDIR/launch-child-pid"
   YES_FILE="$BATS_TEST_TMPDIR/yes"
   NO_FILE="$BATS_TEST_TMPDIR/no"
 
@@ -20,9 +22,11 @@ setup() {
   printf 'yes\n' >"$YES_FILE"
   printf 'no\n' >"$NO_FILE"
   : >"$BREW_STUB_LOG"
+  : >"$BREW_STUB_ENV_LOG"
 
-  export SOURCE TEST_HOME TEST_BIN BREW_STUB_LOG SMOKE_STUB_LOG
-  export BREW_STUB_SIGNAL_MARKER BREW_STUB_SIGNAL_RESULT
+  export SOURCE TEST_HOME TEST_BIN BREW_STUB_LOG BREW_STUB_ENV_LOG
+  export SMOKE_STUB_LOG BREW_STUB_SIGNAL_MARKER BREW_STUB_SIGNAL_RESULT
+  export LAUNCH_CHILD_PID_FILE
   export HOME="$TEST_HOME"
   export PATH="$TEST_BIN:/usr/bin:/bin"
   export BREW_STUB_FORMULA="ripgrep"
@@ -72,6 +76,9 @@ set -u
 
 command_name="${1:-}"
 shift || true
+printf '%s\t%s\t%s\n' \
+  "$command_name" "${HOMEBREW_NO_INSTALL_CLEANUP-unset}" "$*" \
+  >>"$BREW_STUB_ENV_LOG"
 
 formula_info() {
   local requested="${!#}"
@@ -303,6 +310,9 @@ refute_log() {
     $'linkage\t--test' \
     $'developer\toff'
   [ "$(count_log_line $'developer\toff')" -eq 1 ]
+  grep -Fxq $'upgrade\t1\t--formula --dry-run ripgrep' "$BREW_STUB_ENV_LOG"
+  grep -Fxq $'upgrade\t1\t--formula --no-ask ripgrep' "$BREW_STUB_ENV_LOG"
+  [ "$(awk -F '\t' '$1 != "upgrade" && $2 == "1" { count++ } END { print count + 0 }' "$BREW_STUB_ENV_LOG")" -eq 0 ]
   [[ "$stderr" == *"Developer mode is disabled."* ]]
 }
 
@@ -317,6 +327,14 @@ refute_log() {
   run brew-reviewed-upgrade ripgrep
 
   [ "$status" -eq 2 ]
+  [ ! -s "$BREW_STUB_LOG" ]
+}
+
+@test "unavailable smoke command fails before Homebrew runs" {
+  run -127 brew-reviewed-upgrade ripgrep -- unavailable-smoke-command
+
+  [ "$status" -eq 127 ]
+  [[ "$output" == *"required command not found on PATH"* ]]
   [ ! -s "$BREW_STUB_LOG" ]
 }
 
@@ -344,6 +362,42 @@ refute_log() {
 
   [ "$status" -eq 0 ]
   [ ! -e "$marker" ]
+}
+
+@test "managed policy parser failure is rejected even after partial output" {
+  run --separate-stderr bash -c '
+    source "$SOURCE"
+    TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-policy.XXXXXX")"
+    awk() {
+      printf "1\n"
+      return 42
+    }
+    validate_policy_file
+  '
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not parse managed Homebrew policy"* ]]
+  [ ! -s "$BREW_STUB_LOG" ]
+}
+
+@test "effective policy negative scan propagates grep errors" {
+  run --separate-stderr bash -c '
+    source "$SOURCE"
+    TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-policy.XXXXXX")"
+    BREW_BIN="$TEST_BIN/brew"
+    grep() {
+      if [[ "$1" == "-Eq" ]] \
+        && [[ "$2" == "^HOMEBREW_(NO_VERIFY_ATTESTATIONS|NO_ASK): set$" ]]; then
+        return 42
+      fi
+      command grep "$@"
+    }
+    validate_effective_policy
+  '
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not inspect effective Homebrew policy"* ]]
+  refute_log line 'update'
 }
 
 @test "effective attestation opt-out fails before brew update" {
@@ -449,6 +503,26 @@ refute_log() {
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"brew update completed"* ]]
   refute_log contains $'verify\t'
+}
+
+@test "mixed-case confirmation is accepted without external normalization" {
+  printf 'YeS\n' >"$BATS_TEST_TMPDIR/mixed-yes"
+
+  run brew-reviewed-upgrade --no-check ripgrep <"$BATS_TEST_TMPDIR/mixed-yes"
+
+  [ "$status" -eq 0 ]
+  grep -Fq $'upgrade\t--formula\t--no-ask\tripgrep' "$BREW_STUB_LOG"
+}
+
+@test "dependency command failure stops before verification and upgrade" {
+  export BREW_STUB_DEPS_STATUS=5
+
+  run --separate-stderr brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not resolve dependencies for: ripgrep"* ]]
+  refute_log contains $'verify\t'
+  refute_log contains $'upgrade\t--formula\t--no-ask'
 }
 
 @test "non-core dependency blocks attestation verification" {
@@ -633,6 +707,40 @@ refute_log() {
   [ "$(count_log_line $'developer\toff')" -eq 1 ]
   [ "$(count_log_line $'developer\tstate')" -eq 2 ]
   refute_log contains $'upgrade\t--formula\t--no-ask'
+}
+
+@test "signal queued during launch is delivered after PID publication" {
+  export BREW_STUB_BLOCK_VERIFY=true
+
+  run --separate-stderr bash -c '
+    source "$SOURCE"
+    TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-signal.XXXXXX")"
+    BREW_BIN="$TEST_BIN/brew"
+    DEVELOPER_CLEANUP_ARMED=1
+    install_lifecycle_traps
+
+    "$BREW_BIN" verify --deps --json ripgrep >/dev/null &
+    managed_pid=$!
+    printf "%s\n" "$managed_pid" >"$LAUNCH_CHILD_PID_FILE"
+    for ((attempt = 0; attempt < 100; attempt++)); do
+      [[ -e "$BREW_STUB_SIGNAL_MARKER" ]] && break
+      sleep 0.05
+    done
+    [[ -e "$BREW_STUB_SIGNAL_MARKER" ]]
+
+    MANAGED_LAUNCHING=1
+    handle_signal TERM 143
+    [[ "$PENDING_SIGNAL_NAME" == TERM ]]
+    kill -0 "$managed_pid"
+    publish_managed_pid "$managed_pid"
+  '
+
+  [ "$status" -eq 143 ]
+  [ "$(<"$BREW_STUB_SIGNAL_RESULT")" = TERM ]
+  run ! kill -0 "$(<"$LAUNCH_CHILD_PID_FILE")"
+  [ "$status" -eq 1 ]
+  [ "$(count_log_line $'developer\toff')" -eq 1 ]
+  [ "$(count_log_line $'developer\tstate')" -eq 1 ]
 }
 
 @test "signal forwarding and reap failures are diagnosed" {
