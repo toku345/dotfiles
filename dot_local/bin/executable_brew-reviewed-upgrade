@@ -8,12 +8,10 @@ readonly PROGRAM_NAME="brew-reviewed-upgrade"
 readonly POLICY_FILE_RELATIVE=".homebrew/brew.env"
 
 BREW_BIN=""
-GH_BIN=""
 JQ_BIN=""
 TEMP_DIR=""
 ACTIVE_PID=""
 DEVELOPER_CLEANUP_ARMED=0
-SIGNAL_STATUS=0
 
 usage() {
   cat <<'EOF'
@@ -69,29 +67,11 @@ run_managed() {
   return "$status"
 }
 
-run_managed_capture() {
-  local output_file="$1"
-  shift
-
-  "$@" <&0 >"$output_file" &
-  ACTIVE_PID=$!
-
-  local status
-  if wait "$ACTIVE_PID"; then
-    status=0
-  else
-    status=$?
-  fi
-  ACTIVE_PID=""
-  return "$status"
-}
-
 handle_signal() {
   local signal_name="$1"
   local status="$2"
   local child_status=0
 
-  SIGNAL_STATUS="$status"
   trap '' INT TERM
   if [[ -n "$ACTIVE_PID" ]]; then
     if ! kill -s TERM "$ACTIVE_PID" 2>/dev/null \
@@ -131,12 +111,11 @@ cleanup_on_exit() {
     if [[ -n "$state_output" ]]; then
       printf '%s\n' "$state_output" >&2
     fi
-    if (( state_status != 0 )) \
-      || ! grep -Fqx 'Developer mode is disabled.' <<<"$state_output"; then
-      if (( cleanup_status == 0 )); then
-        cleanup_status="${state_status:-1}"
-        (( cleanup_status == 0 )) && cleanup_status=1
-      fi
+    if (( cleanup_status == 0 && state_status != 0 )); then
+      cleanup_status="$state_status"
+    elif (( cleanup_status == 0 )) \
+      && ! grep -Fqx 'Developer mode is disabled.' <<<"$state_output"; then
+      cleanup_status=1
     fi
   fi
 
@@ -150,9 +129,6 @@ cleanup_on_exit() {
     error "developer-mode cleanup failed with status $cleanup_status"
   fi
 
-  if (( SIGNAL_STATUS != 0 )); then
-    exit "$SIGNAL_STATUS"
-  fi
   if (( operation_status != 0 )); then
     exit "$operation_status"
   fi
@@ -256,8 +232,6 @@ validate_developer_mode() {
 
 load_target_metadata() {
   local requested="$1"
-  local require_installed="$2"
-  local reject_source_install="$3"
   local output_file="$TEMP_DIR/info-target.json"
   local canonical
 
@@ -287,13 +261,11 @@ load_target_metadata() {
     error "stable Bottle metadata is unavailable: $canonical"
     return 1
   fi
-  if (( require_installed )) \
-    && ! "$JQ_BIN" -e '.formulae[0].installed | length > 0' "$output_file" >/dev/null; then
+  if ! "$JQ_BIN" -e '.formulae[0].installed | length > 0' "$output_file" >/dev/null; then
     error "Formula is not installed: $canonical"
     return 1
   fi
-  if (( reject_source_install )) \
-    && ! "$JQ_BIN" -e 'all(.formulae[0].installed[]; .built_as_bottle == true and .poured_from_bottle == true)' "$output_file" >/dev/null; then
+  if ! "$JQ_BIN" -e 'all(.formulae[0].installed[]; .built_as_bottle == true and .poured_from_bottle == true)' "$output_file" >/dev/null; then
     error "source-built Formulae are outside this helper's scope: $canonical"
     return 1
   fi
@@ -454,7 +426,7 @@ verify_attestations() {
   local expected_count actual_count expected_json
 
   DEVELOPER_CLEANUP_ARMED=1
-  if run_managed_capture "$output_file" "$BREW_BIN" verify --deps --json "$formula"; then
+  if run_managed "$BREW_BIN" verify --deps --json "$formula" >"$output_file"; then
     :
   else
     local status=$?
@@ -529,6 +501,7 @@ run_stage() {
 
 main() {
   local formula=""
+  local gh_bin=""
   local no_check=0
   local canonical=""
   local post_update_canonical=""
@@ -572,7 +545,7 @@ main() {
   fi
 
   BREW_BIN="$(resolve_command brew)" || return $?
-  GH_BIN="$(resolve_command gh)" || return $?
+  gh_bin="$(resolve_command gh)" || return $?
   JQ_BIN="$(resolve_command jq)" || return $?
   TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade.XXXXXX")" || {
     error "could not create temporary directory"
@@ -583,12 +556,12 @@ main() {
   validate_policy_file || return $?
   validate_effective_policy || return $?
   validate_developer_mode || return $?
-  if ! "$GH_BIN" auth status --hostname github.com; then
+  if ! "$gh_bin" auth status --hostname github.com; then
     error "GitHub CLI authentication is required for Bottle attestations"
     return 1
   fi
 
-  canonical="$(load_target_metadata "$formula" 1 1)" || return $?
+  canonical="$(load_target_metadata "$formula")" || return $?
 
   printf '%s\n' "==> Updating Homebrew metadata"
   if ! "$BREW_BIN" update; then
@@ -596,7 +569,7 @@ main() {
     return 1
   fi
 
-  post_update_canonical="$(load_target_metadata "$canonical" 1 1)" || return $?
+  post_update_canonical="$(load_target_metadata "$canonical")" || return $?
   if [[ "$post_update_canonical" != "$canonical" ]]; then
     error "Formula identity changed after brew update: $canonical -> $post_update_canonical"
     return 1
