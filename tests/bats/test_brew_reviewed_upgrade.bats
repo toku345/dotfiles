@@ -11,6 +11,7 @@ setup() {
   BREW_STUB_LOG="$BATS_TEST_TMPDIR/brew.log"
   SMOKE_STUB_LOG="$BATS_TEST_TMPDIR/smoke.log"
   BREW_STUB_SIGNAL_MARKER="$BATS_TEST_TMPDIR/verify-started"
+  BREW_STUB_SIGNAL_RESULT="$BATS_TEST_TMPDIR/verify-signal"
   YES_FILE="$BATS_TEST_TMPDIR/yes"
   NO_FILE="$BATS_TEST_TMPDIR/no"
 
@@ -21,7 +22,7 @@ setup() {
   : >"$BREW_STUB_LOG"
 
   export SOURCE TEST_HOME TEST_BIN BREW_STUB_LOG SMOKE_STUB_LOG
-  export BREW_STUB_SIGNAL_MARKER
+  export BREW_STUB_SIGNAL_MARKER BREW_STUB_SIGNAL_RESULT
   export HOME="$TEST_HOME"
   export PATH="$TEST_BIN:/usr/bin:/bin"
   export BREW_STUB_FORMULA="ripgrep"
@@ -105,6 +106,8 @@ formula_info() {
     fi
   elif [[ "$canonical" == "foreign/dep" ]]; then
     tap="vendor/tap"
+  elif [[ "$canonical" == "${BREW_STUB_SOURCE_DEP:-}" ]]; then
+    installed='[{"version":"1.0","built_as_bottle":false,"poured_from_bottle":false}]'
   fi
 
   printf '{"formulae":[{"name":"%s","full_name":"%s","tap":"%s","pinned":%s,"versions":{"bottle":%s},"bottle":{"stable":{"files":%s}},"installed":%s}]}\n' \
@@ -193,8 +196,8 @@ CONFIG
   verify)
     if [[ "${BREW_STUB_BLOCK_VERIFY:-false}" == "true" ]]; then
       : >"$BREW_STUB_SIGNAL_MARKER"
-      trap 'exit 130' INT
-      trap 'exit 143' TERM
+      trap 'printf INT >"$BREW_STUB_SIGNAL_RESULT"; exit 130' INT
+      trap 'printf TERM >"$BREW_STUB_SIGNAL_RESULT"; exit 143' TERM
       while :; do sleep 0.05; done
     fi
     printf '%s\n' '==> ripgrep bottle has a valid attestation'
@@ -236,6 +239,48 @@ assert_log_order() {
 count_log_line() {
   local pattern="$1"
   grep -Fxc "$pattern" "$BREW_STUB_LOG" || true
+}
+
+refute_log() {
+  local match_mode="$1"
+  local pattern="$2"
+  local grep_status
+
+  set +e
+  case "$match_mode" in
+    line) grep -Fqx -- "$pattern" "$BREW_STUB_LOG" ;;
+    contains) grep -Fq -- "$pattern" "$BREW_STUB_LOG" ;;
+    *)
+      printf 'unsupported refute_log mode: %s\n' "$match_mode" >&2
+      set -e
+      return 2
+      ;;
+  esac
+  grep_status=$?
+  set -e
+
+  case "$grep_status" in
+    0)
+      printf 'unexpected log entry matching: %s\n' "$pattern" >&2
+      return 1
+      ;;
+    1) return 0 ;;
+    *)
+      printf 'grep failed with status %s while checking the brew log\n' \
+        "$grep_status" >&2
+      return 2
+      ;;
+  esac
+}
+
+@test "refute_log rejects matches and propagates grep errors" {
+  printf '%s\n' 'forbidden' >"$BREW_STUB_LOG"
+  run refute_log line forbidden
+  [ "$status" -eq 1 ]
+
+  rm "$BREW_STUB_LOG"
+  run refute_log line forbidden
+  [ "$status" -eq 2 ]
 }
 
 @test "successful reviewed upgrade preserves smoke command arguments and order" {
@@ -287,7 +332,7 @@ count_log_line() {
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"not found or is not a Formula"* ]]
-  ! grep -Fxq 'update' "$BREW_STUB_LOG"
+  refute_log line 'update'
 }
 
 @test "managed policy file is parsed as data and never sourced" {
@@ -308,7 +353,7 @@ count_log_line() {
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"disables attestations"* ]]
-  ! grep -Fxq 'update' "$BREW_STUB_LOG"
+  refute_log line 'update'
 }
 
 @test "GitHub authentication failure stops before metadata update" {
@@ -317,7 +362,7 @@ count_log_line() {
   run brew-reviewed-upgrade --no-check ripgrep
 
   [ "$status" -eq 1 ]
-  ! grep -Fxq 'update' "$BREW_STUB_LOG"
+  refute_log line 'update'
 }
 
 @test "developer mode already enabled is rejected without automatic mutation" {
@@ -328,7 +373,7 @@ count_log_line() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"must be disabled"* ]]
   [ "$(count_log_line $'developer\toff')" -eq 0 ]
-  ! grep -Fxq 'update' "$BREW_STUB_LOG"
+  refute_log line 'update'
 }
 
 @test "missing pinned third-party and source-built Formulae are rejected" {
@@ -354,7 +399,7 @@ count_log_line() {
   run brew-reviewed-upgrade --no-check ripgrep
   [ "$status" -eq 1 ]
 
-  ! grep -Fxq 'update' "$BREW_STUB_LOG"
+  refute_log line 'update'
 }
 
 @test "already-current Formula is a successful no-op" {
@@ -364,7 +409,7 @@ count_log_line() {
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"already up to date"* ]]
-  ! grep -Fq $'verify\t' "$BREW_STUB_LOG"
+  refute_log contains $'verify\t'
   [ ! -e "$SMOKE_STUB_LOG" ]
 }
 
@@ -375,14 +420,14 @@ count_log_line() {
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"status and JSON disagree"* ]]
-  ! grep -Fq $'upgrade\t--formula\t--dry-run' "$BREW_STUB_LOG"
+  refute_log contains $'upgrade\t--formula\t--dry-run'
 }
 
 @test "failed or empty dry-run stops before confirmation and verification" {
   export BREW_STUB_DRY_RUN_STATUS=5
   run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
   [ "$status" -eq 1 ]
-  ! grep -Fq $'verify\t' "$BREW_STUB_LOG"
+  refute_log contains $'verify\t'
   unset BREW_STUB_DRY_RUN_STATUS
 
   : >"$BREW_STUB_LOG"
@@ -390,20 +435,20 @@ count_log_line() {
   run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
   [ "$status" -eq 1 ]
   [[ "$output" == *"empty plan"* ]]
-  ! grep -Fq $'verify\t' "$BREW_STUB_LOG"
+  refute_log contains $'verify\t'
 }
 
 @test "rejection and EOF report that metadata was already updated" {
   run --separate-stderr brew-reviewed-upgrade --no-check ripgrep <"$NO_FILE"
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"brew update completed"* ]]
-  ! grep -Fq $'verify\t' "$BREW_STUB_LOG"
+  refute_log contains $'verify\t'
 
   : >"$BREW_STUB_LOG"
   run --separate-stderr brew-reviewed-upgrade --no-check ripgrep </dev/null
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"brew update completed"* ]]
-  ! grep -Fq $'verify\t' "$BREW_STUB_LOG"
+  refute_log contains $'verify\t'
 }
 
 @test "non-core dependency blocks attestation verification" {
@@ -413,7 +458,30 @@ count_log_line() {
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"dependency is not an attestable"* ]]
-  ! grep -Fq $'verify\t' "$BREW_STUB_LOG"
+  refute_log contains $'verify\t'
+}
+
+@test "source-built installed dependency blocks attestation verification" {
+  export BREW_STUB_SOURCE_DEP=pcre2
+
+  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Bottle-installed homebrew/core Formula"* ]]
+  refute_log contains $'verify\t'
+}
+
+@test "transitive dependency traversal deduplicates converging edges" {
+  export BREW_STUB_ROOT_DEPS=$'pcre2\nzlib'
+  export BREW_STUB_DEP_DEPS=zlib
+  export BREW_STUB_VERIFY_JSON='[{"verificationResult":{"statement":{"subject":[{"name":"ripgrep--2.0.arm64_linux.bottle.tar.gz"}]}}},{"verificationResult":{"statement":{"subject":[{"name":"pcre2--2.0.arm64_linux.bottle.tar.gz"}]}}},{"verificationResult":{"statement":{"subject":[{"name":"zlib--2.0.arm64_linux.bottle.tar.gz"}]}}}]'
+
+  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Expected Bottle attestations: 3"* ]]
+  [ "$(count_log_line $'deps\t--formula\t--full-name\t--include-build\t--include-test\t--include-implicit\tzlib')" -eq 1 ]
+  [ "$(count_log_line $'info\t--formula\t--json=v2\tzlib')" -eq 1 ]
 }
 
 @test "incomplete malformed and excessive attestation output fail closed" {
@@ -442,8 +510,27 @@ count_log_line() {
   run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"do not cover each expected Formula exactly once"* ]]
-  ! grep -Fq $'upgrade\t--formula\t--no-ask' "$BREW_STUB_LOG"
+  [[ "$output" == *"do not fully cover each other"* ]]
+  refute_log contains $'upgrade\t--formula\t--no-ask'
+}
+
+@test "valid multi-subject attestations remain supported" {
+  export BREW_STUB_VERIFY_JSON='[{"verificationResult":{"statement":{"subject":[{"name":"unrelated-build-output"},{"name":"ripgrep--2.0.arm64_linux.bottle.tar.gz"}]}}},{"verificationResult":{"statement":{"subject":[{"name":"pcre2--2.0.arm64_linux.bottle.tar.gz"}]}}}]'
+
+  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+
+  [ "$status" -eq 0 ]
+  grep -Fq 'Verified Bottle attestations for 2 Formulae.' <<<"$output"
+}
+
+@test "unmatched attestation result cannot hide behind a multi-subject result" {
+  export BREW_STUB_VERIFY_JSON='[{"verificationResult":{"statement":{"subject":[{"name":"ripgrep--2.0.arm64_linux.bottle.tar.gz"},{"name":"pcre2--2.0.arm64_linux.bottle.tar.gz"}]}}},{"verificationResult":{"statement":{"subject":[{"name":"unrelated--2.0.arm64_linux.bottle.tar.gz"}]}}}]'
+
+  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"do not fully cover each other"* ]]
+  refute_log contains $'upgrade\t--formula\t--no-ask'
 }
 
 @test "operation failure is preserved when developer cleanup also fails" {
@@ -455,23 +542,26 @@ count_log_line() {
   [ "$status" -eq 7 ]
   [[ "$stderr" == *"operation failed with status 7"* ]]
   [[ "$stderr" == *"cleanup also failed with status 9"* ]]
-  ! grep -Fq $'vulns\t' "$BREW_STUB_LOG"
+  refute_log contains $'vulns\t'
   [ "$(count_log_line $'developer\toff')" -eq 1 ]
   [ "$(count_log_line $'developer\tstate')" -eq 2 ]
 }
 
 @test "verify vulnerability linkage and smoke failures stop later stages" {
   export BREW_STUB_VERIFY_STATUS=6
-  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+  run --separate-stderr brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
   [ "$status" -eq 6 ]
-  ! grep -Fq $'upgrade\t--formula\t--no-ask' "$BREW_STUB_LOG"
+  refute_log contains $'upgrade\t--formula\t--no-ask'
+  [ "$(count_log_line $'developer\toff')" -eq 1 ]
+  [ "$(count_log_line $'developer\tstate')" -eq 2 ]
+  [[ "$stderr" == *"Developer mode is disabled."* ]]
   unset BREW_STUB_VERIFY_STATUS
 
   : >"$BREW_STUB_LOG"
   export BREW_STUB_VULNS_STATUS=8
   run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
   [ "$status" -eq 8 ]
-  ! grep -Fq $'linkage\t--test' "$BREW_STUB_LOG"
+  refute_log contains $'linkage\t--test'
   unset BREW_STUB_VULNS_STATUS
 
   : >"$BREW_STUB_LOG"
@@ -509,23 +599,60 @@ count_log_line() {
   fi
 
   [ "$helper_status" -eq 143 ]
+  [ "$(<"$BREW_STUB_SIGNAL_RESULT")" = TERM ]
   [ "$(count_log_line $'developer\toff')" -eq 1 ]
   [ "$(count_log_line $'developer\tstate')" -eq 2 ]
-  ! grep -Fq $'upgrade\t--formula\t--no-ask' "$BREW_STUB_LOG"
+  refute_log contains $'upgrade\t--formula\t--no-ask'
 }
 
-@test "INT handler cleans up once and returns 130" {
+@test "INT during verify terminates the child cleans up once and returns 130" {
+  export BREW_STUB_BLOCK_VERIFY=true
+  output_file="$BATS_TEST_TMPDIR/helper.out"
+  error_file="$BATS_TEST_TMPDIR/helper.err"
+
+  set -m
+  brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE" >"$output_file" 2>"$error_file" &
+  helper_pid=$!
+  set +m
+
+  for ((attempt = 0; attempt < 100; attempt++)); do
+    [[ -e "$BREW_STUB_SIGNAL_MARKER" ]] && break
+    sleep 0.05
+  done
+  [ -e "$BREW_STUB_SIGNAL_MARKER" ]
+
+  kill -INT "$helper_pid"
+  if wait "$helper_pid"; then
+    helper_status=0
+  else
+    helper_status=$?
+  fi
+
+  [ "$helper_status" -eq 130 ]
+  [ "$(<"$BREW_STUB_SIGNAL_RESULT")" = TERM ]
+  [ "$(count_log_line $'developer\toff')" -eq 1 ]
+  [ "$(count_log_line $'developer\tstate')" -eq 2 ]
+  refute_log contains $'upgrade\t--formula\t--no-ask'
+}
+
+@test "signal forwarding and reap failures are diagnosed" {
   run --separate-stderr bash -c '
     source "$SOURCE"
-    TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-int.XXXXXX")"
+    TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-signal.XXXXXX")"
     BREW_BIN="$TEST_BIN/brew"
+    ACTIVE_PID=12345
     DEVELOPER_CLEANUP_ARMED=1
+    kill() {
+      [[ "$1" == "-0" ]]
+    }
+    wait() {
+      return 127
+    }
     install_lifecycle_traps
     handle_signal INT 130
   '
 
   [ "$status" -eq 130 ]
-  [ "$(count_log_line $'developer\toff')" -eq 1 ]
-  [ "$(count_log_line $'developer\tstate')" -eq 1 ]
-  ! grep -Fq $'upgrade\t--formula\t--no-ask' "$BREW_STUB_LOG"
+  [[ "$stderr" == *"could not stop managed process 12345 after INT"* ]]
+  [[ "$stderr" == *"could not reap managed process 12345 after INT"* ]]
 }

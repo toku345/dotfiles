@@ -35,7 +35,7 @@ gh auth status
 brew-reviewed-upgrade ripgrep -- rg --version
 ```
 
-`brew-reviewed-upgrade`は、インストール済みでpinされていない`homebrew/core` Formulaを1件だけ処理します。Cask、複数Formula、third-party Tap、source buildは通常経路の対象外です。Formula固有の動作確認ができない場合だけ、明示的に次を使用します。
+`brew-reviewed-upgrade`は、インストール済みでpinされていない`homebrew/core` Formulaを1件だけ処理します。Cask、複数Formula、third-party Tap、targetまたは導入済みdependencyのsource buildは通常経路の対象外です。Formula固有の動作確認ができない場合だけ、明示的に次を使用します。
 
 ```sh
 brew-reviewed-upgrade --no-check ripgrep
@@ -43,7 +43,7 @@ brew-reviewed-upgrade --no-check ripgrep
 
 helperは管理ポリシー、GitHub CLI認証、Formulaの導入・pin・Bottle状態を確認してから`brew update`を実行します。対象が最新版なら何も更新せず成功終了します。更新対象がある場合はnamed outdated結果とdry-runを表示し、release notes、7日cooldownまたは例外、targetとdependencyの全変更を確認済みか1回だけ質問します。拒否またはEOFではFormulaを更新しませんが、先行するHomebrew本体とmetadataの更新は完了済みです。
 
-承認後はtargetと再帰dependencyのBottle attestation coverageを検査し、missing Bottle、件数・subject不一致、出力形式の変化をすべてfail-closedで停止します。その後、named upgrade、`brew vulns --deps`、global `brew linkage --test`、指定した動作確認を順番に実行します。どのstageも失敗後の処理を実行しません。`brew verify`が有効化するdeveloper modeは、成功、失敗、INT、TERMの全経路で復旧を試みます。更新処理とcleanupが両方失敗した場合は両方を報告し、更新処理の終了statusを維持します。
+承認後はtargetと再帰dependencyのBottle attestation coverageを検査し、missing Bottle、件数・subject不一致、出力形式の変化をすべてfail-closedで停止します。その後、named upgrade、`brew vulns --deps`、global `brew linkage --test`、指定した動作確認を順番に実行します。operation stageが失敗した場合は後続operation stageを実行しません。`brew verify`が有効化するdeveloper modeのcleanupは例外として、成功、失敗、INT、TERMの全経路で復旧を試みます。更新処理とcleanupが両方失敗した場合は両方を報告し、更新処理の終了statusを維持します。
 
 `brew vulns`は更新後の導入済みversionを検査します。脆弱性が残るか検査自体が失敗した場合はhelper全体が失敗します。導入済みの旧versionに脆弱性があっても修正版へのupgradeを妨げないため、検査はupgrade後に実行します。引数なしの`brew upgrade`は使用しません。
 

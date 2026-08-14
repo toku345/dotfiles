@@ -89,12 +89,23 @@ run_managed_capture() {
 handle_signal() {
   local signal_name="$1"
   local status="$2"
+  local child_status=0
 
   SIGNAL_STATUS="$status"
   trap '' INT TERM
   if [[ -n "$ACTIVE_PID" ]]; then
-    kill -s "$signal_name" "$ACTIVE_PID" 2>/dev/null || true
-    wait "$ACTIVE_PID" 2>/dev/null || true
+    if ! kill -s TERM "$ACTIVE_PID" 2>/dev/null \
+      && kill -0 "$ACTIVE_PID" 2>/dev/null; then
+      error "could not stop managed process $ACTIVE_PID after $signal_name"
+    fi
+    if wait "$ACTIVE_PID" 2>/dev/null; then
+      child_status=0
+    else
+      child_status=$?
+    fi
+    if (( child_status == 127 )); then
+      error "could not reap managed process $ACTIVE_PID after $signal_name"
+    fi
     ACTIVE_PID=""
   fi
   exit "$status"
@@ -305,9 +316,11 @@ validate_dependency_metadata() {
       and .[0].full_name == $name
       and .[0].tap == "homebrew/core"
       and .[0].versions.bottle == true
-      and ((.[0].bottle.stable.files // {}) | length > 0)' \
+      and ((.[0].bottle.stable.files // {}) | length > 0)
+      and all(.[0].installed[];
+        .built_as_bottle == true and .poured_from_bottle == true)' \
     "$output_file" >/dev/null; then
-    error "dependency is not an attestable homebrew/core Formula: $formula"
+    error "dependency is not an attestable Bottle-installed homebrew/core Formula: $formula"
     return 1
   fi
 }
@@ -373,11 +386,13 @@ show_dry_run() {
 collect_expected_formulae() {
   local root_formula="$1"
   local expected_file="$2"
-  local index=1
+  local index=0
   local formula dependency deps_file safe_name
+  local -a formula_queue=("$root_formula")
+  local -A seen_formulae=(["$root_formula"]=1)
 
-  printf '%s\n' "$root_formula" >"$expected_file"
-  while formula="$(sed -n "${index}p" "$expected_file")" && [[ -n "$formula" ]]; do
+  while (( index < ${#formula_queue[@]} )); do
+    formula="${formula_queue[index]}"
     safe_name="${formula//\//_}"
     deps_file="$TEMP_DIR/deps-$index-$safe_name"
     if ! capture_command "$deps_file" "$BREW_BIN" deps --formula --full-name \
@@ -392,16 +407,21 @@ collect_expected_formulae() {
         error "brew deps returned an unexpected dependency name: $dependency"
         return 1
       fi
-      if ! grep -Fqx "$dependency" "$expected_file"; then
-        printf '%s\n' "$dependency" >>"$expected_file"
+      if [[ -z "${seen_formulae[$dependency]+x}" ]]; then
+        seen_formulae["$dependency"]=1
+        formula_queue+=("$dependency")
       fi
     done <"$deps_file"
     index=$((index + 1))
   done
 
-  while IFS= read -r formula; do
+  for formula in "${formula_queue[@]}"; do
     validate_dependency_metadata "$formula" || return $?
-  done <"$expected_file"
+  done
+  if ! printf '%s\n' "${formula_queue[@]}" >"$expected_file"; then
+    error "could not write expected Formula coverage"
+    return 1
+  fi
 }
 
 confirm_review() {
@@ -469,15 +489,25 @@ verify_attestations() {
     return 1
   }
   if ! "$JQ_BIN" -e --argjson expected "$expected_json" \
-    '[$expected[] as $formula
-      | ([.[] | select(any(.verificationResult.statement.subject[];
-          (.name | split("/")[-1]) as $subject
-          | ($subject | startswith($formula + "--"))
-            or ($subject | contains("--" + $formula + "--"))))]
-         | length) == 1]
-     | all' \
+    'def subject_matches($formula):
+       (.name | split("/")[-1]) as $subject
+       | ($subject | startswith($formula + "--"))
+         or ($subject | contains("--" + $formula + "--"));
+     ([$expected[] as $formula
+       | any(.[];
+           any(.verificationResult.statement.subject[];
+             subject_matches($formula)))]
+      | all)
+     and
+     ([.[] as $result
+       | [$result.verificationResult.statement.subject[] as $subject
+          | [$expected[] as $formula
+             | $subject | subject_matches($formula)]
+            | any]
+         | any]
+      | all)' \
     "$json_file" >/dev/null; then
-    error "attestation subjects do not cover each expected Formula exactly once"
+    error "attestation results and expected Formulae do not fully cover each other"
     return 1
   fi
   printf 'Verified Bottle attestations for %s Formulae.\n' "$actual_count"
