@@ -145,7 +145,7 @@ AI レビューは「日常の床 / 厚い変更の gate」に分ける。軽く
 - `~/.claude/skills/**/SKILL.md` および各 repo の `.claude/skills/**/SKILL.md` (スキル定義)
 - `~/.claude/output-styles/**.md` (システムプロンプトを直接置換、headless `claude -p` にも適用)
 - `~/.claude/settings.json` (user-global) および各 repo の `.claude/settings.json` (project-shared)。`*.local.json` は per-machine 限定のため除外
-- `~/.claude/rules/**/*.md` (user-global path-scoped rules) および各 repo の `.claude/rules/**/*.md` (project path-scoped rules、agent 指示)
+- 各 repo の `.claude/rules/**/*.md` (project path-scoped rules、agent 指示)
 - `docs/adr/**` (architecture decision records)
 
 ## 検証ループ (Verification Loop)
@@ -179,11 +179,11 @@ Playwright / Puppeteer の E2E、または Chrome 拡張で視覚検証ループ
 - 半年後の読者が変更の必要性を件名と diff から復元できない場合は、理由を 1-3 文で説明する
 - 本文には、原因、回避する問題・リスク、維持すべき制約、重要なトレードオフだけを残す
 - diff の言い換え、実装経緯、レビュー回数、検証ログは PR または最終報告へ分離する
-- コミットメッセージは HEREDOC で渡す (システムプロンプトに準拠)
+- コミットメッセージは HEREDOC で渡す
 
 ### PR
 
-- PR body は HEREDOC で渡す (システムプロンプトに準拠)
+- PR body は HEREDOC で渡す
 - **PR のタイトル・説明は英語で記述する**
 - 厚い変更の pre-PR gate は環境別に 2 系統: Codex 利用可能環境では Codex CLI の `$pr-review` (ターミナルから ユーザー が実行、Claude Code 内から自走させない)、Codex 不可環境では Claude Code の `/pr-review` (セッション内から起動可)。両者は同一の gate policy (`review-criteria.md` / `severity-rules.json`) を共有する
 - gate は PR を必須とし fail-closed が default。draft PR を先に作成しておけば全 specialist が同じ base ref に収束する。PR 無しは `--allow-no-pr` での明示 opt-in (degraded coverage banner 付き)
