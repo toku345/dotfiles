@@ -396,7 +396,10 @@ show_dry_run() {
     error "Homebrew dry-run failed"
     return 1
   fi
-  cat "$output_file"
+  if ! cat "$output_file"; then
+    error "could not display the Homebrew dry-run plan"
+    return 1
+  fi
   if ! grep -q '[^[:space:]]' "$output_file"; then
     error "Homebrew dry-run returned an empty plan"
     return 1
@@ -448,9 +451,12 @@ confirm_review() {
   local formula="$1"
   local reply=""
 
-  printf '%s' \
+  if ! printf '%s' \
     "Confirm release notes, the 7-day cooldown (or exception), and every dry-run change for $formula [y/N]: " \
-    >&2
+    >&2; then
+    error "could not display the review confirmation prompt"
+    return 1
+  fi
   if ! IFS= read -r reply; then
     printf '\n' >&2
     error "confirmation input ended; brew update completed, but the Formula was not upgraded"
@@ -481,7 +487,10 @@ verify_attestations() {
     error "Bottle attestation verification failed"
     return "$status"
   fi
-  cat "$output_file"
+  if ! cat "$output_file"; then
+    error "could not display Bottle attestation output"
+    return 1
+  fi
 
   awk 'NF { line=$0 } END { print line }' "$output_file" >"$json_file"
   if ! "$JQ_BIN" -e \

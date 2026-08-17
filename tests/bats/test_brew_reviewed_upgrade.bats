@@ -492,6 +492,27 @@ refute_log() {
   refute_log contains $'verify\t'
 }
 
+@test "dry-run display failure stops before confirmation" {
+  run --separate-stderr bash -c '
+    source "$SOURCE"
+    TEMP_DIR="$TEST_HOME/dry-run-display"
+    BREW_BIN="$TEST_BIN/brew"
+    mkdir -p "$TEMP_DIR"
+    cat() {
+      return 42
+    }
+    exercise() {
+      show_dry_run ripgrep || return $?
+      printf "continued after dry-run display failure\n"
+    }
+    exercise
+  '
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not display the Homebrew dry-run plan"* ]]
+  [[ "$output" != *"continued after dry-run display failure"* ]]
+}
+
 @test "rejection and EOF report that metadata was already updated" {
   run --separate-stderr brew-reviewed-upgrade --no-check ripgrep <"$NO_FILE"
   [ "$status" -eq 1 ]
@@ -512,6 +533,27 @@ refute_log() {
 
   [ "$status" -eq 0 ]
   grep -Fq $'upgrade\t--formula\t--no-ask\tripgrep' "$BREW_STUB_LOG"
+}
+
+@test "confirmation prompt failure cannot consume approval input" {
+  run --separate-stderr bash -c '
+    source "$SOURCE"
+    printf() {
+      if [[ "$1" == "%s" && "${2:-}" == "Confirm release notes,"* ]]; then
+        return 42
+      fi
+      command printf "$@"
+    }
+    exercise() {
+      confirm_review ripgrep || return $?
+      printf "continued after prompt failure\n"
+    }
+    exercise
+  ' <"$YES_FILE"
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not display the review confirmation prompt"* ]]
+  [[ "$output" != *"continued after prompt failure"* ]]
 }
 
 @test "dependency command failure stops before verification and upgrade" {
@@ -595,6 +637,30 @@ refute_log() {
 
   [ "$status" -eq 0 ]
   grep -Fq 'Verified Bottle attestations for 2 Formulae.' <<<"$output"
+}
+
+@test "attestation display failure stops before coverage acceptance" {
+  run --separate-stderr bash -c '
+    source "$SOURCE"
+    TEMP_DIR="$TEST_HOME/attestation-display"
+    BREW_BIN="$TEST_BIN/brew"
+    JQ_BIN="$TEST_BIN/jq"
+    mkdir -p "$TEMP_DIR"
+    expected_file="$TEMP_DIR/expected-formulae"
+    printf "ripgrep\npcre2\n" >"$expected_file"
+    cat() {
+      return 42
+    }
+    exercise() {
+      verify_attestations ripgrep "$expected_file" || return $?
+      printf "continued after attestation display failure\n"
+    }
+    exercise
+  '
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not display Bottle attestation output"* ]]
+  [[ "$output" != *"continued after attestation display failure"* ]]
 }
 
 @test "unmatched attestation result cannot hide behind a multi-subject result" {
