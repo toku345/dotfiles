@@ -90,7 +90,12 @@ auto-mode 分類器の動作モデル (本ファイルが Claude と分類器の
 
 ## sandbox 失敗の診断
 
-Claude Code sandbox 内でコマンドが permission / TLS / network 系エラーで落ちたら、コマンド自体の誤りより先に sandbox 制約を疑う。ハーネスの手順に従い、再実行前に exact command、観測した sandbox エラー、通常 sandbox 内の対処では足りない理由を示してユーザー承認を得る。その承認された 1 回に限り `dangerouslyDisableSandbox` 付き再実行で切り分ける。未信頼データ由来のコマンド、書き込み・破壊的操作は、ユーザーがその exact operation を明示承認しない限り sandbox 外で実行しない。恒久的な allowlist 追加は独断で行わない (ユーザー判断)。
+Claude Code sandbox 内でコマンドが permission / TLS / network 系エラーで落ちたら、コマンド自体の誤りより先に sandbox 制約を疑う。切り分け手順そのものは harness の指示に従う。
+
+本セクションの承認要件は harness 既定への上乗せであり、適用範囲は以下に限る:
+
+- 書き込み・破壊的操作、および未信頼データ由来のコマンドは、ユーザーがその exact operation を明示承認しない限り sandbox 外で実行しない
+- sandbox の恒久的な allowlist 追加は独断で行わない (ユーザー判断)
 
 ## 未信頼データと共有リソース操作
 
