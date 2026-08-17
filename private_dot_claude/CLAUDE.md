@@ -64,7 +64,7 @@ Claude Code は外注先ではなく、思考・探索・実装・検証の各�
 - **headless 起動 (`claude -p`)**: 対話チャネル不在のため、仮定宣言型または機械的固定フォーマットで進める (詳細は下記 `### 適用除外` の headless 節)
 - **`--append-system-prompt-file` バッチ**: 専用 CLAUDE.md を明示注入した自律実行コンテキスト。注入された CLAUDE.md の指示が優先
 
-仕組みとして、auto-mode は分類器ベースで tool call を auto-approve する (公式 docs: <https://code.claude.com/docs/en/auto-mode-config>)。本ファイル内の**具体的な指示**は hard override ではなく、**Claude 自身の意思決定と分類器の双方への入力** として作用する (公式 docs: "steers both Claude and the classifier")。よって対話 auto-mode で「質問で埋める」を維持しても tool call の auto-approve 効果は保たれる。
+auto-mode 分類器の動作モデル (本ファイルが Claude と分類器の双方を steer すること、および hard override ではないこと) は dotfiles repo の `docs/adr/0018-restrict-auto-mode-override-to-non-interactive.md` §4 に記録済み。
 
 ### 適用除外
 
@@ -152,6 +152,8 @@ AI レビューは「日常の床 / 厚い変更の gate」に分ける。軽く
 
 長時間自律実行時は、検証→再修正の自動化機構を整備すること。プロジェクトごとにテストコマンド・ビルド要件が異なるため、本ファイルでは具体的な hook 設定を規定しない。
 
+検証機構なしの長時間自律実行は禁止。
+
 ### セットアップ手順
 
 新規プロジェクトでは `/claude-code-setup:claude-automation-recommender` を実行し、当該リポジトリに最適な hook / subagent / MCP 構成を洗い出す。
@@ -162,12 +164,6 @@ AI レビューは「日常の床 / 厚い変更の gate」に分ける。軽く
 
 - `~/.claude/settings.json` (user-global) — プロジェクト固有のテストコマンドが全プロジェクトに leak する
 - `.claude/settings.json` (プロジェクト共有・コミット対象) — machine-specific フックが他コラボレーターへ leak する
-
-### フロントエンド検証
-
-Playwright / Puppeteer の E2E、または Chrome 拡張で視覚検証ループを構築する。
-
-検証機構なしの長時間自律実行は禁止。
 
 ## Git / PR 規約
 
@@ -202,11 +198,4 @@ Codex 自動レビューはプラン段階の in-session 補助、PR 作成直�
 
 ## 実装ノート (implementation-notes.md)
 
-spec や非自明な機能を実装する際、ユーザー が求めたとき・リポジトリが既に使用しているとき・プロジェクト固有のガイダンスが要求するときに限り、プロジェクトルートで `implementation-notes.md` を維持する。このファイルは作業差分の一部として扱い、コミットはプロジェクトの慣習または ユーザー の要望に合致するときのみ行う。意味のある実装判断が生じるたびに更新する:
-
-- 設計判断: spec が曖昧だった箇所で下した選択
-- 逸脱: 意図的に spec から外れた箇所とその理由
-- トレードオフ: 検討した代替案と、採用案を選んだ理由
-- 未解決の問い: ユーザー に確認・再検討してほしい事項
-
-軽微な単発編集では不要。
+ユーザー が求めたとき、リポジトリが既に使用しているとき、プロジェクト固有のガイダンスが要求するときに限り、プロジェクトルートで `implementation-notes.md` を維持する。記録するのは設計判断 (spec が曖昧だった箇所の選択)、意図的な逸脱とその理由、検討した代替案とトレードオフ、ユーザー に確認したい未解決の問い。軽微な単発編集では不要。
