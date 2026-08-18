@@ -10,6 +10,8 @@ setup() {
   TEST_BIN="$BATS_TEST_TMPDIR/bin"
   BREW_STUB_LOG="$BATS_TEST_TMPDIR/brew.log"
   BREW_STUB_ENV_LOG="$BATS_TEST_TMPDIR/brew-env.log"
+  BREW_STUB_HINT_LOG="$BATS_TEST_TMPDIR/brew-hints.log"
+  GH_STUB_LOG="$BATS_TEST_TMPDIR/gh.log"
   SMOKE_STUB_LOG="$BATS_TEST_TMPDIR/smoke.log"
   BREW_STUB_SIGNAL_MARKER="$BATS_TEST_TMPDIR/verify-started"
   BREW_STUB_SIGNAL_RESULT="$BATS_TEST_TMPDIR/verify-signal"
@@ -23,8 +25,11 @@ setup() {
   printf 'no\n' >"$NO_FILE"
   : >"$BREW_STUB_LOG"
   : >"$BREW_STUB_ENV_LOG"
+  : >"$BREW_STUB_HINT_LOG"
+  : >"$GH_STUB_LOG"
 
   export SOURCE TEST_HOME TEST_BIN BREW_STUB_LOG BREW_STUB_ENV_LOG
+  export BREW_STUB_HINT_LOG GH_STUB_LOG
   export SMOKE_STUB_LOG BREW_STUB_SIGNAL_MARKER BREW_STUB_SIGNAL_RESULT
   export LAUNCH_CHILD_PID_FILE
   export HOME="$TEST_HOME"
@@ -40,8 +45,39 @@ EOF
 
   cat >"$TEST_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
+{
+  first=1
+  for argument in "$@"; do
+    if (( first )); then
+      first=0
+    else
+      printf '\t'
+    fi
+    printf '%s' "$argument"
+  done
+  printf '\n'
+} >>"$GH_STUB_LOG"
+
 if [[ "$*" == "auth status --hostname github.com" ]]; then
+  printf '%s\n' 'authenticated as test-user' >&2
   exit "${GH_STUB_STATUS:-0}"
+fi
+if [[ "${1:-}" == "api" ]]; then
+  if [[ "${GH_STUB_API_STATUS:-0}" != "0" ]]; then
+    printf '%s\n' 'release lookup failed' >&2
+    exit "$GH_STUB_API_STATUS"
+  fi
+  if [[ -n "${GH_STUB_RELEASE_JSON:-}" ]]; then
+    printf '%s\n' "$GH_STUB_RELEASE_JSON"
+  else
+    printf '{"tag_name":"%s","html_url":"%s","published_at":"%s","draft":%s,"prerelease":%s}\n' \
+      "${GH_STUB_RELEASE_TAG:-2.0}" \
+      "${GH_STUB_RELEASE_HTML_URL:-https://github.com/BurntSushi/ripgrep/releases/tag/2.0}" \
+      "${GH_STUB_RELEASE_PUBLISHED_AT:-2020-01-01T00:00:00Z}" \
+      "${GH_STUB_RELEASE_DRAFT:-false}" \
+      "${GH_STUB_RELEASE_PRERELEASE:-false}"
+  fi
+  exit 0
 fi
 exit 2
 EOF
@@ -79,6 +115,9 @@ shift || true
 printf '%s\t%s\t%s\n' \
   "$command_name" "${HOMEBREW_NO_INSTALL_CLEANUP-unset}" "$*" \
   >>"$BREW_STUB_ENV_LOG"
+printf '%s\t%s\t%s\n' \
+  "$command_name" "${HOMEBREW_NO_ENV_HINTS-unset}" "$*" \
+  >>"$BREW_STUB_HINT_LOG"
 
 formula_info() {
   local requested="${!#}"
@@ -88,6 +127,13 @@ formula_info() {
   local bottle=true
   local bottle_files='{"arm64_linux":{}}'
   local installed='[]'
+  local stable_version="${BREW_STUB_STABLE_VERSION:-2.0}"
+  local stable_url="${BREW_STUB_STABLE_URL:-https://github.com/BurntSushi/ripgrep/archive/refs/tags/2.0.tar.gz}"
+  local stable_tag_json=""
+
+  if [[ -n "${BREW_STUB_STABLE_TAG:-}" ]]; then
+    stable_tag_json=',"tag":"'"$BREW_STUB_STABLE_TAG"'"'
+  fi
 
   if [[ "$requested" == "visual-studio-code" ]]; then
     exit 1
@@ -117,8 +163,9 @@ formula_info() {
     installed='[{"version":"1.0","built_as_bottle":false,"poured_from_bottle":false}]'
   fi
 
-  printf '{"formulae":[{"name":"%s","full_name":"%s","tap":"%s","pinned":%s,"versions":{"bottle":%s},"bottle":{"stable":{"files":%s}},"installed":%s}]}\n' \
-    "$canonical" "$canonical" "$tap" "$pinned" "$bottle" "$bottle_files" "$installed"
+  printf '{"formulae":[{"name":"%s","full_name":"%s","tap":"%s","pinned":%s,"versions":{"stable":"%s","bottle":%s},"urls":{"stable":{"url":"%s"%s}},"bottle":{"stable":{"files":%s}},"installed":%s}]}\n' \
+    "$canonical" "$canonical" "$tap" "$pinned" "$stable_version" "$bottle" \
+    "$stable_url" "$stable_tag_json" "$bottle_files" "$installed"
 }
 
 case "$command_name" in
@@ -313,6 +360,16 @@ refute_log() {
   grep -Fxq $'upgrade\t1\t--formula --dry-run ripgrep' "$BREW_STUB_ENV_LOG"
   grep -Fxq $'upgrade\t1\t--formula --no-ask ripgrep' "$BREW_STUB_ENV_LOG"
   [ "$(awk -F '\t' '$1 != "upgrade" && $2 == "1" { count++ } END { print count + 0 }' "$BREW_STUB_ENV_LOG")" -eq 0 ]
+  grep -Fq 'Release notes: https://github.com/BurntSushi/ripgrep/releases/tag/2.0' <<<"$output"
+  grep -Fq 'Cooldown: eligible' <<<"$output"
+  grep -Fq $'  - ripgrep' <<<"$output"
+  grep -Fq $'  - pcre2' <<<"$output"
+  grep -Fq 'Smoke check: configured' <<<"$output"
+  [[ "$stderr" != *"authenticated as test-user"* ]]
+  grep -Fxq $'api\t-H\tAccept: application/vnd.github+json\t-H\tX-GitHub-Api-Version: 2026-03-10\trepos/BurntSushi/ripgrep/releases/tags/2.0' "$GH_STUB_LOG"
+  grep -Fxq $'upgrade\t1\t--formula --dry-run ripgrep' "$BREW_STUB_HINT_LOG"
+  grep -Fxq $'deps\t1\t--formula --full-name --include-build --include-test --include-implicit ripgrep' "$BREW_STUB_HINT_LOG"
+  [ "$(awk -F '\t' '$1 != "upgrade" && $1 != "deps" && $2 == "1" { count++ } END { print count + 0 }' "$BREW_STUB_HINT_LOG")" -eq 0 ]
   [[ "$stderr" == *"Developer mode is disabled."* ]]
 }
 
@@ -341,6 +398,20 @@ refute_log() {
 @test "multiple Formulae are rejected as a usage error" {
   run brew-reviewed-upgrade ripgrep pcre2 -- smoke-command
 
+  [ "$status" -eq 2 ]
+  [ ! -s "$BREW_STUB_LOG" ]
+}
+
+@test "cooldown exception requires one non-empty single-line reason" {
+  run brew-reviewed-upgrade --cooldown-exception "" --no-check ripgrep
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"must be non-empty and single-line"* ]]
+
+  run brew-reviewed-upgrade --cooldown-exception $'security fix\nsecond line' --no-check ripgrep
+  [ "$status" -eq 2 ]
+
+  run brew-reviewed-upgrade --cooldown-exception first \
+    --cooldown-exception second --no-check ripgrep
   [ "$status" -eq 2 ]
   [ ! -s "$BREW_STUB_LOG" ]
 }
@@ -464,7 +535,164 @@ refute_log() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"already up to date"* ]]
   refute_log contains $'verify\t'
+  run ! grep -Fq $'api\t' "$GH_STUB_LOG"
   [ ! -e "$SMOKE_STUB_LOG" ]
+}
+
+@test "release age boundary becomes eligible at exactly seven days" {
+  run bash -c '
+    source "$SOURCE"
+    JQ_BIN="$TEST_BIN/jq"
+    published="2026-01-01T00:00:00Z"
+    published_epoch="$("$JQ_BIN" -nr \
+      --arg published "$published" "\$published | fromdateiso8601")"
+
+    evaluate_release_age "$published" "$((published_epoch + 604799))"
+    if release_age_is_eligible; then
+      before=eligible
+    else
+      before=blocked
+    fi
+
+    evaluate_release_age "$published" "$((published_epoch + 604800))"
+    if release_age_is_eligible; then
+      exact=eligible
+    else
+      exact=blocked
+    fi
+    printf "%s %s %s\n" "$before" "$exact" "$RELEASE_ELIGIBLE_AT"
+  '
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "blocked eligible 2026-01-08T00:00:00Z" ]
+}
+
+@test "new release stops before dry-run unless a reasoned exception is supplied" {
+  export GH_STUB_RELEASE_PUBLISHED_AT
+  GH_STUB_RELEASE_PUBLISHED_AT="$("$TEST_BIN/jq" -nr \
+    'now - 86400 | strftime("%Y-%m-%dT%H:%M:%SZ")')"
+
+  run --separate-stderr brew-reviewed-upgrade --no-check ripgrep
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Cooldown: blocked"* ]]
+  [[ "$output" == *"GitHub Release is newer than 7 days"* ]]
+  [[ "$stderr" == *"--cooldown-exception REASON"* ]]
+  refute_log contains $'upgrade\t--formula\t--dry-run'
+  refute_log contains $'deps\t'
+  refute_log contains $'verify\t'
+
+  : >"$BREW_STUB_LOG"
+  run brew-reviewed-upgrade --cooldown-exception \
+    "CVE fix reviewed" --no-check ripgrep <"$YES_FILE"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cooldown: exception"* ]]
+  [[ "$output" == *"Exception reason: CVE fix reviewed"* ]]
+  grep -Fq $'upgrade\t--formula\t--dry-run\tripgrep' "$BREW_STUB_LOG"
+  grep -Fq $'upgrade\t--formula\t--no-ask\tripgrep' "$BREW_STUB_LOG"
+}
+
+@test "eligible release reports that a supplied exception was not needed" {
+  run brew-reviewed-upgrade --cooldown-exception \
+    "stale manual decision" --no-check ripgrep <"$YES_FILE"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cooldown: eligible (exception not needed)"* ]]
+  [[ "$output" != *"Exception reason:"* ]]
+}
+
+@test "unsupported source requires the same explicit exception path" {
+  export BREW_STUB_STABLE_URL="https://curl.se/ca/cacert-2026-08-13.pem"
+
+  run brew-reviewed-upgrade --no-check ripgrep
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Cooldown: unverified"* ]]
+  [[ "$output" == *"not a supported GitHub release URL"* ]]
+  run ! grep -Fq $'api\t' "$GH_STUB_LOG"
+  refute_log contains $'upgrade\t--formula\t--dry-run'
+
+  : >"$BREW_STUB_LOG"
+  : >"$GH_STUB_LOG"
+  run brew-reviewed-upgrade --cooldown-exception \
+    "vendor notes reviewed" --no-check ripgrep <"$YES_FILE"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Exception reason: vendor notes reviewed"* ]]
+  run ! grep -Fq $'api\t' "$GH_STUB_LOG"
+}
+
+@test "release lookup errors malformed metadata and prereleases fail closed" {
+  export GH_STUB_API_STATUS=22
+  run brew-reviewed-upgrade --no-check ripgrep
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"lookup failed with status 22"* ]]
+  refute_log contains $'upgrade\t--formula\t--dry-run'
+  unset GH_STUB_API_STATUS
+
+  : >"$BREW_STUB_LOG"
+  export GH_STUB_RELEASE_JSON='{"unexpected":true}'
+  run brew-reviewed-upgrade --no-check ripgrep
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"metadata is malformed"* ]]
+  refute_log contains $'upgrade\t--formula\t--dry-run'
+  unset GH_STUB_RELEASE_JSON
+
+  : >"$BREW_STUB_LOG"
+  export GH_STUB_RELEASE_PUBLISHED_AT
+  GH_STUB_RELEASE_PUBLISHED_AT="$("$TEST_BIN/jq" -nr \
+    'now + 3600 | strftime("%Y-%m-%dT%H:%M:%SZ")')"
+  run brew-reviewed-upgrade --no-check ripgrep
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Published:"*"(unverified)"* ]]
+  [[ "$output" == *"published_at is in the future"* ]]
+  [[ "$output" != *"Eligible after:"* ]]
+  refute_log contains $'upgrade\t--formula\t--dry-run'
+  unset GH_STUB_RELEASE_PUBLISHED_AT
+
+  : >"$BREW_STUB_LOG"
+  export GH_STUB_RELEASE_DRAFT=true
+  run brew-reviewed-upgrade --no-check ripgrep
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"GitHub Release is a draft"* ]]
+  refute_log contains $'upgrade\t--formula\t--dry-run'
+  unset GH_STUB_RELEASE_DRAFT
+
+  : >"$BREW_STUB_LOG"
+  export GH_STUB_RELEASE_PRERELEASE=true
+  run brew-reviewed-upgrade --no-check ripgrep
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Cooldown: blocked"* ]]
+  [[ "$output" == *"marked as a prerelease"* ]]
+  refute_log contains $'upgrade\t--formula\t--dry-run'
+}
+
+@test "supported source URL forms preserve and encode the exact release tag" {
+  export BREW_STUB_STABLE_URL="https://github.com/jqlang/jq/releases/download/jq-2.0/jq.tar.gz"
+  export GH_STUB_RELEASE_TAG="jq-2.0"
+  export GH_STUB_RELEASE_HTML_URL="https://github.com/jqlang/jq/releases/tag/jq-2.0"
+  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  grep -Fq $'repos/jqlang/jq/releases/tags/jq-2.0' "$GH_STUB_LOG"
+
+  : >"$GH_STUB_LOG"
+  export BREW_STUB_STABLE_URL="https://github.com/vendor/tool.git"
+  export BREW_STUB_STABLE_TAG="v2.0"
+  export GH_STUB_RELEASE_TAG="v2.0"
+  export GH_STUB_RELEASE_HTML_URL="https://github.com/vendor/tool/releases/tag/v2.0"
+  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  grep -Fq $'repos/vendor/tool/releases/tags/v2.0' "$GH_STUB_LOG"
+
+  : >"$GH_STUB_LOG"
+  unset BREW_STUB_STABLE_TAG
+  export BREW_STUB_STABLE_URL="https://github.com/vendor/tool/archive/refs/tags/release%2F2.0.tar.gz"
+  export GH_STUB_RELEASE_TAG="release/2.0"
+  export GH_STUB_RELEASE_HTML_URL="https://github.com/vendor/tool/releases/tag/release/2.0"
+  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  grep -Fq $'repos/vendor/tool/releases/tags/release%2F2.0' "$GH_STUB_LOG"
 }
 
 @test "outdated exit status and JSON disagreement fails closed" {
@@ -539,7 +767,7 @@ refute_log() {
   run --separate-stderr bash -c '
     source "$SOURCE"
     printf() {
-      if [[ "$1" == "%s" && "${2:-}" == "Confirm release notes,"* ]]; then
+      if [[ "$1" == "%s" && "${2:-}" == "Proceed with the displayed dry-run"* ]]; then
         return 42
       fi
       command printf "$@"

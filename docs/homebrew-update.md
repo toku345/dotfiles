@@ -41,7 +41,29 @@ brew-reviewed-upgrade ripgrep -- rg --version
 brew-reviewed-upgrade --no-check ripgrep
 ```
 
-helperは`--no-check`でない場合に指定した動作確認commandをHomebrew操作前に解決し、管理ポリシー、GitHub CLI認証、Formulaの導入・pin・Bottle状態を確認してから`brew update`を実行します。対象が最新版なら、`brew update`完了後にFormulaを変更せず成功終了します。更新対象がある場合はnamed outdated結果とdry-runを表示し、release notes、7日cooldownまたは例外、targetとdependencyの全変更を確認済みか1回だけ質問します。拒否またはEOFではFormulaを更新しませんが、先行するHomebrew本体とmetadataの更新は完了済みです。
+helperは`--no-check`でない場合に指定した動作確認commandをHomebrew操作前に解決し、管理ポリシー、GitHub CLI認証、Formulaの導入・pin・Bottle状態を確認してから`brew update`を実行します。対象が最新版なら、`brew update`完了後にFormulaを変更せず成功終了します。
+
+更新対象がある場合はpost-updateのstable source URLからGitHub repositoryとtagを特定し、GitHub Releaseの`published_at`を基準に7日cooldownを判定します。versionからtagを推測したり、homepageからrepositoryを推測したりはしません。release notes URL、公開日時、経過時間、通常更新が可能になる日時を最初に表示します。公開から7日未満、prerelease、draft、GitHub Releaseがないtag、非GitHub source、APIまたはmetadataの異常ではdry-runより前に停止するため、通常の`y`ではcooldownを解除できません。先行するHomebrew本体とmetadataの更新は完了済みです。
+
+security advisory、active exploit、作業を復旧するbreak/fixなど、待機しない理由を手動で確認できた場合だけ、理由付きで再実行します。
+
+```sh
+brew-reviewed-upgrade \
+  --cooldown-exception "CVE fix reviewed" \
+  ripgrep -- rg --version
+```
+
+GitHub Releaseから公開日時を検証できないFormulaも同じ例外経路を使用します。Formula固有の動作確認も省略する場合は、両方を明示します。
+
+```sh
+brew-reviewed-upgrade \
+  --cooldown-exception "vendor release notes reviewed" \
+  --no-check ca-certificates
+```
+
+例外理由は画面へ表示しますがhelperはファイルへ保存しません。shell historyへ残る可能性があるため、token、advisoryの非公開情報などのsecretを含めないでください。例外はcooldown判定だけに適用され、GitHub認証、Bottle、attestation、vulnerability、linkage、動作確認の失敗は解除しません。既に7日を経過している場合は例外不要と表示して通常処理を続けます。
+
+cooldownを通過または明示的に例外指定した後、helperは完全なdry-run、attestation対象Formulaの名前、動作確認の有無を表示します。Homebrewの環境変数hintだけはhelper内で抑制しますが、tap trust warning、dry-runの変更内容、エラーは隠しません。最後に表示済みのdry-runと検査を実行するか1回だけ質問します。拒否またはEOFではFormulaを更新しません。
 
 承認後はtargetと再帰dependencyのBottle attestation coverageを検査し、missing Bottle、件数・subject不一致、出力形式の変化をすべてfail-closedで停止します。その後、named upgrade、`brew vulns --deps`、global `brew linkage --test`、指定した動作確認を順番に実行します。dry-runと実upgradeでは`HOMEBREW_NO_INSTALL_CLEANUP=1`をhelper内だけに設定し、対象外Formulaのkegやcacheを暗黙に削除しません。cleanupは別のreviewed operationとして実行します。operation stageが失敗した場合は後続operation stageを実行しません。`brew verify`が有効化するdeveloper modeのcleanupは例外として、成功、失敗、INT、TERMの全経路で復旧を試みます。更新処理とcleanupが両方失敗した場合は両方を報告し、更新処理の終了statusを維持します。
 

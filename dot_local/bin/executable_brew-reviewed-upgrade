@@ -6,8 +6,11 @@ set -Eeuo pipefail
 
 readonly PROGRAM_NAME="brew-reviewed-upgrade"
 readonly POLICY_FILE_RELATIVE=".homebrew/brew.env"
+readonly GITHUB_API_VERSION="2026-03-10"
+readonly COOLDOWN_SECONDS=604800
 
 BREW_BIN=""
+GH_BIN=""
 JQ_BIN=""
 TEMP_DIR=""
 ACTIVE_PID=""
@@ -15,17 +18,32 @@ MANAGED_LAUNCHING=0
 PENDING_SIGNAL_NAME=""
 PENDING_SIGNAL_STATUS=0
 DEVELOPER_CLEANUP_ARMED=0
+OUTDATED_INSTALLED=""
+OUTDATED_CANDIDATE=""
+RELEASE_OWNER=""
+RELEASE_REPO=""
+RELEASE_TAG=""
+RELEASE_STABLE_URL=""
+RELEASE_NOTES_URL=""
+RELEASE_PUBLISHED_AT=""
+RELEASE_ELIGIBLE_AT=""
+RELEASE_AGE_SECONDS=0
+RELEASE_AGE_VERIFIED=0
+RELEASE_GATE_STATUS=""
+RELEASE_GATE_REASON=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  brew-reviewed-upgrade FORMULA -- COMMAND [ARG...]
-  brew-reviewed-upgrade --no-check FORMULA
+  brew-reviewed-upgrade [--cooldown-exception REASON] FORMULA -- COMMAND [ARG...]
+  brew-reviewed-upgrade [--cooldown-exception REASON] --no-check FORMULA
 
 Upgrade exactly one installed, unpinned homebrew/core Formula after reviewing
-its release notes, cooldown (or exception), and complete dry-run plan.
+its release age, release notes, and complete dry-run plan.
 
 A smoke command is required unless --no-check explicitly waives it.
+Releases newer than 7 days or without verifiable GitHub Release metadata stop
+unless --cooldown-exception supplies a non-secret, single-line reason.
 EOF
 }
 
@@ -277,6 +295,328 @@ validate_developer_mode() {
   fi
 }
 
+validate_github_auth() {
+  local output_file="$TEMP_DIR/gh-auth-status"
+
+  if "$GH_BIN" auth status --hostname github.com >"$output_file" 2>&1; then
+    return 0
+  fi
+
+  cat "$output_file" >&2 || true
+  error "GitHub CLI authentication is required for Bottle attestations"
+  return 1
+}
+
+decode_url_component() {
+  local encoded="$1"
+  local decoded=""
+  local prefix hex byte
+
+  if [[ -z "$encoded" || "$encoded" =~ [[:cntrl:]] ]]; then
+    return 1
+  fi
+
+  while [[ "$encoded" == *%* ]]; do
+    if [[ ! "$encoded" =~ ^([^%]*)%([[:xdigit:]]{2})(.*)$ ]]; then
+      return 1
+    fi
+    prefix="${BASH_REMATCH[1]}"
+    hex="${BASH_REMATCH[2]}"
+    encoded="${BASH_REMATCH[3]}"
+    if [[ "$hex" == "00" ]]; then
+      return 1
+    fi
+    printf -v byte '%b' "\\x$hex"
+    decoded+="$prefix$byte"
+  done
+  decoded+="$encoded"
+
+  if [[ -z "$decoded" || "$decoded" =~ [[:cntrl:]] ]]; then
+    return 1
+  fi
+  printf '%s\n' "$decoded"
+}
+
+extract_github_release_coordinates() {
+  local info_file="$1"
+  local stable_tag=""
+  local encoded_tag=""
+  local repo_component=""
+
+  RELEASE_OWNER=""
+  RELEASE_REPO=""
+  RELEASE_TAG=""
+  RELEASE_STABLE_URL=""
+
+  RELEASE_STABLE_URL="$("$JQ_BIN" -er \
+    '.formulae[0].urls.stable.url
+      | select(type == "string" and length > 0)' "$info_file")" || {
+    RELEASE_GATE_REASON="stable source URL is missing or malformed"
+    return 1
+  }
+  stable_tag="$("$JQ_BIN" -er \
+    '(.formulae[0].urls.stable.tag // "")
+      | select(type == "string")' "$info_file")" || {
+    RELEASE_GATE_REASON="stable source tag is malformed"
+    return 1
+  }
+  if [[ "$RELEASE_STABLE_URL" =~ [[:cntrl:]] ]] \
+    || [[ "$stable_tag" =~ [[:cntrl:]] ]]; then
+    RELEASE_STABLE_URL=""
+    RELEASE_GATE_REASON="stable source metadata contains control characters"
+    return 1
+  fi
+
+  if [[ "$RELEASE_STABLE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/archive/refs/tags/(.+)\.(tar\.gz|zip)$ ]]; then
+    RELEASE_OWNER="${BASH_REMATCH[1]}"
+    RELEASE_REPO="${BASH_REMATCH[2]}"
+    encoded_tag="${BASH_REMATCH[3]}"
+  elif [[ "$RELEASE_STABLE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/releases/download/([^/]+)/[^/?#]+$ ]]; then
+    RELEASE_OWNER="${BASH_REMATCH[1]}"
+    RELEASE_REPO="${BASH_REMATCH[2]}"
+    encoded_tag="${BASH_REMATCH[3]}"
+  elif [[ -n "$stable_tag" ]] \
+    && [[ "$RELEASE_STABLE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$ ]]; then
+    RELEASE_OWNER="${BASH_REMATCH[1]}"
+    repo_component="${BASH_REMATCH[2]}"
+    RELEASE_REPO="${repo_component%.git}"
+    encoded_tag="$stable_tag"
+  else
+    RELEASE_GATE_REASON="stable source is not a supported GitHub release URL"
+    return 1
+  fi
+
+  RELEASE_TAG="$(decode_url_component "$encoded_tag")" || {
+    RELEASE_GATE_REASON="GitHub release tag is malformed"
+    return 1
+  }
+}
+
+lookup_github_release() {
+  local output_file="$TEMP_DIR/github-release.json"
+  local error_file="$TEMP_DIR/github-release-error"
+  local encoded_tag=""
+  local status=0
+
+  encoded_tag="$("$JQ_BIN" -rn --arg value "$RELEASE_TAG" '$value | @uri')" || {
+    RELEASE_GATE_REASON="could not encode the GitHub release tag"
+    return 1
+  }
+
+  if "$GH_BIN" api \
+    -H 'Accept: application/vnd.github+json' \
+    -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+    "repos/$RELEASE_OWNER/$RELEASE_REPO/releases/tags/$encoded_tag" \
+    >"$output_file" 2>"$error_file"; then
+    :
+  else
+    status=$?
+    RELEASE_GATE_REASON="GitHub Release lookup failed with status $status"
+    return 1
+  fi
+
+  if ! "$JQ_BIN" -e \
+    --arg tag "$RELEASE_TAG" \
+    --arg prefix "https://github.com/$RELEASE_OWNER/$RELEASE_REPO/releases/tag/" \
+    'type == "object"
+      and .tag_name == $tag
+      and (.html_url | type == "string" and length > 0
+        and (test("[[:cntrl:]]") | not)
+        and (ascii_downcase | startswith($prefix | ascii_downcase)))
+      and (.published_at | type == "string" and length > 0
+        and (test("[[:cntrl:]]") | not))
+      and (.draft | type == "boolean")
+      and (.prerelease | type == "boolean")' \
+    "$output_file" >/dev/null; then
+    RELEASE_GATE_REASON="GitHub Release metadata is malformed or does not match the source tag"
+    return 1
+  fi
+
+  RELEASE_NOTES_URL="$("$JQ_BIN" -r '.html_url' "$output_file")"
+  RELEASE_PUBLISHED_AT="$("$JQ_BIN" -r '.published_at' "$output_file")"
+  RELEASE_DRAFT="$("$JQ_BIN" -r '.draft' "$output_file")"
+  RELEASE_PRERELEASE="$("$JQ_BIN" -r '.prerelease' "$output_file")"
+}
+
+evaluate_release_age() {
+  local published_at="$1"
+  local now_epoch="$2"
+  local values=""
+  local published_epoch=""
+
+  RELEASE_AGE_VERIFIED=0
+  RELEASE_ELIGIBLE_AT=""
+  if [[ ! "$now_epoch" =~ ^[0-9]+$ ]]; then
+    RELEASE_GATE_REASON="current time is unavailable"
+    return 1
+  fi
+  values="$("$JQ_BIN" -nr \
+    --arg published "$published_at" \
+    --argjson cooldown "$COOLDOWN_SECONDS" \
+    '($published | fromdateiso8601 | floor) as $published_epoch
+      | [$published_epoch,
+         ($published_epoch + $cooldown | strftime("%Y-%m-%dT%H:%M:%SZ"))]
+      | @tsv')" || {
+    RELEASE_GATE_REASON="GitHub Release published_at is not a valid UTC timestamp"
+    return 1
+  }
+  IFS=$'\t' read -r published_epoch RELEASE_ELIGIBLE_AT <<<"$values"
+  if [[ ! "$published_epoch" =~ ^[0-9]+$ ]] \
+    || [[ -z "$RELEASE_ELIGIBLE_AT" ]]; then
+    RELEASE_GATE_REASON="GitHub Release published_at could not be evaluated"
+    return 1
+  fi
+
+  RELEASE_AGE_SECONDS=$((now_epoch - published_epoch))
+  if (( RELEASE_AGE_SECONDS < 0 )); then
+    RELEASE_GATE_REASON="GitHub Release published_at is in the future"
+    return 1
+  fi
+  RELEASE_AGE_VERIFIED=1
+}
+
+release_age_is_eligible() {
+  (( RELEASE_AGE_SECONDS >= COOLDOWN_SECONDS ))
+}
+
+format_duration() {
+  local total_seconds="$1"
+  local days hours minutes
+
+  days=$((total_seconds / 86400))
+  hours=$(((total_seconds % 86400) / 3600))
+  minutes=$(((total_seconds % 3600) / 60))
+  if (( days > 0 )); then
+    printf '%dd %dh\n' "$days" "$hours"
+  elif (( hours > 0 )); then
+    printf '%dh %dm\n' "$hours" "$minutes"
+  else
+    printf '%dm\n' "$minutes"
+  fi
+}
+
+print_release_review() {
+  local formula="$1"
+  local exception_set="$2"
+  local exception_reason="$3"
+  local age=""
+  local remaining=""
+
+  if (( RELEASE_AGE_VERIFIED )); then
+    age="$(format_duration "$RELEASE_AGE_SECONDS")" || return $?
+  fi
+  if [[ "$RELEASE_GATE_STATUS" == "blocked" ]] \
+    && (( RELEASE_AGE_VERIFIED )) \
+    && (( RELEASE_AGE_SECONDS < COOLDOWN_SECONDS )); then
+    remaining="$(format_duration "$((COOLDOWN_SECONDS - RELEASE_AGE_SECONDS))")" || return $?
+  fi
+
+  {
+    printf '%s\n' '==> Release review'
+    printf 'Formula: %s\n' "$formula"
+    printf 'Version: %s -> %s\n' "$OUTDATED_INSTALLED" "$OUTDATED_CANDIDATE"
+    if [[ -n "$RELEASE_STABLE_URL" ]]; then
+      printf 'Source: %s\n' "$RELEASE_STABLE_URL"
+    else
+      printf '%s\n' 'Source: unavailable'
+    fi
+    if [[ -n "$RELEASE_NOTES_URL" ]]; then
+      printf 'Release notes: %s\n' "$RELEASE_NOTES_URL"
+    else
+      printf '%s\n' 'Release notes: unavailable'
+    fi
+    if (( RELEASE_AGE_VERIFIED )); then
+      printf 'Published: %s (%s ago)\n' "$RELEASE_PUBLISHED_AT" "$age"
+      printf 'Eligible after: %s\n' "$RELEASE_ELIGIBLE_AT"
+    elif [[ -n "$RELEASE_PUBLISHED_AT" ]]; then
+      printf 'Published: %s (unverified)\n' "$RELEASE_PUBLISHED_AT"
+    else
+      printf '%s\n' 'Published: unavailable'
+    fi
+    case "$RELEASE_GATE_STATUS" in
+      eligible)
+        if (( exception_set )); then
+          printf '%s\n' 'Cooldown: eligible (exception not needed)'
+        else
+          printf '%s\n' 'Cooldown: eligible'
+        fi
+        ;;
+      blocked)
+        if [[ -n "$remaining" ]]; then
+          printf 'Cooldown: blocked (%s remaining)\n' "$remaining"
+        else
+          printf '%s\n' 'Cooldown: blocked'
+        fi
+        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
+        ;;
+      unverified)
+        printf '%s\n' 'Cooldown: unverified'
+        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
+        ;;
+      exception)
+        printf '%s\n' 'Cooldown: exception'
+        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
+        printf 'Exception reason: %s\n' "$exception_reason"
+        ;;
+    esac
+  } || {
+    error "could not display the release review"
+    return 1
+  }
+}
+
+review_release_cooldown() {
+  local info_file="$1"
+  local formula="$2"
+  local exception_set="$3"
+  local exception_reason="$4"
+  local now_epoch=""
+  local base_status=""
+
+  RELEASE_NOTES_URL=""
+  RELEASE_PUBLISHED_AT=""
+  RELEASE_ELIGIBLE_AT=""
+  RELEASE_AGE_SECONDS=0
+  RELEASE_AGE_VERIFIED=0
+  RELEASE_GATE_STATUS=""
+  RELEASE_GATE_REASON=""
+  RELEASE_DRAFT=""
+  RELEASE_PRERELEASE=""
+
+  if ! extract_github_release_coordinates "$info_file"; then
+    RELEASE_GATE_STATUS="unverified"
+  elif ! lookup_github_release; then
+    RELEASE_GATE_STATUS="unverified"
+  else
+    now_epoch="$("$JQ_BIN" -nr 'now | floor')" || now_epoch=""
+    if ! evaluate_release_age "$RELEASE_PUBLISHED_AT" "$now_epoch"; then
+      RELEASE_GATE_STATUS="unverified"
+    elif [[ "$RELEASE_DRAFT" == "true" ]]; then
+      RELEASE_GATE_STATUS="blocked"
+      RELEASE_GATE_REASON="GitHub Release is a draft"
+    elif [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+      RELEASE_GATE_STATUS="blocked"
+      RELEASE_GATE_REASON="GitHub Release is marked as a prerelease"
+    elif ! release_age_is_eligible; then
+      RELEASE_GATE_STATUS="blocked"
+      RELEASE_GATE_REASON="GitHub Release is newer than 7 days"
+    else
+      RELEASE_GATE_STATUS="eligible"
+    fi
+  fi
+
+  base_status="$RELEASE_GATE_STATUS"
+  if (( exception_set )) && [[ "$base_status" != "eligible" ]]; then
+    RELEASE_GATE_STATUS="exception"
+  fi
+  print_release_review "$formula" "$exception_set" "$exception_reason" || return $?
+
+  if [[ "$base_status" != "eligible" ]] && (( ! exception_set )); then
+    error "release cooldown requires manual review; rerun with --cooldown-exception REASON to continue"
+    return 1
+  fi
+}
+
 load_target_metadata() {
   local requested="$1"
   local output_file="$TEMP_DIR/info-target.json"
@@ -291,7 +631,11 @@ load_target_metadata() {
     return 1
   fi
 
-  canonical="$("$JQ_BIN" -er '.formulae[0].full_name | select(type == "string" and length > 0)' "$output_file")" || {
+  canonical="$("$JQ_BIN" -er \
+    '.formulae[0].full_name
+      | select(type == "string" and length > 0
+        and (test("[[:cntrl:]]") | not)
+        and (test("[[:space:]]") | not))' "$output_file")" || {
     error "Homebrew returned malformed Formula metadata"
     return 1
   }
@@ -373,12 +717,22 @@ classify_outdated() {
     && "$JQ_BIN" -e --arg name "$formula" \
       '(.formulae | length) == 1
         and .formulae[0].name == $name
+        and (.formulae[0].installed_versions | type) == "array"
+        and (.formulae[0].installed_versions | length) > 0
+        and all(.formulae[0].installed_versions[];
+          type == "string" and length > 0
+            and (test("[[:cntrl:]]") | not))
+        and (.formulae[0].current_version
+          | type == "string" and length > 0
+            and (test("[[:cntrl:]]") | not))
         and (.casks | length) == 0' \
       "$output_file" >/dev/null; then
-    "$JQ_BIN" -r \
-      '.["formulae"][0]
-       | "Outdated: \(.name) \(.installed_versions | join(", ")) -> \(.current_version)"' \
-      "$output_file"
+    OUTDATED_INSTALLED="$("$JQ_BIN" -r \
+      '.formulae[0].installed_versions | join(", ")' "$output_file")"
+    OUTDATED_CANDIDATE="$("$JQ_BIN" -r \
+      '.formulae[0].current_version' "$output_file")"
+    printf 'Outdated: %s %s -> %s\n' \
+      "$formula" "$OUTDATED_INSTALLED" "$OUTDATED_CANDIDATE"
     return 0
   fi
 
@@ -390,7 +744,7 @@ show_dry_run() {
   local formula="$1"
   local output_file="$TEMP_DIR/upgrade-dry-run"
 
-  if ! HOMEBREW_NO_INSTALL_CLEANUP=1 \
+  if ! HOMEBREW_NO_ENV_HINTS=1 HOMEBREW_NO_INSTALL_CLEANUP=1 \
     capture_command "$output_file" "$BREW_BIN" upgrade --formula --dry-run "$formula"; then
     cat "$output_file"
     error "Homebrew dry-run failed"
@@ -418,7 +772,8 @@ collect_expected_formulae() {
     formula="${formula_queue[index]}"
     safe_name="${formula//\//_}"
     deps_file="$TEMP_DIR/deps-$index-$safe_name"
-    if ! capture_command "$deps_file" "$BREW_BIN" deps --formula --full-name \
+    if ! HOMEBREW_NO_ENV_HINTS=1 \
+      capture_command "$deps_file" "$BREW_BIN" deps --formula --full-name \
       --include-build --include-test --include-implicit "$formula"; then
       error "could not resolve dependencies for: $formula"
       return 1
@@ -426,8 +781,9 @@ collect_expected_formulae() {
 
     while IFS= read -r dependency; do
       [[ -z "$dependency" ]] && continue
-      if [[ "$dependency" == -* || "$dependency" == *[[:space:]]* ]]; then
-        error "brew deps returned an unexpected dependency name: $dependency"
+      if [[ "$dependency" == -* || "$dependency" == *[[:space:]]* ]] \
+        || [[ "$dependency" =~ [[:cntrl:]] ]]; then
+        error "brew deps returned an unexpected dependency name"
         return 1
       fi
       if [[ -z "${seen_formulae[$dependency]+x}" ]]; then
@@ -447,12 +803,31 @@ collect_expected_formulae() {
   fi
 }
 
+show_verification_scope() {
+  local expected_file="$1"
+  local expected_count="$2"
+  local no_check="$3"
+
+  {
+    printf 'Expected Bottle attestations: %s\n' "$expected_count"
+    awk 'NF { print "  - " $0 }' "$expected_file"
+    if (( no_check )); then
+      printf '%s\n' 'Smoke check: waived (--no-check)'
+    else
+      printf '%s\n' 'Smoke check: configured'
+    fi
+  } || {
+    error "could not display the verification scope"
+    return 1
+  }
+}
+
 confirm_review() {
   local formula="$1"
   local reply=""
 
   if ! printf '%s' \
-    "Confirm release notes, the 7-day cooldown (or exception), and every dry-run change for $formula [y/N]: " \
+    "Proceed with the displayed dry-run and verification scope for $formula [y/N]: " \
     >&2; then
     error "could not display the review confirmation prompt"
     return 1
@@ -557,8 +932,9 @@ run_stage() {
 
 main() {
   local formula=""
-  local gh_bin=""
   local no_check=0
+  local cooldown_exception_set=0
+  local cooldown_exception_reason=""
   local canonical=""
   local post_update_canonical=""
   local outdated_status=0
@@ -572,6 +948,19 @@ main() {
       usage
       return 0
       ;;
+  esac
+
+  if [[ "${1:-}" == "--cooldown-exception" ]]; then
+    cooldown_exception_set=1
+    if (( $# < 2 )); then
+      usage >&2
+      return 2
+    fi
+    cooldown_exception_reason="$2"
+    shift 2
+  fi
+
+  case "${1:-}" in
     --no-check)
       no_check=1
       if (( $# != 2 )); then
@@ -596,8 +985,15 @@ main() {
       ;;
   esac
 
-  if [[ -z "$formula" || "$formula" == -* || "$formula" == *[[:space:]]* ]]; then
-    error "invalid Formula name: $formula"
+  if (( cooldown_exception_set )) \
+    && { [[ "$cooldown_exception_reason" =~ ^[[:space:]]*$ ]] \
+      || [[ "$cooldown_exception_reason" =~ [[:cntrl:]] ]]; }; then
+    error "cooldown exception reason must be non-empty and single-line"
+    return 2
+  fi
+  if [[ -z "$formula" || "$formula" == -* || "$formula" == *[[:space:]]* ]] \
+    || [[ "$formula" =~ [[:cntrl:]] ]]; then
+    error "invalid Formula name"
     return 2
   fi
 
@@ -607,7 +1003,7 @@ main() {
   fi
 
   BREW_BIN="$(resolve_command brew)" || return $?
-  gh_bin="$(resolve_command gh)" || return $?
+  GH_BIN="$(resolve_command gh)" || return $?
   JQ_BIN="$(resolve_command jq)" || return $?
   TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade.XXXXXX")" || {
     error "could not create temporary directory"
@@ -618,10 +1014,7 @@ main() {
   validate_policy_file || return $?
   validate_effective_policy || return $?
   validate_developer_mode || return $?
-  if ! "$gh_bin" auth status --hostname github.com; then
-    error "GitHub CLI authentication is required for Bottle attestations"
-    return 1
-  fi
+  validate_github_auth || return $?
 
   canonical="$(load_target_metadata "$formula")" || return $?
 
@@ -649,13 +1042,16 @@ main() {
     return "$outdated_status"
   fi
 
+  review_release_cooldown "$TEMP_DIR/info-target.json" "$canonical" \
+    "$cooldown_exception_set" "$cooldown_exception_reason" || return $?
+
   show_dry_run "$canonical" || return $?
 
   expected_file="$TEMP_DIR/expected-formulae"
   collect_expected_formulae "$canonical" "$expected_file" || return $?
   expected_count="$(wc -l <"$expected_file")"
   expected_count="${expected_count//[[:space:]]/}"
-  printf 'Expected Bottle attestations: %s\n' "$expected_count"
+  show_verification_scope "$expected_file" "$expected_count" "$no_check" || return $?
 
   confirm_review "$canonical" || return $?
   verify_attestations "$canonical" "$expected_file" || return $?
