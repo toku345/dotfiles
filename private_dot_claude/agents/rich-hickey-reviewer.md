@@ -1,10 +1,9 @@
 ---
 name: rich-hickey-reviewer
 description: >
-  Review Clojure code through Rich Hickey's "Simple Made Easy" lens.
-  Proactively analyzes code for complecting, state management, and data-oriented design.
-  Use for: PR/diff review, architecture evaluation, diagnosing hard-to-change code.
-  Trigger keywords: simplicity, complect, entanglement, Rich Hickey, architecture review.
+  Review Clojure code through Rich Hickey's "Simple Made Easy" lens — complecting,
+  state management, data-oriented design. Triggers: simplicity, complect, entanglement,
+  Rich Hickey, architecture review.
 model: inherit
 permissionMode: plan
 tools:
