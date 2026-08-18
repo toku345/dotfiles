@@ -25,6 +25,8 @@ Allowlist (add a path only when the durable file exists):
 - `private_dot_grok/AGENTS.md` → `~/.grok/AGENTS.md`
 - later, if authored: `skills/`, `hooks/`, `agents/`, `workflows/`, `rules/`, and a secret-free `lsp.json`
 
+CI treats the current allowlist as executable policy: Bats rejects any unapproved top-level entry under `private_dot_grok/`, and the chezmoi validation job pins `private_dot_grok/AGENTS.md` to `~/.grok/AGENTS.md`. Extending the allowlist requires updating this ADR and the guard together.
+
 Denylist includes `config.toml`, `pager.toml`, `managed_config.toml`, `requirements.toml`, `auth.json`, `mcp_credentials.json`, `trusted_folders.toml`, sessions/logs/memory, bundled/bin/downloads/docs/completions, marketplace-cache, worktrees, and other runtime state. Never run `chezmoi add ~/.grok` on the directory.
 
 Keep `[compat.claude]` at the product default. Shared skills, hooks, and MCP stay in `private_dot_claude/`. Put only Grok-specific instructions under `private_dot_grok/`.

@@ -52,19 +52,39 @@
 
 `chezmoi apply` のあと、home の指示ファイルが載っていることを確認する:
 
+<!-- grok-apply-check:start -->
 ```sh
-grok inspect --json | python3 -c '
-import json,sys
-for item in json.load(sys.stdin).get("projectInstructions") or []:
-    if item.get("path", "").endswith("/.grok/AGENTS.md"):
-        print(item.get("scope"), item.get("path"))
-        break
-else:
-    raise SystemExit("~/.grok/AGENTS.md not loaded")
-'
-```
+python3 - <<'PY'
+import json
+from pathlib import Path
+import subprocess
 
-`scope: global` と `~/.grok/AGENTS.md` が出ればよい。
+result = subprocess.run(
+    ["grok", "inspect", "--json"],
+    check=True,
+    stdout=subprocess.PIPE,
+    text=True,
+)
+expected_display = Path.home() / ".grok" / "AGENTS.md"
+expected_path = str(expected_display).casefold()
+instructions = json.loads(result.stdout).get("projectInstructions") or []
+matches = [
+    item
+    for item in instructions
+    if item.get("scope") == "global"
+    and str(item.get("path") or "").casefold() == expected_path
+]
+if len(matches) != 1:
+    raise SystemExit(
+        f"expected exactly one global instruction at {expected_display}, "
+        f"found {len(matches)}"
+    )
+print("global", matches[0]["path"])
+PY
+```
+<!-- grok-apply-check:end -->
+
+`global` と `~/.grok/AGENTS.md` のパスが出ればよい。Grok がファイル名を `Agents.md` と表示しても、大小文字を区別せず同じパスとして確認する。
 
 ## コミットトレーラー
 
