@@ -412,6 +412,159 @@ some_unused_var=42
 }
 
 # -----------------------------------------------------------------------------
+# The Stop hook must never execute the test tree itself. It runs automatically
+# at turn end, outside the permission system and outside the sandbox that Bash
+# tool calls get, and `bats tests/bats/` sources and runs every .bats/.bash
+# file in the tree — so auto-running it converted any (auto-approved) write
+# under tests/bats/ into unprompted command execution. The gate must instead
+# block and require the suite to be run through the gated tool path.
+# -----------------------------------------------------------------------------
+
+@test "bats gate blocks with instructions instead of executing the test tree" {
+  # A `bats` PATH stub that marks invocation: the stub makes `command -v bats`
+  # succeed (so this is the tool-installed path, not the not-installed skip),
+  # and the absent marker is the assertion that no repository test code ran.
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local marker="$BATS_TEST_TMPDIR/bats-was-invoked"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<STUB
+#!/usr/bin/env bash
+touch '$marker'
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  # A plain *.bats file matches only the broad `tests/bats/*` case, so the
+  # shellcheck and fish gates stay quiet, nothing lands in errors[], and this
+  # reminder is the sole notices[] entry.
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"bats gate requires a gated run"* ]]
+  # The reminder interpolates MAX_BLOCKS. Assert the rendered number, not just
+  # the static first line: if MAX_BLOCKS is renamed or scoped away the message
+  # degrades to "its own -reminder auto-allow" and a first-line-only grep
+  # would still pass while the agent reads a malformed instruction.
+  [[ "$stderr" == *"its own 3-reminder auto-allow"* ]]
+  # Critical: the suite must not have been executed by the hook.
+  [ ! -e "$marker" ]
+}
+
+# The reminder needs no binary, but with bats absent the suite cannot be run at
+# all, so blocking would only burn the reminder budget with an instruction
+# nobody can follow. Skipping is deliberate; pin it so the choice cannot drift
+# silently now that the branch no longer executes anything.
+@test "bats gate: not installed -> skip note and exit 0, no reminder" {
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  # Build a PATH holding only what the hook needs, with no bats. Dropping whole
+  # PATH entries instead would also remove the `bash` that shares Homebrew's
+  # bin with bats, and the hook would die at its shebang (127) before reaching
+  # the branch under test.
+  local shim="$BATS_TEST_TMPDIR/nobats-bin"
+  local tool resolved
+  mkdir -p "$shim"
+  for tool in bash git cksum awk sort cat rm mkdir mv head dirname; do
+    resolved=$(command -v "$tool" 2>/dev/null) || skip "$tool not resolvable"
+    ln -sf "$resolved" "$shim/$tool"
+  done
+  [ ! -e "$shim/bats" ] || skip "bats leaked into the shim PATH"
+
+  # `env -i` with an explicit environment, and `bash <hook>` rather than the
+  # shebang, so nothing here mutates this shell's PATH — an inline
+  # `PATH=... run` would leave the assignment behind (bash keeps it for
+  # functions) and break bats' own teardown.
+  run --separate-stderr env -i \
+    "PATH=$shim" \
+    "HOME=${HOME:-}" \
+    "XDG_STATE_HOME=$XDG_STATE_HOME" \
+    "CLAUDE_PROJECT_DIR=$PROJECT_DIR" \
+    bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"bats not installed; skipping bats gate"* ]]
+  [[ "$stderr" != *"bats gate requires a gated run"* ]]
+}
+
+# The reminder fires on every stop while tests/bats/ is dirty, whether or not
+# anything is wrong. If it shared the executing gates' counter it would burn
+# their budget, so a genuine shellcheck failure in the same window would be
+# auto-allowed after the same 3 stops instead of continuing to block.
+@test "bats reminder does not consume the executing gates' block budget" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(claude_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  # The reminder advanced only its own counter; the executing gates' budget is
+  # untouched, so a shellcheck failure later still gets its full 3 blocks.
+  [ ! -e "$state_file" ]
+  [ -f "$nag_file" ]
+  [ "$(cat "$nag_file")" = "1" ]
+}
+
+# The reminder's own budget must bound it, and the auto-allow must leave the
+# counter at MAX_BLOCKS rather than deleting it. Deleting would make the next
+# stop read 0 and re-arm the reminder, so a dirty tests/bats/ tree would loop
+# 3-blocked-then-1-allowed forever with nothing the agent could do about it.
+@test "bats reminder auto-allows at MAX_BLOCKS and stays quiet afterwards" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(claude_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+  mkdir -p "$(dirname "$nag_file")"
+  printf '3' > "$nag_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"bats reminder issued 3 times consecutively"* ]]
+  # Sentinel retained, not deleted — this is what stops the reminder re-arming.
+  [ -f "$nag_file" ]
+  [ "$(cat "$nag_file")" = "3" ]
+
+  # The very next stop, same dirty tree: silent, and still no reminder.
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"bats gate requires a gated run"* ]]
+
+  # Once tests/bats/ is clean again the sentinel is cleared, so a later change
+  # gets a fresh budget rather than being silenced forever.
+  git -C "$PROJECT_DIR" rm -q --cached "tests/bats/dummy.bats"
+  rm -f "$PROJECT_DIR/tests/bats/dummy.bats"
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [ ! -e "$nag_file" ]
+}
+
+# -----------------------------------------------------------------------------
 # fish-syntax-check: PostToolUse hook on Edit/Write. Must skip silently for
 # unrelated paths and return a `decision: block` JSON envelope when the
 # edited *.fish file fails `fish -n`.

@@ -432,6 +432,136 @@ some_unused_var=42
 }
 
 # -----------------------------------------------------------------------------
+# The Codex Stop hook must never execute the test tree either: it fires
+# automatically at turn end, outside the permission system and outside the
+# sandbox tool-issued commands get, and `bats tests/bats/` sources and runs
+# every .bats/.bash file in the tree. The gate must block and require the
+# suite to be run through the gated path instead.
+# -----------------------------------------------------------------------------
+
+@test "codex: bats gate blocks with instructions instead of executing the test tree" {
+  # The stub makes `command -v bats` succeed (tool-installed path, not the
+  # not-installed skip); the absent marker proves no repo test code ran.
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  local marker="$BATS_TEST_TMPDIR/bats-was-invoked"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<STUB
+#!/usr/bin/env bash
+touch '$marker'
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  # A plain *.bats file matches only the broad `tests/bats/*` case, so the
+  # shellcheck and fish gates stay quiet, nothing lands in errors[], and this
+  # reminder is the sole notices[] entry.
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"bats gate requires a gated run"* ]]
+  # Assert the rendered MAX_BLOCKS, not just the static first line: if the
+  # variable is renamed or scoped away the instruction degrades silently.
+  [[ "$stderr" == *"its own 3-reminder auto-allow"* ]]
+  [ ! -e "$marker" ]
+}
+
+# The reminder needs no binary, but with bats absent the suite cannot be run at
+# all, so blocking would only burn the reminder budget with an instruction
+# nobody can follow. Skipping is deliberate; pin it so the choice cannot drift.
+@test "codex: bats gate not installed -> skip note and exit 0, no reminder" {
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local shim="$BATS_TEST_TMPDIR/nobats-bin"
+  local tool resolved
+  mkdir -p "$shim"
+  for tool in bash git cksum awk sort cat rm mkdir mv head dirname; do
+    resolved=$(command -v "$tool" 2>/dev/null) || skip "$tool not resolvable"
+    ln -sf "$resolved" "$shim/$tool"
+  done
+  [ ! -e "$shim/bats" ] || skip "bats leaked into the shim PATH"
+
+  # `env -i` keeps the curated PATH out of this shell: an inline `PATH=... run`
+  # would leave the assignment behind and break bats' own teardown. The Codex
+  # hook derives its project dir from the cwd, so cd first.
+  run --separate-stderr env -i \
+    "PATH=$shim" \
+    "HOME=${HOME:-}" \
+    "XDG_STATE_HOME=$XDG_STATE_HOME" \
+    bash -c "cd '$PROJECT_DIR' && exec bash '$HOOK_VERIFY'" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"bats not installed; skipping bats gate"* ]]
+  [[ "$stderr" != *"bats gate requires a gated run"* ]]
+}
+
+# The reminder fires on every stop while tests/bats/ is dirty, whether or not
+# anything is wrong. Sharing the executing gates' counter would burn their
+# budget and auto-allow a genuine shellcheck failure early.
+@test "codex: bats reminder does not consume the executing gates' block budget" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(codex_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 2 ]
+  [ ! -e "$state_file" ]
+  [ -f "$nag_file" ]
+  [ "$(cat "$nag_file")" = "1" ]
+}
+
+# Twin parity: the Codex hook carries the identical reminder auto-allow, which
+# is the only bound preventing a dirty tests/bats/ tree from trapping the turn.
+# The auto-allow must leave the counter at MAX_BLOCKS rather than deleting it —
+# deleting would re-arm the reminder on the next stop, looping forever.
+@test "codex: bats reminder auto-allows at MAX_BLOCKS and stays quiet afterwards" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(codex_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+  mkdir -p "$(dirname "$nag_file")"
+  printf '3' > "$nag_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"bats reminder issued 3 times consecutively"* ]]
+  # Sentinel retained, not deleted — this is what stops the reminder re-arming.
+  [ -f "$nag_file" ]
+  [ "$(cat "$nag_file")" = "3" ]
+
+  # The very next stop, same dirty tree: silent, and still no reminder.
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"bats gate requires a gated run"* ]]
+}
+
+# -----------------------------------------------------------------------------
 # .codex/hooks.json is the only project-local wiring that makes the tested hook
 # scripts run. Keep a thin schema-independent assertion around the event names,
 # matcher, and command targets so script tests cannot pass while wiring drifts.
