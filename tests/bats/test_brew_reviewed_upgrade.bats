@@ -2,6 +2,7 @@
 # shellcheck shell=bash
 
 bats_require_minimum_version 1.5.0
+load test_helper_bash5
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -33,14 +34,15 @@ setup() {
   export SMOKE_STUB_LOG BREW_STUB_SIGNAL_MARKER BREW_STUB_SIGNAL_RESULT
   export LAUNCH_CHILD_PID_FILE
   export HOME="$TEST_HOME"
+  resolve_bash5
   export PATH="$TEST_BIN:/usr/bin:/bin"
   export BREW_STUB_FORMULA="ripgrep"
   export BREW_STUB_ROOT_DEPS="pcre2"
   export BREW_STUB_DEP_DEPS=""
 
   cat >"$TEST_BIN/brew-reviewed-upgrade" <<'EOF'
-#!/usr/bin/env bash
-exec bash "$SOURCE" "$@"
+#!/bin/sh
+exec "$BASH5_BIN" "$SOURCE" "$@"
 EOF
 
   cat >"$TEST_BIN/gh" <<'EOF'
@@ -436,7 +438,7 @@ refute_log() {
 }
 
 @test "managed policy parser failure is rejected even after partial output" {
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-policy.XXXXXX")"
     awk() {
@@ -452,7 +454,7 @@ refute_log() {
 }
 
 @test "effective policy negative scan propagates grep errors" {
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-policy.XXXXXX")"
     BREW_BIN="$TEST_BIN/brew"
@@ -540,7 +542,7 @@ refute_log() {
 }
 
 @test "release age boundary becomes eligible at exactly seven days" {
-  run bash -c '
+  run "$BASH5_BIN" -c '
     source "$SOURCE"
     JQ_BIN="$TEST_BIN/jq"
     published="2026-01-01T00:00:00Z"
@@ -721,7 +723,7 @@ refute_log() {
 }
 
 @test "dry-run display failure stops before confirmation" {
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     TEMP_DIR="$TEST_HOME/dry-run-display"
     BREW_BIN="$TEST_BIN/brew"
@@ -764,7 +766,7 @@ refute_log() {
 }
 
 @test "confirmation prompt failure cannot consume approval input" {
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     printf() {
       if [[ "$1" == "%s" && "${2:-}" == "Proceed with the displayed dry-run"* ]]; then
@@ -868,7 +870,7 @@ refute_log() {
 }
 
 @test "attestation display failure stops before coverage acceptance" {
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     TEMP_DIR="$TEST_HOME/attestation-display"
     BREW_BIN="$TEST_BIN/brew"
@@ -1006,7 +1008,7 @@ refute_log() {
 @test "signal queued during launch is delivered after PID publication" {
   export BREW_STUB_BLOCK_VERIFY=true
 
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-signal.XXXXXX")"
     BREW_BIN="$TEST_BIN/brew"
@@ -1038,7 +1040,7 @@ refute_log() {
 }
 
 @test "signal forwarding and reap failures are diagnosed" {
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade-signal.XXXXXX")"
     BREW_BIN="$TEST_BIN/brew"

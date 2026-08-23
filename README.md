@@ -5,11 +5,15 @@ toku345's dotfiles managed by chezmoi.
 ## Setup
 
 1. Install [chezmoi](https://www.chezmoi.io/install/)
-2. Install age
+2. Install age and Bash 5+
 
    ```sh
-   brew install age
+   brew install age bash
    ```
+
+   Managed tools such as `brew-reviewed-upgrade` and `ghostty-theme` require
+   Bash 5 or newer. macOS system Bash 3.2 remains available only for shell
+   configuration that intentionally supports it.
 
 3. Initialize chezmoi
 
