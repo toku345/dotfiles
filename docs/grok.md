@@ -59,13 +59,16 @@ import json
 from pathlib import Path
 import subprocess
 
+expected_display = Path.home() / ".grok" / "AGENTS.md"
+if not expected_display.is_file():
+    raise SystemExit(f"expected global instruction file is missing: {expected_display}")
+
 result = subprocess.run(
     ["grok", "inspect", "--json"],
     check=True,
     stdout=subprocess.PIPE,
     text=True,
 )
-expected_display = Path.home() / ".grok" / "AGENTS.md"
 expected_path = str(expected_display).casefold()
 payload = json.loads(result.stdout)
 if "projectInstructions" not in payload:
@@ -76,11 +79,21 @@ if not isinstance(instructions, list):
         "grok inspect projectInstructions must be an array, "
         f"got {type(instructions).__name__}"
     )
+
+
+def is_expected_global_instruction(item):
+    candidate = str(item.get("path") or "")
+    if item.get("scope") != "global" or candidate.casefold() != expected_path:
+        return False
+    try:
+        return Path(candidate).samefile(expected_display)
+    except OSError:
+        return False
+
 matches = [
     item
     for item in instructions
-    if item.get("scope") == "global"
-    and str(item.get("path") or "").casefold() == expected_path
+    if is_expected_global_instruction(item)
 ]
 if len(matches) != 1:
     raise SystemExit(
@@ -92,7 +105,7 @@ PY
 ```
 <!-- grok-apply-check:end -->
 
-`global` と `~/.grok/AGENTS.md` のパスが出ればよい。Grok がファイル名を `Agents.md` と表示しても、大小文字を区別せず同じパスとして確認する。
+`global` と `~/.grok/AGENTS.md` のパスが出ればよい。Grok がファイル名を `Agents.md` と表示する場合は、大小文字を区別しないパス一致に加えて、filesystem 上でも `~/.grok/AGENTS.md` と同じファイルであることを確認する。
 
 ## コミットトレーラー
 

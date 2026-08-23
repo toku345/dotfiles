@@ -12,7 +12,8 @@ setup() {
   TEST_HOME="$BATS_TEST_TMPDIR/home"
   export REPO_ROOT GROK_DOC GROK_SOURCE_DIR CHECK_SCRIPT STUB_BIN TEST_HOME
 
-  mkdir -p "$STUB_BIN" "$TEST_HOME"
+  mkdir -p "$STUB_BIN" "$TEST_HOME/.grok"
+  touch "$TEST_HOME/.grok/AGENTS.md"
 
   awk '
     $0 == "<!-- grok-apply-check:start -->" {
@@ -35,7 +36,7 @@ setup() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-case "${GROK_STUB_MODE:-mixed-case}" in
+case "${GROK_STUB_MODE:-uppercase}" in
   mixed-case)
     printf '{"projectInstructions":[{"scope":"global","path":"%s/.grok/Agents.md"}]}\n' "$HOME"
     ;;
@@ -43,10 +44,13 @@ case "${GROK_STUB_MODE:-mixed-case}" in
     printf '{"projectInstructions":[{"scope":"global","path":"%s/.grok/AGENTS.md"}]}\n' "$HOME"
     ;;
   wrong-scope)
-    printf '{"projectInstructions":[{"scope":"project","path":"%s/.grok/Agents.md"}]}\n' "$HOME"
+    printf '{"projectInstructions":[{"scope":"project","path":"%s/.grok/AGENTS.md"}]}\n' "$HOME"
     ;;
   duplicate)
-    printf '{"projectInstructions":[{"scope":"global","path":"%s/.grok/Agents.md"},{"scope":"global","path":"%s/.grok/AGENTS.md"}]}\n' "$HOME" "$HOME"
+    printf '{"projectInstructions":[{"scope":"global","path":"%s/.grok/AGENTS.md"},{"scope":"global","path":"%s/.grok/AGENTS.md"}]}\n' "$HOME" "$HOME"
+    ;;
+  alias-path)
+    printf '{"projectInstructions":[{"scope":"global","path":"%s/.grok-alias/AGENTS.md"}]}\n' "$HOME"
     ;;
   missing)
     printf '{"projectInstructions":[]}\n'
@@ -61,7 +65,7 @@ case "${GROK_STUB_MODE:-mixed-case}" in
     printf '{"projectInstructions":{}}\n'
     ;;
   nonzero)
-    printf '{"projectInstructions":[{"scope":"global","path":"%s/.grok/Agents.md"}]}\n' "$HOME"
+    printf '{"projectInstructions":[{"scope":"global","path":"%s/.grok/AGENTS.md"}]}\n' "$HOME"
     exit 42
     ;;
   *)
@@ -106,14 +110,50 @@ run_documented_check() {
   [ "$output" = "1" ]
 }
 
-@test "documented check accepts Grok path casing variants" {
-  run_documented_check mixed-case
-  [ "$status" -eq 0 ]
-  [ "$output" = "global $TEST_HOME/.grok/Agents.md" ]
-
+@test "documented check accepts the managed global instruction" {
   run_documented_check uppercase
   [ "$status" -eq 0 ]
   [ "$output" = "global $TEST_HOME/.grok/AGENTS.md" ]
+}
+
+@test "documented check accepts a casing variant only when it is the same file" {
+  run_documented_check mixed-case
+
+  if [ "$TEST_HOME/.grok/AGENTS.md" -ef "$TEST_HOME/.grok/Agents.md" ]; then
+    [ "$status" -eq 0 ]
+    [ "$output" = "global $TEST_HOME/.grok/Agents.md" ]
+  else
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"found 0"* ]]
+  fi
+}
+
+@test "documented check rejects a distinct file whose path differs only by casing" {
+  if [ "$TEST_HOME/.grok/AGENTS.md" -ef "$TEST_HOME/.grok/Agents.md" ]; then
+    skip "filesystem does not permit distinct files whose names differ only by casing"
+  fi
+
+  touch "$TEST_HOME/.grok/Agents.md"
+  run_documented_check mixed-case
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"found 0"* ]]
+}
+
+@test "documented check rejects another path to the same file" {
+  mkdir -p "$TEST_HOME/.grok-alias"
+  ln "$TEST_HOME/.grok/AGENTS.md" "$TEST_HOME/.grok-alias/AGENTS.md"
+
+  run_documented_check alias-path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"found 0"* ]]
+}
+
+@test "documented check rejects a missing managed instruction file" {
+  rm "$TEST_HOME/.grok/AGENTS.md"
+
+  run_documented_check uppercase
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"expected global instruction file is missing"* ]]
 }
 
 @test "documented check rejects a non-global instruction" {
