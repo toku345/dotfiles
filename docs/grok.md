@@ -67,7 +67,15 @@ result = subprocess.run(
 )
 expected_display = Path.home() / ".grok" / "AGENTS.md"
 expected_path = str(expected_display).casefold()
-instructions = json.loads(result.stdout).get("projectInstructions") or []
+payload = json.loads(result.stdout)
+if "projectInstructions" not in payload:
+    raise SystemExit("grok inspect JSON is missing projectInstructions")
+instructions = payload["projectInstructions"]
+if not isinstance(instructions, list):
+    raise SystemExit(
+        "grok inspect projectInstructions must be an array, "
+        f"got {type(instructions).__name__}"
+    )
 matches = [
     item
     for item in instructions

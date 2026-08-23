@@ -25,9 +25,9 @@ push 前に CI (ubuntu-latest + `apt-get install bats fish`) と同等環境で�
 docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
   apt-get update -qq >/dev/null
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    bats git procps fish jq shellcheck >/dev/null
+    bats git procps fish jq python3 shellcheck >/dev/null
   bats tests/bats/
 '
 ```
 
-`fish jq shellcheck` は省略不可: GitHub Actions の Bats job は `bats fish` を apt で入れ、`ubuntu-latest` runner 側の `jq` / `shellcheck` に暗黙依存している。素の `ubuntu:24.04` コンテナで欠けると hook 系テストが silent skip して parity gap を隠す (2026-06-11 実測)。新しい Bats テストが実行時依存を増やした場合は、この recipe と `private_dot_claude/agents/bats-docker-parity-runner.md` の baseline の両方を更新すること。
+`fish jq python3 shellcheck` は省略不可: GitHub Actions の Bats job は `bats fish` を apt で入れ、`ubuntu-latest` runner 側の `jq` / `python3` / `shellcheck` に暗黙依存している。素の `ubuntu:24.04` コンテナで `jq` / `shellcheck` が欠けると hook 系テストが silent skip して parity gap を隠し (2026-06-11 実測)、`python3` が欠けると Grok 設定テストが command-not-found になる。新しい Bats テストが実行時依存を増やした場合は、この recipe と `private_dot_claude/agents/bats-docker-parity-runner.md` の baseline の両方を更新すること。

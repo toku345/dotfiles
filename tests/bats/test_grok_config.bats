@@ -51,6 +51,15 @@ case "${GROK_STUB_MODE:-mixed-case}" in
   missing)
     printf '{"projectInstructions":[]}\n'
     ;;
+  missing-key)
+    printf '{}\n'
+    ;;
+  null)
+    printf '{"projectInstructions":null}\n'
+    ;;
+  non-array)
+    printf '{"projectInstructions":{}}\n'
+    ;;
   nonzero)
     printf '{"projectInstructions":[{"scope":"global","path":"%s/.grok/Agents.md"}]}\n' "$HOME"
     exit 42
@@ -87,6 +96,16 @@ run_documented_check() {
   [ "$output" = "AGENTS.md" ]
 }
 
+@test "private_dot_grok AGENTS keeps the core Grok trailer contract" {
+  run grep -Fxc 'AI-Assisted-By: Grok Build (<model-id>)' "$GROK_SOURCE_DIR/AGENTS.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+
+  run grep -Fc 'Do not infer it from a config file, profile, or prior session.' "$GROK_SOURCE_DIR/AGENTS.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+}
+
 @test "documented check accepts Grok path casing variants" {
   run_documented_check mixed-case
   [ "$status" -eq 0 ]
@@ -113,6 +132,22 @@ run_documented_check() {
   run_documented_check missing
   [ "$status" -eq 1 ]
   [[ "$output" == *"found 0"* ]]
+}
+
+@test "documented check rejects a missing projectInstructions key" {
+  run_documented_check missing-key
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"missing projectInstructions"* ]]
+}
+
+@test "documented check rejects non-array projectInstructions" {
+  run_documented_check null
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be an array, got NoneType"* ]]
+
+  run_documented_check non-array
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be an array, got dict"* ]]
 }
 
 @test "documented check preserves grok inspect failure" {
