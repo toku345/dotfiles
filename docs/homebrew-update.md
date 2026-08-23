@@ -85,7 +85,7 @@ brew update &&
   brew outdated --cask --greedy --verbose
 ```
 
-一覧から更新するFormulaを1件選び、release notesとcooldownを確認してQuick Startを実行します。Caskは後述の手順で個別にレビューします。
+一覧から更新するFormulaまたは対応Caskを1件選び、release notesとcooldownを確認して各Quick Startを実行します。厳格helperの対象外Caskは後述の手順で個別にレビューします。
 
 ## dependentの修復
 
@@ -110,7 +110,35 @@ brew reinstall <dependent>
 
 ## Cask
 
-Caskはvendorがbuildしたartifactをinstallします。次の情報を確認します。
+Caskはvendorがbuildしたartifactをinstallするため、`homebrew/core` Bottleのattestationや`brew vulns`による検査は利用できません。固定checksumはdownload内容をHomebrew metadataへ結び付けますが、publisherやbuild provenanceまでは証明しません。
+
+### Quick Start
+
+```sh
+brew-reviewed-cask-upgrade codex -- codex --version
+```
+
+`brew-reviewed-cask-upgrade`は、インストール済みでpinされていない`homebrew/cask` Caskを1件だけ処理します。固定version、64桁SHA-256、`auto_updates`でないことを要求し、installed Caskと更新候補の両方についてartifactを検査します。対象artifactは`app`、`binary`、completion、manpageと付随する`zap` metadataに限定します。`pkg`、installer、service、pre/postflight、uninstall directive、Formula/Cask dependency、conflict、未知artifactは通常経路の対象外です。
+
+smoke commandは常に必須です。helperはcommandをHomebrew操作前に解決し、管理ポリシー、developer mode、installed/candidate metadataを確認してから`brew update`を実行します。対象が最新版なら、metadata更新完了後にCaskを変更せず成功終了します。
+
+更新対象がある場合はdownload URLの正確なGitHub repositoryとtagからReleaseを照会し、Formula helperと同じ7日cooldownを適用します。非GitHub URL、release情報を検証できない場合、security fixやbreak/fixで待機しない場合は、release notesとpublisherを手動確認して理由付きで再実行します。
+
+```sh
+brew-reviewed-cask-upgrade \
+  --cooldown-exception "vendor release reviewed" \
+  example-app -- example-app --version
+```
+
+例外はcooldown判定だけに適用され、checksum、artifact、dependency、dry-run、post-upgrade metadata、smoke commandの失敗を解除しません。理由は画面とshell historyへ残り得るためsecretを含めません。
+
+helperはchecksum、download URL、homepage、artifactとtarget、release review、完全なdry-runを表示して1回だけ確認します。dry-runと実upgradeには`--require-sha --no-quit --skip-cask-deps`を付け、アプリを自動終了せず、指定外dependencyを導入せず、対象外packageのcleanupも実行しません。実行中アプリなどでHomebrewが失敗した場合は、自動で終了・retryせず停止します。
+
+`generate_completions_from_executable`を持つCaskでは、Homebrewがinstall中に候補binaryをcompletion生成引数で実行します。このartifactは`codex`などのCLI Caskを扱うため許可しますが、必須smoke commandの代替にはしません。upgrade後のmetadataまたはsmoke検査が失敗した時点ではCaskが変更済みの可能性があります。helper独自のrollbackは行わず、Homebrewの出力を確認して手動で復旧します。
+
+### 手動レビュー対象
+
+`latest`、`sha256: no_check`、`auto_updates: true`、third-party Tap、または厳格helperが拒否したartifact/dependencyを持つCaskは、次のmetadataを確認して手動経路へ残します。
 
 ```sh
 cask_json="$(brew info --cask --json=v2 <cask>)" &&
@@ -123,7 +151,7 @@ cask_json="$(brew info --cask --json=v2 <cask>)" &&
 - `version: latest`: Homebrewが固定versionを追跡できない
 - `sha256: no_check`: download内容を固定checksumで検証できない
 
-版を管理したいCaskはアプリ側の自動更新も無効にします。`--require-sha`で拒否されたCaskは設定を一時解除してinstallせず、vendor配布物として署名主体、配布URL、release notesを別途レビューします。
+版を管理したいCaskはアプリ側の自動更新も無効にします。`--require-sha`で拒否されたCaskは設定を一時解除してinstallせず、vendor配布物として署名主体、配布URL、release notesを別途レビューします。helperの通常対象へ入れるためにCask定義やmanaged policyを一時的に緩和しません。
 
 ## third-party Tap
 
