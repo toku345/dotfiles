@@ -36,6 +36,7 @@ setup() {
   export HOME="$TEST_HOME"
   resolve_bash5
   export PATH="$TEST_BIN:/usr/bin:/bin"
+  unset HOMEBREW_NO_INSTALL_CLEANUP HOMEBREW_NO_ENV_HINTS
   export BREW_STUB_FORMULA="ripgrep"
   export BREW_STUB_ROOT_DEPS="pcre2"
   export BREW_STUB_DEP_DEPS=""
