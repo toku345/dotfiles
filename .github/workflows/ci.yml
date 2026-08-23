@@ -310,15 +310,9 @@ jobs:
           bats_bin="$(brew --prefix bats-core)/bin/bats"
           test -x "$bash5_bin"
           test -x "$bats_bin"
-          bash_major="$("$bash5_bin" -c 'printf "%s\n" "${BASH_VERSINFO[0]}"')"
-          case "$bash_major" in
-            ''|*[!0-9]*)
-              echo "ERROR: invalid Bash major version: $bash_major" >&2
-              exit 1
-              ;;
-          esac
-          if [ "$bash_major" -lt 5 ]; then
-            echo "ERROR: $bash5_bin is Bash $bash_major; Bash 5+ is required" >&2
+          if ! "$bash5_bin" -c '(( BASH_VERSINFO[0] >= 5 ))'; then
+            echo "ERROR: $bash5_bin must be Bash 5+" >&2
+            "$bash5_bin" --version >&2 || true
             exit 1
           fi
           {
