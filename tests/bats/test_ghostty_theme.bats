@@ -139,12 +139,9 @@ setup() {
 }
 
 @test "F2: ghostty binary missing from PATH -> exit 127 with diagnostic" {
-  # Rebuild PATH to exclude both stubs and any real ghostty, while keeping
-  # whichever dir provides the bash interpreter (so `env bash` in the script
-  # shebang doesn't fall back to macOS system bash 3.2).
-  local bash_dir
-  bash_dir="$(dirname "$(command -v bash)")"
-  PATH="$LIVE_BIN:$bash_dir:/usr/bin:/bin" run -127 ghostty-theme TestDark
+  # Rebuild PATH to exclude both stubs and any real ghostty. The wrapper uses
+  # the Bash 5 absolute path resolved before this fixture narrows PATH.
+  PATH="$LIVE_BIN:/usr/bin:/bin" run -127 ghostty-theme TestDark
   [ "$status" -eq 127 ]
   [[ "$output" == *"'ghostty' CLI not found"* ]] || [[ "$output" == *"ghostty"*"not found"* ]]
 }
