@@ -11,24 +11,33 @@ SNAPSHOTS_DIR="$TESTS_DIR/snapshots"
 STUB_BIN="$TESTS_DIR/bin"
 
 export TESTS_DIR REPO_ROOT SRC_BIN_DIR FIXTURES_DIR SNAPSHOTS_DIR STUB_BIN
+source "$TESTS_DIR/test_helper_bash5.bash"
 
 # Standard environment each test inherits: stubs ahead of the live scripts,
 # resources themes from fixtures, no user themes unless a test opts in.
 standard_env() {
+  resolve_bash5
+
   # Per-test scratch space. $BATS_TEST_TMPDIR is created fresh by bats before
   # setup() and removed after the test, so no cross-test leakage and no
   # rm -rf race on a shared dir (enables `bats --jobs N` in the future).
   SCRATCH_DIR="$BATS_TEST_TMPDIR"
   # Chezmoi names the scripts `executable_ghostty-theme` in the source tree
   # and strips the prefix on `chezmoi apply`. The test harness replicates that
-  # rename via symlinks in $LIVE_BIN so PATH-based invocation works without
-  # installing to the real $HOME.
+  # rename via exec wrappers in $LIVE_BIN so PATH-based invocation works
+  # without installing to the real $HOME or re-resolving the interpreter.
   LIVE_BIN="$SCRATCH_DIR/bin"
   export SCRATCH_DIR LIVE_BIN
   mkdir -p "$LIVE_BIN"
-  # Symlink executable_* sources under their real names. Safe to re-run.
-  ln -sf "$SRC_BIN_DIR/executable_ghostty-theme" "$LIVE_BIN/ghostty-theme"
-  ln -sf "$SRC_BIN_DIR/executable_ghostty-theme-preview" "$LIVE_BIN/ghostty-theme-preview"
+  cat >"$LIVE_BIN/ghostty-theme" <<'EOF'
+#!/bin/sh
+exec "$BASH5_BIN" "$SRC_BIN_DIR/executable_ghostty-theme" "$@"
+EOF
+  cat >"$LIVE_BIN/ghostty-theme-preview" <<'EOF'
+#!/bin/sh
+exec "$BASH5_BIN" "$SRC_BIN_DIR/executable_ghostty-theme-preview" "$@"
+EOF
+  chmod +x "$LIVE_BIN/ghostty-theme" "$LIVE_BIN/ghostty-theme-preview"
   # Stub ghostty/fzf come first so the scripts resolve them instead of real
   # binaries. $LIVE_BIN provides the scripts under test. Then the caller's PATH.
   export PATH="$STUB_BIN:$LIVE_BIN:$PATH"

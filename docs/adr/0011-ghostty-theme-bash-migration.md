@@ -6,6 +6,8 @@ Accepted (2026-04-22)
 
 **Amendment 2026-05-10**: bash 互換下限を 4+ → **5+** に tighten。元の 4+ は historical な保守的下限であり、実環境（Homebrew bash 5.3+, Ubuntu 24.04 / Debian 12 / RHEL 9 はいずれも bash 5.x）と乖離していた。triple-review 側 bash 3.2 互換コード撤去（ADR 0012 「Interpreter requirement」追記）と整合。本文中 (Decision §1 / Negative §2) の "bash 5+" 記述も同日付で書き換え済。historical な "bash 4+" 表記は git history 参照。
 
+**Amendment 2026-08-24 (#340)**: `ghostty-theme` と `ghostty-theme-preview` の runtime guard を文書どおり Bash 5+ に揃える。両toolは Bash 3.2/4で処理を始めず、検出versionと `brew install bash` guidanceを表示してexit 2で停止する。Bats fixtureはPATHを狭める前にBash 5の絶対パスを解決し、そのinterpreterをwrapperから直接起動する。新規macOS setupはHomebrew Bashをpre-init prerequisiteとして導入し、既存マシンへmigration scriptは追加しない。
+
 ## Context
 
 `ghostty-theme`（`private_dot_config/private_fish/functions/ghostty-theme.fish`）は現在 fish 関数として実装されている。ADR 0009 で OSC 経由の per-tab theme apply として設計され、ADR 0010 で fish-native テスト基盤（PR #140 で main に統合済み）が整備された。
