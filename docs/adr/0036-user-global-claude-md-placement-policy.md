@@ -12,7 +12,7 @@ Accepted (2026-08-17)
 
 `private_dot_claude/CLAUDE.md` (→ `~/.claude/CLAUDE.md`) は **全プロジェクト・全セッションで無条件にロードされる**。2026-08-17 時点で 17,623 bytes / 212 行。加えて `output-styles/JUIZ.md` (73 行) がシステムプロンプトを置換する形で常駐する。
 
-[PR #3572827](https://github.com/toku345/dotfiles/commit/3572827) は同じ問題意識で `AGENTS.md` を path-scoped rule (`.claude/rules/**`) へ移設し、AGENTS.md を ~17.8KB → ~15.3KB に削減した。しかし user-global CLAUDE.md には同じ手当てが未適用のまま残っていた。
+[PR #290](https://github.com/toku345/dotfiles/pull/290) は同じ問題意識で `AGENTS.md` を path-scoped rule (`.claude/rules/**`) へ移設し、AGENTS.md を ~17.8KB → ~15.3KB に削減した。しかし user-global CLAUDE.md には同じ手当てが未適用のまま残っていた。
 
 当初の設計方針は素朴に「冗長な記述を削る」だった。特に Opus 5 が既に訓練済みの内容 (YAGNI/KISS、prompt injection 耐性、「事実で検証する」等) は削減候補として妥当に見えた。
 
