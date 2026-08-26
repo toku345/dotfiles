@@ -4,6 +4,8 @@
 
 Accepted (2026-08-17)
 
+**Amendment 2026-08-26**: Context §3 で load-bearing と記録した `permissions.ask` エントリと、Decision に基づく `permissions.allow` からの `Bash(codex exec:*)` 削除は、`tests/codex/verify_claude_update_policy.py` の `validate_permission_gates` が CI で pin するようになった。記録した時点では enforcement が無く、`permissions` ブロックへの reformat / merge 解決 / 同種の外科的整理で当該エントリが silently 落ちても何も fail しない状態だった (損失が観測されるのは auto-mode 下で main への無断 push が通った瞬間)。判定は exact-list 一致ではなく required-subset / forbidden-entry で行うため、エントリの正当な追加ではテストは壊れず、列挙した load-bearing エントリを削除したときだけ fail する。`Bash(codex exec:*)` の forbidden 判定だけは一般原則 (narrow shell allow rule は分類器より先に解決する) ではなく本 ADR の個別決定を pin するものであり、将来 allow へ戻す場合はテスト側の編集という意識的な判断を要求する。
+
 ## Context
 
 ### 1. 常時ロード予算という当初の問題設定

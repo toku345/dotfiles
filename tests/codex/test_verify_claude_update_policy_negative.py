@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Negative tests for the Claude/Codex update policy verifier."""
+"""Negative tests for the Claude/Codex update policy and permission gate verifier."""
 
 from __future__ import annotations
 
@@ -27,8 +27,12 @@ def load_verifier() -> ModuleType:
     return module
 
 
+def all_failures(data: object, verifier: ModuleType) -> list[str]:
+    return verifier.validate_update_policy(data) + verifier.validate_permission_gates(data)
+
+
 def assert_fails_closed(name: str, data: object, expected: str, verifier: ModuleType) -> None:
-    failures = verifier.validate_update_policy(data)
+    failures = all_failures(data, verifier)
     if not failures:
         raise AssertionError(f"{name}: verifier unexpectedly passed")
     if expected not in failures:
@@ -38,7 +42,7 @@ def assert_fails_closed(name: str, data: object, expected: str, verifier: Module
 def main() -> None:
     verifier = load_verifier()
     baseline = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    baseline_failures = verifier.validate_update_policy(baseline)
+    baseline_failures = all_failures(baseline, verifier)
     if baseline_failures:
         raise AssertionError(f"baseline verifier failed: {baseline_failures!r}")
 
@@ -126,6 +130,75 @@ def main() -> None:
         )
     )
 
+    # Literal anchors, deliberately duplicated by the generated loops below.
+    # Deriving every expectation from the verifier's REQUIRED_* tuples would be
+    # self-weakening: deleting an entry from a tuple would delete its generated
+    # case along with it. These two spell the entries out, so the same deletion
+    # leaves them failing with "verifier unexpectedly passed".
+    data = copy.deepcopy(baseline)
+    data["permissions"]["ask"].remove("Bash(git push:*)")
+    mutations.append(
+        (
+            "main push gate removed",
+            data,
+            'permissions.ask must contain "Bash(git push:*)"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["permissions"]["deny"].remove("Read(~/.ssh/**)")
+    mutations.append(
+        (
+            "SSH credential read deny removed",
+            data,
+            'permissions.deny must contain "Read(~/.ssh/**)"',
+        )
+    )
+
+    for entry in verifier.REQUIRED_ASK_ENTRIES:
+        data = copy.deepcopy(baseline)
+        data["permissions"]["ask"].remove(entry)
+        mutations.append(
+            (
+                f"required ask entry removed: {entry}",
+                data,
+                f'permissions.ask must contain "{entry}"',
+            )
+        )
+
+    for entry in verifier.REQUIRED_DENY_ENTRIES:
+        data = copy.deepcopy(baseline)
+        data["permissions"]["deny"].remove(entry)
+        mutations.append(
+            (
+                f"required deny entry removed: {entry}",
+                data,
+                f'permissions.deny must contain "{entry}"',
+            )
+        )
+
+    data = copy.deepcopy(baseline)
+    data.pop("permissions")
+    mutations.append(("permissions block removed", data, "permissions must be an object"))
+
+    data = copy.deepcopy(baseline)
+    data["permissions"]["ask"] = "Bash(git push:*)"
+    mutations.append(("ask rules not an array", data, "permissions.ask must be an array"))
+
+    data = copy.deepcopy(baseline)
+    data["permissions"].pop("deny")
+    mutations.append(("deny rules removed", data, "permissions.deny must be an array"))
+
+    data = copy.deepcopy(baseline)
+    data["permissions"]["allow"].append("Bash(codex exec:*)")
+    mutations.append(
+        (
+            "narrow codex exec allow rule reintroduced",
+            data,
+            'permissions.allow must not contain "Bash(codex exec:*)"',
+        )
+    )
+
     for name, data, expected in mutations:
         assert_fails_closed(name, data, expected, verifier)
 
@@ -178,7 +251,7 @@ def main() -> None:
         if "Traceback" in result.stderr or "ERROR: invalid JSON in " not in result.stderr:
             raise AssertionError(f"CLI malformed JSON test: unexpected stderr {result.stderr!r}")
 
-    print("OK: Claude/Codex update policy negative tests passed")
+    print("OK: Claude/Codex update policy and permission gate negative tests passed")
 
 
 if __name__ == "__main__":

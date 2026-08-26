@@ -20,7 +20,7 @@ paths:
 ## auto-mode 分類器 (v2.1.233 時点)
 
 - **`permissions.ask` の content-scoped rule は分類器より前に評価され、auto mode でも必ずプロンプトする** (公式 docs)。CLAUDE.md の「着手前ゲート」は steering であり、実効的な gate はこちら
-- **v2.1.211 で Default / protected branches の既定が撤廃**され、working repo の任意ブランチ (main 含む) への push が既定許可になった。現在 main への直接 push を止めているのは `permissions.ask` の `Bash(git push:*)` **のみ**で、この 1 エントリは load-bearing。削除・緩和する前に対象リポジトリの server-side 保護 (`pull_request` + `non_fast_forward`) を確認する
+- **v2.1.211 で Default / protected branches の既定が撤廃**され、working repo の任意ブランチ (main 含む) への push が既定許可になった。現在 main への直接 push を止めているのは `permissions.ask` の `Bash(git push:*)` **のみ**で、この 1 エントリは load-bearing。削除・緩和する前に対象リポジトリの server-side 保護 (`pull_request` + `non_fast_forward`) を確認する。`tests/codex/verify_claude_update_policy.py` の `validate_permission_gates` が CI で required-subset として pin しているため、削除するとテストが落ちる
 - **分類器は Claude と同じ CLAUDE.md を読む** — 制約記述の削除は分類器も緩める。詳細: `docs/adr/0036-user-global-claude-md-placement-policy.md`
 - soft_deny に `Self-Modification` (`.claude/settings*.json` / `CLAUDE.md` / `.claude/rules/` 等への guard 弱体化編集) と `Instruction Poisoning` (読み戻される instruction ファイルへの permission grant 内容の書き込み) がある。これらのファイルを編集する作業は分類器に止められうる。**ブロックされたら回避せず**ユーザーの明示承認を得る (`Auto-Mode Bypass` ルールが回避を禁じている)
 - `autoMode` は `~/.claude/settings.json` / `--settings` / managed settings のみから読まれる。`~/.claude/settings.local.json` は**存在しない概念**、project の `.claude/settings.json` / `.claude/settings.local.json` は**読まれない** (v2.1.207 以降)
