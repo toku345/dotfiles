@@ -35,6 +35,7 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_CASK_OPTS=--require-sha
+export HOMEBREW_UPDATE_TO_TAG=1
 brew install chezmoi age
 ```
 
@@ -52,6 +53,8 @@ chezmoi init --apply toku345
 2. apt と Linuxbrew で CLI アプリ群をインストール (`run_once_before_install-minimum-packages.sh` の Linux 分岐)
 3. macOS 専用設定を [`.chezmoiignore`](../.chezmoiignore) の OS 分岐でスキップ（除外対象の正確な一覧は同ファイルを参照）
 4. `~/.bashrc`, `~/.bash_profile`, `~/.config/starship.toml` などを配置
+
+適用後は `~/.homebrew/brew.env` によりBottle attestationが有効になります。後続のHomebrew操作前に `gh auth status` を確認し、未認証なら `gh auth login -h github.com` を実行してください。更新時は [Homebrew 更新手順](homebrew-update.md) に従います。
 
 ### Step 5: ログインシェルを bash に切り替え (optional)
 
@@ -112,6 +115,7 @@ docker run --rm -it ubuntu:24.04 bash -c '
         export HOMEBREW_NO_INSTALL_UPGRADE=1
         export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
         export HOMEBREW_CASK_OPTS=--require-sha
+        export HOMEBREW_UPDATE_TO_TAG=1
         brew install chezmoi age
         chezmoi init --apply toku345 --verbose
     "

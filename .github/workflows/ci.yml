@@ -147,6 +147,13 @@ jobs:
         run: |
           echo "=== Chezmoi Configuration Check ==="
 
+          brew_env_target="$(chezmoi --source . target-path dot_homebrew/brew.env)"
+          expected_brew_env_target="$HOME/.homebrew/brew.env"
+          if [ "$brew_env_target" != "$expected_brew_env_target" ]; then
+            echo "ERROR: dot_homebrew/brew.env maps to '$brew_env_target', expected '$expected_brew_env_target'" >&2
+            exit 1
+          fi
+
           # Check that managed files can be listed (excluding encrypted)
           echo "Managed files (excluding encrypted):"
           chezmoi managed --include=files --exclude=encrypted 2>/dev/null || true
@@ -280,6 +287,47 @@ jobs:
 
       - name: Run bats test suite
         run: bats tests/bats/
+
+  bash5-macos-tests:
+    name: Bash 5 macOS Tests
+    runs-on: macos-15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install and verify Bash 5 and bats-core
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install bash bats-core
+          bash5_bin="$(brew --prefix bash)/bin/bash"
+          bats_bin="$(brew --prefix bats-core)/bin/bats"
+          test -x "$bash5_bin"
+          test -x "$bats_bin"
+          if ! "$bash5_bin" -c '(( BASH_VERSINFO[0] >= 5 ))'; then
+            echo "ERROR: $bash5_bin must be Bash 5+" >&2
+            "$bash5_bin" --version >&2 || true
+            exit 1
+          fi
+          {
+            echo "BASH5_BIN=$bash5_bin"
+            echo "BATS_BIN=$bats_bin"
+          } >>"$GITHUB_ENV"
+
+      - name: Run Bash 5 runtime tests
+        run: |
+          export PATH="$(dirname "$BASH5_BIN"):$PATH"
+          "$BATS_BIN" \
+            tests/bats/test_bash5_runtime.bats \
+            tests/bats/test_brew_reviewed_upgrade.bats \
+            tests/bats/test_ghostty_theme.bats \
+            tests/bats/test_preview.bats
 
   protected-outer-loop-history:
     name: Protected Outer Loop History

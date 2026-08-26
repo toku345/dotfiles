@@ -9,9 +9,10 @@
 #   ghostty-theme-preview --map <tsv-file> <theme-name>
 set -euo pipefail
 
-if (( BASH_VERSINFO[0] < 4 )); then
-  printf 'ghostty-theme-preview: bash %d.%d is too old; this script requires bash 4+.\n' \
+if (( BASH_VERSINFO[0] < 5 )); then
+  printf 'ghostty-theme-preview: bash %d.%d is too old; this script requires bash 5+.\n' \
     "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" >&2
+  printf 'On macOS: run `brew install bash` and ensure Homebrew bash precedes /bin/bash on PATH.\n' >&2
   exit 2
 fi
 

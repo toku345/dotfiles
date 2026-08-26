@@ -5,9 +5,9 @@ paths:
 
 # Bats Testing (tests/bats/)
 
-- **`executable_*` は git で mode 0644** (chezmoi apply 時に 0755): PATH 経由で直接実行するテストは `ln -sf` ではなく exec wrapper (`exec bash "$SRC" "$@"`) を使う
+- **exec wrapper の使い分け**: git 上で mode 0644 の `executable_*` source を PATH 経由で実行するテストでは、`ln -sf` ではなく exec wrapper を使う。被テストtoolがBash 5+を要求する場合はsourceのmodeにかかわらず、fixtureがPATHを狭める前にBash 5の絶対パスを解決・version検査し、wrapperは `exec "$BASH5_BIN" "$SRC" "$@"` とする
 - **Source-guard パターン**: `if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi` を末尾に置くと bats で `source` して関数単体テスト可能
-- **`run bash -c "source '$SRC'; func args"` 形式**: スクリプトの `set -Eeuo pipefail` を bats 本体に漏らさない
+- **`run "$BASH5_BIN" -c "source '$SRC'; func args"` 形式**: Bash 5+ toolでは固定したinterpreterを使い、スクリプトの `set -Eeuo pipefail` を bats 本体に漏らさない
 - **`run --separate-stderr`**: stderr 単独アサーションに使用。bats 1.5+ (`bats_require_minimum_version 1.5.0` 宣言必須)
 - **async プロセステスト**: 固定 `sleep` より polling ループ (`for ((i=0; i<30; i++)); do cond && break; sleep 0.1; done`) が CI (Ubuntu runner) で flakiness を回避
 - **PATH-override スタブ内の `command date` は PATH を再参照**: スタブ自身を再帰呼び出して fork 爆発する。`/bin/date` 等の絶対パスを使う

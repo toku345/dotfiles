@@ -129,12 +129,13 @@ git push backup main
    # Homebrewのインストール（macOS）
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-   # chezmoiとageのインストール
+   # chezmoi、age、Bash 5+のインストール
    export HOMEBREW_NO_AUTO_UPDATE=1
    export HOMEBREW_NO_INSTALL_UPGRADE=1
    export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
    export HOMEBREW_CASK_OPTS=--require-sha
-   brew install chezmoi age
+   export HOMEBREW_UPDATE_TO_TAG=1
+   brew install chezmoi age bash
    ```
 
 2. **SSH鍵の設定**
@@ -173,6 +174,8 @@ git push backup main
    chezmoi apply -v
    ```
 
+   適用後は `~/.homebrew/brew.env` によりBottle attestationが有効になります。後続のHomebrew操作前に `gh auth status` を確認し、未認証なら `gh auth login -h github.com` を実行してください。日常の更新は [Homebrew 更新手順](homebrew-update.md) に従います。
+
 5. **追加セットアップ**
    - [README.md](../README.md)の「Additional Setup」セクションを参照
    - Nerd Fontのインストール
@@ -197,6 +200,7 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_CASK_OPTS=--require-sha
+export HOMEBREW_UPDATE_TO_TAG=1
 brew install chezmoi age
 
 # Step 4: init + apply
@@ -371,7 +375,7 @@ mv .local/share/chezmoi.backup .local/share/chezmoi
 
 #### セットアップ
 - [ ] Homebrewをインストール
-- [ ] chezmoi、ageをインストール
+- [ ] chezmoi、age、Bash 5+をインストール
 - [ ] SSH鍵を生成してGitHubに追加
 - [ ] `chezmoi init toku345` を実行
 - [ ] `age -d -o ~/key.txt key.txt.age` で秘密鍵を復元

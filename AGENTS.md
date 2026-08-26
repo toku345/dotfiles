@@ -91,6 +91,8 @@ Fish / シェル設定固有の罠（`$pipestatus`・`ls` 関数・`fish_add_pat
 
 `execfail` + `set -e` での `||` fallback dead code、wrapper 経由 self-exec の rc=126、deploy skew defense、Bash tool cwd persist による file leak 等は path-scoped rule [.claude/rules/shell-scripts.md](.claude/rules/shell-scripts.md) に移設（`*.sh` / `executable_*` / `.chezmoiscripts/` 編集時に自動ロード）。
 
+`brew-reviewed-upgrade`、`ghostty-theme`、`ghostty-theme-preview` は **Bash 5+** が必須。Bats fixture は PATH を狭める前に Bash 5 の絶対パスを解決し、その interpreter で source script を起動する。`dot_bashrc` など intentionally portable な shell 設定は引き続き macOS system Bash 3.2 互換を維持する。
+
 ## Go Template Usage Policy
 
 Go Template の使用範囲（`.chezmoi.toml.tmpl` のみ）、CI での template 検証、chezmoi 自動提供環境変数は path-scoped rule [.claude/rules/go-templates.md](.claude/rules/go-templates.md) に移設（`*.tmpl` / `.chezmoiscripts/` 編集時に自動ロード）。

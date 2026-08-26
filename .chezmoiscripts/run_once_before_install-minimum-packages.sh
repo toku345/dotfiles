@@ -6,6 +6,12 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_CASK_OPTS=--require-sha
+export HOMEBREW_UPDATE_TO_TAG=1
+export HOMEBREW_NO_VERIFY_ATTESTATIONS=1
+
+# The explicit opt-out also covers replays after ~/.homebrew/brew.env exists.
+# This bootstrap may run before GitHub CLI authentication is available;
+# persistent brew invocations enable attestation through the managed env file.
 
 if [ "$CHEZMOI_OS" = "darwin" ]; then
     # ==== macOS: Homebrew ====

@@ -1,0 +1,1077 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# Upgrade one reviewed homebrew/core Formula without weakening local policy.
+
+set -Eeuo pipefail
+
+if (( BASH_VERSINFO[0] < 5 )); then
+  printf 'brew-reviewed-upgrade: bash %d.%d is too old; this script requires bash 5+.\n' \
+    "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" >&2
+  printf 'On macOS: run `brew install bash` and ensure Homebrew bash precedes /bin/bash on PATH.\n' >&2
+  exit 2
+fi
+
+readonly PROGRAM_NAME="brew-reviewed-upgrade"
+readonly POLICY_FILE_RELATIVE=".homebrew/brew.env"
+readonly GITHUB_API_VERSION="2026-03-10"
+readonly COOLDOWN_SECONDS=604800
+
+BREW_BIN=""
+GH_BIN=""
+JQ_BIN=""
+TEMP_DIR=""
+ACTIVE_PID=""
+MANAGED_LAUNCHING=0
+PENDING_SIGNAL_NAME=""
+PENDING_SIGNAL_STATUS=0
+DEVELOPER_CLEANUP_ARMED=0
+OUTDATED_INSTALLED=""
+OUTDATED_CANDIDATE=""
+RELEASE_OWNER=""
+RELEASE_REPO=""
+RELEASE_TAG=""
+RELEASE_STABLE_URL=""
+RELEASE_NOTES_URL=""
+RELEASE_PUBLISHED_AT=""
+RELEASE_ELIGIBLE_AT=""
+RELEASE_AGE_SECONDS=0
+RELEASE_AGE_VERIFIED=0
+RELEASE_GATE_STATUS=""
+RELEASE_GATE_REASON=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  brew-reviewed-upgrade [--cooldown-exception REASON] FORMULA -- COMMAND [ARG...]
+  brew-reviewed-upgrade [--cooldown-exception REASON] --no-check FORMULA
+
+Upgrade exactly one installed, unpinned homebrew/core Formula after reviewing
+its release age, release notes, and complete dry-run plan.
+
+A smoke command is required unless --no-check explicitly waives it.
+Releases newer than 7 days or without verifiable GitHub Release metadata stop
+unless --cooldown-exception supplies a non-secret, single-line reason.
+EOF
+}
+
+error() {
+  printf '%s: %s\n' "$PROGRAM_NAME" "$1" >&2
+}
+
+resolve_command() {
+  local name="$1"
+  local resolved
+
+  if ! resolved="$(type -P "$name")" || [[ -z "$resolved" ]]; then
+    error "required command not found on PATH: $name"
+    return 127
+  fi
+
+  printf '%s\n' "$resolved"
+}
+
+capture_command() {
+  local output_file="$1"
+  shift
+
+  if "$@" >"$output_file"; then
+    return 0
+  else
+    return $?
+  fi
+}
+
+publish_managed_pid() {
+  ACTIVE_PID="$1"
+  MANAGED_LAUNCHING=0
+
+  if [[ -n "$PENDING_SIGNAL_NAME" ]]; then
+    local signal_name="$PENDING_SIGNAL_NAME"
+    local signal_status="$PENDING_SIGNAL_STATUS"
+    PENDING_SIGNAL_NAME=""
+    PENDING_SIGNAL_STATUS=0
+    handle_signal "$signal_name" "$signal_status"
+  fi
+}
+
+run_managed() {
+  PENDING_SIGNAL_NAME=""
+  PENDING_SIGNAL_STATUS=0
+  MANAGED_LAUNCHING=1
+  "$@" <&0 &
+  publish_managed_pid "$!"
+
+  local status
+  if wait "$ACTIVE_PID"; then
+    status=0
+  else
+    status=$?
+  fi
+  ACTIVE_PID=""
+  return "$status"
+}
+
+handle_signal() {
+  local signal_name="$1"
+  local status="$2"
+  local child_status=0
+
+  if (( MANAGED_LAUNCHING )); then
+    if [[ -z "$PENDING_SIGNAL_NAME" ]]; then
+      PENDING_SIGNAL_NAME="$signal_name"
+      PENDING_SIGNAL_STATUS="$status"
+    fi
+    return 0
+  fi
+
+  trap '' INT TERM
+  if [[ -n "$ACTIVE_PID" ]]; then
+    if ! kill -s TERM "$ACTIVE_PID" 2>/dev/null \
+      && kill -0 "$ACTIVE_PID" 2>/dev/null; then
+      error "could not stop managed process $ACTIVE_PID after $signal_name"
+    fi
+    if wait "$ACTIVE_PID" 2>/dev/null; then
+      child_status=0
+    else
+      child_status=$?
+    fi
+    if (( child_status == 127 )); then
+      error "could not reap managed process $ACTIVE_PID after $signal_name"
+    fi
+    ACTIVE_PID=""
+  fi
+  exit "$status"
+}
+
+cleanup_on_exit() {
+  local operation_status=$?
+  local cleanup_status=0
+  local state_status=0
+  local state_output=""
+
+  trap - EXIT
+  trap '' INT TERM
+  set +e
+
+  if (( DEVELOPER_CLEANUP_ARMED )); then
+    printf '%s\n' "Restoring Homebrew developer mode..." >&2
+    "$BREW_BIN" developer off
+    cleanup_status=$?
+
+    state_output="$("$BREW_BIN" developer state 2>&1)"
+    state_status=$?
+    if [[ -n "$state_output" ]]; then
+      printf '%s\n' "$state_output" >&2
+    fi
+    if (( cleanup_status == 0 && state_status != 0 )); then
+      cleanup_status="$state_status"
+    elif (( cleanup_status == 0 )) \
+      && ! grep -Fqx 'Developer mode is disabled.' <<<"$state_output"; then
+      cleanup_status=1
+    fi
+  fi
+
+  if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
+    rm -rf -- "$TEMP_DIR"
+  fi
+
+  if (( operation_status != 0 && cleanup_status != 0 )); then
+    error "operation failed with status $operation_status; developer-mode cleanup also failed with status $cleanup_status"
+  elif (( cleanup_status != 0 )); then
+    error "developer-mode cleanup failed with status $cleanup_status"
+  fi
+
+  if (( operation_status != 0 )); then
+    exit "$operation_status"
+  fi
+  if (( cleanup_status != 0 )); then
+    exit 1
+  fi
+  exit 0
+}
+
+install_lifecycle_traps() {
+  trap cleanup_on_exit EXIT
+  trap 'handle_signal INT 130' INT
+  trap 'handle_signal TERM 143' TERM
+}
+
+validate_policy_file() {
+  local policy_file="$HOME/$POLICY_FILE_RELATIVE"
+  local assignment expected name value count values_file forbidden_file
+
+  if [[ ! -r "$policy_file" ]]; then
+    error "managed Homebrew policy is missing or unreadable: $policy_file"
+    return 1
+  fi
+
+  for assignment in \
+    'HOMEBREW_NO_AUTO_UPDATE=1' \
+    'HOMEBREW_NO_INSTALL_UPGRADE=1' \
+    'HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1' \
+    'HOMEBREW_CASK_OPTS=--require-sha' \
+    'HOMEBREW_UPDATE_TO_TAG=1' \
+    'HOMEBREW_VERIFY_ATTESTATIONS=1'
+  do
+    name="${assignment%%=*}"
+    expected="${assignment#*=}"
+    count=0
+    value=""
+    values_file="$TEMP_DIR/policy-values-$name"
+    if ! awk -F= -v key="$name" \
+      '$1 == key { sub(/^[^=]*=/, ""); print }' \
+      "$policy_file" >"$values_file"; then
+      error "could not parse managed Homebrew policy: $policy_file"
+      return 1
+    fi
+    while IFS= read -r value; do
+      count=$((count + 1))
+      if [[ "$value" != "$expected" ]]; then
+        error "$policy_file must set $name=$expected exactly once"
+        return 1
+      fi
+    done <"$values_file"
+    if (( count != 1 )); then
+      error "$policy_file must set $name=$expected exactly once"
+      return 1
+    fi
+  done
+
+  forbidden_file="$TEMP_DIR/policy-forbidden"
+  if ! awk -F= \
+    '$1 == "HOMEBREW_NO_VERIFY_ATTESTATIONS" || $1 == "HOMEBREW_NO_ASK" { print }' \
+    "$policy_file" >"$forbidden_file"; then
+    error "could not scan managed Homebrew policy: $policy_file"
+    return 1
+  fi
+  if [[ -s "$forbidden_file" ]]; then
+    error "$policy_file must not disable attestations or Homebrew ask mode"
+    return 1
+  fi
+}
+
+validate_effective_policy() {
+  local config_file="$TEMP_DIR/brew-config"
+  local required grep_status
+
+  if ! capture_command "$config_file" "$BREW_BIN" config; then
+    error "brew config failed"
+    return 1
+  fi
+
+  for required in \
+    'HOMEBREW_NO_AUTO_UPDATE: set' \
+    'HOMEBREW_NO_INSTALL_UPGRADE: set' \
+    'HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: set' \
+    'HOMEBREW_UPDATE_TO_TAG: set' \
+    'HOMEBREW_VERIFY_ATTESTATIONS: set'
+  do
+    if ! grep -Fqx "$required" "$config_file"; then
+      error "effective Homebrew policy is missing: $required"
+      return 1
+    fi
+  done
+
+  if ! grep -Fqx 'HOMEBREW_CASK_OPTS: ["--require-sha"]' "$config_file"; then
+    error "effective Homebrew policy must set HOMEBREW_CASK_OPTS to --require-sha"
+    return 1
+  fi
+  if grep -Eq '^HOMEBREW_(NO_VERIFY_ATTESTATIONS|NO_ASK): set$' "$config_file"; then
+    error "effective environment disables attestations or Homebrew ask mode"
+    return 1
+  else
+    grep_status=$?
+    if (( grep_status != 1 )); then
+      error "could not inspect effective Homebrew policy"
+      return 1
+    fi
+  fi
+}
+
+validate_developer_mode() {
+  local state_file="$TEMP_DIR/developer-state-preflight"
+
+  if ! capture_command "$state_file" "$BREW_BIN" developer state; then
+    error "could not determine Homebrew developer mode"
+    return 1
+  fi
+  if ! grep -Fqx 'Developer mode is disabled.' "$state_file"; then
+    cat "$state_file" >&2
+    error "Homebrew developer mode must be disabled; follow docs/homebrew-update.md recovery steps"
+    return 1
+  fi
+}
+
+validate_github_auth() {
+  local output_file="$TEMP_DIR/gh-auth-status"
+
+  if "$GH_BIN" auth status --hostname github.com >"$output_file" 2>&1; then
+    return 0
+  fi
+
+  cat "$output_file" >&2 || true
+  error "GitHub CLI authentication is required for Bottle attestations"
+  return 1
+}
+
+decode_url_component() {
+  local encoded="$1"
+  local decoded=""
+  local prefix hex byte
+
+  if [[ -z "$encoded" || "$encoded" =~ [[:cntrl:]] ]]; then
+    return 1
+  fi
+
+  while [[ "$encoded" == *%* ]]; do
+    if [[ ! "$encoded" =~ ^([^%]*)%([[:xdigit:]]{2})(.*)$ ]]; then
+      return 1
+    fi
+    prefix="${BASH_REMATCH[1]}"
+    hex="${BASH_REMATCH[2]}"
+    encoded="${BASH_REMATCH[3]}"
+    if [[ "$hex" == "00" ]]; then
+      return 1
+    fi
+    printf -v byte '%b' "\\x$hex"
+    decoded+="$prefix$byte"
+  done
+  decoded+="$encoded"
+
+  if [[ -z "$decoded" || "$decoded" =~ [[:cntrl:]] ]]; then
+    return 1
+  fi
+  printf '%s\n' "$decoded"
+}
+
+extract_github_release_coordinates() {
+  local info_file="$1"
+  local stable_tag=""
+  local encoded_tag=""
+  local repo_component=""
+
+  RELEASE_OWNER=""
+  RELEASE_REPO=""
+  RELEASE_TAG=""
+  RELEASE_STABLE_URL=""
+
+  RELEASE_STABLE_URL="$("$JQ_BIN" -er \
+    '.formulae[0].urls.stable.url
+      | select(type == "string" and length > 0)' "$info_file")" || {
+    RELEASE_GATE_REASON="stable source URL is missing or malformed"
+    return 1
+  }
+  stable_tag="$("$JQ_BIN" -er \
+    '(.formulae[0].urls.stable.tag // "")
+      | select(type == "string")' "$info_file")" || {
+    RELEASE_GATE_REASON="stable source tag is malformed"
+    return 1
+  }
+  if [[ "$RELEASE_STABLE_URL" =~ [[:cntrl:]] ]] \
+    || [[ "$stable_tag" =~ [[:cntrl:]] ]]; then
+    RELEASE_STABLE_URL=""
+    RELEASE_GATE_REASON="stable source metadata contains control characters"
+    return 1
+  fi
+
+  if [[ "$RELEASE_STABLE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/archive/refs/tags/(.+)\.(tar\.gz|zip)$ ]]; then
+    RELEASE_OWNER="${BASH_REMATCH[1]}"
+    RELEASE_REPO="${BASH_REMATCH[2]}"
+    encoded_tag="${BASH_REMATCH[3]}"
+  elif [[ "$RELEASE_STABLE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/releases/download/([^/]+)/[^/?#]+$ ]]; then
+    RELEASE_OWNER="${BASH_REMATCH[1]}"
+    RELEASE_REPO="${BASH_REMATCH[2]}"
+    encoded_tag="${BASH_REMATCH[3]}"
+  elif [[ -n "$stable_tag" ]] \
+    && [[ "$RELEASE_STABLE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$ ]]; then
+    RELEASE_OWNER="${BASH_REMATCH[1]}"
+    repo_component="${BASH_REMATCH[2]}"
+    RELEASE_REPO="${repo_component%.git}"
+    encoded_tag="$stable_tag"
+  else
+    RELEASE_GATE_REASON="stable source is not a supported GitHub release URL"
+    return 1
+  fi
+
+  RELEASE_TAG="$(decode_url_component "$encoded_tag")" || {
+    RELEASE_GATE_REASON="GitHub release tag is malformed"
+    return 1
+  }
+}
+
+lookup_github_release() {
+  local output_file="$TEMP_DIR/github-release.json"
+  local error_file="$TEMP_DIR/github-release-error"
+  local encoded_tag=""
+  local status=0
+
+  encoded_tag="$("$JQ_BIN" -rn --arg value "$RELEASE_TAG" '$value | @uri')" || {
+    RELEASE_GATE_REASON="could not encode the GitHub release tag"
+    return 1
+  }
+
+  if "$GH_BIN" api \
+    -H 'Accept: application/vnd.github+json' \
+    -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+    "repos/$RELEASE_OWNER/$RELEASE_REPO/releases/tags/$encoded_tag" \
+    >"$output_file" 2>"$error_file"; then
+    :
+  else
+    status=$?
+    RELEASE_GATE_REASON="GitHub Release lookup failed with status $status"
+    return 1
+  fi
+
+  if ! "$JQ_BIN" -e \
+    --arg tag "$RELEASE_TAG" \
+    --arg prefix "https://github.com/$RELEASE_OWNER/$RELEASE_REPO/releases/tag/" \
+    'type == "object"
+      and .tag_name == $tag
+      and (.html_url | type == "string" and length > 0
+        and (test("[[:cntrl:]]") | not)
+        and (ascii_downcase | startswith($prefix | ascii_downcase)))
+      and (.published_at | type == "string" and length > 0
+        and (test("[[:cntrl:]]") | not))
+      and (.draft | type == "boolean")
+      and (.prerelease | type == "boolean")' \
+    "$output_file" >/dev/null; then
+    RELEASE_GATE_REASON="GitHub Release metadata is malformed or does not match the source tag"
+    return 1
+  fi
+
+  RELEASE_NOTES_URL="$("$JQ_BIN" -r '.html_url' "$output_file")"
+  RELEASE_PUBLISHED_AT="$("$JQ_BIN" -r '.published_at' "$output_file")"
+  RELEASE_DRAFT="$("$JQ_BIN" -r '.draft' "$output_file")"
+  RELEASE_PRERELEASE="$("$JQ_BIN" -r '.prerelease' "$output_file")"
+}
+
+evaluate_release_age() {
+  local published_at="$1"
+  local now_epoch="$2"
+  local values=""
+  local published_epoch=""
+
+  RELEASE_AGE_VERIFIED=0
+  RELEASE_ELIGIBLE_AT=""
+  if [[ ! "$now_epoch" =~ ^[0-9]+$ ]]; then
+    RELEASE_GATE_REASON="current time is unavailable"
+    return 1
+  fi
+  values="$("$JQ_BIN" -nr \
+    --arg published "$published_at" \
+    --argjson cooldown "$COOLDOWN_SECONDS" \
+    '($published | fromdateiso8601 | floor) as $published_epoch
+      | [$published_epoch,
+         ($published_epoch + $cooldown | strftime("%Y-%m-%dT%H:%M:%SZ"))]
+      | @tsv')" || {
+    RELEASE_GATE_REASON="GitHub Release published_at is not a valid UTC timestamp"
+    return 1
+  }
+  IFS=$'\t' read -r published_epoch RELEASE_ELIGIBLE_AT <<<"$values"
+  if [[ ! "$published_epoch" =~ ^[0-9]+$ ]] \
+    || [[ -z "$RELEASE_ELIGIBLE_AT" ]]; then
+    RELEASE_GATE_REASON="GitHub Release published_at could not be evaluated"
+    return 1
+  fi
+
+  RELEASE_AGE_SECONDS=$((now_epoch - published_epoch))
+  if (( RELEASE_AGE_SECONDS < 0 )); then
+    RELEASE_GATE_REASON="GitHub Release published_at is in the future"
+    return 1
+  fi
+  RELEASE_AGE_VERIFIED=1
+}
+
+release_age_is_eligible() {
+  (( RELEASE_AGE_SECONDS >= COOLDOWN_SECONDS ))
+}
+
+format_duration() {
+  local total_seconds="$1"
+  local days hours minutes
+
+  days=$((total_seconds / 86400))
+  hours=$(((total_seconds % 86400) / 3600))
+  minutes=$(((total_seconds % 3600) / 60))
+  if (( days > 0 )); then
+    printf '%dd %dh\n' "$days" "$hours"
+  elif (( hours > 0 )); then
+    printf '%dh %dm\n' "$hours" "$minutes"
+  else
+    printf '%dm\n' "$minutes"
+  fi
+}
+
+print_release_review() {
+  local formula="$1"
+  local exception_set="$2"
+  local exception_reason="$3"
+  local age=""
+  local remaining=""
+
+  if (( RELEASE_AGE_VERIFIED )); then
+    age="$(format_duration "$RELEASE_AGE_SECONDS")" || return $?
+  fi
+  if [[ "$RELEASE_GATE_STATUS" == "blocked" ]] \
+    && (( RELEASE_AGE_VERIFIED )) \
+    && (( RELEASE_AGE_SECONDS < COOLDOWN_SECONDS )); then
+    remaining="$(format_duration "$((COOLDOWN_SECONDS - RELEASE_AGE_SECONDS))")" || return $?
+  fi
+
+  {
+    printf '%s\n' '==> Release review'
+    printf 'Formula: %s\n' "$formula"
+    printf 'Version: %s -> %s\n' "$OUTDATED_INSTALLED" "$OUTDATED_CANDIDATE"
+    if [[ -n "$RELEASE_STABLE_URL" ]]; then
+      printf 'Source: %s\n' "$RELEASE_STABLE_URL"
+    else
+      printf '%s\n' 'Source: unavailable'
+    fi
+    if [[ -n "$RELEASE_NOTES_URL" ]]; then
+      printf 'Release notes: %s\n' "$RELEASE_NOTES_URL"
+    else
+      printf '%s\n' 'Release notes: unavailable'
+    fi
+    if (( RELEASE_AGE_VERIFIED )); then
+      printf 'Published: %s (%s ago)\n' "$RELEASE_PUBLISHED_AT" "$age"
+      printf 'Eligible after: %s\n' "$RELEASE_ELIGIBLE_AT"
+    elif [[ -n "$RELEASE_PUBLISHED_AT" ]]; then
+      printf 'Published: %s (unverified)\n' "$RELEASE_PUBLISHED_AT"
+    else
+      printf '%s\n' 'Published: unavailable'
+    fi
+    case "$RELEASE_GATE_STATUS" in
+      eligible)
+        if (( exception_set )); then
+          printf '%s\n' 'Cooldown: eligible (exception not needed)'
+        else
+          printf '%s\n' 'Cooldown: eligible'
+        fi
+        ;;
+      blocked)
+        if [[ -n "$remaining" ]]; then
+          printf 'Cooldown: blocked (%s remaining)\n' "$remaining"
+        else
+          printf '%s\n' 'Cooldown: blocked'
+        fi
+        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
+        ;;
+      unverified)
+        printf '%s\n' 'Cooldown: unverified'
+        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
+        ;;
+      exception)
+        printf '%s\n' 'Cooldown: exception'
+        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
+        printf 'Exception reason: %s\n' "$exception_reason"
+        ;;
+    esac
+  } || {
+    error "could not display the release review"
+    return 1
+  }
+}
+
+review_release_cooldown() {
+  local info_file="$1"
+  local formula="$2"
+  local exception_set="$3"
+  local exception_reason="$4"
+  local now_epoch=""
+  local base_status=""
+
+  RELEASE_NOTES_URL=""
+  RELEASE_PUBLISHED_AT=""
+  RELEASE_ELIGIBLE_AT=""
+  RELEASE_AGE_SECONDS=0
+  RELEASE_AGE_VERIFIED=0
+  RELEASE_GATE_STATUS=""
+  RELEASE_GATE_REASON=""
+  RELEASE_DRAFT=""
+  RELEASE_PRERELEASE=""
+
+  if ! extract_github_release_coordinates "$info_file"; then
+    RELEASE_GATE_STATUS="unverified"
+  elif ! lookup_github_release; then
+    RELEASE_GATE_STATUS="unverified"
+  else
+    now_epoch="$("$JQ_BIN" -nr 'now | floor')" || now_epoch=""
+    if ! evaluate_release_age "$RELEASE_PUBLISHED_AT" "$now_epoch"; then
+      RELEASE_GATE_STATUS="unverified"
+    elif [[ "$RELEASE_DRAFT" == "true" ]]; then
+      RELEASE_GATE_STATUS="blocked"
+      RELEASE_GATE_REASON="GitHub Release is a draft"
+    elif [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+      RELEASE_GATE_STATUS="blocked"
+      RELEASE_GATE_REASON="GitHub Release is marked as a prerelease"
+    elif ! release_age_is_eligible; then
+      RELEASE_GATE_STATUS="blocked"
+      RELEASE_GATE_REASON="GitHub Release is newer than 7 days"
+    else
+      RELEASE_GATE_STATUS="eligible"
+    fi
+  fi
+
+  base_status="$RELEASE_GATE_STATUS"
+  if (( exception_set )) && [[ "$base_status" != "eligible" ]]; then
+    RELEASE_GATE_STATUS="exception"
+  fi
+  print_release_review "$formula" "$exception_set" "$exception_reason" || return $?
+
+  if [[ "$base_status" != "eligible" ]] && (( ! exception_set )); then
+    error "release cooldown requires manual review; rerun with --cooldown-exception REASON to continue"
+    return 1
+  fi
+}
+
+load_target_metadata() {
+  local requested="$1"
+  local output_file="$TEMP_DIR/info-target.json"
+  local canonical
+
+  if ! capture_command "$output_file" "$BREW_BIN" info --formula --json=v2 "$requested"; then
+    error "Formula not found or is not a Formula: $requested"
+    return 1
+  fi
+  if ! "$JQ_BIN" -e '.formulae | length == 1' "$output_file" >/dev/null; then
+    error "expected exactly one Formula for: $requested"
+    return 1
+  fi
+
+  canonical="$("$JQ_BIN" -er \
+    '.formulae[0].full_name
+      | select(type == "string" and length > 0
+        and (test("[[:cntrl:]]") | not)
+        and (test("[[:space:]]") | not))' "$output_file")" || {
+    error "Homebrew returned malformed Formula metadata"
+    return 1
+  }
+
+  if ! "$JQ_BIN" -e '.formulae[0].tap == "homebrew/core"' "$output_file" >/dev/null; then
+    error "only homebrew/core Formulae are supported: $canonical"
+    return 1
+  fi
+  if ! "$JQ_BIN" -e '.formulae[0].pinned == false' "$output_file" >/dev/null; then
+    error "pinned Formulae are not supported: $canonical"
+    return 1
+  fi
+  if ! "$JQ_BIN" -e '.formulae[0].versions.bottle == true and ((.formulae[0].bottle.stable.files // {}) | length > 0)' "$output_file" >/dev/null; then
+    error "stable Bottle metadata is unavailable: $canonical"
+    return 1
+  fi
+  if ! "$JQ_BIN" -e '.formulae[0].installed | length > 0' "$output_file" >/dev/null; then
+    error "Formula is not installed: $canonical"
+    return 1
+  fi
+  if ! "$JQ_BIN" -e 'all(.formulae[0].installed[]; .built_as_bottle == true and .poured_from_bottle == true)' "$output_file" >/dev/null; then
+    error "source-built Formulae are outside this helper's scope: $canonical"
+    return 1
+  fi
+
+  printf '%s\n' "$canonical"
+}
+
+validate_dependency_metadata() {
+  local formula="$1"
+  local safe_name="${formula//\//_}"
+  local output_file="$TEMP_DIR/info-dependency-$safe_name.json"
+
+  if ! capture_command "$output_file" "$BREW_BIN" info --formula --json=v2 "$formula"; then
+    error "could not resolve dependency Formula: $formula"
+    return 1
+  fi
+  if ! "$JQ_BIN" -e \
+    --arg name "$formula" \
+    '.formulae | length == 1
+      and .[0].full_name == $name
+      and .[0].tap == "homebrew/core"
+      and .[0].versions.bottle == true
+      and ((.[0].bottle.stable.files // {}) | length > 0)
+      and all(.[0].installed[];
+        .built_as_bottle == true and .poured_from_bottle == true)' \
+    "$output_file" >/dev/null; then
+    error "dependency is not an attestable Bottle-installed homebrew/core Formula: $formula"
+    return 1
+  fi
+}
+
+classify_outdated() {
+  local formula="$1"
+  local output_file="$TEMP_DIR/outdated.json"
+  local status
+
+  if capture_command "$output_file" "$BREW_BIN" outdated --formula --json=v2 "$formula"; then
+    status=0
+  else
+    status=$?
+  fi
+
+  if ! "$JQ_BIN" -e \
+    '(.formulae | type) == "array" and (.casks | type) == "array"' \
+    "$output_file" >/dev/null; then
+    error "brew outdated returned malformed JSON"
+    return 1
+  fi
+
+  if (( status == 0 )) \
+    && "$JQ_BIN" -e '(.formulae | length) == 0 and (.casks | length) == 0' \
+      "$output_file" >/dev/null; then
+    printf '%s\n' "Formula is already up to date: $formula"
+    return 10
+  fi
+
+  if (( status == 1 )) \
+    && "$JQ_BIN" -e --arg name "$formula" \
+      '(.formulae | length) == 1
+        and .formulae[0].name == $name
+        and (.formulae[0].installed_versions | type) == "array"
+        and (.formulae[0].installed_versions | length) > 0
+        and all(.formulae[0].installed_versions[];
+          type == "string" and length > 0
+            and (test("[[:cntrl:]]") | not))
+        and (.formulae[0].current_version
+          | type == "string" and length > 0
+            and (test("[[:cntrl:]]") | not))
+        and (.casks | length) == 0' \
+      "$output_file" >/dev/null; then
+    OUTDATED_INSTALLED="$("$JQ_BIN" -r \
+      '.formulae[0].installed_versions | join(", ")' "$output_file")"
+    OUTDATED_CANDIDATE="$("$JQ_BIN" -r \
+      '.formulae[0].current_version' "$output_file")"
+    printf 'Outdated: %s %s -> %s\n' \
+      "$formula" "$OUTDATED_INSTALLED" "$OUTDATED_CANDIDATE"
+    return 0
+  fi
+
+  error "brew outdated status and JSON disagree (status $status)"
+  return 1
+}
+
+show_dry_run() {
+  local formula="$1"
+  local output_file="$TEMP_DIR/upgrade-dry-run"
+
+  if ! HOMEBREW_NO_ENV_HINTS=1 HOMEBREW_NO_INSTALL_CLEANUP=1 \
+    capture_command "$output_file" "$BREW_BIN" upgrade --formula --dry-run "$formula"; then
+    cat "$output_file"
+    error "Homebrew dry-run failed"
+    return 1
+  fi
+  if ! cat "$output_file"; then
+    error "could not display the Homebrew dry-run plan"
+    return 1
+  fi
+  if ! grep -q '[^[:space:]]' "$output_file"; then
+    error "Homebrew dry-run returned an empty plan"
+    return 1
+  fi
+}
+
+collect_expected_formulae() {
+  local root_formula="$1"
+  local expected_file="$2"
+  local index=0
+  local formula dependency deps_file safe_name
+  local -a formula_queue=("$root_formula")
+  local -A seen_formulae=(["$root_formula"]=1)
+
+  while (( index < ${#formula_queue[@]} )); do
+    formula="${formula_queue[index]}"
+    safe_name="${formula//\//_}"
+    deps_file="$TEMP_DIR/deps-$index-$safe_name"
+    if ! HOMEBREW_NO_ENV_HINTS=1 \
+      capture_command "$deps_file" "$BREW_BIN" deps --formula --full-name \
+      --include-build --include-test --include-implicit "$formula"; then
+      error "could not resolve dependencies for: $formula"
+      return 1
+    fi
+
+    while IFS= read -r dependency; do
+      [[ -z "$dependency" ]] && continue
+      if [[ "$dependency" == -* || "$dependency" == *[[:space:]]* ]] \
+        || [[ "$dependency" =~ [[:cntrl:]] ]]; then
+        error "brew deps returned an unexpected dependency name"
+        return 1
+      fi
+      if [[ -z "${seen_formulae[$dependency]+x}" ]]; then
+        seen_formulae["$dependency"]=1
+        formula_queue+=("$dependency")
+      fi
+    done <"$deps_file"
+    index=$((index + 1))
+  done
+
+  for formula in "${formula_queue[@]}"; do
+    validate_dependency_metadata "$formula" || return $?
+  done
+  if ! printf '%s\n' "${formula_queue[@]}" >"$expected_file"; then
+    error "could not write expected Formula coverage"
+    return 1
+  fi
+}
+
+show_verification_scope() {
+  local expected_file="$1"
+  local expected_count="$2"
+  local no_check="$3"
+
+  {
+    printf 'Expected Bottle attestations: %s\n' "$expected_count"
+    awk 'NF { print "  - " $0 }' "$expected_file"
+    if (( no_check )); then
+      printf '%s\n' 'Smoke check: waived (--no-check)'
+    else
+      printf '%s\n' 'Smoke check: configured'
+    fi
+  } || {
+    error "could not display the verification scope"
+    return 1
+  }
+}
+
+confirm_review() {
+  local formula="$1"
+  local reply=""
+
+  if ! printf '%s' \
+    "Proceed with the displayed dry-run and verification scope for $formula [y/N]: " \
+    >&2; then
+    error "could not display the review confirmation prompt"
+    return 1
+  fi
+  if ! IFS= read -r reply; then
+    printf '\n' >&2
+    error "confirmation input ended; brew update completed, but the Formula was not upgraded"
+    return 1
+  fi
+  case "$reply" in
+    [yY]|[yY][eE][sS]) return 0 ;;
+    *)
+      error "upgrade rejected; brew update completed, but the Formula was not upgraded"
+      return 1
+      ;;
+  esac
+}
+
+verify_attestations() {
+  local formula="$1"
+  local expected_file="$2"
+  local output_file="$TEMP_DIR/verify-output"
+  local json_file="$TEMP_DIR/verify.json"
+  local expected_count actual_count expected_json
+
+  DEVELOPER_CLEANUP_ARMED=1
+  if run_managed "$BREW_BIN" verify --deps --json "$formula" >"$output_file"; then
+    :
+  else
+    local status=$?
+    cat "$output_file"
+    error "Bottle attestation verification failed"
+    return "$status"
+  fi
+  if ! cat "$output_file"; then
+    error "could not display Bottle attestation output"
+    return 1
+  fi
+
+  awk 'NF { line=$0 } END { print line }' "$output_file" >"$json_file"
+  if ! "$JQ_BIN" -e \
+    'type == "array"
+      and all(.[];
+        (.verificationResult.statement.subject | type == "array")
+        and (.verificationResult.statement.subject | length > 0)
+        and all(.verificationResult.statement.subject[]; .name | type == "string" and length > 0))' \
+    "$json_file" >/dev/null; then
+    error "brew verify returned malformed or unsupported attestation JSON"
+    return 1
+  fi
+
+  expected_count="$(wc -l <"$expected_file")"
+  expected_count="${expected_count//[[:space:]]/}"
+  actual_count="$("$JQ_BIN" -r 'length' "$json_file")"
+  if [[ "$actual_count" != "$expected_count" ]]; then
+    error "attestation coverage is incomplete or unexpected: expected $expected_count, verified $actual_count"
+    return 1
+  fi
+
+  expected_json="$("$JQ_BIN" -Rsc 'split("\n") | map(select(length > 0))' "$expected_file")" || {
+    error "could not encode expected Formula coverage"
+    return 1
+  }
+  if ! "$JQ_BIN" -e --argjson expected "$expected_json" \
+    'def subject_matches($formula):
+       (.name | split("/")[-1]) as $subject
+       | ($subject | startswith($formula + "--"))
+         or ($subject | contains("--" + $formula + "--"));
+     ([$expected[] as $formula
+       | any(.[];
+           any(.verificationResult.statement.subject[];
+             subject_matches($formula)))]
+      | all)
+     and
+     ([.[] as $result
+       | [$result.verificationResult.statement.subject[] as $subject
+          | [$expected[] as $formula
+             | $subject | subject_matches($formula)]
+            | any]
+         | any]
+      | all)' \
+    "$json_file" >/dev/null; then
+    error "attestation results and expected Formulae do not fully cover each other"
+    return 1
+  fi
+  printf 'Verified Bottle attestations for %s Formulae.\n' "$actual_count"
+}
+
+run_stage() {
+  local label="$1"
+  shift
+
+  printf '%s\n' "==> $label"
+  if run_managed "$@"; then
+    return 0
+  else
+    local status=$?
+    error "$label failed with status $status"
+    return "$status"
+  fi
+}
+
+main() {
+  local formula=""
+  local no_check=0
+  local cooldown_exception_set=0
+  local cooldown_exception_reason=""
+  local canonical=""
+  local post_update_canonical=""
+  local outdated_status=0
+  local expected_file
+  local expected_count
+  local resolved_smoke=""
+  local -a smoke_command=()
+
+  case "${1:-}" in
+    -h|--help)
+      usage
+      return 0
+      ;;
+  esac
+
+  if [[ "${1:-}" == "--cooldown-exception" ]]; then
+    cooldown_exception_set=1
+    if (( $# < 2 )); then
+      usage >&2
+      return 2
+    fi
+    cooldown_exception_reason="$2"
+    shift 2
+  fi
+
+  case "${1:-}" in
+    --no-check)
+      no_check=1
+      if (( $# != 2 )); then
+        usage >&2
+        return 2
+      fi
+      formula="$2"
+      ;;
+    "")
+      usage >&2
+      return 2
+      ;;
+    *)
+      formula="$1"
+      shift
+      if [[ "${1:-}" != "--" ]] || (( $# < 2 )); then
+        usage >&2
+        return 2
+      fi
+      shift
+      smoke_command=("$@")
+      ;;
+  esac
+
+  if (( cooldown_exception_set )) \
+    && { [[ "$cooldown_exception_reason" =~ ^[[:space:]]*$ ]] \
+      || [[ "$cooldown_exception_reason" =~ [[:cntrl:]] ]]; }; then
+    error "cooldown exception reason must be non-empty and single-line"
+    return 2
+  fi
+  if [[ -z "$formula" || "$formula" == -* || "$formula" == *[[:space:]]* ]] \
+    || [[ "$formula" =~ [[:cntrl:]] ]]; then
+    error "invalid Formula name"
+    return 2
+  fi
+
+  if (( ! no_check )); then
+    resolved_smoke="$(resolve_command "${smoke_command[0]}")" || return $?
+    smoke_command[0]="$resolved_smoke"
+  fi
+
+  BREW_BIN="$(resolve_command brew)" || return $?
+  GH_BIN="$(resolve_command gh)" || return $?
+  JQ_BIN="$(resolve_command jq)" || return $?
+  TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-upgrade.XXXXXX")" || {
+    error "could not create temporary directory"
+    return 1
+  }
+  install_lifecycle_traps
+
+  validate_policy_file || return $?
+  validate_effective_policy || return $?
+  validate_developer_mode || return $?
+  validate_github_auth || return $?
+
+  canonical="$(load_target_metadata "$formula")" || return $?
+
+  printf '%s\n' "==> Updating Homebrew metadata"
+  if ! "$BREW_BIN" update; then
+    error "brew update failed"
+    return 1
+  fi
+
+  post_update_canonical="$(load_target_metadata "$canonical")" || return $?
+  if [[ "$post_update_canonical" != "$canonical" ]]; then
+    error "Formula identity changed after brew update: $canonical -> $post_update_canonical"
+    return 1
+  fi
+
+  if classify_outdated "$canonical"; then
+    outdated_status=0
+  else
+    outdated_status=$?
+  fi
+  if (( outdated_status == 10 )); then
+    return 0
+  fi
+  if (( outdated_status != 0 )); then
+    return "$outdated_status"
+  fi
+
+  review_release_cooldown "$TEMP_DIR/info-target.json" "$canonical" \
+    "$cooldown_exception_set" "$cooldown_exception_reason" || return $?
+
+  show_dry_run "$canonical" || return $?
+
+  expected_file="$TEMP_DIR/expected-formulae"
+  collect_expected_formulae "$canonical" "$expected_file" || return $?
+  expected_count="$(wc -l <"$expected_file")"
+  expected_count="${expected_count//[[:space:]]/}"
+  show_verification_scope "$expected_file" "$expected_count" "$no_check" || return $?
+
+  confirm_review "$canonical" || return $?
+  verify_attestations "$canonical" "$expected_file" || return $?
+  HOMEBREW_NO_INSTALL_CLEANUP=1 \
+    run_stage "Upgrading $canonical" "$BREW_BIN" upgrade --formula --no-ask "$canonical" || return $?
+  run_stage "Checking vulnerabilities for $canonical and dependencies" \
+    "$BREW_BIN" vulns --deps "$canonical" || return $?
+  run_stage "Checking global Homebrew linkage" "$BREW_BIN" linkage --test || return $?
+  if (( ! no_check )); then
+    run_stage "Running smoke command" "${smoke_command[@]}" || return $?
+  fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
