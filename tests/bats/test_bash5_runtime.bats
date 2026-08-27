@@ -7,6 +7,7 @@ load test_helper_bash5
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   BASH5_TOOLS=(
+    "$REPO_ROOT/dot_local/bin/executable_brew-reviewed-cask-upgrade"
     "$REPO_ROOT/dot_local/bin/executable_brew-reviewed-upgrade"
     "$REPO_ROOT/dot_local/bin/executable_ghostty-theme"
     "$REPO_ROOT/dot_local/bin/executable_ghostty-theme-preview"

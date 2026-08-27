@@ -325,6 +325,7 @@ jobs:
           export PATH="$(dirname "$BASH5_BIN"):$PATH"
           "$BATS_BIN" \
             tests/bats/test_bash5_runtime.bats \
+            tests/bats/test_brew_reviewed_cask_upgrade.bats \
             tests/bats/test_brew_reviewed_upgrade.bats \
             tests/bats/test_ghostty_theme.bats \
             tests/bats/test_preview.bats

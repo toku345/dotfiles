@@ -2,6 +2,7 @@
 # shellcheck shell=bash
 
 bats_require_minimum_version 1.5.0
+load test_helper_bash5
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -34,12 +35,13 @@ setup() {
   export BREW_STUB_INSTALLED_COUNT
   export BREW_STUB_SIGNAL_MARKER BREW_STUB_SIGNAL_RESULT
   export HOME="$TEST_HOME"
+  resolve_bash5
   export PATH="$TEST_BIN:/usr/bin:/bin"
   export BREW_STUB_CASK="codex"
 
   cat >"$TEST_BIN/brew-reviewed-cask-upgrade" <<'EOF'
-#!/usr/bin/env bash
-exec bash "$SOURCE" "$@"
+#!/bin/sh
+exec "$BASH5_BIN" "$SOURCE" "$@"
 EOF
 
   cat >"$TEST_BIN/smoke-command" <<'EOF'
@@ -454,6 +456,13 @@ refute_log_contains() {
 }
 
 @test "missing gh is an exception-eligible release condition" {
+  type() {
+    if [[ "$#" -eq 2 && "$1" == -P && "$2" == gh ]]; then
+      return 1
+    fi
+    builtin type "$@"
+  }
+  export -f type
   rm "$TEST_BIN/gh"
   run brew-reviewed-cask-upgrade --cooldown-exception \
     "release reviewed manually" codex -- smoke-command <"$YES_FILE"
@@ -513,7 +522,7 @@ refute_log_contains() {
 }
 
 @test "dry-run display failure and prompt failure cannot continue" {
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     BREW_BIN="$TEST_BIN/brew"
     TEMP_DIR="$(mktemp -d)"
@@ -524,7 +533,7 @@ refute_log_contains() {
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"could not display the Cask dry-run"* ]]
 
-  run --separate-stderr bash -c '
+  run --separate-stderr "$BASH5_BIN" -c '
     source "$SOURCE"
     printf() {
       if [[ "$1" == "%s" && "${2:-}" == "Proceed with the displayed Cask metadata"* ]]; then

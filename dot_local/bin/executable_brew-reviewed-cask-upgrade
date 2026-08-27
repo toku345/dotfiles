@@ -4,6 +4,13 @@
 
 set -Eeuo pipefail
 
+if (( BASH_VERSINFO[0] < 5 )); then
+  printf 'brew-reviewed-cask-upgrade: bash %d.%d is too old; this script requires bash 5+.\n' \
+    "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" >&2
+  printf 'On macOS: run `brew install bash` and ensure Homebrew bash precedes /bin/bash on PATH.\n' >&2
+  exit 2
+fi
+
 readonly PROGRAM_NAME="brew-reviewed-cask-upgrade"
 readonly POLICY_FILE_RELATIVE=".homebrew/brew.env"
 readonly GITHUB_API_VERSION="2026-03-10"

@@ -16,6 +16,8 @@ Accepted as policy (2026-05-21). Enforcement is partial; remaining controls are 
 
 **Amendment 2026-08-24 (#340)**: `brew-reviewed-upgrade` requires Bash 5+ and rejects Bash 3.2/4 before argument processing or Homebrew access, with actionable `brew install bash` guidance. New macOS setup installs Homebrew Bash in the documented pre-init prerequisite command. The existing `run_once_before_install-minimum-packages.sh` is intentionally unchanged: chezmoi keys `run_once_` execution by rendered content, so editing it would replay the full package installer on existing machines and violate the non-invasive migration boundary. Tests resolve and verify an absolute Bash 5 executable before narrowing PATH, and a focused `macos-15` job exercises the affected Brew and Ghostty suites with that interpreter. Portable shell configuration such as `dot_bashrc` retains its Bash 3.2 compatibility policy.
 
+**Amendment 2026-08-27 (PR #339)**: `brew-reviewed-cask-upgrade` adopts the same Bash 5+ runtime contract, early rejection, absolute-interpreter test fixture, and focused `macos-15` coverage established by #340. Its Cask selection, cooldown, metadata, confirmation, signal, and smoke-test behavior remain unchanged.
+
 ## Context
 
 Developer machines have multiple update channels that can become arbitrary-code execution paths: VS Code extensions, editor applications, Homebrew/Linuxbrew formulae and casks, apt packages, language package managers, runtime managers, cloud CLIs, AI coding tools, and their plugin systems. The goal is not to stop all updates. The goal is to move routine updates into reviewable windows while keeping security updates timely.

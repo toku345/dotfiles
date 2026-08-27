@@ -29,7 +29,7 @@ gh auth status
 
 通常更新は公開から7日を目安に保留します。security advisory、active exploit、作業を復旧するbreak/fixはこの待機期間を省略します。
 
-`brew-reviewed-upgrade` は Bash 5+ が必要です。macOS system Bash 3.2 が選ばれる場合は、`brew install bash` を実行し、Homebrewの `bin` directoryが `/bin` より前にPATHへ入っていることを確認してください。helperは古いBashを検出するとHomebrew操作前にexit 2で停止します。
+`brew-reviewed-upgrade` と `brew-reviewed-cask-upgrade` は Bash 5+ が必要です。macOS system Bash 3.2 が選ばれる場合は、`brew install bash` を実行し、Homebrewの `bin` directoryが `/bin` より前にPATHへ入っていることを確認してください。helperは古いBashを検出するとHomebrew操作前にexit 2で停止します。
 
 ### Quick Start
 
