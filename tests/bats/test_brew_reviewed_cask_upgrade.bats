@@ -342,7 +342,9 @@ refute_log_contains() {
 }
 
 @test "managed and effective policy drift fail before metadata update" {
-  sed -i '/HOMEBREW_CASK_OPTS/d' "$HOME/.homebrew/brew.env"
+  sed '/HOMEBREW_CASK_OPTS/d' "$HOME/.homebrew/brew.env" \
+    >"$HOME/.homebrew/brew.env.tmp"
+  mv "$HOME/.homebrew/brew.env.tmp" "$HOME/.homebrew/brew.env"
   run brew-reviewed-cask-upgrade codex -- smoke-command
   [ "$status" -eq 1 ]
   refute_log_contains $'update'
@@ -456,15 +458,18 @@ refute_log_contains() {
 }
 
 @test "missing gh is an exception-eligible release condition" {
-  type() {
-    if [[ "$#" -eq 2 && "$1" == -P && "$2" == gh ]]; then
-      return 1
-    fi
-    builtin type "$@"
-  }
-  export -f type
-  rm "$TEST_BIN/gh"
-  run brew-reviewed-cask-upgrade --cooldown-exception \
+  local command_path no_gh_bin="$BATS_TEST_TMPDIR/no-gh-bin"
+  mkdir "$no_gh_bin"
+  for command_path in awk cat cmp grep mktemp rm; do
+    ln -s "$(type -P "$command_path")" "$no_gh_bin/$command_path"
+  done
+  ln -s "$BASH5_BIN" "$no_gh_bin/bash"
+  ln -s "$TEST_BIN/brew" "$no_gh_bin/brew"
+  ln -s "$TEST_BIN/jq" "$no_gh_bin/jq"
+  ln -s "$TEST_BIN/smoke-command" "$no_gh_bin/smoke-command"
+
+  run env PATH="$no_gh_bin" "$BASH5_BIN" "$SOURCE" \
+    --cooldown-exception \
     "release reviewed manually" codex -- smoke-command <"$YES_FILE"
   [ "$status" -eq 0 ]
   [[ "$output" == *"GitHub CLI is unavailable"* ]]
