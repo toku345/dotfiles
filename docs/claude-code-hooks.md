@@ -16,12 +16,13 @@
 
 Stop event hook。`git diff HEAD` と untracked を走査し、`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`*.fish` のいずれかが変更されている時のみ対応する gate (shellcheck / `fish -n`) を実行する。
 
-- **bats suite は hook 自身が実行しない**: Stop hook は turn 終了時に自動発火し、permission system も Bash tool の sandbox も経由しない。`bats tests/bats/` は tree 内の全 `.bats` / `.bash` を shell code として source・実行するため、auto-approve されがちな `tests/bats/` への write が無確認のコマンド実行に化ける。`tests/bats/` 変更時は「`bats tests/bats/` を通常のコマンドとして (= permission-gated な経路で) 自分で実行せよ」という指示付きで stop をブロックする
+- **bats suite は hook 自身が実行しない**: Stop hook は turn 終了時に自動発火し、permission system も Bash tool の sandbox も経由しない。`bats tests/bats/` は検出した `.bats` と、それらが load / source する shell helper を実行するため、auto-approve されがちな `tests/bats/` への write が無確認のコマンド実行に化ける。`tests/bats/` 変更時は「`bats tests/bats/` を通常のコマンドとして (= permission-gated な経路で) 自分で実行せよ」という指示付きで stop をブロックする
   - この reminder は変更が enumeration (`git diff HEAD` + untracked) に載っている間ずっと出る。commit すれば enumeration から外れて止まる。**この出口を stderr のメッセージ側には書いていない** — 「commit すれば黙る」と agent に直接教えると、スイートを実行せずに gate を回避する手段を教えることになるため。人間が trade-off を判断できるこの docs 側にのみ記載する
   - `bats` 未インストール時は reminder を出さずに skip する。実行手段が無い環境で従えない指示を出しても reminder budget を消費するだけで、検証は CI に委ねる方が筋が通るため (`tests/bats/test_hooks.bats` で固定)
 - 失敗時は exit 2 + stderr で Claude に feedback を返す
 - 連続ブロック上限は 3 回。**counter は 2 系統に分かれている**: 実際に実行される gate (shellcheck / `fish -n`) は `stop-hook-block-count.<repo-key>`、bats reminder は `stop-hook-bats-reminder-count.<repo-key>` (いずれも `${XDG_STATE_HOME:-$HOME/.local/state}/claude/project-hooks/` 配下)。reminder は `tests/bats/` が dirty な間は中身の正否に関わらず毎回発火するため、budget を共有すると本物の shellcheck 失敗が reminder に巻き込まれて早期に自動許可されてしまう
-  - **reminder の auto-allow は counter を削除せず 3 のまま残す** (sentinel)。削除すると次の stop で 0 に戻って再武装し、dirty な間ずっと「3 回ブロック → 1 回許可」を繰り返す無限ループになる。エージェント側にこれを解消する手段は無い (hook は tool call を観測できない)。counter は reminder が適用されなくなる箇所 — `tests/bats/` が clean に戻った時と bats 未インストール時 — でのみ削除される。つまり 1 つの dirty エピソードにつき 3 回だけ止め、以降は黙る
+  - **reminder の auto-allow は counter を削除せず 3 のまま残す** (sentinel)。削除すると次の stop で 0 に戻って再武装し、dirty な間ずっと「3 回ブロック → 1 回許可」を繰り返す無限ループになる。エージェント側にこれを解消する手段は無い (hook は tool call を観測できない)。counter は reminder が適用されなくなる箇所 — `tests/bats/` が clean に戻った時と bats 未インストール時 — でのみ削除される。つまり 1 つの dirty エピソードにつき 3 回だけ止め、以降は block と実行指示の再掲を止める。上限到達を示す auto-allow diagnostic はその後も出力する
+  - counter を永続化できない場合は、上限のない stop loop を避けるため fail loud + open とする。ただし executing gate の counter を保存できた後に bats reminder counter だけが失敗した場合は、reminder のみ unenforced とし、shellcheck / `fish -n` failure は引き続き block する
 
 ### `.claude/hooks/fish-syntax-check.sh`
 

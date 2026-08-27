@@ -177,14 +177,15 @@ if [ ${#bats_changed[@]} -gt 0 ]; then
   if command -v bats >/dev/null 2>&1; then
     # Never run the suite from here. A Stop hook fires automatically at the
     # end of a turn, outside the permission system and outside the sandbox
-    # that Bash tool calls run under, and `bats tests/bats/` sources and
-    # executes every .bats/.bash file in that tree as shell code. Running it
-    # here would turn any write under tests/bats/ — routinely auto-approved —
-    # into unprompted command execution. Block instead, so the suite runs
-    # through the normal permission-gated path where that decision is made.
+    # that Bash tool calls run under, and `bats tests/bats/` executes every
+    # discovered .bats test plus the shell helpers those tests load or source.
+    # Running it here would turn any write under tests/bats/ — routinely
+    # auto-approved — into unprompted command execution. Block instead, so the
+    # suite runs through the normal permission-gated path where that decision
+    # is made.
     bats_msg="bats gate requires a gated run (files under tests/bats/ changed):"
     bats_msg+=$'\n''Run `bats tests/bats/` as a normal command, so the run goes through the permission/sandbox path this hook bypasses, then fix any failures.'
-    bats_msg+=$'\n'"This hook cannot observe tool calls, so it reminds on each stop until its own $MAX_BLOCKS-reminder auto-allow, then stays quiet for the rest of this change."
+    bats_msg+=$'\n'"This hook cannot observe tool calls, so it reminds on each stop until its own $MAX_BLOCKS-reminder auto-allow, then stops blocking and repeating this instruction for the rest of this change."
     notices+=("$bats_msg")
   else
     # The reminder needs no binary, but with bats absent the suite cannot be
@@ -245,7 +246,6 @@ bump_errors=0
 bump_nag=0
 
 if [ ${#errors[@]} -gt 0 ]; then
-  blocking+=("${errors[@]}")
   bump_errors=1
 else
   remove_state_file "$STATE_FILE"
@@ -261,37 +261,49 @@ if [ ${#notices[@]} -gt 0 ]; then
     # notices-empty branch below.
     echo "verify-on-stop: bats reminder issued $nag_count times consecutively, allowing stop." >&2
   else
-    blocking+=("${notices[@]}")
     bump_nag=1
   fi
 else
   remove_state_file "$NAG_STATE_FILE"
 fi
 
-if [ ${#blocking[@]} -eq 0 ]; then
+if [ "$bump_errors" -eq 0 ] && [ "$bump_nag" -eq 0 ]; then
   exit 0
 fi
 
-# Persist the incremented counters outside the worktree. If the state home is
-# unwritable (e.g. an absolute but read-only XDG_STATE_HOME), fail loud AND
-# open: a counter we cannot advance would defeat the MAX_BLOCKS auto-allow and
-# could trap the turn in a stop loop.
-persist_failed=""
-if [ "$bump_errors" -eq 1 ] && ! persist_block_count "$STATE_FILE" $((count + 1)); then
-  persist_failed="$STATE_FILE"
+# Persist the executing-gate counter first. If it cannot advance, fail loud and
+# open: blocking without a working MAX_BLOCKS guard could trap the turn.
+if [ "$bump_errors" -eq 1 ]; then
+  if ! persist_block_count "$STATE_FILE" $((count + 1)); then
+    {
+      echo "verify-on-stop: cannot persist loop-guard state ($STATE_FILE); allowing stop."
+      echo "verify-on-stop: verification failures were not enforced:"
+      printf '%s\n\n' "${errors[@]}"
+    } >&2
+    exit 0
+  fi
+  blocking+=("${errors[@]}")
 fi
-if [ -z "$persist_failed" ] && [ "$bump_nag" -eq 1 ] \
-   && ! persist_block_count "$NAG_STATE_FILE" $((nag_count + 1)); then
-  persist_failed="$NAG_STATE_FILE"
+
+# The reminder has an independent budget. If only its counter fails, do not
+# discard an executing gate whose counter was already persisted successfully.
+if [ "$bump_nag" -eq 1 ]; then
+  if ! persist_block_count "$NAG_STATE_FILE" $((nag_count + 1)); then
+    {
+      echo "verify-on-stop: cannot persist bats reminder state ($NAG_STATE_FILE); reminder not enforced."
+      printf '%s\n\n' "${notices[@]}"
+      if [ "$bump_errors" -eq 0 ]; then
+        echo "verify-on-stop: allowing stop to avoid an unbounded reminder loop."
+      fi
+    } >&2
+    if [ "$bump_errors" -eq 0 ]; then
+      exit 0
+    fi
+  else
+    blocking+=("${notices[@]}")
+  fi
 fi
-if [ -n "$persist_failed" ]; then
-  {
-    echo "verify-on-stop: cannot persist loop-guard state ($persist_failed); allowing stop."
-    echo "verify-on-stop: verification failures were not enforced:"
-    printf '%s\n\n' "${blocking[@]}"
-  } >&2
-  exit 0
-fi
+
 if [ "$bump_errors" -eq 1 ]; then
   header="verify-on-stop blocked stop ($((count + 1))/$MAX_BLOCKS):"
 else
