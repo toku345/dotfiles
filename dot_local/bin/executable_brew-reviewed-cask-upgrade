@@ -623,6 +623,39 @@ lookup_github_release() {
     RELEASE_GATE_REASON="GitHub Release lookup failed with status $status"
     return 1
   fi
+  if [[ "$RELEASE_SOURCE_KIND" == "release-asset" ]]; then
+    if "$JQ_BIN" -e \
+      --arg name "$RELEASE_ASSET_NAME" \
+      --arg url "$CANDIDATE_URL" \
+      --arg digest "sha256:${CANDIDATE_SHA256,,}" '
+        if type == "object" and (.assets | type) == "array" then
+          [.assets[] | select(type == "object")
+            | select(.name == $name and .browser_download_url == $url)] as $matches
+          | if ($matches | length) == 1 then
+              ($matches[0].digest // null) as $asset_digest
+              | if (($asset_digest | type) == "string"
+                  and ($asset_digest | length) > 0) then
+                  ($asset_digest | ascii_downcase) != $digest
+                else
+                  false
+                end
+            else
+              false
+            end
+        else
+          false
+        end
+      ' "$output_file" >/dev/null; then
+      RELEASE_GATE_REASON="GitHub Release asset digest does not match the Cask SHA-256"
+      return 2
+    else
+      digest_check_status=$?
+      if (( digest_check_status != 1 )); then
+        RELEASE_GATE_REASON="GitHub Release asset digest could not be evaluated"
+        return 1
+      fi
+    fi
+  fi
   if ! "$JQ_BIN" -e \
     --arg tag "$RELEASE_TAG" \
     --arg prefix "https://github.com/$RELEASE_OWNER/$RELEASE_REPO/releases/tag/" '
@@ -648,32 +681,6 @@ lookup_github_release() {
   if [[ "$RELEASE_SOURCE_KIND" != "release-asset" ]]; then
     RELEASE_GATE_REASON="GitHub tag archives are not bound to immutable release-asset metadata"
     return 1
-  fi
-  if "$JQ_BIN" -e \
-    --arg name "$RELEASE_ASSET_NAME" \
-    --arg url "$CANDIDATE_URL" \
-    --arg digest "sha256:${CANDIDATE_SHA256,,}" '
-      [.assets[] | select(.name == $name and .browser_download_url == $url)] as $matches
-      | if ($matches | length) == 1 then
-          ($matches[0].digest // null) as $asset_digest
-          | if (($asset_digest | type) == "string"
-              and ($asset_digest | length) > 0) then
-              ($asset_digest | ascii_downcase) != $digest
-            else
-              false
-            end
-        else
-          false
-        end
-    ' "$output_file" >/dev/null; then
-    RELEASE_GATE_REASON="GitHub Release asset digest does not match the Cask SHA-256"
-    return 2
-  else
-    digest_check_status=$?
-    if (( digest_check_status != 1 )); then
-      RELEASE_GATE_REASON="GitHub Release asset digest could not be evaluated"
-      return 1
-    fi
   fi
   asset_values="$("$JQ_BIN" -er \
     --arg name "$RELEASE_ASSET_NAME" \

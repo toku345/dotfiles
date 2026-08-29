@@ -83,6 +83,7 @@ if [[ "${1:-}" == "api" ]]; then
     --arg tag "${GH_STUB_RELEASE_TAG:-v2.0.0}" \
     --arg release_url "${GH_STUB_RELEASE_URL:-https://github.com/openai/codex/releases/tag/v2.0.0}" \
     --arg published "${GH_STUB_PUBLISHED_AT:-2020-01-01T00:00:00Z}" \
+    --arg published_mode "${GH_STUB_PUBLISHED_MODE:-string}" \
     --argjson draft "${GH_STUB_DRAFT:-false}" \
     --argjson prerelease "${GH_STUB_PRERELEASE:-false}" \
     --arg asset_name "${GH_STUB_ASSET_NAME:-codex.tar.gz}" \
@@ -95,7 +96,10 @@ if [[ "${1:-}" == "api" ]]; then
       draft: $draft, prerelease: $prerelease,
       assets: [range(0; $asset_count) | {name: $asset_name,
         browser_download_url: $asset_url, digest: $digest,
-        created_at: $created, updated_at: $updated}]}'
+        created_at: $created, updated_at: $updated}]}
+      | if $published_mode == "null" then .published_at = null
+        elif $published_mode == "missing" then del(.published_at)
+        else . end'
   exit 0
 fi
 exit 2
@@ -605,6 +609,21 @@ refute_log_contains() {
   run brew-reviewed-cask-upgrade codex -- smoke-command
   [ "$status" -eq 1 ]
   [[ "$output" == *"missing, ambiguous"* ]]
+}
+
+@test "explicit asset digest mismatch remains fatal with malformed release metadata" {
+  local published_mode
+  export GH_STUB_ASSET_DIGEST=sha256:3333333333333333333333333333333333333333333333333333333333333333
+
+  for published_mode in null missing; do
+    export GH_STUB_PUBLISHED_MODE="$published_mode"
+    run brew-reviewed-cask-upgrade --cooldown-exception \
+      "release reviewed manually" codex -- smoke-command <"$YES_FILE"
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"digest does not match the Cask SHA-256"* ]]
+    refute_log_contains $'upgrade\t--cask\t--no-ask'
+  done
 }
 
 @test "tag archives require a reasoned manual exception" {
