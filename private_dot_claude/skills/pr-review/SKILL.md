@@ -176,7 +176,11 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
 4. Re-run this skill after fixes to verify prior Critical/Important findings
 5. Stop when Critical 0 / Important 0; do not re-run for Suggestions only
 6. If this is the third or later pass and Critical/Important findings still churn, escalate to human judgment
+
+<!-- pr-review-tally: <result.tally as compact JSON> -->
 ```
+
+Emit the trailing tally comment verbatim from `result.tally` — serialize the object as compact JSON, never recompute the counts from the rendered sections, which are capped and would disagree with it. The counts are pre-cap, so `important` there can legitimately exceed the 5 shown above; that gap is the standing measure of how much the caps suppress. A CI step or a later pass can read the line with `grep -o 'pr-review-tally: .*[}]' | cut -d' ' -f2-`.
 
 Omit empty sections (except render `## Critical Issues (0 found)` explicitly — the absence of Criticals is the gate's headline). Findings with `verdict: needs-verification` and non-empty `missingVerification` stay in the fix queue as Important with their missing verification stated; never silently drop them, but do not render them as Critical until the missing proof exists. Other verdicts carrying `missingVerification`, or `needs-verification` without it, are invalid verifier outputs and must fail closed.
 

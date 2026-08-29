@@ -218,6 +218,10 @@ assert(r2.reviewChurnGuidance.includes('third or later pass'), 'S2: review churn
   assert(r3.importantTotal > rules.output_caps.important, `S3: cap exceeded in fixture (total ${r3.importantTotal})`)
   assert(r3.importantOverflow.length === r3.importantTotal - rules.output_caps.important, 'S3: overflow returns the capped-out tail in full')
   assert(r3.importantOverflow.every(f => f.why && f.specialist), 'S3: overflow entries carry full finding content')
+  // the tally exists to measure cap pressure, so it must track the pre-cap
+  // total precisely where the rendered list stops being able to
+  assert(r3.tally.important === r3.importantTotal && r3.important.length === rules.output_caps.important,
+    'S3: tally reports the pre-cap Important total while the rendered list stays capped')
 }
 
 // S4: coverage gate fails closed on echo mismatch
@@ -426,6 +430,17 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   assert(atByteLimit.argsContract === 'PR_REVIEW_ARGS_V2', 'S13: packet exactly at the byte limit still reviews')
   const atFileLimit = await run(makeArgs({ changedFiles: Array.from({ length: 500 }, (_, i) => `src/f${i}.js`) }))
   assert(atFileLimit.argsContract === 'PR_REVIEW_ARGS_V2', 'S13: exactly 500 changed files still reviews')
+}
+
+// S14: the tally the render emits verbatim must agree with the structured
+// result — recomputing it from the capped sections would understate the totals
+{
+  const r14 = await run(makeArgs())
+  assert(r14.tally.critical === r14.critical.length, 'S14: tally.critical matches the Critical list')
+  assert(r14.tally.important === r14.importantTotal, 'S14: tally.important is the pre-cap Important total')
+  assert(r14.tally.suggestion === r14.suggestionsTotal, 'S14: tally.suggestion is the pre-cap Suggestion total')
+  assert(r14.tally.refuted === r14.refuted.length, 'S14: tally.refuted matches the refuted list')
+  assert(Object.values(r14.tally).every(n => Number.isInteger(n) && n >= 0), 'S14: tally values are non-negative integers')
 }
 
 if (failed) {

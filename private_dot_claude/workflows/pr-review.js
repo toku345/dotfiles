@@ -621,6 +621,17 @@ return {
   suggestionsTotal: suggestions.length,
   strengths,
   refuted,
+  // Machine-readable severity counts for the render's one-line tally, so a CI
+  // step or a later gate pass can read the outcome without parsing prose.
+  // Counts are pre-cap on purpose: the gap between `important` here and the
+  // rendered cap is the only standing measurement of how much the caps are
+  // actually suppressing, which is what a future dedup decision needs.
+  tally: {
+    critical: critical.length,
+    important: important.length,
+    suggestion: suggestions.length,
+    refuted: refuted.length,
+  },
   stage2Ran,
   stopCondition: critical.length === 0 && important.length === 0
     ? 'Critical 0 / Important 0: stop the gate loop; Suggestions alone do not justify another run.'
