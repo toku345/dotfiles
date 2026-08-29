@@ -18,6 +18,8 @@ Accepted as policy (2026-05-21). Enforcement is partial; remaining controls are 
 
 **Amendment 2026-08-27 (PR #339)**: `brew-reviewed-cask-upgrade` adopts the same Bash 5+ runtime contract, early rejection, absolute-interpreter test fixture, and focused `macos-15` coverage established by #340. Its Cask selection, cooldown, metadata, confirmation, signal, and smoke-test behavior remain unchanged.
 
+**Amendment 2026-08-29 (PR #339 review hardening)**: `brew-reviewed-cask-upgrade` separates stable installed state from the Caskroom `INSTALL_RECEIPT.json` and the mutable current candidate definition, then revalidates the installed state, receipt, and complete reviewed candidate snapshot immediately before mutation and verifies the complete candidate snapshot again afterward. The automatic seven-day path is limited to a unique GitHub Release asset whose name and download URL match the Cask URL and whose GitHub SHA-256 digest matches the Cask checksum; its cooldown begins at the newest of the Release publication, asset creation, and asset update timestamps. Tag archives and missing, ambiguous, or digestless asset metadata require the existing reasoned manual-exception path. Review rendering now fails on each individual output error, and captured GitHub diagnostics are surfaced before the contextual failure.
+
 ## Context
 
 Developer machines have multiple update channels that can become arbitrary-code execution paths: VS Code extensions, editor applications, Homebrew/Linuxbrew formulae and casks, apt packages, language package managers, runtime managers, cloud CLIs, AI coding tools, and their plugin systems. The goal is not to stop all updates. The goal is to move routine updates into reviewable windows while keeping security updates timely.

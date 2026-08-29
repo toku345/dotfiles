@@ -34,8 +34,13 @@ OUTDATED_CANDIDATE=""
 RELEASE_OWNER=""
 RELEASE_REPO=""
 RELEASE_TAG=""
+RELEASE_SOURCE_KIND=""
+RELEASE_ASSET_NAME=""
 RELEASE_NOTES_URL=""
+RELEASE_RECORD_PUBLISHED_AT=""
 RELEASE_PUBLISHED_AT=""
+RELEASE_ASSET_CREATED_AT=""
+RELEASE_ASSET_UPDATED_AT=""
 RELEASE_ELIGIBLE_AT=""
 RELEASE_AGE_SECONDS=0
 RELEASE_AGE_VERIFIED=0
@@ -343,7 +348,25 @@ load_named_metadata() {
   validate_metadata_shape "$output_file" "$label"
 }
 
-load_installed_metadata() {
+validate_installed_state_shape() {
+  local metadata_file="$1"
+
+  if ! "$JQ_BIN" -e '
+    (.formulae | type) == "array" and (.formulae | length) == 0
+      and (.casks | type) == "array" and (.casks | length) == 1
+      and (.casks[0] | type) == "object"
+      and (.casks[0].token | type) == "string" and (.casks[0].token | length) > 0
+      and (.casks[0].token | test("[[:cntrl:][:space:]]") | not)
+      and .casks[0].tap == "homebrew/cask"
+      and (.casks[0].installed | type) == "string" and (.casks[0].installed | length) > 0
+      and .casks[0].pinned == false
+  ' "$metadata_file" >/dev/null; then
+    error "installed Cask state is malformed or outside the strict supported scope"
+    return 1
+  fi
+}
+
+load_installed_state() {
   local canonical="$1"
   local output_file="$2"
   local inventory_file="$TEMP_DIR/info-installed-inventory.json"
@@ -365,7 +388,7 @@ load_installed_metadata() {
     error "could not isolate installed Cask metadata: $canonical"
     return 1
   fi
-  validate_metadata_shape "$output_file" "installed"
+  validate_installed_state_shape "$output_file"
 }
 
 metadata_value() {
@@ -374,16 +397,94 @@ metadata_value() {
   "$JQ_BIN" -er "$filter" "$metadata_file"
 }
 
-write_safety_snapshot() {
+write_installed_state_snapshot() {
+  local metadata_file="$1"
+  local snapshot_file="$2"
+
+  if ! "$JQ_BIN" -S -c \
+    '.casks[0] | {token, tap, installed, pinned}' \
+    "$metadata_file" >"$snapshot_file"; then
+    error "could not encode installed Cask state"
+    return 1
+  fi
+}
+
+load_installed_receipt_snapshot() {
+  local canonical="$1"
+  local installed_version="$2"
+  local snapshot_file="$3"
+  local caskroom_file="$TEMP_DIR/caskroom-path"
+  local caskroom receipt_path
+  local -a caskroom_lines=()
+
+  if ! capture_command "$caskroom_file" "$BREW_BIN" --caskroom "$canonical"; then
+    error "could not resolve the installed Caskroom path: $canonical"
+    return 1
+  fi
+  if ! mapfile -t caskroom_lines <"$caskroom_file"; then
+    error "could not read the installed Caskroom path: $canonical"
+    return 1
+  fi
+  if (( ${#caskroom_lines[@]} != 1 )); then
+    error "installed Caskroom path is missing or ambiguous: $canonical"
+    return 1
+  fi
+  caskroom="${caskroom_lines[0]}"
+  if [[ "$caskroom" != /* || "$caskroom" =~ [[:cntrl:]] || ! -d "$caskroom" ]]; then
+    error "installed Caskroom path is invalid: $canonical"
+    return 1
+  fi
+
+  receipt_path="$caskroom/.metadata/INSTALL_RECEIPT.json"
+  if [[ ! -f "$receipt_path" || -L "$receipt_path" ]]; then
+    error "installed Cask INSTALL_RECEIPT.json is missing or not a regular file: $canonical"
+    return 1
+  fi
+
+  if ! "$JQ_BIN" -e --arg version "$installed_version" '
+    def allowed_artifact_keys:
+      ["app", "binary", "bash_completion", "fish_completion",
+       "zsh_completion", "manpage", "generate_completions_from_executable",
+       "zap", "target"];
+    type == "object"
+      and (.source | type) == "object"
+      and .source.tap == "homebrew/cask"
+      and .source.version == $version
+      and .installed_on_request == true
+      and (.runtime_dependencies == {} or .runtime_dependencies == [])
+      and .uninstall_flight_blocks == false
+      and (.uninstall_artifacts | type) == "array"
+      and (.uninstall_artifacts | length) > 0
+      and any(.uninstall_artifacts[]; has("app") or has("binary"))
+      and all(.uninstall_artifacts[];
+        type == "object" and length > 0
+          and ((keys - allowed_artifact_keys) | length) == 0
+          and ([keys[] | select(. != "target")] | length) > 0)
+  ' "$receipt_path" >/dev/null; then
+    error "installed Cask receipt is malformed or outside the strict supported scope"
+    return 1
+  fi
+  if ! "$JQ_BIN" -S -c '
+    {source: {tap: .source.tap, tap_git_head: .source.tap_git_head,
+              version: .source.version},
+     installed_on_request, runtime_dependencies, uninstall_artifacts,
+     uninstall_flight_blocks}
+  ' "$receipt_path" >"$snapshot_file"; then
+    error "could not encode installed Cask receipt metadata"
+    return 1
+  fi
+}
+
+write_candidate_snapshot() {
   local metadata_file="$1"
   local snapshot_file="$2"
 
   if ! "$JQ_BIN" -S -c '
     .casks[0]
-      | {token, tap, version, sha256, installed, pinned, deprecated, disabled,
+      | {token, tap, version, sha256, pinned, deprecated, disabled,
          auto_updates, url, homepage, artifacts, depends_on, conflicts_with}
   ' "$metadata_file" >"$snapshot_file"; then
-    error "could not encode Cask safety metadata"
+    error "could not encode candidate Cask safety metadata"
     return 1
   fi
 }
@@ -418,24 +519,29 @@ decode_url_component() {
 
 extract_github_release_coordinates() {
   local info_file="$1"
-  local encoded_tag=""
+  local encoded_tag="" encoded_asset=""
 
   RELEASE_OWNER=""
   RELEASE_REPO=""
   RELEASE_TAG=""
+  RELEASE_SOURCE_KIND=""
+  RELEASE_ASSET_NAME=""
 
   CANDIDATE_URL="$(metadata_value "$info_file" '.casks[0].url')" || {
     RELEASE_GATE_REASON="Cask download URL is missing or malformed"
     return 1
   }
-  if [[ "$CANDIDATE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/releases/download/([^/]+)/[^/?#]+$ ]]; then
+  if [[ "$CANDIDATE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/releases/download/([^/]+)/([^/?#]+)$ ]]; then
     RELEASE_OWNER="${BASH_REMATCH[1]}"
     RELEASE_REPO="${BASH_REMATCH[2]}"
     encoded_tag="${BASH_REMATCH[3]}"
+    encoded_asset="${BASH_REMATCH[4]}"
+    RELEASE_SOURCE_KIND="release-asset"
   elif [[ "$CANDIDATE_URL" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/archive/refs/tags/(.+)\.(tar\.gz|zip)$ ]]; then
     RELEASE_OWNER="${BASH_REMATCH[1]}"
     RELEASE_REPO="${BASH_REMATCH[2]}"
     encoded_tag="${BASH_REMATCH[3]}"
+    RELEASE_SOURCE_KIND="tag-archive"
   else
     RELEASE_GATE_REASON="Cask download is not a supported GitHub release URL"
     return 1
@@ -444,6 +550,22 @@ extract_github_release_coordinates() {
     RELEASE_GATE_REASON="GitHub release tag is malformed"
     return 1
   }
+  if [[ "$RELEASE_SOURCE_KIND" == "release-asset" ]]; then
+    RELEASE_ASSET_NAME="$(decode_url_component "$encoded_asset")" || {
+      RELEASE_GATE_REASON="GitHub release asset name is malformed"
+      return 1
+    }
+  fi
+}
+
+display_captured_diagnostics() {
+  local diagnostic_file="$1"
+  local label="$2"
+
+  if [[ -s "$diagnostic_file" ]] && ! cat "$diagnostic_file" >&2; then
+    error "could not display $label diagnostics"
+    return 1
+  fi
 }
 
 prepare_github_client() {
@@ -458,6 +580,7 @@ prepare_github_client() {
     return 0
   else
     status=$?
+    display_captured_diagnostics "$output_file" "GitHub authentication" || true
     RELEASE_GATE_REASON="GitHub CLI authentication failed with status $status"
     return 1
   fi
@@ -466,7 +589,7 @@ prepare_github_client() {
 lookup_github_release() {
   local output_file="$TEMP_DIR/github-release.json"
   local error_file="$TEMP_DIR/github-release-error"
-  local encoded_tag status=0
+  local encoded_tag asset_values status=0
 
   encoded_tag="$("$JQ_BIN" -rn --arg value "$RELEASE_TAG" '$value | @uri')" || {
     RELEASE_GATE_REASON="could not encode the GitHub release tag"
@@ -480,6 +603,7 @@ lookup_github_release() {
     :
   else
     status=$?
+    display_captured_diagnostics "$error_file" "GitHub Release lookup" || true
     RELEASE_GATE_REASON="GitHub Release lookup failed with status $status"
     return 1
   fi
@@ -495,14 +619,49 @@ lookup_github_release() {
           and (test("[[:cntrl:]]") | not))
         and (.draft | type) == "boolean"
         and (.prerelease | type) == "boolean"
+        and (.assets | type) == "array"
     ' "$output_file" >/dev/null; then
     RELEASE_GATE_REASON="GitHub Release metadata is malformed or does not match the download tag"
     return 1
   fi
   RELEASE_NOTES_URL="$("$JQ_BIN" -r '.html_url' "$output_file")"
-  RELEASE_PUBLISHED_AT="$("$JQ_BIN" -r '.published_at' "$output_file")"
+  RELEASE_RECORD_PUBLISHED_AT="$("$JQ_BIN" -r '.published_at' "$output_file")"
   RELEASE_DRAFT="$("$JQ_BIN" -r '.draft' "$output_file")"
   RELEASE_PRERELEASE="$("$JQ_BIN" -r '.prerelease' "$output_file")"
+
+  if [[ "$RELEASE_SOURCE_KIND" != "release-asset" ]]; then
+    RELEASE_GATE_REASON="GitHub tag archives are not bound to immutable release-asset metadata"
+    return 1
+  fi
+  asset_values="$("$JQ_BIN" -er \
+    --arg name "$RELEASE_ASSET_NAME" \
+    --arg url "$CANDIDATE_URL" \
+    --arg digest "sha256:${CANDIDATE_SHA256,,}" \
+    --arg release "$RELEASE_RECORD_PUBLISHED_AT" '
+      [.assets[] | select(.name == $name and .browser_download_url == $url)] as $matches
+      | if ($matches | length) != 1 then
+          error("release asset is missing or ambiguous")
+        else
+          $matches[0]
+        end
+      | select((.digest | type) == "string" and (.digest | ascii_downcase) == $digest)
+      | [.created_at, .updated_at] as $asset_times
+      | select(all($asset_times[]; type == "string" and length > 0))
+      | ([ $release, $asset_times[] ]
+          | map({text: ., epoch: (. | fromdateiso8601)})
+          | max_by(.epoch).text) as $freshest
+      | [$asset_times[0], $asset_times[1], $freshest] | @tsv
+    ' "$output_file")" || {
+      RELEASE_GATE_REASON="GitHub Release asset metadata is missing, ambiguous, or not bound to the Cask SHA-256"
+      return 1
+    }
+  IFS=$'\t' read -r RELEASE_ASSET_CREATED_AT RELEASE_ASSET_UPDATED_AT \
+    RELEASE_PUBLISHED_AT <<<"$asset_values"
+  if [[ -z "$RELEASE_ASSET_CREATED_AT" || -z "$RELEASE_ASSET_UPDATED_AT" \
+    || -z "$RELEASE_PUBLISHED_AT" ]]; then
+    RELEASE_GATE_REASON="GitHub Release asset freshness metadata could not be evaluated"
+    return 1
+  fi
 }
 
 evaluate_release_age() {
@@ -524,17 +683,17 @@ evaluate_release_age() {
            ($published_epoch + $cooldown | strftime("%Y-%m-%dT%H:%M:%SZ"))]
         | @tsv
     ')" || {
-    RELEASE_GATE_REASON="GitHub Release published_at is not a valid UTC timestamp"
+    RELEASE_GATE_REASON="GitHub Release asset freshness timestamp is invalid"
     return 1
   }
   IFS=$'\t' read -r published_epoch RELEASE_ELIGIBLE_AT <<<"$values"
   if [[ ! "$published_epoch" =~ ^[0-9]+$ || -z "$RELEASE_ELIGIBLE_AT" ]]; then
-    RELEASE_GATE_REASON="GitHub Release published_at could not be evaluated"
+    RELEASE_GATE_REASON="GitHub Release asset freshness timestamp could not be evaluated"
     return 1
   fi
   RELEASE_AGE_SECONDS=$((now_epoch - published_epoch))
   if (( RELEASE_AGE_SECONDS < 0 )); then
-    RELEASE_GATE_REASON="GitHub Release published_at is in the future"
+    RELEASE_GATE_REASON="GitHub Release asset freshness timestamp is in the future"
     return 1
   fi
   RELEASE_AGE_VERIFIED=1
@@ -553,6 +712,13 @@ format_duration() {
     printf '%dh %dm\n' "$hours" "$minutes"
   else
     printf '%dm\n' "$minutes"
+  fi
+}
+
+review_printf() {
+  if ! printf "$@"; then
+    error "could not display the Cask review"
+    return 1
   fi
 }
 
@@ -577,62 +743,61 @@ print_cask_review() {
     remaining="$(format_duration "$((COOLDOWN_SECONDS - RELEASE_AGE_SECONDS))")" || return $?
   fi
 
-  {
-    printf '%s\n' '==> Cask review'
-    printf 'Cask: %s\n' "$canonical"
-    printf 'Version: %s -> %s\n' "$OUTDATED_INSTALLED" "$OUTDATED_CANDIDATE"
-    printf 'SHA-256: %s\n' "$CANDIDATE_SHA256"
-    printf 'Download: %s\n' "$CANDIDATE_URL"
-    if [[ -n "$CANDIDATE_HOMEPAGE" ]]; then
-      printf 'Homepage: %s\n' "$CANDIDATE_HOMEPAGE"
-    fi
-    printf '%s\n' 'Artifacts:'
-    while IFS= read -r artifact; do
-      printf '  - %s\n' "$artifact"
-    done <"$artifacts_file"
-    if [[ -n "$RELEASE_NOTES_URL" ]]; then
-      printf 'Release notes: %s\n' "$RELEASE_NOTES_URL"
-    else
-      printf '%s\n' 'Release notes: unavailable'
-    fi
-    if (( RELEASE_AGE_VERIFIED )); then
-      printf 'Published: %s (%s ago)\n' "$RELEASE_PUBLISHED_AT" "$age"
-      printf 'Eligible after: %s\n' "$RELEASE_ELIGIBLE_AT"
-    elif [[ -n "$RELEASE_PUBLISHED_AT" ]]; then
-      printf 'Published: %s (unverified)\n' "$RELEASE_PUBLISHED_AT"
-    else
-      printf '%s\n' 'Published: unavailable'
-    fi
-    case "$RELEASE_GATE_STATUS" in
-      eligible)
-        if (( exception_set )); then
-          printf '%s\n' 'Cooldown: eligible (exception not needed)'
-        else
-          printf '%s\n' 'Cooldown: eligible'
-        fi
-        ;;
-      blocked)
-        if [[ -n "$remaining" ]]; then
-          printf 'Cooldown: blocked (%s remaining)\n' "$remaining"
-        else
-          printf '%s\n' 'Cooldown: blocked'
-        fi
-        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
-        ;;
-      unverified)
-        printf '%s\n' 'Cooldown: unverified'
-        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
-        ;;
-      exception)
-        printf '%s\n' 'Cooldown: exception'
-        printf 'Reason: %s\n' "$RELEASE_GATE_REASON"
-        printf 'Exception reason: %s\n' "$exception_reason"
-        ;;
-    esac
-  } || {
-    error "could not display the Cask review"
+  review_printf '%s\n' '==> Cask review' || return $?
+  review_printf 'Cask: %s\n' "$canonical" || return $?
+  review_printf 'Version: %s -> %s\n' "$OUTDATED_INSTALLED" "$OUTDATED_CANDIDATE" || return $?
+  review_printf 'SHA-256: %s\n' "$CANDIDATE_SHA256" || return $?
+  review_printf 'Download: %s\n' "$CANDIDATE_URL" || return $?
+  if [[ -n "$CANDIDATE_HOMEPAGE" ]]; then
+    review_printf 'Homepage: %s\n' "$CANDIDATE_HOMEPAGE" || return $?
+  fi
+  review_printf '%s\n' 'Artifacts:' || return $?
+  while IFS= read -r artifact; do
+    review_printf '  - %s\n' "$artifact" || return $?
+  done <"$artifacts_file" || {
+    error "could not read the Cask artifact review"
     return 1
   }
+  if [[ -n "$RELEASE_NOTES_URL" ]]; then
+    review_printf 'Release notes: %s\n' "$RELEASE_NOTES_URL" || return $?
+  else
+    review_printf '%s\n' 'Release notes: unavailable' || return $?
+  fi
+  if (( RELEASE_AGE_VERIFIED )); then
+    review_printf 'Artifact freshness: %s (%s ago)\n' "$RELEASE_PUBLISHED_AT" "$age" || return $?
+    review_printf 'Eligible after: %s\n' "$RELEASE_ELIGIBLE_AT" || return $?
+  elif [[ -n "$RELEASE_RECORD_PUBLISHED_AT" ]]; then
+    review_printf 'Release published: %s (artifact freshness unverified)\n' \
+      "$RELEASE_RECORD_PUBLISHED_AT" || return $?
+  else
+    review_printf '%s\n' 'Artifact freshness: unavailable' || return $?
+  fi
+  case "$RELEASE_GATE_STATUS" in
+    eligible)
+      if (( exception_set )); then
+        review_printf '%s\n' 'Cooldown: eligible (exception not needed)' || return $?
+      else
+        review_printf '%s\n' 'Cooldown: eligible' || return $?
+      fi
+      ;;
+    blocked)
+      if [[ -n "$remaining" ]]; then
+        review_printf 'Cooldown: blocked (%s remaining)\n' "$remaining" || return $?
+      else
+        review_printf '%s\n' 'Cooldown: blocked' || return $?
+      fi
+      review_printf 'Reason: %s\n' "$RELEASE_GATE_REASON" || return $?
+      ;;
+    unverified)
+      review_printf '%s\n' 'Cooldown: unverified' || return $?
+      review_printf 'Reason: %s\n' "$RELEASE_GATE_REASON" || return $?
+      ;;
+    exception)
+      review_printf '%s\n' 'Cooldown: exception' || return $?
+      review_printf 'Reason: %s\n' "$RELEASE_GATE_REASON" || return $?
+      review_printf 'Exception reason: %s\n' "$exception_reason" || return $?
+      ;;
+  esac
 }
 
 review_release_cooldown() {
@@ -643,7 +808,10 @@ review_release_cooldown() {
   local now_epoch base_status
 
   RELEASE_NOTES_URL=""
+  RELEASE_RECORD_PUBLISHED_AT=""
   RELEASE_PUBLISHED_AT=""
+  RELEASE_ASSET_CREATED_AT=""
+  RELEASE_ASSET_UPDATED_AT=""
   RELEASE_ELIGIBLE_AT=""
   RELEASE_AGE_SECONDS=0
   RELEASE_AGE_VERIFIED=0
@@ -670,7 +838,7 @@ review_release_cooldown() {
       RELEASE_GATE_REASON="GitHub Release is marked as a prerelease"
     elif (( RELEASE_AGE_SECONDS < COOLDOWN_SECONDS )); then
       RELEASE_GATE_STATUS="blocked"
-      RELEASE_GATE_REASON="GitHub Release is newer than 7 days"
+      RELEASE_GATE_REASON="GitHub Release asset is newer than 7 days"
     else
       RELEASE_GATE_STATUS="eligible"
     fi
@@ -793,22 +961,18 @@ run_stage() {
 
 verify_post_upgrade() {
   local canonical="$1"
+  local reviewed_snapshot="$2"
   local output_file="$TEMP_DIR/info-final.json"
-  local final_token final_version final_sha final_url final_installed
+  local final_snapshot="$TEMP_DIR/candidate-final-snapshot.json"
+  local final_installed
 
   load_named_metadata "$canonical" "$output_file" "post-upgrade" || return $?
-  final_token="$(metadata_value "$output_file" '.casks[0].token')" || return $?
-  final_version="$(metadata_value "$output_file" '.casks[0].version')" || return $?
-  final_sha="$(metadata_value "$output_file" '.casks[0].sha256')" || return $?
-  final_url="$(metadata_value "$output_file" '.casks[0].url')" || return $?
-  final_installed="$(metadata_value "$output_file" '.casks[0].installed')" || return $?
-  if [[ "$final_token" != "$canonical" \
-    || "$final_version" != "$CANDIDATE_VERSION" \
-    || "$final_sha" != "$CANDIDATE_SHA256" \
-    || "$final_url" != "$CANDIDATE_URL" ]]; then
-    error "Cask metadata changed during upgrade; the Cask may already be modified"
+  write_candidate_snapshot "$output_file" "$final_snapshot" || return $?
+  if ! cmp -s "$reviewed_snapshot" "$final_snapshot"; then
+    error "Cask safety metadata changed during upgrade; the Cask may already be modified"
     return 1
   fi
+  final_installed="$(metadata_value "$output_file" '.casks[0].installed')" || return $?
   if [[ "$final_installed" != "$CANDIDATE_VERSION" ]]; then
     error "installed Cask version does not match the reviewed candidate; the Cask may already be modified"
     return 1
@@ -822,7 +986,9 @@ main() {
   local cooldown_exception_set=0
   local cooldown_exception_reason=""
   local resolved_smoke canonical post_update_canonical outdated_status=0
-  local initial_file installed_file candidate_file installed_snapshot
+  local initial_file installed_state_file installed_state_snapshot installed_receipt_snapshot
+  local candidate_file candidate_snapshot pre_upgrade_state pre_upgrade_state_snapshot
+  local pre_upgrade_receipt_snapshot pre_upgrade_candidate pre_upgrade_candidate_snapshot
   local -a smoke_command=()
 
   case "${1:-}" in
@@ -883,11 +1049,14 @@ main() {
   load_named_metadata "$cask" "$initial_file" "initial" || return $?
   canonical="$(metadata_value "$initial_file" '.casks[0].token')" || return $?
 
-  installed_file="$TEMP_DIR/info-installed.json"
-  load_installed_metadata "$canonical" "$installed_file" || return $?
-  INSTALLED_VERSION="$(metadata_value "$installed_file" '.casks[0].installed')" || return $?
-  installed_snapshot="$TEMP_DIR/installed-snapshot.json"
-  write_safety_snapshot "$installed_file" "$installed_snapshot" || return $?
+  installed_state_file="$TEMP_DIR/info-installed-state.json"
+  load_installed_state "$canonical" "$installed_state_file" || return $?
+  INSTALLED_VERSION="$(metadata_value "$installed_state_file" '.casks[0].installed')" || return $?
+  installed_state_snapshot="$TEMP_DIR/installed-state-snapshot.json"
+  write_installed_state_snapshot "$installed_state_file" "$installed_state_snapshot" || return $?
+  installed_receipt_snapshot="$TEMP_DIR/installed-receipt-snapshot.json"
+  load_installed_receipt_snapshot "$canonical" "$INSTALLED_VERSION" \
+    "$installed_receipt_snapshot" || return $?
 
   printf '%s\n' '==> Updating Homebrew metadata'
   if ! "$BREW_BIN" update; then
@@ -906,6 +1075,8 @@ main() {
   CANDIDATE_SHA256="$(metadata_value "$candidate_file" '.casks[0].sha256')" || return $?
   CANDIDATE_URL="$(metadata_value "$candidate_file" '.casks[0].url')" || return $?
   CANDIDATE_HOMEPAGE="$("$JQ_BIN" -r '.casks[0].homepage // ""' "$candidate_file")" || return $?
+  candidate_snapshot="$TEMP_DIR/candidate-reviewed-snapshot.json"
+  write_candidate_snapshot "$candidate_file" "$candidate_snapshot" || return $?
 
   if classify_outdated "$canonical"; then
     outdated_status=0
@@ -924,19 +1095,36 @@ main() {
   show_dry_run "$canonical" || return $?
   confirm_review "$canonical" || return $?
 
-  local pre_upgrade_installed="$TEMP_DIR/info-installed-pre-upgrade.json"
-  local pre_upgrade_snapshot="$TEMP_DIR/installed-pre-upgrade-snapshot.json"
-  load_installed_metadata "$canonical" "$pre_upgrade_installed" || return $?
-  write_safety_snapshot "$pre_upgrade_installed" "$pre_upgrade_snapshot" || return $?
-  if ! cmp -s "$installed_snapshot" "$pre_upgrade_snapshot"; then
-    error "installed Cask safety metadata changed before upgrade"
+  pre_upgrade_state="$TEMP_DIR/info-installed-state-pre-upgrade.json"
+  pre_upgrade_state_snapshot="$TEMP_DIR/installed-state-pre-upgrade-snapshot.json"
+  load_installed_state "$canonical" "$pre_upgrade_state" || return $?
+  write_installed_state_snapshot "$pre_upgrade_state" \
+    "$pre_upgrade_state_snapshot" || return $?
+  if ! cmp -s "$installed_state_snapshot" "$pre_upgrade_state_snapshot"; then
+    error "installed Cask state changed before upgrade"
+    return 1
+  fi
+  pre_upgrade_receipt_snapshot="$TEMP_DIR/installed-receipt-pre-upgrade-snapshot.json"
+  load_installed_receipt_snapshot "$canonical" "$INSTALLED_VERSION" \
+    "$pre_upgrade_receipt_snapshot" || return $?
+  if ! cmp -s "$installed_receipt_snapshot" "$pre_upgrade_receipt_snapshot"; then
+    error "installed Cask receipt changed before upgrade"
+    return 1
+  fi
+  pre_upgrade_candidate="$TEMP_DIR/info-candidate-pre-upgrade.json"
+  pre_upgrade_candidate_snapshot="$TEMP_DIR/candidate-pre-upgrade-snapshot.json"
+  load_named_metadata "$canonical" "$pre_upgrade_candidate" "pre-upgrade candidate" || return $?
+  write_candidate_snapshot "$pre_upgrade_candidate" \
+    "$pre_upgrade_candidate_snapshot" || return $?
+  if ! cmp -s "$candidate_snapshot" "$pre_upgrade_candidate_snapshot"; then
+    error "reviewed candidate Cask safety metadata changed before upgrade"
     return 1
   fi
 
   HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1 \
     run_stage "Upgrading $canonical" "$BREW_BIN" upgrade --cask --no-ask \
       --require-sha --no-quit --skip-cask-deps "$canonical" || return $?
-  verify_post_upgrade "$canonical" || return $?
+  verify_post_upgrade "$canonical" "$candidate_snapshot" || return $?
   run_stage "Running smoke command" "${smoke_command[@]}" || return $?
 }
 
