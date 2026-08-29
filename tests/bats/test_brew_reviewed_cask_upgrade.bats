@@ -88,8 +88,8 @@ if [[ "${1:-}" == "api" ]]; then
     --arg asset_name "${GH_STUB_ASSET_NAME:-codex.tar.gz}" \
     --arg asset_url "${GH_STUB_ASSET_URL:-https://github.com/openai/codex/releases/download/v2.0.0/codex.tar.gz}" \
     --arg digest "${GH_STUB_ASSET_DIGEST:-sha256:2222222222222222222222222222222222222222222222222222222222222222}" \
-    --arg created "${GH_STUB_ASSET_CREATED_AT:-2020-01-01T00:00:00Z}" \
-    --arg updated "${GH_STUB_ASSET_UPDATED_AT:-2020-01-01T00:00:00Z}" \
+    --arg created "${GH_STUB_ASSET_CREATED_AT-2020-01-01T00:00:00Z}" \
+    --arg updated "${GH_STUB_ASSET_UPDATED_AT-2020-01-01T00:00:00Z}" \
     --argjson asset_count "$asset_count" \
     '{tag_name: $tag, html_url: $release_url, published_at: $published,
       draft: $draft, prerelease: $prerelease,
@@ -199,15 +199,18 @@ case "$command_name" in
     count=$((count + 1))
     printf '%s\n' "$count" >"$BREW_STUB_RECEIPT_COUNT"
     receipt_artifacts="$safe_receipt_artifacts"
-    if [[ "${BREW_STUB_RECEIPT_MODE:-safe}" == dangerous ]] \
-      || [[ "${BREW_STUB_RECEIPT_DRIFT:-false}" == true && "$count" -gt 1 ]]; then
+    receipt_tap_git_head=abc123
+    if [[ "${BREW_STUB_RECEIPT_MODE:-safe}" == dangerous ]]; then
       receipt_artifacts='[{"pkg":["tool.pkg"]}]'
+    fi
+    if [[ "${BREW_STUB_RECEIPT_DRIFT:-false}" == true && "$count" -gt 1 ]]; then
+      receipt_tap_git_head=def456
     fi
     if [[ "${BREW_STUB_RECEIPT_MISSING:-false}" == true ]]; then
       rm -f "$BREW_STUB_CASKROOM/.metadata/INSTALL_RECEIPT.json"
     else
-      printf '{"source":{"tap":"homebrew/cask","tap_git_head":"abc123","version":"1.0.0"},"installed_on_request":true,"runtime_dependencies":{},"uninstall_artifacts":%s,"uninstall_flight_blocks":false}\n' \
-        "$receipt_artifacts" \
+      printf '{"source":{"tap":"homebrew/cask","tap_git_head":"%s","version":"1.0.0"},"installed_on_request":true,"runtime_dependencies":{},"uninstall_artifacts":%s,"uninstall_flight_blocks":false}\n' \
+        "$receipt_tap_git_head" "$receipt_artifacts" \
         >"$BREW_STUB_CASKROOM/.metadata/INSTALL_RECEIPT.json"
     fi
     printf '%s\n' "$BREW_STUB_CASKROOM"
@@ -545,6 +548,15 @@ refute_log_contains() {
   [[ "$output" == *"lookup failed with status 22"* ]]
 }
 
+@test "GitHub release lookup is pinned to github.com" {
+  export GH_HOST=example.invalid
+  run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
+
+  [ "$status" -eq 0 ]
+  grep -Fxq 'auth status --hostname github.com' "$GH_STUB_LOG"
+  grep -Fq 'api --hostname github.com ' "$GH_STUB_LOG"
+}
+
 @test "release asset must match URL, digest, and freshness metadata" {
   export GH_STUB_ASSET_DIGEST=sha256:3333333333333333333333333333333333333333333333333333333333333333
   run brew-reviewed-cask-upgrade codex -- smoke-command
@@ -626,6 +638,32 @@ refute_log_contains() {
 
   run brew-reviewed-cask-upgrade --cooldown-exception \
     "replacement asset reviewed" codex -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cooldown: exception"* ]]
+}
+
+@test "empty asset timestamps require a reasoned exception" {
+  export GH_STUB_ASSET_CREATED_AT=
+  run brew-reviewed-cask-upgrade codex -- smoke-command
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"asset metadata is missing, ambiguous, or not bound"* ]]
+  refute_log_contains $'upgrade\t--cask\t--no-ask'
+
+  run brew-reviewed-cask-upgrade --cooldown-exception \
+    "missing asset timestamp reviewed" codex -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cooldown: exception"* ]]
+}
+
+@test "malformed asset timestamps require a reasoned exception" {
+  export GH_STUB_ASSET_UPDATED_AT=not-a-timestamp
+  run brew-reviewed-cask-upgrade codex -- smoke-command
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"asset metadata is missing, ambiguous, or not bound"* ]]
+  refute_log_contains $'upgrade\t--cask\t--no-ask'
+
+  run brew-reviewed-cask-upgrade --cooldown-exception \
+    "malformed asset timestamp reviewed" codex -- smoke-command <"$YES_FILE"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Cooldown: exception"* ]]
 }
@@ -727,6 +765,92 @@ refute_log_contains() {
   [[ "$stderr" == *"could not display the Cask review confirmation prompt"* ]]
 }
 
+@test "status and stage display failures stop before mutation" {
+  run --separate-stderr "$BASH5_BIN" -c '
+    source "$SOURCE"
+    BREW_BIN="$TEST_BIN/brew"
+    JQ_BIN="$TEST_BIN/jq"
+    TEMP_DIR="$(mktemp -d)"
+    INSTALLED_VERSION=1.0.0
+    CANDIDATE_VERSION=2.0.0
+    export BREW_STUB_OUTDATED_MODE=current
+    printf() {
+      if [[ "$1" == "%s\\n" && "${2:-}" == "Cask is already up to date:"* ]]; then
+        return 42
+      fi
+      command printf "$@"
+    }
+    classify_outdated codex
+  '
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not display the Cask status"* ]]
+
+  run --separate-stderr "$BASH5_BIN" -c '
+    source "$SOURCE"
+    BREW_BIN="$TEST_BIN/brew"
+    JQ_BIN="$TEST_BIN/jq"
+    TEMP_DIR="$(mktemp -d)"
+    INSTALLED_VERSION=1.0.0
+    CANDIDATE_VERSION=2.0.0
+    printf() {
+      if [[ "$1" == "Outdated Cask: %s %s -> %s\\n" ]]; then
+        return 42
+      fi
+      command printf "$@"
+    }
+    classify_outdated codex
+  '
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not display the Cask status"* ]]
+
+  run --separate-stderr "$BASH5_BIN" -c '
+    source "$SOURCE"
+    BREW_BIN="$TEST_BIN/brew"
+    TEMP_DIR="$(mktemp -d)"
+    printf() {
+      if [[ "$1" == "%s\\n" && "${2:-}" == "==> Complete Cask dry-run" ]]; then
+        return 42
+      fi
+      command printf "$@"
+    }
+    show_dry_run codex
+  '
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not display the Cask dry-run heading"* ]]
+
+  export STAGE_MARKER="$BATS_TEST_TMPDIR/stage-ran"
+  run --separate-stderr "$BASH5_BIN" -c '
+    source "$SOURCE"
+    run_managed() {
+      : >"$STAGE_MARKER"
+    }
+    printf() {
+      if [[ "$1" == "%s\\n" && "${2:-}" == "==> Upgrading codex" ]]; then
+        return 42
+      fi
+      command printf "$@"
+    }
+    run_stage "Upgrading codex" true
+  '
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not display the Upgrading codex stage"* ]]
+  [ ! -e "$STAGE_MARKER" ]
+
+  run --separate-stderr "$BASH5_BIN" -c '
+    source "$SOURCE"
+    printf() {
+      if [[ "$1" == "%s\\n" && "${2:-}" == "==> Updating Homebrew metadata" ]]; then
+        return 42
+      fi
+      command printf "$@"
+    }
+    main codex -- smoke-command
+  '
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"could not display the Homebrew update stage"* ]]
+  refute_log_contains 'update'
+}
+
 @test "installed state drift before mutation fails closed" {
   export BREW_STUB_INSTALLED_DRIFT=true
   run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
@@ -748,7 +872,7 @@ refute_log_contains() {
   run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"installed Cask receipt"* ]]
+  [[ "$output" == *"installed Cask receipt changed before upgrade"* ]]
   refute_log_contains $'upgrade\t--cask\t--no-ask'
 }
 

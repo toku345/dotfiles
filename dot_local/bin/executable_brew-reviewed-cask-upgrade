@@ -67,6 +67,16 @@ error() {
   printf '%s: %s\n' "$PROGRAM_NAME" "$1" >&2
 }
 
+status_printf() {
+  local label="$1"
+  shift
+
+  if ! printf "$@"; then
+    error "could not display $label"
+    return 1
+  fi
+}
+
 resolve_command() {
   local name="$1"
   local resolved
@@ -595,7 +605,7 @@ lookup_github_release() {
     RELEASE_GATE_REASON="could not encode the GitHub release tag"
     return 1
   }
-  if "$GH_BIN" api \
+  if "$GH_BIN" api --hostname github.com \
     -H 'Accept: application/vnd.github+json' \
     -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
     "repos/$RELEASE_OWNER/$RELEASE_REPO/releases/tags/$encoded_tag" \
@@ -875,7 +885,8 @@ classify_outdated() {
   if (( status == 0 )) \
     && "$JQ_BIN" -e '(.formulae | length) == 0 and (.casks | length) == 0' \
       "$output_file" >/dev/null; then
-    printf '%s\n' "Cask is already up to date: $canonical"
+    status_printf "the Cask status" '%s\n' \
+      "Cask is already up to date: $canonical" || return $?
     return 10
   fi
   if (( status == 1 )) \
@@ -892,8 +903,8 @@ classify_outdated() {
       ' "$output_file" >/dev/null; then
     OUTDATED_INSTALLED="$INSTALLED_VERSION"
     OUTDATED_CANDIDATE="$CANDIDATE_VERSION"
-    printf 'Outdated Cask: %s %s -> %s\n' \
-      "$canonical" "$OUTDATED_INSTALLED" "$OUTDATED_CANDIDATE"
+    status_printf "the Cask status" 'Outdated Cask: %s %s -> %s\n' \
+      "$canonical" "$OUTDATED_INSTALLED" "$OUTDATED_CANDIDATE" || return $?
     return 0
   fi
   error "brew outdated status and JSON disagree for: $canonical"
@@ -914,7 +925,8 @@ show_dry_run() {
     error "brew upgrade --dry-run returned no reviewable output"
     return 1
   fi
-  printf '%s\n' '==> Complete Cask dry-run'
+  status_printf "the Cask dry-run heading" '%s\n' \
+    '==> Complete Cask dry-run' || return $?
   if ! cat "$output_file"; then
     error "could not display the Cask dry-run"
     return 1
@@ -949,7 +961,7 @@ run_stage() {
   local label="$1"
   shift
 
-  printf '%s\n' "==> $label"
+  status_printf "the $label stage" '%s\n' "==> $label" || return $?
   if run_managed "$@"; then
     return 0
   else
@@ -1058,7 +1070,8 @@ main() {
   load_installed_receipt_snapshot "$canonical" "$INSTALLED_VERSION" \
     "$installed_receipt_snapshot" || return $?
 
-  printf '%s\n' '==> Updating Homebrew metadata'
+  status_printf "the Homebrew update stage" '%s\n' \
+    '==> Updating Homebrew metadata' || return $?
   if ! "$BREW_BIN" update; then
     error "brew update failed"
     return 1
