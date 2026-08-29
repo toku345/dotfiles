@@ -340,6 +340,12 @@ validate_metadata_shape() {
       and ((.casks[0].conflicts_with // null) == null
         or (.casks[0].conflicts_with == {})
         or (.casks[0].conflicts_with == []))
+      and ((.casks[0].container // null) == null
+        or (.casks[0].container == {})
+        or (.casks[0].container == []))
+      and ((.casks[0].rename // null) == null
+        or (.casks[0].rename == {})
+        or (.casks[0].rename == []))
   ' "$metadata_file" >/dev/null; then
     error "$label Cask metadata is malformed or outside the strict supported scope"
     return 1
@@ -599,7 +605,7 @@ prepare_github_client() {
 lookup_github_release() {
   local output_file="$TEMP_DIR/github-release.json"
   local error_file="$TEMP_DIR/github-release-error"
-  local encoded_tag asset_values status=0
+  local encoded_tag asset_values digest_check_status=0 status=0
 
   encoded_tag="$("$JQ_BIN" -rn --arg value "$RELEASE_TAG" '$value | @uri')" || {
     RELEASE_GATE_REASON="could not encode the GitHub release tag"
@@ -642,6 +648,32 @@ lookup_github_release() {
   if [[ "$RELEASE_SOURCE_KIND" != "release-asset" ]]; then
     RELEASE_GATE_REASON="GitHub tag archives are not bound to immutable release-asset metadata"
     return 1
+  fi
+  if "$JQ_BIN" -e \
+    --arg name "$RELEASE_ASSET_NAME" \
+    --arg url "$CANDIDATE_URL" \
+    --arg digest "sha256:${CANDIDATE_SHA256,,}" '
+      [.assets[] | select(.name == $name and .browser_download_url == $url)] as $matches
+      | if ($matches | length) == 1 then
+          ($matches[0].digest // null) as $asset_digest
+          | if (($asset_digest | type) == "string"
+              and ($asset_digest | length) > 0) then
+              ($asset_digest | ascii_downcase) != $digest
+            else
+              false
+            end
+        else
+          false
+        end
+    ' "$output_file" >/dev/null; then
+    RELEASE_GATE_REASON="GitHub Release asset digest does not match the Cask SHA-256"
+    return 2
+  else
+    digest_check_status=$?
+    if (( digest_check_status != 1 )); then
+      RELEASE_GATE_REASON="GitHub Release asset digest could not be evaluated"
+      return 1
+    fi
   fi
   asset_values="$("$JQ_BIN" -er \
     --arg name "$RELEASE_ASSET_NAME" \
@@ -815,7 +847,7 @@ review_release_cooldown() {
   local canonical="$2"
   local exception_set="$3"
   local exception_reason="$4"
-  local now_epoch base_status
+  local now_epoch base_status lookup_status=0
 
   RELEASE_NOTES_URL=""
   RELEASE_RECORD_PUBLISHED_AT=""
@@ -834,23 +866,30 @@ review_release_cooldown() {
     RELEASE_GATE_STATUS="unverified"
   elif ! prepare_github_client; then
     RELEASE_GATE_STATUS="unverified"
-  elif ! lookup_github_release; then
-    RELEASE_GATE_STATUS="unverified"
   else
-    now_epoch="$("$JQ_BIN" -nr 'now | floor')" || now_epoch=""
-    if ! evaluate_release_age "$RELEASE_PUBLISHED_AT" "$now_epoch"; then
-      RELEASE_GATE_STATUS="unverified"
-    elif [[ "$RELEASE_DRAFT" == "true" ]]; then
-      RELEASE_GATE_STATUS="blocked"
-      RELEASE_GATE_REASON="GitHub Release is a draft"
-    elif [[ "$RELEASE_PRERELEASE" == "true" ]]; then
-      RELEASE_GATE_STATUS="blocked"
-      RELEASE_GATE_REASON="GitHub Release is marked as a prerelease"
-    elif (( RELEASE_AGE_SECONDS < COOLDOWN_SECONDS )); then
-      RELEASE_GATE_STATUS="blocked"
-      RELEASE_GATE_REASON="GitHub Release asset is newer than 7 days"
+    if lookup_github_release; then
+      now_epoch="$("$JQ_BIN" -nr 'now | floor')" || now_epoch=""
+      if ! evaluate_release_age "$RELEASE_PUBLISHED_AT" "$now_epoch"; then
+        RELEASE_GATE_STATUS="unverified"
+      elif [[ "$RELEASE_DRAFT" == "true" ]]; then
+        RELEASE_GATE_STATUS="blocked"
+        RELEASE_GATE_REASON="GitHub Release is a draft"
+      elif [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+        RELEASE_GATE_STATUS="blocked"
+        RELEASE_GATE_REASON="GitHub Release is marked as a prerelease"
+      elif (( RELEASE_AGE_SECONDS < COOLDOWN_SECONDS )); then
+        RELEASE_GATE_STATUS="blocked"
+        RELEASE_GATE_REASON="GitHub Release asset is newer than 7 days"
+      else
+        RELEASE_GATE_STATUS="eligible"
+      fi
     else
-      RELEASE_GATE_STATUS="eligible"
+      lookup_status=$?
+      if (( lookup_status == 2 )); then
+        error "$RELEASE_GATE_REASON"
+        return 1
+      fi
+      RELEASE_GATE_STATUS="unverified"
     fi
   fi
 
@@ -869,6 +908,8 @@ review_release_cooldown() {
 classify_outdated() {
   local canonical="$1"
   local output_file="$TEMP_DIR/outdated.json"
+  local current_state_file="$TEMP_DIR/info-installed-state-current.json"
+  local current_installed=""
   local status=0
 
   if capture_command "$output_file" "$BREW_BIN" outdated --cask --json=v2 "$canonical"; then
@@ -885,6 +926,12 @@ classify_outdated() {
   if (( status == 0 )) \
     && "$JQ_BIN" -e '(.formulae | length) == 0 and (.casks | length) == 0' \
       "$output_file" >/dev/null; then
+    load_installed_state "$canonical" "$current_state_file" || return $?
+    current_installed="$(metadata_value "$current_state_file" '.casks[0].installed')" || return $?
+    if [[ "$current_installed" != "$CANDIDATE_VERSION" ]]; then
+      error "brew outdated reported current, but installed version differs from the candidate"
+      return 1
+    fi
     status_printf "the Cask status" '%s\n' \
       "Cask is already up to date: $canonical" || return $?
     return 10

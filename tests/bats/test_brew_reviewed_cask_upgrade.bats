@@ -87,7 +87,7 @@ if [[ "${1:-}" == "api" ]]; then
     --argjson prerelease "${GH_STUB_PRERELEASE:-false}" \
     --arg asset_name "${GH_STUB_ASSET_NAME:-codex.tar.gz}" \
     --arg asset_url "${GH_STUB_ASSET_URL:-https://github.com/openai/codex/releases/download/v2.0.0/codex.tar.gz}" \
-    --arg digest "${GH_STUB_ASSET_DIGEST:-sha256:2222222222222222222222222222222222222222222222222222222222222222}" \
+    --arg digest "${GH_STUB_ASSET_DIGEST-sha256:2222222222222222222222222222222222222222222222222222222222222222}" \
     --arg created "${GH_STUB_ASSET_CREATED_AT-2020-01-01T00:00:00Z}" \
     --arg updated "${GH_STUB_ASSET_UPDATED_AT-2020-01-01T00:00:00Z}" \
     --argjson asset_count "$asset_count" \
@@ -142,6 +142,8 @@ metadata_overrides() {
   artifacts="$safe_artifacts"
   depends_on='{}'
   conflicts_with='null'
+  container='null'
+  rename='[]'
 
   case "$mode" in
     installed)
@@ -174,6 +176,8 @@ metadata_overrides() {
     unknown) artifacts='[{"binary":["bin/codex"]},{"future_artifact":["x"]}]' ;;
     dependency) depends_on='{"formula":["openssl@3"]}' ;;
     conflict) conflicts_with='{"cask":["other"]}' ;;
+    container) container='{"type":"zip"}' ;;
+    rename) rename='["codex-renamed"]' ;;
     nongithub) url='https://vendor.example/codex-2.0.0.tar.gz' ;;
     tagarchive) url='https://github.com/openai/codex/archive/refs/tags/v2.0.0.tar.gz' ;;
   esac
@@ -183,14 +187,14 @@ print_metadata() {
   local mode="$1"
   local token="${2:-$BREW_STUB_CASK}"
   metadata_overrides "$mode"
-  printf '{"formulae":[],"casks":[{"token":"%s","full_token":"%s","tap":"%s","version":%s,"sha256":%s,"auto_updates":%s,"installed":%s,"pinned":%s,"deprecated":%s,"disabled":%s,"url":"%s","homepage":"%s","artifacts":%s,"depends_on":%s,"conflicts_with":%s}]}\n' \
+  printf '{"formulae":[],"casks":[{"token":"%s","full_token":"%s","tap":"%s","version":%s,"sha256":%s,"auto_updates":%s,"installed":%s,"pinned":%s,"deprecated":%s,"disabled":%s,"url":"%s","homepage":"%s","artifacts":%s,"depends_on":%s,"conflicts_with":%s,"container":%s,"rename":%s}]}\n' \
     "$token" "$token" "$tap" \
     "$(printf '%s' "$version" | jq -R .)" \
     "$(printf '%s' "$sha256" | jq -R .)" \
     "$auto_updates" \
     "$(if [[ "$installed" == null ]]; then printf null; else printf '%s' "$installed" | jq -R .; fi)" \
     "$pinned" "$deprecated" "$disabled" "$url" "$homepage" \
-    "$artifacts" "$depends_on" "$conflicts_with"
+    "$artifacts" "$depends_on" "$conflicts_with" "$container" "$rename"
 }
 
 case "$command_name" in
@@ -437,7 +441,7 @@ refute_log_contains() {
 @test "unsupported candidate metadata is rejected before brew update" {
   local mode
   for mode in nonofficial uninstalled pinned deprecated disabled auto auto_malformed latest \
-    nocheck badsha dangerous unknown dependency conflict; do
+    nocheck badsha dangerous unknown dependency conflict container rename; do
     export BREW_STUB_CANDIDATE_MODE="$mode"
     run brew-reviewed-cask-upgrade codex -- smoke-command
     [ "$status" -eq 1 ]
@@ -479,6 +483,16 @@ refute_log_contains() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"already up to date"* ]]
   grep -Fxq 'update' "$BREW_STUB_LOG"
+  refute_log_contains $'upgrade\t'
+  [ ! -e "$SMOKE_STUB_LOG" ]
+}
+
+@test "empty outdated result fails when installed and candidate versions differ" {
+  export BREW_STUB_OUTDATED_MODE=current
+  run brew-reviewed-cask-upgrade codex -- smoke-command
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"installed version differs from the candidate"* ]]
   refute_log_contains $'upgrade\t'
   [ ! -e "$SMOKE_STUB_LOG" ]
 }
@@ -561,7 +575,19 @@ refute_log_contains() {
   export GH_STUB_ASSET_DIGEST=sha256:3333333333333333333333333333333333333333333333333333333333333333
   run brew-reviewed-cask-upgrade codex -- smoke-command
   [ "$status" -eq 1 ]
-  [[ "$output" == *"not bound to the Cask SHA-256"* ]]
+  [[ "$output" == *"digest does not match the Cask SHA-256"* ]]
+
+  run brew-reviewed-cask-upgrade --cooldown-exception \
+    "release reviewed manually" codex -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"digest does not match the Cask SHA-256"* ]]
+  refute_log_contains $'upgrade\t--cask\t--no-ask'
+
+  export GH_STUB_ASSET_DIGEST=
+  run brew-reviewed-cask-upgrade --cooldown-exception \
+    "digestless asset reviewed manually" codex -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cooldown: exception"* ]]
 
   unset GH_STUB_ASSET_DIGEST
   export GH_STUB_ASSET_URL=https://github.com/openai/codex/releases/download/v2.0.0/other.tar.gz
@@ -772,7 +798,7 @@ refute_log_contains() {
     JQ_BIN="$TEST_BIN/jq"
     TEMP_DIR="$(mktemp -d)"
     INSTALLED_VERSION=1.0.0
-    CANDIDATE_VERSION=2.0.0
+    CANDIDATE_VERSION=1.0.0
     export BREW_STUB_OUTDATED_MODE=current
     printf() {
       if [[ "$1" == "%s\\n" && "${2:-}" == "Cask is already up to date:"* ]]; then
