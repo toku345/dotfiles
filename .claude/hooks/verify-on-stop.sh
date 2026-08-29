@@ -71,6 +71,13 @@ persist_block_count() {
   local value="$2"
   local tmp="$path.tmp.$$"
 
+  # `mv <file> <directory>` succeeds by nesting the file under the directory,
+  # leaving the intended counter unchanged. Reject every existing node except
+  # a regular file so the caller's bounded fail-open path handles it instead.
+  if [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
+    return 1
+  fi
+
   if ! { mkdir -p "$(dirname "$path")" \
          && echo "$value" > "$tmp" \
          && mv "$tmp" "$path"; } 2>/dev/null; then
@@ -279,6 +286,10 @@ if [ "$bump_errors" -eq 1 ]; then
       echo "verify-on-stop: cannot persist loop-guard state ($STATE_FILE); allowing stop."
       echo "verify-on-stop: verification failures were not enforced:"
       printf '%s\n\n' "${errors[@]}"
+      if [ "$bump_nag" -eq 1 ]; then
+        echo "verify-on-stop: pending bats reminder was not enforced:"
+        printf '%s\n\n' "${notices[@]}"
+      fi
     } >&2
     exit 0
   fi

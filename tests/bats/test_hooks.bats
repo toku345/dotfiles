@@ -627,6 +627,67 @@ STUB
   [[ "$stderr" != *"blocked stop"* ]]
 }
 
+@test "directory at bats reminder counter path fails open instead of looping" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_repo_with_relevant_file "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(claude_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+  mkdir -p "$nag_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [ -d "$nag_file" ]
+  [[ "$stderr" == *"cannot persist bats reminder state"* ]]
+  [[ "$stderr" == *"reminder not enforced"* ]]
+  [[ "$stderr" == *"allowing stop to avoid an unbounded reminder loop"* ]]
+  [[ "$stderr" != *"blocked stop"* ]]
+}
+
+@test "executing counter directory failure also reports pending bats reminder" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  cat > "$stub_dir/shellcheck" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/bats" "$stub_dir/shellcheck"
+
+  init_repo_with_relevant_file "tests/bats/utils.bash" \
+'some_unused_var=42
+'
+
+  local state_file nag_file
+  state_file="$(claude_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+  mkdir -p "$state_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [ -d "$state_file" ]
+  [ ! -e "$nag_file" ]
+  [[ "$stderr" == *"cannot persist loop-guard state"* ]]
+  [[ "$stderr" == *"verification failures were not enforced"* ]]
+  [[ "$stderr" == *"shellcheck failed"* ]]
+  [[ "$stderr" == *"pending bats reminder was not enforced"* ]]
+  [[ "$stderr" == *"bats gate requires a gated run"* ]]
+  [[ "$stderr" != *"blocked stop"* ]]
+}
+
 # The reminder's own budget must bound it, and the auto-allow must leave the
 # counter at MAX_BLOCKS rather than deleting it. Deleting would make the next
 # stop read 0 and re-arm the reminder, so a dirty tests/bats/ tree would loop

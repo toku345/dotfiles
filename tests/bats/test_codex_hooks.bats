@@ -631,6 +631,67 @@ STUB
   [[ "$stderr" != *"blocked stop"* ]]
 }
 
+@test "codex: directory at bats reminder counter path fails open instead of looping" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/bats"
+
+  init_codex_repo "tests/bats/dummy.bats" \
+'@test "noop" { true; }
+'
+
+  local state_file nag_file
+  state_file="$(codex_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+  mkdir -p "$nag_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [ -d "$nag_file" ]
+  [[ "$stderr" == *"cannot persist bats reminder state"* ]]
+  [[ "$stderr" == *"reminder not enforced"* ]]
+  [[ "$stderr" == *"allowing stop to avoid an unbounded reminder loop"* ]]
+  [[ "$stderr" != *"blocked stop"* ]]
+}
+
+@test "codex: executing counter directory failure also reports pending bats reminder" {
+  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
+  mkdir -p "$stub_dir"
+  cat > "$stub_dir/bats" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  cat > "$stub_dir/shellcheck" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$stub_dir/bats" "$stub_dir/shellcheck"
+
+  init_codex_repo "tests/bats/utils.bash" \
+'some_unused_var=42
+'
+
+  local state_file nag_file
+  state_file="$(codex_state_file)"
+  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
+  mkdir -p "$state_file"
+
+  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
+  [ "$status" -eq 0 ]
+  [ -d "$state_file" ]
+  [ ! -e "$nag_file" ]
+  [[ "$stderr" == *"cannot persist loop-guard state"* ]]
+  [[ "$stderr" == *"verification failures were not enforced"* ]]
+  [[ "$stderr" == *"shellcheck failed"* ]]
+  [[ "$stderr" == *"pending bats reminder was not enforced"* ]]
+  [[ "$stderr" == *"bats gate requires a gated run"* ]]
+  [[ "$stderr" != *"blocked stop"* ]]
+}
+
 # Twin parity: the Codex hook carries the identical reminder auto-allow, which
 # is the only bound preventing a dirty tests/bats/ tree from trapping the turn.
 # The auto-allow must leave the counter at MAX_BLOCKS rather than deleting it —
