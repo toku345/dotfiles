@@ -118,6 +118,8 @@ Workflow({
 
 The workflow validates args (including both sentinels) and fails closed on any coverage mismatch, so a thrown workflow error is a gate failure — report it verbatim and stop; never retry with weakened inputs or partial coverage.
 
+Among those validations are two review size limits (1 MiB of diff packet, 500 changed files). They exist because `sha256sum` succeeds at any size while a specialist's own read of the packet truncates: an oversized packet would satisfy the coverage echo gate and silently return a partial review reported as full coverage. A refusal on either limit is a policy decision, not a bug — split the branch into smaller PRs or narrow the base. Do not work around it by trimming `changedFiles`, splitting the packet, or re-running with a subset; any of those reintroduces exactly the partial-coverage-reported-as-full outcome the limits prevent.
+
 The workflow runs in the background; wait for its completion notification before rendering. Do not start other work that mutates this repository while it runs.
 
 ## Final guard (after the workflow returns)

@@ -412,6 +412,22 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   }
 }
 
+// S13: review size limits refuse loudly instead of letting an oversized packet
+// clear the coverage gate on a partial read (sha256sum succeeds at any size)
+{
+  await expectThrow(makeArgs({ packetBytes: 1048577 }), {},
+    /1048577 bytes, over the 1048576-byte review limit/, 'S13: oversized diff packet throws')
+  await expectThrow(makeArgs({ changedFiles: Array.from({ length: 501 }, (_, i) => `src/f${i}.js`) }), {},
+    /changes 501 files, over the 500-file review limit/, 'S13: too many changed files throws')
+
+  // boundary: exactly at each limit must still review — a guard that shrinks
+  // the window it protects is its own regression
+  const atByteLimit = await run(makeArgs({ packetBytes: 1048576 }))
+  assert(atByteLimit.argsContract === 'PR_REVIEW_ARGS_V2', 'S13: packet exactly at the byte limit still reviews')
+  const atFileLimit = await run(makeArgs({ changedFiles: Array.from({ length: 500 }, (_, i) => `src/f${i}.js`) }))
+  assert(atFileLimit.argsContract === 'PR_REVIEW_ARGS_V2', 'S13: exactly 500 changed files still reviews')
+}
+
 if (failed) {
   console.error('SOME ASSERTIONS FAILED')
   process.exit(1)
