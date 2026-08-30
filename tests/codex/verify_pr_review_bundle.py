@@ -26,6 +26,9 @@ BASE_RESOLUTION_CONTRACT = (
     SKILL_DIR / "references" / "base-resolution-runtime-contract.json"
 )
 V2_RUNTIME_CONTRACT = SKILL_DIR / "references" / "v2-runtime-contract.json"
+FINDING_VERIFIER_CONTRACT = (
+    SKILL_DIR / "references" / "finding-verifier-contract.json"
+)
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
 DESIGN_DOC = REPO_ROOT / "docs" / "design" / "codex-pr-review.md"
@@ -47,7 +50,8 @@ EXPECTED_REVIEW_PROFILES = {
 
 RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1_V2"
 BASE_RESOLUTION_SENTINEL = "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2"
-V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3"
+V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V4"
+FINDING_VERIFIER_SENTINEL = "PR_REVIEW_FINDING_VERIFIER_CONTRACT_V1"
 EXPECTED_BASE_RESOLUTION_CONTRACT = {
     "sentinel": BASE_RESOLUTION_SENTINEL,
     "version": 2,
@@ -138,10 +142,14 @@ EXPECTED_BASE_RESOLUTION_CONTRACT = {
 }
 EXPECTED_V2_RUNTIME_CONTRACT = {
     "sentinel": V2_SCHEDULER_SENTINEL,
-    "version": 3,
+    "version": 4,
     "max_concurrency": 3,
     "delivery_grace_ms": 60_000,
-    "stage_deadline_ms": {"stage1": 1_800_000, "stage2": 600_000},
+    "stage_deadline_ms": {
+        "stage1": 1_800_000,
+        "stage2": 600_000,
+        "stage3": 1_800_000,
+    },
     "spawn": {
         "max_retries": 1,
         "retry_only_on_explicit_capacity_error": True,
@@ -186,8 +194,107 @@ EXPECTED_V2_RUNTIME_CONTRACT = {
     },
     "aggregation": {
         "require_exact_expected_roles": True,
+        "identity_key_by_stage": {
+            "stage1": "role",
+            "stage2": "role",
+            "stage3": "candidate_id",
+        },
+        "require_exact_expected_candidate_ids": True,
         "require_unique_canonical_tasks": True,
         "require_all_usable": True,
+    },
+}
+EXPECTED_FINDING_VERIFIER_CONTRACT = {
+    "sentinel": FINDING_VERIFIER_SENTINEL,
+    "version": 1,
+    "candidate": {
+        "eligible_severities": ["Critical", "Important"],
+        "one_candidate_per_task": True,
+        "id_pattern": "^f[0-9]{3,}$",
+        "required_fields": [
+            "candidate_id",
+            "source_specialists",
+            "normalized_severity",
+            "summary",
+            "locations",
+            "impact_scope",
+            "verified_assumptions",
+            "unverified_assumptions",
+            "suggested_fix",
+        ],
+        "ordering": [
+            "normalized_severity:Critical-before-Important",
+            "first_source_specialist:stage1-dispatch-order",
+            "first_source_finding:appearance-order",
+        ],
+        "deduplicate_same_root_cause_before_id_assignment": True,
+    },
+    "task": {
+        "agent_type": "finding-verifier",
+        "stage": 3,
+        "max_concurrency": 3,
+        "deadline_ms": 1_800_000,
+        "task_name_template": (
+            "prr_<run_token>_s3_finding_verifier_<candidate_id>_a<attempt>"
+        ),
+        "inherit_parent_model_and_reasoning": True,
+        "fork_turns": "none",
+        "zero_candidates": "skip-stage-with-empty-verification-summary",
+    },
+    "scope": {
+        "require_same_base_commit": True,
+        "require_same_head_ref": True,
+        "require_same_packet_sha256": True,
+        "allow_new_findings": False,
+        "allow_severity_reclassification": False,
+        "allow_edits": False,
+        "allow_collaboration_tools": False,
+    },
+    "output": {
+        "coverage_sentinel_template": (
+            "VERIFICATION_OK finding-verifier <candidate_id> "
+            "$BASE_COMMIT...$HEAD_REF <packet_sha256>"
+        ),
+        "fatal_sentinel_template": (
+            "FATAL_VERIFICATION_ERROR finding-verifier <candidate_id>: <reason>"
+        ),
+        "format": "single-json-object-after-sentinel",
+        "required_fields": [
+            "candidate_id",
+            "verdict",
+            "summary",
+            "evidence",
+            "missingVerification",
+        ],
+        "verdicts": ["confirmed", "refuted", "needs-verification"],
+        "evidence_item_required_fields": ["path", "line", "observation"],
+    },
+    "verdict_policy": {
+        "confirmed": {
+            "evidence_non_empty": True,
+            "missingVerification_empty": True,
+            "final_action": "retain-original-normalized-severity",
+        },
+        "refuted": {
+            "evidence_non_empty": True,
+            "missingVerification_empty": True,
+            "final_action": (
+                "exclude-from-fix-queue-and-list-in-refuted-findings"
+            ),
+        },
+        "needs-verification": {
+            "evidence_may_be_empty": True,
+            "missingVerification_non_empty": True,
+            "final_action": "downgrade-Critical-to-Important;retain-Important",
+        },
+    },
+    "integrity": {
+        "require_exactly_one_result_per_candidate": True,
+        "reject_unknown_or_duplicate_candidate": True,
+        "reject_candidate_id_mismatch": True,
+        "reject_scope_or_packet_mismatch": True,
+        "reject_invalid_verdict_shape": True,
+        "partial_aggregation": "fatal",
     },
 }
 V1_ROLLBACK_COMMAND_SNIPPETS = (
@@ -276,6 +383,26 @@ V2_RUNTIME_SNIPPETS = [
     "Do not call any collaboration/subagent tools; return only your final review response.",
 ]
 
+FINDING_VERIFIER_SNIPPETS = [
+    "Stage 3 is evidence verification, not another review.",
+    "one candidate per task",
+    "Stage 2 is not re-run after verification",
+    "record an empty verification summary",
+    'agent_type = "finding-verifier"',
+    "Do not pass unrelated findings.",
+    "runs at most 3 verifier tasks concurrently",
+    'fork_turns="none"',
+    "prr_<run_token>_s3_finding_verifier_<candidate_id>_a<attempt>",
+    "monotonic 30-minute Stage 3 deadline",
+    "exact expected candidate-ID set",
+    "followed by a single JSON object",
+    "unknown/duplicate/missing candidate IDs",
+    "confirmed",
+    "refuted",
+    "needs-verification",
+    "Refuted Findings",
+]
+
 AGENT_CONTROL_PLANE_SNIPPETS = [
     "do not call any collaboration or subagent control-plane tool",
     "spawn_agent",
@@ -360,6 +487,14 @@ EXPECTED_AGENTS = {
         "copyright": "Copyright Anthropic PBC",
         "license": "Apache-2.0",
         "license_file": "LICENSE-claude-plugins-official",
+    },
+}
+
+FIRST_PARTY_AGENTS = {
+    "finding-verifier": {
+        "file": "finding-verifier.toml",
+        "copyright": "Copyright (c) 2023 Fumitaka Tokumitsu",
+        "license": "MIT (see repository root LICENSE)",
     },
 }
 
@@ -469,8 +604,9 @@ CRITICAL_NORMALIZATION_SNIPPETS = [
     "Treat a specialist Critical label as a candidate, not final severity.",
     "Re-check `blocking`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`",
     "Downgrade local-only, ignored generated state, developer-workflow-only false-green",
-    "post-verification produces `needs-verification` with non-empty `missingVerification`",
-    "downgrade it to Important before final aggregation",
+    "Deduplicate findings that describe the same root cause",
+    "deterministic IDs `f001`, `f002`, ...",
+    "Record the complete expected candidate-ID set before Stage 2",
 ]
 
 # The escalation semantics moved from SKILL.md prose into severity-rules.json
@@ -785,6 +921,10 @@ def verify_v2_runtime_contract() -> None:
             f"monotonic {data['stage_deadline_ms']['stage2'] // 60_000}-minute "
             "Stage 2 deadline"
         ),
+        (
+            f"monotonic {data['stage_deadline_ms']['stage3'] // 60_000}-minute "
+            "Stage 3 deadline"
+        ),
         "completed status or qualified retirement",
         "observed with `running` status",
         "valid matching `FINAL_ANSWER`",
@@ -792,6 +932,32 @@ def verify_v2_runtime_contract() -> None:
         "cleanup start is monotonic fatal",
     )
     for expected in prose_values:
+        require_contains(skill, expected, f"{context}:SKILL.md consistency")
+
+
+def verify_finding_verifier_contract() -> None:
+    context = str(FINDING_VERIFIER_CONTRACT)
+    if not FINDING_VERIFIER_CONTRACT.is_file():
+        fail(
+            "missing finding-verifier contract: "
+            f"{FINDING_VERIFIER_CONTRACT.relative_to(REPO_ROOT)}"
+        )
+    try:
+        data = json.loads(FINDING_VERIFIER_CONTRACT.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{context}: invalid JSON: {exc}")
+    if data != EXPECTED_FINDING_VERIFIER_CONTRACT:
+        fail(f"{context}: finding-verifier contract mismatch")
+
+    skill = SKILL.read_text(encoding="utf-8")
+    for expected in (
+        f"sentinel `{data['sentinel']}`",
+        data["task"]["task_name_template"],
+        "one candidate per task",
+        "exact expected candidate-ID set",
+        "single JSON object",
+        "Refuted Findings",
+    ):
         require_contains(skill, expected, f"{context}:SKILL.md consistency")
 
 
@@ -891,7 +1057,11 @@ def verify_codex_config_profiles() -> None:
 
 def verify_agent_toml() -> None:
     actual_files = sorted(path.name for path in AGENTS_DIR.glob("*.toml"))
-    expected_files = sorted(meta["file"] for meta in EXPECTED_AGENTS.values())
+    expected_files = sorted(
+        meta["file"]
+        for agents in (EXPECTED_AGENTS, FIRST_PARTY_AGENTS)
+        for meta in agents.values()
+    )
     if actual_files != expected_files:
         fail(f"agent file set mismatch: expected {expected_files}, got {actual_files}")
 
@@ -984,6 +1154,62 @@ def verify_agent_toml() -> None:
             require_contains(data["developer_instructions"], "### Location", str(path))
             require_contains(data["developer_instructions"], "[file path]:[line or line range]", str(path))
 
+    for expected_name, meta in FIRST_PARTY_AGENTS.items():
+        path = AGENTS_DIR / meta["file"]
+        raw = path.read_text(encoding="utf-8")
+        try:
+            data = tomllib.loads(raw)
+        except tomllib.TOMLDecodeError as exc:
+            fail(f"{path}: invalid TOML: {exc}")
+        require_no_hide_spawn_metadata(data, path)
+
+        for key in ("name", "description", "developer_instructions"):
+            value = data.get(key)
+            if not isinstance(value, str) or not value.strip():
+                fail(f"{path}: missing non-empty TOML field {key!r}")
+        if data["name"] != expected_name or path.stem != expected_name:
+            fail(f"{path}: first-party agent identity mismatch")
+        if data.get("sandbox_mode") != "read-only":
+            fail(f"{path}: first-party verifier sandbox_mode must be 'read-only'")
+        for forbidden_key in ("model", "model_reasoning_effort"):
+            if forbidden_key in data:
+                fail(f"{path}: {forbidden_key} must inherit from the parent")
+
+        for needle in (
+            "Origin:        first-party",
+            f"Copyright:     {meta['copyright']}",
+            f"License:       {meta['license']}",
+            "PR_REVIEW_FINDING_VERIFIER_CONTRACT_V1",
+        ):
+            require_contains(raw, needle, str(path))
+
+        instructions = data["developer_instructions"]
+        for needle in (
+            "exactly one supplied candidate finding",
+            "$BASE_COMMIT...$HEAD_REF",
+            "Recompute and compare the packet SHA-256",
+            "VERIFICATION_OK finding-verifier <candidate_id>",
+            "FATAL_VERIFICATION_ERROR finding-verifier <candidate_id>",
+            "exactly one JSON object",
+            "confirmed",
+            "refuted",
+            "needs-verification",
+            "missingVerification",
+            "Do not recommend a different severity",
+            "do not edit files",
+        ):
+            require_contains(instructions, needle, str(path))
+        control_plane_contract = instructions.lower()
+        require_contains(
+            control_plane_contract,
+            "do not call any collaboration or subagent control-plane tool",
+            str(path),
+        )
+        for needle in AGENT_CONTROL_PLANE_SNIPPETS:
+            require_contains(
+                control_plane_contract, needle, f"{path}:control-plane-contract"
+            )
+
 
 def verify_skill_contract() -> None:
     raw = SKILL.read_text(encoding="utf-8")
@@ -991,8 +1217,9 @@ def verify_skill_contract() -> None:
         fail(f"{SKILL}: skill must remain below 500 lines")
     for needle in REQUIRED_SKILL_SNIPPETS:
         require_contains(raw, needle, str(SKILL))
+    require_contains(raw, "## Refuted Findings", f"{SKILL}:output-format")
 
-    for agent_name in EXPECTED_AGENTS:
+    for agent_name in set(EXPECTED_AGENTS) | set(FIRST_PARTY_AGENTS):
         require_contains(raw, f"`{agent_name}`", str(SKILL))
     require_not_contains(raw, 'git fetch --quiet origin "$BASE"', str(SKILL))
     require_not_contains(raw, "use that immutable OID as `$BASE_REF`", str(SKILL))
@@ -1136,7 +1363,7 @@ def verify_skill_contract() -> None:
     stage2 = section_between(
         procedure,
         "5. **Stage 2",
-        "6. **Final worktree guard**",
+        "6. **Stage 3",
         f"{SKILL}:Stage-2",
     )
     for needle in (
@@ -1154,6 +1381,15 @@ def verify_skill_contract() -> None:
     ):
         require_contains(stage2, needle, f"{SKILL}:Stage-2")
 
+    stage3 = section_between(
+        procedure,
+        "6. **Stage 3",
+        "7. **Final worktree guard**",
+        f"{SKILL}:Stage-3",
+    )
+    for needle in FINDING_VERIFIER_SNIPPETS:
+        require_contains(stage3, needle, f"{SKILL}:Stage-3")
+
     critical_scan = section_between(
         raw,
         "4. **Scan Stage 1 output and normalize severity before Stage 2**:",
@@ -1163,7 +1399,9 @@ def verify_skill_contract() -> None:
     for needle in CRITICAL_NORMALIZATION_SNIPPETS:
         require_contains(critical_scan, needle, f"{SKILL}:critical-normalization")
 
-    final_guard = section_between(raw, "6. **Final worktree guard**:", "7. **Aggregate**", str(SKILL))
+    final_guard = section_between(
+        raw, "7. **Final worktree guard**:", "8. **Aggregate**", str(SKILL)
+    )
     for needle in FINAL_GUARD_SNIPPETS:
         require_contains(final_guard, needle, f"{SKILL}:final-worktree-guard")
 
@@ -1175,6 +1413,7 @@ def main() -> None:
     verify_severity_rules()
     verify_base_resolution_contract()
     verify_v2_runtime_contract()
+    verify_finding_verifier_contract()
     verify_claude_share_templates()
     verify_codex_config_profiles()
     verify_agent_toml()

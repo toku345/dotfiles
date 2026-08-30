@@ -34,7 +34,7 @@ RETENTION_FIXTURE_PATH = (
     / "pr_review_v2_retention_refill.json"
 )
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-if CONTRACT.get("sentinel") != "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3":
+if CONTRACT.get("sentinel") != "PR_REVIEW_V2_SCHEDULER_CONTRACT_V4":
     raise AssertionError(f"{CONTRACT_PATH}: unsupported scheduler contract")
 DELIVERY_GRACE_MS = CONTRACT["delivery_grace_ms"]
 STAGE_DEADLINES_MS = CONTRACT["stage_deadline_ms"]
@@ -51,6 +51,7 @@ class TaskState(enum.Enum):
 class TaskEvidence:
     canonical_path: str
     role: str = ""
+    candidate_id: str = ""
     stage_deadline_ms: int = STAGE_DEADLINES_MS["stage1"]
     final_payload: str | None = None
     final_at_ms: int | None = None
@@ -239,6 +240,27 @@ def aggregation_allowed(
         roles != expected_roles or len(roles) != len(tasks)
     ):
         return False
+    if (
+        aggregation_contract["require_unique_canonical_tasks"]
+        and len(canonical_paths) != len(tasks)
+    ):
+        return False
+    return not aggregation_contract["require_all_usable"] or all(
+        task.state(now_ms) is TaskState.USABLE for task in tasks
+    )
+
+
+def verification_aggregation_allowed(
+    tasks: list[TaskEvidence], expected_candidate_ids: set[str], now_ms: int
+) -> bool:
+    aggregation_contract = CONTRACT["aggregation"]
+    candidate_ids = [task.candidate_id for task in tasks]
+    if aggregation_contract["require_exact_expected_candidate_ids"] and (
+        set(candidate_ids) != expected_candidate_ids
+        or len(candidate_ids) != len(expected_candidate_ids)
+    ):
+        return False
+    canonical_paths = {task.canonical_path for task in tasks}
     if (
         aggregation_contract["require_unique_canonical_tasks"]
         and len(canonical_paths) != len(tasks)
@@ -914,6 +936,28 @@ class CleanupAndAggregationTests(unittest.TestCase):
         self.assertFalse(
             aggregation_allowed([task, duplicate], expected_roles, 1_000)
         )
+
+    def test_stage3_requires_exact_candidate_identity_and_usable_results(self) -> None:
+        self.assertEqual(
+            CONTRACT["aggregation"]["identity_key_by_stage"]["stage3"],
+            "candidate_id",
+        )
+        expected = {"f001", "f002"}
+        tasks = []
+        for index, candidate_id in enumerate(sorted(expected), 1):
+            task = TaskEvidence(
+                f"/root/prr_token_s3_finding_verifier_{candidate_id}_a1",
+                candidate_id=candidate_id,
+            )
+            task.receive_final(task.canonical_path, "valid", 100 + index)
+            task.observe_status("completed", 200 + index)
+            tasks.append(task)
+        self.assertTrue(verification_aggregation_allowed(tasks, expected, 1_000))
+        self.assertFalse(
+            verification_aggregation_allowed(tasks[:1], expected, 1_000)
+        )
+        tasks[1].candidate_id = "f003"
+        self.assertFalse(verification_aggregation_allowed(tasks, expected, 1_000))
 
 
 def main() -> None:

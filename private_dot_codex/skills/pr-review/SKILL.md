@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Comprehensive pre-PR review orchestrator. Spawns up to 8 specialist subagents (code-reviewer, security-reviewer, adversarial-reviewer, pr-test-analyzer, comment-analyzer, silent-failure-hunter, type-design-analyzer, code-simplifier) on the current branch's changes against its base ref, then synthesizes Critical / Important / Suggestions / Strengths findings using the bundled `references/review-criteria.md` gate policy. Use before creating a pull request as a quality gate. Intended successor to the legacy bash `triple-review` orchestrator.
+description: Comprehensive pre-PR review orchestrator. Runs named specialist subagents on the current branch's committed diff, conditionally checks simplification, verifies each normalized Critical/Important candidate with a dedicated finding-verifier, then synthesizes Critical / Important / Suggestions / Strengths using the bundled `references/review-criteria.md` gate policy. Use before creating a pull request as a heavy quality gate. Intended successor to the legacy bash `triple-review` orchestrator.
 ---
 
 # pr-review
@@ -51,8 +51,9 @@ Run these checks in order. If any fails, abort with the indicated actionable err
      ```
 
    - For both adapters, before repository inspection read `references/base-resolution-runtime-contract.json`, require sentinel `PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2`, and use its operation allowlist, classification precedence, retry limit, invocation-fingerprint, immutable-OID values, and `allow_no_pr` transition sequence as the machine-readable base-resolution contract. Record whether the shell tool exposes `sandbox_permissions=require_escalated`; absence does not invalidate the immutable-OID path, but any later sandbox-denied operation that needs escalation must fail closed before specialist spawn. Abort before repository inspection if the contract is missing, malformed, unsupported, or conflicts with this prose.
+   - For both adapters, before repository inspection read `references/finding-verifier-contract.json`, require sentinel `PR_REVIEW_FINDING_VERIFIER_CONTRACT_V1`, and use its candidate, task, scope, output, verdict, and integrity values as the machine-readable finding-verifier contract. Abort before repository inspection if the contract is missing, malformed, unsupported, or conflicts with this prose.
    - For V2 only, call `list_agents` immediately after selection and require a **fresh agent tree**: the current orchestrator entry may exist, but it must have no descendant. Abort before repository inspection if listing fails, a descendant already exists, or the current tree cannot be identified unambiguously. This prevents this run from adopting, interrupting, or confusing another run's tasks.
-   - For V2 only, before repository inspection read `references/v2-runtime-contract.json`, require sentinel `PR_REVIEW_V2_SCHEDULER_CONTRACT_V3`, and use its timing, spawn, result, reconciliation, cleanup, and aggregation values as the machine-readable scheduler contract. Abort before repository inspection if the file is missing, malformed, unsupported, or conflicts with this prose.
+   - For V2 only, before repository inspection read `references/v2-runtime-contract.json`, require sentinel `PR_REVIEW_V2_SCHEDULER_CONTRACT_V4`, and use its timing, spawn, result, reconciliation, cleanup, and aggregation values as the machine-readable scheduler contract. Abort before repository inspection if the file is missing, malformed, unsupported, or conflicts with this prose.
 
 1. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with the command output and do not review an unknown worktree state. If output is non-empty (uncommitted tracked changes or untracked-non-ignored files), abort with:
    > "Worktree has uncommitted changes: \<list\>. The review covers committed branch diff only; uncommitted changes would be silently excluded. To inspect staged, unstaged, and untracked changes first, run `codex review --uncommitted`. Commit or stash all listed changes, then retry `$pr-review`. (See ADR 0020.)"
@@ -185,7 +186,8 @@ After preconditions pass:
      - Treat remaining advisory findings as Suggestions unless the specialist explicitly marks them as positive observations, per the table's `suggestion` rule.
    - Do not promote nits, style preferences, speculative rewrites, or weakly grounded concerns into Critical or Important.
    - If evidence is incomplete but the risk may be severe, keep the item with the missing verification stated explicitly instead of silently dropping it.
-   - If post-verification produces `needs-verification` with non-empty `missingVerification` for a Critical candidate, downgrade it to Important before final aggregation. It remains in the fix queue with the missing verification stated, but it is not a proven Critical blocker. Other verdicts carrying `missingVerification`, or `needs-verification` without it, are invalid verifier outputs and must fail closed.
+   - Deduplicate findings that describe the same root cause while retaining all source-specialist names. From the remaining normalized Critical and Important findings, build the complete Stage 3 candidate list. Suggestions and positive observations are not verifier candidates.
+   - Give candidates deterministic IDs `f001`, `f002`, ... in this order: Critical before Important, then first source specialist's Stage 1 dispatch order, then that specialist's finding appearance order. Each candidate must contain all fields required by the finding-verifier contract. Record the complete expected candidate-ID set before Stage 2; do not change IDs or membership based on Stage 2 output.
 
 5. **Stage 2 — conditional `code-simplifier` pass**:
    - If Stage 1 surfaced **no** Critical findings, record `expected_stage2 = {code-simplifier}`, then spawn `code-simplifier` with the same target description, `$BASE_REF`, `$BASE_COMMIT`, `$HEAD_REF`, changed-file list, `git status --short`, `git log --no-decorate "$BASE_COMMIT..$HEAD_REF"`, diff packet path, byte count, SHA-256, Scope contract, Coverage sentinel contract, review-only contract, and control-plane contract, plus a brief Stage 1 summary so it knows what's already flagged. Request advisory simplification findings only.
@@ -195,7 +197,15 @@ After preconditions pass:
    - If the scheduled specialist fails to spawn, errors, times out, returns empty output, or produces unusable output, perform the selected adapter's run-owned cleanup and fail closed before final aggregation. Partial aggregation is forbidden here too.
    - Otherwise, skip Stage 2 — polishing code with Critical issues is wasted effort.
 
-6. **Final worktree guard**:
+6. **Stage 3 — verify normalized Critical/Important candidates**:
+   - Stage 3 is evidence verification, not another review. Use `finding-verifier` with exactly one candidate per task. It must not discover new findings, reclassify severity, edit files, execute changed code, or use collaboration tools. Stage 2 output never adds candidates and Stage 2 is not re-run after verification.
+   - If the recorded candidate set is empty, spawn nothing and record an empty verification summary. Otherwise dispatch every candidate through the selected adapter with exact custom `agent_type = "finding-verifier"`; omission and generic/default fallback are forbidden. Pass the single complete candidate, `references/finding-verifier-contract.json`, `$BASE_REF`, `$BASE_COMMIT`, `$HEAD_REF`, changed-file list, git log, authoritative packet path, byte count, and SHA-256, plus the immutable-scope, read-only, and control-plane contracts. Do not pass unrelated findings.
+   - The V1 adapter keeps deterministic pending/running/completed candidate maps keyed by candidate ID, runs at most 3 verifier tasks concurrently, accepts only the returned `agent_id`, and uses the same targeted-wait and close rules as Stage 1. The V2 adapter uses the same `run_token`, a maximum of 3 children, `fork_turns="none"`, and exact task names `prr_<run_token>_s3_finding_verifier_<candidate_id>_a<attempt>`. It applies the same canonical sender, spawn reconciliation, lifecycle, ordered reconciliation, delivery-grace, duplicate, deadline, and owned-cleanup rules as Stage 1.
+   - Start one monotonic 30-minute Stage 3 deadline before the first spawn. Neither progress nor retries reset it. For V2, each notification poll remains bounded by `min(60000 ms, remaining stage budget, earliest active delivery-grace budget)`.
+   - Require exactly one usable result for the exact expected candidate-ID set. Each result's first line must match `VERIFICATION_OK finding-verifier <candidate_id> $BASE_COMMIT...$HEAD_REF <packet_sha256>`, followed by a single JSON object matching the contract. `FATAL_VERIFICATION_ERROR`, unknown/duplicate/missing candidate IDs, scope/hash mismatch, malformed JSON, invalid fields, invalid verdict shape, task failure, timeout, or partial delivery fails closed before aggregation.
+   - Apply verdicts without changing finding identity: `confirmed` retains the normalized severity; `refuted` removes the candidate from the fix queue but keeps it visible under Refuted Findings; `needs-verification` requires non-empty `missingVerification`, downgrades Critical to Important, and retains Important as Important. `confirmed` and `refuted` require non-empty evidence and empty `missingVerification`. Any other combination is invalid and fails closed.
+
+7. **Final worktree guard**:
    - Run `git status --porcelain --untracked-files=normal` again after all specialists complete and before aggregation, or before the empty-diff early exit.
    - If the command fails, abort with the command output and do not aggregate against an unknown worktree state.
    - If output is non-empty, abort with:
@@ -203,7 +213,7 @@ After preconditions pass:
    - Run `git rev-parse HEAD` again and compare it with the recorded `$HEAD_REF`. If it differs, abort with:
      > "HEAD changed during review: started at `<old>`, now `<new>`. The completed specialist results do not cover the current commit. Re-run the review."
 
-7. **Aggregate** all specialist findings into the Output Format below. Preserve the originating specialist name in each bullet so the reader can trace lineage. Always include the stop condition in Recommended Action: `Critical 0 / Important 0` means stop; Suggestions alone do not justify another gate run. On the second and later pass, focus on prior Critical/Important resolution. On the third and later pass, if Critical/Important findings keep appearing or changing without stable blocker evidence, call out possible review churn and return the decision to a human maintainer.
+8. **Aggregate** all retained specialist findings into the Output Format below. Preserve the originating specialist name and candidate ID in each verified Critical/Important bullet so the reader can trace lineage. Include every refuted candidate and its verifier summary under Refuted Findings; refuted items do not count toward Critical or Important totals. Always include the stop condition in Recommended Action: `Critical 0 / Important 0` means stop; Suggestions alone do not justify another gate run. On the second and later pass, focus on prior Critical/Important resolution. On the third and later pass, if Critical/Important findings keep appearing or changing without stable blocker evidence, call out possible review churn and return the decision to a human maintainer.
 
 ## Output format
 
@@ -212,8 +222,11 @@ After preconditions pass:
 
 <degraded-coverage line if applicable>
 
+## Verification Summary
+- Confirmed: X; Needs verification: Y; Refuted: Z
+
 ## Critical Issues (X found)
-- [<specialist>]: <description> [<file>:<line>]
+- [<candidate-id> / <specialist>]: <description> [<file>:<line>]
   - Impact scope: ...
   - Verified assumptions: ...
   - Unverified assumptions: ...
@@ -221,12 +234,16 @@ After preconditions pass:
   - Suggested fix: ...
 
 ## Important Issues (X shown, top 5)
-- [<specialist>]: <description> [<file>:<line>]
+- [<candidate-id> / <specialist>]: <description> [<file>:<line>]
   - Impact scope: ...
   - Missing verification: <if any>
 
 ## Suggestions (X shown, max 3)
 - [<specialist>]: <description> [<file>:<line>]
+
+## Refuted Findings
+- [<candidate-id> / <specialist>]: <original description>
+  - Verifier summary: ...
 
 ## Strengths
 - <positive observations from specialists>

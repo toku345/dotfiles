@@ -1,0 +1,95 @@
+{
+  "sentinel": "PR_REVIEW_FINDING_VERIFIER_CONTRACT_V1",
+  "version": 1,
+  "candidate": {
+    "eligible_severities": [
+      "Critical",
+      "Important"
+    ],
+    "one_candidate_per_task": true,
+    "id_pattern": "^f[0-9]{3,}$",
+    "required_fields": [
+      "candidate_id",
+      "source_specialists",
+      "normalized_severity",
+      "summary",
+      "locations",
+      "impact_scope",
+      "verified_assumptions",
+      "unverified_assumptions",
+      "suggested_fix"
+    ],
+    "ordering": [
+      "normalized_severity:Critical-before-Important",
+      "first_source_specialist:stage1-dispatch-order",
+      "first_source_finding:appearance-order"
+    ],
+    "deduplicate_same_root_cause_before_id_assignment": true
+  },
+  "task": {
+    "agent_type": "finding-verifier",
+    "stage": 3,
+    "max_concurrency": 3,
+    "deadline_ms": 1800000,
+    "task_name_template": "prr_<run_token>_s3_finding_verifier_<candidate_id>_a<attempt>",
+    "inherit_parent_model_and_reasoning": true,
+    "fork_turns": "none",
+    "zero_candidates": "skip-stage-with-empty-verification-summary"
+  },
+  "scope": {
+    "require_same_base_commit": true,
+    "require_same_head_ref": true,
+    "require_same_packet_sha256": true,
+    "allow_new_findings": false,
+    "allow_severity_reclassification": false,
+    "allow_edits": false,
+    "allow_collaboration_tools": false
+  },
+  "output": {
+    "coverage_sentinel_template": "VERIFICATION_OK finding-verifier <candidate_id> $BASE_COMMIT...$HEAD_REF <packet_sha256>",
+    "fatal_sentinel_template": "FATAL_VERIFICATION_ERROR finding-verifier <candidate_id>: <reason>",
+    "format": "single-json-object-after-sentinel",
+    "required_fields": [
+      "candidate_id",
+      "verdict",
+      "summary",
+      "evidence",
+      "missingVerification"
+    ],
+    "verdicts": [
+      "confirmed",
+      "refuted",
+      "needs-verification"
+    ],
+    "evidence_item_required_fields": [
+      "path",
+      "line",
+      "observation"
+    ]
+  },
+  "verdict_policy": {
+    "confirmed": {
+      "evidence_non_empty": true,
+      "missingVerification_empty": true,
+      "final_action": "retain-original-normalized-severity"
+    },
+    "refuted": {
+      "evidence_non_empty": true,
+      "missingVerification_empty": true,
+      "final_action": "exclude-from-fix-queue-and-list-in-refuted-findings"
+    },
+    "needs-verification": {
+      "evidence_may_be_empty": true,
+      "missingVerification_non_empty": true,
+      "final_action": "downgrade-Critical-to-Important;retain-Important"
+    }
+  },
+  "integrity": {
+    "require_exactly_one_result_per_candidate": true,
+    "reject_unknown_or_duplicate_candidate": true,
+    "reject_candidate_id_mismatch": true,
+    "reject_scope_or_packet_mismatch": true,
+    "reject_invalid_verdict_shape": true,
+    "partial_aggregation": "fatal"
+  }
+}
