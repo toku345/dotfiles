@@ -22,6 +22,10 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
     repo = tmpdir / "repo"
     (repo / "tests" / "codex").mkdir(parents=True)
     shutil.copy2(REPO_ROOT / VERIFY_SCRIPT, repo / VERIFY_SCRIPT)
+    shutil.copytree(
+        REPO_ROOT / "tests" / "codex" / "fixtures",
+        repo / "tests" / "codex" / "fixtures",
+    )
     shutil.copytree(REPO_ROOT / "private_dot_codex", repo / "private_dot_codex")
     shutil.copytree(
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
@@ -607,6 +611,34 @@ def main() -> None:
             "`chezmoi apply` は変更を main に merge した後だけ実行する",
             "`chezmoi apply` は merge 前に実行する",
             "merge した後だけ",
+        ),
+        (
+            "finding-verifier operations documentation removed",
+            "docs/codex.md",
+            "Stage 3 `finding-verifier`",
+            "Stage 3 verification",
+            "Stage 3 `finding-verifier`",
+        ),
+        (
+            "finding-verifier baseline invents a recall threshold",
+            "tests/codex/fixtures/pr_review_finding_verifier_baseline_v1.json",
+            '"hard_recall_threshold": null',
+            '"hard_recall_threshold": 1',
+            "must not invent a recall threshold",
+        ),
+        (
+            "finding-verifier comparison scores an aborted case",
+            "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
+            '"status": "coverage_aborted",\n      "oracle_detected": null',
+            '"status": "coverage_aborted",\n      "oracle_detected": false',
+            "aborted cases must not carry scored results",
+        ),
+        (
+            "finding-verifier comparison overclaims improvement",
+            "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
+            "does not demonstrate a controlled recall or false-positive improvement",
+            "demonstrates a controlled recall and false-positive improvement",
+            "observational non-improvement conclusion is required",
         ),
     ]
 

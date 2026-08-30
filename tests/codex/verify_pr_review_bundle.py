@@ -32,6 +32,20 @@ FINDING_VERIFIER_CONTRACT = (
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
 DESIGN_DOC = REPO_ROOT / "docs" / "design" / "codex-pr-review.md"
+FINDING_VERIFIER_BASELINE = (
+    REPO_ROOT
+    / "tests"
+    / "codex"
+    / "fixtures"
+    / "pr_review_finding_verifier_baseline_v1.json"
+)
+FINDING_VERIFIER_COMPARISON = (
+    REPO_ROOT
+    / "tests"
+    / "codex"
+    / "fixtures"
+    / "pr_review_finding_verifier_post_v1.json"
+)
 
 EXPECTED_REVIEW_PROFILES = {
     "review": {
@@ -52,6 +66,8 @@ RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1_V2"
 BASE_RESOLUTION_SENTINEL = "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2"
 V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V4"
 FINDING_VERIFIER_SENTINEL = "PR_REVIEW_FINDING_VERIFIER_CONTRACT_V1"
+FINDING_VERIFIER_BASELINE_SENTINEL = "PR_REVIEW_FINDING_VERIFIER_BASELINE_V1"
+FINDING_VERIFIER_COMPARISON_SENTINEL = "PR_REVIEW_FINDING_VERIFIER_POST_V1"
 EXPECTED_BASE_RESOLUTION_CONTRACT = {
     "sentinel": BASE_RESOLUTION_SENTINEL,
     "version": 2,
@@ -666,17 +682,25 @@ REQUIRED_CODEX_DOC_SNIPPETS = [
     "isolated `CODEX_HOME`",
     "scoped escalation",
     "qualified retirement",
+    "Stage 3 `finding-verifier`",
+    "`confirmed` / `refuted` / `needs-verification`",
+    "partial aggregation せず fail-closed",
     "`chezmoi apply` は変更を main に merge した後だけ",
 ]
 
 REQUIRED_DESIGN_DOC_SNIPPETS = [
-    "rev.13",
+    "rev.14",
+    "Issue #282",
     "Issue #297",
     "V1/V2",
     "fresh agent tree",
     "at most 3",
     "FINAL_ANSWER",
     "qualified retirement",
+    "3-stage flow",
+    "PR_REVIEW_V2_SCHEDULER_CONTRACT_V4",
+    "one Stage-3 `finding-verifier` task per recorded candidate",
+    "exact candidate-ID set",
     "observed running",
     "successful full-tree",
     "retained-list and scheduler-owned dispatch replays",
@@ -959,6 +983,156 @@ def verify_finding_verifier_contract() -> None:
         "Refuted Findings",
     ):
         require_contains(skill, expected, f"{context}:SKILL.md consistency")
+
+
+def verify_finding_verifier_baseline() -> None:
+    context = str(FINDING_VERIFIER_BASELINE)
+    if not FINDING_VERIFIER_BASELINE.is_file():
+        fail(
+            "missing finding-verifier baseline: "
+            f"{FINDING_VERIFIER_BASELINE.relative_to(REPO_ROOT)}"
+        )
+    try:
+        data = json.loads(FINDING_VERIFIER_BASELINE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{context}: invalid JSON: {exc}")
+    if data.get("sentinel") != FINDING_VERIFIER_BASELINE_SENTINEL:
+        fail(f"{context}: unsupported baseline sentinel")
+    if data.get("version") != 1:
+        fail(f"{context}: unsupported baseline version")
+    policy = data.get("policy")
+    if not isinstance(policy, dict):
+        fail(f"{context}: missing observational policy")
+    if policy.get("attempts_per_case") != 1:
+        fail(f"{context}: baseline must record exactly one attempt per case")
+    if policy.get("hard_recall_threshold") is not None:
+        fail(f"{context}: baseline must not invent a recall threshold")
+    if policy.get("aborted_case_oracle_result") is not None:
+        fail(f"{context}: aborted baseline cases must remain unscored")
+    runner = data.get("runner")
+    if (
+        not isinstance(runner, dict)
+        or runner.get("model_identity_status") != "unverified"
+    ):
+        fail(f"{context}: unverified model identity must remain explicit")
+    pairs = data.get("pairs")
+    if not isinstance(pairs, list) or len(pairs) != 3:
+        fail(f"{context}: expected exactly three historical pairs")
+    expected_pair_ids = {
+        "pr304-week0-v2-supersession",
+        "pr330-stop-hook-state-order",
+        "pr269-codex-hook-test-coverage",
+    }
+    if {pair.get("pair_id") for pair in pairs} != expected_pair_ids:
+        fail(f"{context}: historical pair identity mismatch")
+    for pair in pairs:
+        cases = pair.get("cases")
+        if not isinstance(cases, list) or {case.get("variant") for case in cases} != {
+            "buggy",
+            "fixed",
+        }:
+            fail(f"{context}: each pair must retain buggy and fixed cases")
+        for case in cases:
+            if case.get("status") != "gate_complete":
+                if (
+                    case.get("oracle_detected") is not None
+                    or case.get("counts") is not None
+                ):
+                    fail(f"{context}: aborted cases must not carry scored results")
+
+
+def verify_finding_verifier_comparison() -> None:
+    context = str(FINDING_VERIFIER_COMPARISON)
+    if not FINDING_VERIFIER_COMPARISON.is_file():
+        fail(
+            "missing finding-verifier comparison: "
+            f"{FINDING_VERIFIER_COMPARISON.relative_to(REPO_ROOT)}"
+        )
+    try:
+        data = json.loads(FINDING_VERIFIER_COMPARISON.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{context}: invalid JSON: {exc}")
+    if data.get("sentinel") != FINDING_VERIFIER_COMPARISON_SENTINEL:
+        fail(f"{context}: unsupported comparison sentinel")
+    if data.get("version") != 1:
+        fail(f"{context}: unsupported comparison version")
+    policy = data.get("policy")
+    if not isinstance(policy, dict):
+        fail(f"{context}: missing comparison policy")
+    if policy.get("attempts_per_case") != 1 or policy.get("retries") != 0:
+        fail(f"{context}: comparison must retain one attempt and zero retries")
+    if policy.get("hard_recall_threshold") is not None:
+        fail(f"{context}: comparison must not invent a recall threshold")
+    if policy.get("aborted_case_oracle_result") is not None:
+        fail(f"{context}: aborted comparison cases must remain unscored")
+    runner = data.get("runner")
+    if (
+        not isinstance(runner, dict)
+        or runner.get("model_identity_status") != "unverified"
+    ):
+        fail(f"{context}: unverified model identity must remain explicit")
+    expected_artifacts = {
+        "skill_sha256": sha256(SKILL),
+        "agent_sha256": sha256(AGENTS_DIR / "finding-verifier.toml"),
+        "contract_sha256": sha256(FINDING_VERIFIER_CONTRACT),
+    }
+    if runner.get("candidate_artifacts") != expected_artifacts:
+        fail(f"{context}: candidate artifact identity mismatch")
+    cases = data.get("cases")
+    if not isinstance(cases, list) or len(cases) != 6:
+        fail(f"{context}: expected exactly six one-shot cases")
+    expected_cases = {
+        ("pr304-week0-v2-supersession", "buggy"): "gate_complete",
+        ("pr304-week0-v2-supersession", "fixed"): "coverage_aborted",
+        ("pr330-stop-hook-state-order", "buggy"): "gate_complete",
+        ("pr330-stop-hook-state-order", "fixed"): "gate_complete",
+        ("pr269-codex-hook-test-coverage", "buggy"): "environment_aborted",
+        ("pr269-codex-hook-test-coverage", "fixed"): "gate_complete",
+    }
+    case_map = {(case.get("pair_id"), case.get("variant")): case for case in cases}
+    if {key: case.get("status") for key, case in case_map.items()} != expected_cases:
+        fail(f"{context}: one-shot case identity or status mismatch")
+    completed = [case for case in cases if case.get("status") == "gate_complete"]
+    for case in cases:
+        if case.get("status") == "gate_complete":
+            if not isinstance(case.get("oracle_detected"), bool):
+                fail(f"{context}: completed cases require a boolean oracle result")
+            if not isinstance(case.get("counts"), dict) or not isinstance(
+                case.get("verifier"), dict
+            ):
+                fail(f"{context}: completed cases require counts and verifier totals")
+        elif any(
+            case.get(field) is not None
+            for field in ("oracle_detected", "counts", "verifier")
+        ):
+            fail(f"{context}: aborted cases must not carry scored results")
+    aggregate = data.get("aggregate")
+    if not isinstance(aggregate, dict):
+        fail(f"{context}: missing comparison aggregate")
+    verifier_fields = {
+        "verifier_candidates": "candidates",
+        "confirmed": "confirmed",
+        "needs_verification": "needs_verification",
+        "refuted": "refuted",
+    }
+    for aggregate_field, case_field in verifier_fields.items():
+        expected = sum(case["verifier"][case_field] for case in completed)
+        if aggregate.get(aggregate_field) != expected:
+            fail(f"{context}: {aggregate_field} aggregate mismatch")
+    usage = aggregate.get("usage")
+    if not isinstance(usage, dict):
+        fail(f"{context}: missing aggregate usage")
+    for field in (
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "reasoning_output_tokens",
+    ):
+        if usage.get(field) != sum(case["usage"][field] for case in cases):
+            fail(f"{context}: {field} aggregate mismatch")
+    conclusion = aggregate.get("conclusion")
+    if not isinstance(conclusion, str) or "does not demonstrate" not in conclusion:
+        fail(f"{context}: observational non-improvement conclusion is required")
 
 
 def verify_claude_share_templates() -> None:
@@ -1418,6 +1592,8 @@ def main() -> None:
     verify_codex_config_profiles()
     verify_agent_toml()
     verify_skill_contract()
+    verify_finding_verifier_baseline()
+    verify_finding_verifier_comparison()
     print("OK: Codex pr-review bundle validation passed")
 
 

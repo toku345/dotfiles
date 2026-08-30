@@ -1,0 +1,106 @@
+{
+  "sentinel": "PR_REVIEW_FINDING_VERIFIER_POST_V1",
+  "version": 1,
+  "captured_at": "2026-08-30",
+  "purpose": "Observational post-change comparison for Issue #282; each historical case was run exactly once with the isolated candidate bundle.",
+  "runner": {
+    "codex_cli_version": "0.151.0",
+    "model_id": null,
+    "model_identity_status": "unverified",
+    "model_identity_note": "The effective parent and child model identities were not exposed as trustworthy run evidence, so the results are not a model-controlled paired measurement.",
+    "implementation_commit": "0ba018828e707e33a83900dc35f9ac447d97cbe3",
+    "candidate_artifacts": {
+      "skill_sha256": "5dc2fd5417230d36317cb601fab0c612e4927f375a262d1378b7fd848ceae3e9",
+      "agent_sha256": "d0feb56f9c19af7d4ed1421dce87130e446c22a564d80982f6f340baadee1e62",
+      "contract_sha256": "5016560e23d570eca12ca836beeb8db45e9ae67f7d2efa29037adf2eca42b30d"
+    }
+  },
+  "policy": {
+    "attempts_per_case": 1,
+    "retries": 0,
+    "hard_recall_threshold": null,
+    "aborted_case_oracle_result": null,
+    "interpretation": "Compare outcomes descriptively. Stage 1 variation prevents attributing known-root recall changes to Stage 3, and aborted cases are reliability evidence rather than passes or misses."
+  },
+  "cases": [
+    {
+      "pair_id": "pr304-week0-v2-supersession",
+      "variant": "buggy",
+      "thread_id": "01a04fc4-f56c-7360-b08e-cd5b3f2c21dd",
+      "status": "gate_complete",
+      "oracle_detected": false,
+      "counts": {"critical": 0, "important": 8, "suggestion": 3},
+      "verifier": {"candidates": 9, "confirmed": 7, "needs_verification": 1, "refuted": 1},
+      "usage": {"input_tokens": 5005836, "cached_input_tokens": 4869632, "output_tokens": 17596, "reasoning_output_tokens": 3139},
+      "observation": "Stage 1 did not produce the known supersession candidate. Stage 3 refuted one separate predictable-/tmp candidate because ADR 0032 had retired the package from execution."
+    },
+    {
+      "pair_id": "pr304-week0-v2-supersession",
+      "variant": "fixed",
+      "thread_id": "01a04fd7-75d2-7410-8deb-7adb409c61c8",
+      "status": "coverage_aborted",
+      "oracle_detected": null,
+      "counts": null,
+      "verifier": null,
+      "usage": {"input_tokens": 1100962, "cached_input_tokens": 1041152, "output_tokens": 6235, "reasoning_output_tokens": 1259},
+      "observation": "Stage 1 failed closed after code-reviewer claimed a committed file was absent from the authoritative packet. No partial findings were aggregated."
+    },
+    {
+      "pair_id": "pr330-stop-hook-state-order",
+      "variant": "buggy",
+      "thread_id": "01a04fdb-cca1-7511-ad8d-df00c3dd873c",
+      "status": "gate_complete",
+      "oracle_detected": false,
+      "counts": {"critical": 0, "important": 4, "suggestion": 3},
+      "verifier": {"candidates": 4, "confirmed": 4, "needs_verification": 0, "refuted": 0},
+      "usage": {"input_tokens": 2973768, "cached_input_tokens": 2873856, "output_tokens": 13298, "reasoning_output_tokens": 2617},
+      "observation": "Stage 1 did not produce the known persistence-order candidate. Stage 3 confirmed four different Important candidates."
+    },
+    {
+      "pair_id": "pr330-stop-hook-state-order",
+      "variant": "fixed",
+      "thread_id": "01a04fe6-6d4e-7b22-baa8-c7efda04e514",
+      "status": "gate_complete",
+      "oracle_detected": false,
+      "counts": {"critical": 0, "important": 2, "suggestion": 3},
+      "verifier": {"candidates": 2, "confirmed": 2, "needs_verification": 0, "refuted": 0},
+      "usage": {"input_tokens": 2597914, "cached_input_tokens": 2501376, "output_tokens": 12298, "reasoning_output_tokens": 2499},
+      "observation": "The known fixed root remained absent, while two different Important candidates survived verification."
+    },
+    {
+      "pair_id": "pr269-codex-hook-test-coverage",
+      "variant": "buggy",
+      "thread_id": "01a04fee-7add-7562-a71b-6535c91a85b0",
+      "status": "environment_aborted",
+      "oracle_detected": null,
+      "counts": null,
+      "verifier": null,
+      "usage": {"input_tokens": 265564, "cached_input_tokens": 227584, "output_tokens": 1805, "reasoning_output_tokens": 763},
+      "observation": "The gate aborted before specialist spawn because a generated zsh collection script assigned to the read-only status variable. No retry was attempted."
+    },
+    {
+      "pair_id": "pr269-codex-hook-test-coverage",
+      "variant": "fixed",
+      "thread_id": "01a04fef-76b5-78f0-afd7-daa60e98edc1",
+      "status": "gate_complete",
+      "oracle_detected": false,
+      "counts": {"critical": 0, "important": 6, "suggestion": 3},
+      "verifier": {"candidates": 6, "confirmed": 5, "needs_verification": 1, "refuted": 0},
+      "usage": {"input_tokens": 4731055, "cached_input_tokens": 4593920, "output_tokens": 15709, "reasoning_output_tokens": 3391},
+      "observation": "The known fixed root remained absent. Five candidates were confirmed and one retained as needs-verification."
+    }
+  ],
+  "aggregate": {
+    "gate_complete": 4,
+    "coverage_aborted": 1,
+    "environment_aborted": 1,
+    "evaluable_buggy_oracles": 2,
+    "detected_buggy_oracles": 0,
+    "verifier_candidates": 21,
+    "confirmed": 18,
+    "needs_verification": 2,
+    "refuted": 1,
+    "usage": {"input_tokens": 16675099, "cached_input_tokens": 16107520, "output_tokens": 66941, "reasoning_output_tokens": 13668},
+    "conclusion": "The one-shot comparison proves Stage 3 execution and one evidence-based refutation, but does not demonstrate a controlled recall or false-positive improvement. The high token cost and Stage 1 variability must remain visible in the Draft PR decision."
+  }
+}
