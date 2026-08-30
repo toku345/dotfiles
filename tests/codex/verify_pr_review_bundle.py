@@ -68,6 +68,11 @@ V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V4"
 FINDING_VERIFIER_SENTINEL = "PR_REVIEW_FINDING_VERIFIER_CONTRACT_V1"
 FINDING_VERIFIER_BASELINE_SENTINEL = "PR_REVIEW_FINDING_VERIFIER_BASELINE_V1"
 FINDING_VERIFIER_COMPARISON_SENTINEL = "PR_REVIEW_FINDING_VERIFIER_POST_V1"
+EXPECTED_FINDING_VERIFIER_COMPARISON_ARTIFACTS = {
+    "skill_sha256": "5dc2fd5417230d36317cb601fab0c612e4927f375a262d1378b7fd848ceae3e9",
+    "agent_sha256": "d0feb56f9c19af7d4ed1421dce87130e446c22a564d80982f6f340baadee1e62",
+    "contract_sha256": "5016560e23d570eca12ca836beeb8db45e9ae67f7d2efa29037adf2eca42b30d",
+}
 EXPECTED_BASE_RESOLUTION_CONTRACT = {
     "sentinel": BASE_RESOLUTION_SENTINEL,
     "version": 2,
@@ -284,6 +289,19 @@ EXPECTED_FINDING_VERIFIER_CONTRACT = {
         ],
         "verdicts": ["confirmed", "refuted", "needs-verification"],
         "evidence_item_required_fields": ["path", "line", "observation"],
+        "evidence_item_constraints": {
+            "allow_additional_fields": False,
+            "path": {
+                "format": "repository-relative-non-empty-string",
+                "forbid_components": [".", ".."],
+            },
+            "line": {
+                "types": ["positive-integer", "line-range-string"],
+                "line_range_pattern": "^[1-9][0-9]*(?:-[1-9][0-9]*)?$",
+                "line_range_order": "start-less-than-or-equal-to-end",
+            },
+            "observation": {"format": "non-empty-string"},
+        },
     },
     "verdict_policy": {
         "confirmed": {
@@ -1071,13 +1089,11 @@ def verify_finding_verifier_comparison() -> None:
         or runner.get("model_identity_status") != "unverified"
     ):
         fail(f"{context}: unverified model identity must remain explicit")
-    expected_artifacts = {
-        "skill_sha256": sha256(SKILL),
-        "agent_sha256": sha256(AGENTS_DIR / "finding-verifier.toml"),
-        "contract_sha256": sha256(FINDING_VERIFIER_CONTRACT),
-    }
-    if runner.get("candidate_artifacts") != expected_artifacts:
-        fail(f"{context}: candidate artifact identity mismatch")
+    if (
+        runner.get("candidate_artifacts")
+        != EXPECTED_FINDING_VERIFIER_COMPARISON_ARTIFACTS
+    ):
+        fail(f"{context}: historical candidate artifact identity mismatch")
     cases = data.get("cases")
     if not isinstance(cases, list) or len(cases) != 6:
         fail(f"{context}: expected exactly six one-shot cases")
@@ -1101,6 +1117,25 @@ def verify_finding_verifier_comparison() -> None:
                 case.get("verifier"), dict
             ):
                 fail(f"{context}: completed cases require counts and verifier totals")
+            verifier = case["verifier"]
+            verdict_fields = (
+                "candidates",
+                "confirmed",
+                "needs_verification",
+                "refuted",
+            )
+            if any(
+                isinstance(verifier.get(field), bool)
+                or not isinstance(verifier.get(field), int)
+                or verifier[field] < 0
+                for field in verdict_fields
+            ):
+                fail(f"{context}: verifier totals must be non-negative integers")
+            if verifier["candidates"] != sum(
+                verifier[field]
+                for field in ("confirmed", "needs_verification", "refuted")
+            ):
+                fail(f"{context}: per-case verifier verdict accounting mismatch")
         elif any(
             case.get(field) is not None
             for field in ("oracle_detected", "counts", "verifier")

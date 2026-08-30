@@ -634,6 +634,20 @@ def main() -> None:
             "aborted cases must not carry scored results",
         ),
         (
+            "finding-verifier comparison has incomplete verdict accounting",
+            "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
+            '"verifier": {"candidates": 9, "confirmed": 7',
+            '"verifier": {"candidates": 10, "confirmed": 7',
+            "per-case verifier verdict accounting mismatch",
+        ),
+        (
+            "finding-verifier historical artifact identity is rewritten",
+            "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
+            '"skill_sha256": "5dc2fd5417230d36317cb601fab0c612e4927f375a262d1378b7fd848ceae3e9"',
+            '"skill_sha256": "0000000000000000000000000000000000000000000000000000000000000000"',
+            "historical candidate artifact identity mismatch",
+        ),
+        (
             "finding-verifier comparison overclaims improvement",
             "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
             "does not demonstrate a controlled recall or false-positive improvement",

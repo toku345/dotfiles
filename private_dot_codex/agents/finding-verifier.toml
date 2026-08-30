@@ -43,6 +43,8 @@ After `VERIFICATION_OK`, return exactly one JSON object and no markdown fence. I
 - `evidence`: a JSON array of objects with `path`, `line`, and `observation`
 - `missingVerification`: a JSON array of precise missing checks or evidence
 
+Each evidence object must contain exactly those three fields. `path` must be a non-empty repository-relative path with no `.` or `..` component. `line` must be either a positive integer or a string containing one positive line number or an inclusive positive line range such as `12-18`. `observation` must be a non-empty string describing what the cited location proves. Do not use absolute paths, placeholder values, zero/negative lines, or extra evidence fields.
+
 Use `confirmed` only when evidence in the committed scope establishes the reported failure mode; provide at least one evidence item and an empty `missingVerification`. Use `refuted` only when evidence in the committed scope contradicts a required part of the candidate; provide at least one evidence item and an empty `missingVerification`. Use `needs-verification` only when the available evidence cannot decide a required assumption; `missingVerification` must be non-empty and must say how to resolve the uncertainty. Do not use confidence scores as a substitute for one of these verdicts.
 
 Do not change the candidate wording merely to make it confirmable. Do not recommend a different severity. Do not hide contradictory evidence. The orchestrator owns normalization and final aggregation.

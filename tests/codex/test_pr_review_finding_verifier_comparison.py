@@ -33,6 +33,11 @@ USAGE_FIELDS = {
     "output_tokens",
     "reasoning_output_tokens",
 }
+EXPECTED_ARTIFACTS = {
+    "skill_sha256": "5dc2fd5417230d36317cb601fab0c612e4927f375a262d1378b7fd848ceae3e9",
+    "agent_sha256": "d0feb56f9c19af7d4ed1421dce87130e446c22a564d80982f6f340baadee1e62",
+    "contract_sha256": "5016560e23d570eca12ca836beeb8db45e9ae67f7d2efa29037adf2eca42b30d",
+}
 
 
 class FindingVerifierComparisonTests(unittest.TestCase):
@@ -56,7 +61,10 @@ class FindingVerifierComparisonTests(unittest.TestCase):
         self.assertRegex(
             self.fixture["runner"]["implementation_commit"], re.compile(r"[0-9a-f]{40}\Z")
         )
-        for digest in self.fixture["runner"]["candidate_artifacts"].values():
+        self.assertEqual(
+            self.fixture["runner"]["candidate_artifacts"], EXPECTED_ARTIFACTS
+        )
+        for digest in EXPECTED_ARTIFACTS.values():
             self.assertRegex(digest, SHA256_RE)
 
     def test_exact_one_shot_case_matrix_is_retained(self) -> None:

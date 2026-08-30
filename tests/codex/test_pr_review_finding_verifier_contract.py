@@ -28,6 +28,13 @@ class Finding:
     finding_order: int
 
 
+@dataclasses.dataclass(frozen=True)
+class Candidate:
+    candidate_id: str
+    severity: str
+    summary: str
+
+
 def assign_candidate_ids(findings: list[Finding]) -> list[tuple[str, Finding]]:
     """Model the deterministic normalization order specified by the skill."""
     severity_order = {
@@ -98,11 +105,36 @@ def validate_result(
     if not isinstance(evidence, list) or not isinstance(missing_verification, list):
         raise ValueError("evidence and missingVerification must be arrays")
     evidence_fields = set(CONTRACT["output"]["evidence_item_required_fields"])
+    evidence_constraints = CONTRACT["output"]["evidence_item_constraints"]
     for item in evidence:
-        if not isinstance(item, dict) or not evidence_fields.issubset(item):
+        if not isinstance(item, dict) or set(item) != evidence_fields:
             raise ValueError("invalid evidence item")
-        if not all(item[field] not in (None, "") for field in evidence_fields):
-            raise ValueError("evidence fields must be non-empty")
+        path = item["path"]
+        if (
+            not isinstance(path, str)
+            or not path.strip()
+            or path != path.strip()
+            or path.startswith("/")
+            or "\\" in path
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+        ):
+            raise ValueError("evidence path must be repository-relative")
+        line = item["line"]
+        line_pattern = evidence_constraints["line"]["line_range_pattern"]
+        if isinstance(line, bool):
+            raise ValueError("evidence line must be a positive line or range")
+        if isinstance(line, int):
+            if line <= 0:
+                raise ValueError("evidence line must be positive")
+        elif isinstance(line, str) and re.fullmatch(line_pattern, line):
+            start, _, end = line.partition("-")
+            if end and int(start) > int(end):
+                raise ValueError("evidence line range must be ordered")
+        else:
+            raise ValueError("evidence line must be a positive line or range")
+        observation = item["observation"]
+        if not isinstance(observation, str) or not observation.strip():
+            raise ValueError("evidence observation must be non-empty")
     if not all(isinstance(item, str) and item.strip() for item in missing_verification):
         raise ValueError("missingVerification items must be non-empty strings")
     if verdict in {"confirmed", "refuted"}:
@@ -122,6 +154,49 @@ def exact_candidate_results(
         and len(actual) == len(set(actual))
         and set(actual) == expected_candidate_ids
     )
+
+
+def aggregate_verified_candidates(
+    candidates: list[Candidate],
+    results: list[dict],
+    *,
+    important_cap: int = 5,
+) -> dict:
+    """Model Stage 3 verdict application and final fix-queue budgeting."""
+    candidate_ids = [candidate.candidate_id for candidate in candidates]
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise ValueError("duplicate candidate ID")
+    expected = set(candidate_ids)
+    if not exact_candidate_results(expected, results):
+        raise ValueError("verification result set mismatch")
+    result_by_id = {result["candidate_id"]: result for result in results}
+    critical: list[Candidate] = []
+    important: list[Candidate] = []
+    refuted: list[tuple[Candidate, str]] = []
+    verdict_counts = {verdict: 0 for verdict in CONTRACT["output"]["verdicts"]}
+
+    for candidate in candidates:
+        if candidate.severity not in CONTRACT["candidate"]["eligible_severities"]:
+            raise ValueError("unknown candidate severity")
+        result = result_by_id[candidate.candidate_id]
+        verdict = result.get("verdict")
+        if verdict not in verdict_counts:
+            raise ValueError("unknown verifier verdict")
+        verdict_counts[verdict] += 1
+        if verdict == "refuted":
+            refuted.append((candidate, result["summary"]))
+        elif verdict == "needs-verification" or candidate.severity == "Important":
+            important.append(candidate)
+        else:
+            critical.append(candidate)
+
+    return {
+        "verification_summary": verdict_counts,
+        "critical": critical,
+        "important_total": len(important),
+        "important_shown": important[:important_cap],
+        "refuted": refuted,
+    }
 
 
 class FindingVerifierContractTests(unittest.TestCase):
@@ -199,6 +274,44 @@ class FindingVerifierContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate(self.result("confirmed", self.evidence(), ["Unresolved."]))
 
+    def test_rejects_structurally_meaningless_evidence_values(self) -> None:
+        invalid_items = [
+            {"path": "", "line": 12, "observation": "Observed."},
+            {"path": "/tmp/file", "line": 12, "observation": "Observed."},
+            {"path": "../file", "line": 12, "observation": "Observed."},
+            {"path": "src/./file", "line": 12, "observation": "Observed."},
+            {"path": "src/file", "line": 0, "observation": "Observed."},
+            {"path": "src/file", "line": True, "observation": "Observed."},
+            {"path": "src/file", "line": "18-12", "observation": "Observed."},
+            {"path": "src/file", "line": "line 12", "observation": "Observed."},
+            {"path": "src/file", "line": 12, "observation": "   "},
+            {
+                "path": "src/file",
+                "line": 12,
+                "observation": "Observed.",
+                "extra": "not allowed",
+            },
+        ]
+        for item in invalid_items:
+            with self.subTest(item=item), self.assertRaises(ValueError):
+                self.validate(self.result("confirmed", [item], []))
+
+    def test_accepts_positive_line_and_ordered_line_range(self) -> None:
+        for line in (1, "12", "12-18"):
+            with self.subTest(line=line):
+                result = self.result(
+                    "confirmed",
+                    [
+                        {
+                            "path": "src/example.sh",
+                            "line": line,
+                            "observation": "The guard exits 0.",
+                        }
+                    ],
+                    [],
+                )
+                self.assertEqual(self.validate(result)["verdict"], "confirmed")
+
     def test_rejects_scope_candidate_and_json_mismatch(self) -> None:
         valid = self.result("confirmed", self.evidence(), [])
         with self.assertRaises(ValueError):
@@ -226,6 +339,65 @@ class FindingVerifierContractTests(unittest.TestCase):
                 expected, [{"candidate_id": "f001"}, {"candidate_id": "f001"}]
             )
         )
+
+    def test_aggregation_applies_verdicts_caps_and_refuted_visibility(self) -> None:
+        candidates = [
+            Candidate("f001", "Critical", "Confirmed blocker"),
+            Candidate("f002", "Critical", "Unproven blocker"),
+            *[
+                Candidate(f"f{index:03d}", "Important", f"Important {index}")
+                for index in range(3, 9)
+            ],
+            Candidate("f009", "Important", "Refuted concern"),
+        ]
+        results = [
+            {
+                "candidate_id": candidate.candidate_id,
+                "verdict": (
+                    "needs-verification"
+                    if candidate.candidate_id == "f002"
+                    else "refuted"
+                    if candidate.candidate_id == "f009"
+                    else "confirmed"
+                ),
+                "summary": f"Disposition for {candidate.candidate_id}",
+            }
+            for candidate in candidates
+        ]
+        aggregation = aggregate_verified_candidates(candidates, results)
+        self.assertEqual(
+            aggregation["verification_summary"],
+            {"confirmed": 7, "refuted": 1, "needs-verification": 1},
+        )
+        self.assertEqual(
+            [candidate.candidate_id for candidate in aggregation["critical"]],
+            ["f001"],
+        )
+        self.assertEqual(aggregation["important_total"], 7)
+        self.assertEqual(
+            [candidate.candidate_id for candidate in aggregation["important_shown"]],
+            ["f002", "f003", "f004", "f005", "f006"],
+        )
+        self.assertEqual(
+            [(candidate.candidate_id, summary) for candidate, summary in aggregation["refuted"]],
+            [("f009", "Disposition for f009")],
+        )
+
+    def test_aggregation_handles_zero_candidates_and_rejects_partial_results(self) -> None:
+        empty = aggregate_verified_candidates([], [])
+        self.assertEqual(empty["critical"], [])
+        self.assertEqual(empty["important_total"], 0)
+        self.assertEqual(empty["refuted"], [])
+
+        candidates = [
+            Candidate("f001", "Critical", "First"),
+            Candidate("f002", "Important", "Second"),
+        ]
+        with self.assertRaises(ValueError):
+            aggregate_verified_candidates(
+                candidates,
+                [{"candidate_id": "f001", "verdict": "confirmed", "summary": "ok"}],
+            )
 
 
 if __name__ == "__main__":

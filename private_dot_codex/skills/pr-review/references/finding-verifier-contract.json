@@ -65,7 +65,28 @@
       "path",
       "line",
       "observation"
-    ]
+    ],
+    "evidence_item_constraints": {
+      "allow_additional_fields": false,
+      "path": {
+        "format": "repository-relative-non-empty-string",
+        "forbid_components": [
+          ".",
+          ".."
+        ]
+      },
+      "line": {
+        "types": [
+          "positive-integer",
+          "line-range-string"
+        ],
+        "line_range_pattern": "^[1-9][0-9]*(?:-[1-9][0-9]*)?$",
+        "line_range_order": "start-less-than-or-equal-to-end"
+      },
+      "observation": {
+        "format": "non-empty-string"
+      }
+    }
   },
   "verdict_policy": {
     "confirmed": {
