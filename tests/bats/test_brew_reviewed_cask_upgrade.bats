@@ -142,6 +142,7 @@ metadata_overrides() {
   version='2.0.0'
   sha256="$new_sha"
   url='https://github.com/openai/codex/releases/download/v2.0.0/codex.tar.gz'
+  url_specs='{}'
   homepage='https://github.com/openai/codex'
   artifacts="$safe_artifacts"
   depends_on='{}'
@@ -180,6 +181,8 @@ metadata_overrides() {
     unknown) artifacts='[{"binary":["bin/codex"]},{"future_artifact":["x"]}]' ;;
     dependency) depends_on='{"formula":["openssl@3"]}' ;;
     conflict) conflicts_with='{"cask":["other"]}' ;;
+    urlspecs) url_specs='{"using":":post"}' ;;
+    urlspecs_malformed) url_specs='false' ;;
     container) container='{"type":"zip"}' ;;
     rename) rename='["codex-renamed"]' ;;
     nongithub) url='https://vendor.example/codex-2.0.0.tar.gz' ;;
@@ -191,13 +194,13 @@ print_metadata() {
   local mode="$1"
   local token="${2:-$BREW_STUB_CASK}"
   metadata_overrides "$mode"
-  printf '{"formulae":[],"casks":[{"token":"%s","full_token":"%s","tap":"%s","version":%s,"sha256":%s,"auto_updates":%s,"installed":%s,"pinned":%s,"deprecated":%s,"disabled":%s,"url":"%s","homepage":"%s","artifacts":%s,"depends_on":%s,"conflicts_with":%s,"container":%s,"rename":%s}]}\n' \
+  printf '{"formulae":[],"casks":[{"token":"%s","full_token":"%s","tap":"%s","version":%s,"sha256":%s,"auto_updates":%s,"installed":%s,"pinned":%s,"deprecated":%s,"disabled":%s,"url":"%s","url_specs":%s,"homepage":"%s","artifacts":%s,"depends_on":%s,"conflicts_with":%s,"container":%s,"rename":%s}]}\n' \
     "$token" "$token" "$tap" \
     "$(printf '%s' "$version" | jq -R .)" \
     "$(printf '%s' "$sha256" | jq -R .)" \
     "$auto_updates" \
     "$(if [[ "$installed" == null ]]; then printf null; else printf '%s' "$installed" | jq -R .; fi)" \
-    "$pinned" "$deprecated" "$disabled" "$url" "$homepage" \
+    "$pinned" "$deprecated" "$disabled" "$url" "$url_specs" "$homepage" \
     "$artifacts" "$depends_on" "$conflicts_with" "$container" "$rename"
 }
 
@@ -445,7 +448,8 @@ refute_log_contains() {
 @test "unsupported candidate metadata is rejected before brew update" {
   local mode
   for mode in nonofficial uninstalled pinned deprecated disabled auto auto_malformed latest \
-    nocheck badsha dangerous unknown dependency conflict container rename; do
+    nocheck badsha dangerous unknown dependency conflict urlspecs urlspecs_malformed \
+    container rename; do
     export BREW_STUB_CANDIDATE_MODE="$mode"
     run brew-reviewed-cask-upgrade codex -- smoke-command
     [ "$status" -eq 1 ]
@@ -930,6 +934,16 @@ refute_log_contains() {
   refute_log_contains $'upgrade\t--cask\t--no-ask'
 }
 
+@test "URL specs introduced before mutation fail closed" {
+  export BREW_STUB_PRE_UPGRADE_MODE=urlspecs
+  run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"pre-upgrade candidate Cask metadata"* ]]
+  [[ "$output" == *"outside the strict supported scope"* ]]
+  refute_log_contains $'upgrade\t--cask\t--no-ask'
+}
+
 @test "upgrade failure stops post-check and smoke" {
   export BREW_STUB_UPGRADE_STATUS=7
   run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
@@ -943,6 +957,16 @@ refute_log_contains() {
   run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
   [ "$status" -eq 1 ]
   [[ "$output" == *"Cask safety metadata changed during upgrade"* ]]
+  [ ! -e "$SMOKE_STUB_LOG" ]
+}
+
+@test "URL specs introduced during upgrade stop before smoke" {
+  export BREW_STUB_POST_MODE=urlspecs
+  run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"post-upgrade Cask metadata"* ]]
+  [[ "$output" == *"outside the strict supported scope"* ]]
   [ ! -e "$SMOKE_STUB_LOG" ]
 }
 

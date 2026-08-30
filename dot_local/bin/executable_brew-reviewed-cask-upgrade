@@ -326,6 +326,9 @@ validate_metadata_shape() {
       and (.casks[0].sha256 | test("^[[:xdigit:]]{64}$"))
       and (.casks[0].url | type) == "string" and (.casks[0].url | length) > 0
       and (.casks[0].url | test("[[:cntrl:]]") | not)
+      and ((.casks[0] | has("url_specs") | not)
+        or .casks[0].url_specs == null
+        or .casks[0].url_specs == {})
       and ((.casks[0].homepage // "") | type) == "string"
       and ((.casks[0].homepage // "") | test("[[:cntrl:]]") | not)
       and (.casks[0].artifacts | type) == "array"
@@ -498,7 +501,9 @@ write_candidate_snapshot() {
   if ! "$JQ_BIN" -S -c '
     .casks[0]
       | {token, tap, version, sha256, pinned, deprecated, disabled,
-         auto_updates, url, homepage, artifacts, depends_on, conflicts_with}
+         auto_updates, url,
+         url_specs: (if .url_specs == null then {} else .url_specs end),
+         homepage, artifacts, depends_on, conflicts_with}
   ' "$metadata_file" >"$snapshot_file"; then
     error "could not encode candidate Cask safety metadata"
     return 1

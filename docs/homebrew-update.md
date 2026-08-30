@@ -118,7 +118,7 @@ Caskはvendorがbuildしたartifactをinstallするため、`homebrew/core` Bott
 brew-reviewed-cask-upgrade codex -- codex --version
 ```
 
-`brew-reviewed-cask-upgrade`は、インストール済みでpinされていない`homebrew/cask` Caskを1件だけ処理します。固定version、64桁SHA-256、`auto_updates`でないことを要求します。installed versionとpin状態はinstalled inventoryから確認し、installed artifactとinstall sourceはCaskroomの`INSTALL_RECEIPT.json`から検査します。更新候補はcurrent definitionから独立して検査します。対象artifactは`app`、`binary`、completion、manpageと付随する`zap` metadataに限定します。`pkg`、installer、service、pre/postflight、uninstall directive、Formula/Cask dependency、conflict、非空の`container` / `rename`、未知artifactは通常経路の対象外です。`INSTALL_RECEIPT.json`がないlegacyまたは不完全なinstallも手動経路へ残します。
+`brew-reviewed-cask-upgrade`は、インストール済みでpinされていない`homebrew/cask` Caskを1件だけ処理します。固定version、64桁SHA-256、`auto_updates`でないことを要求します。installed versionとpin状態はinstalled inventoryから確認し、installed artifactとinstall sourceはCaskroomの`INSTALL_RECEIPT.json`から検査します。更新候補はcurrent definitionから独立して検査します。対象artifactは`app`、`binary`、completion、manpageと付随する`zap` metadataに限定します。`pkg`、installer、service、pre/postflight、uninstall directive、Formula/Cask dependency、conflict、非空の`url_specs` / `container` / `rename`、未知artifactは通常経路の対象外です。`INSTALL_RECEIPT.json`がないlegacyまたは不完全なinstallも手動経路へ残します。
 
 smoke commandは常に必須です。helperはcommandをHomebrew操作前に解決し、管理ポリシー、developer mode、installed/candidate metadataを確認してから`brew update`を実行します。対象が最新版なら、metadata更新完了後にCaskを変更せず成功終了します。
 
@@ -132,7 +132,7 @@ brew-reviewed-cask-upgrade \
 
 例外はcooldown判定だけに適用され、GitHub asset digestとCask checksumの明示的不一致、artifact、dependency、dry-run、post-upgrade metadata、smoke commandの失敗を解除しません。理由は画面とshell historyへ残り得るためsecretを含めません。
 
-helperはchecksum、download URL、homepage、artifactとtarget、release asset review、完全なdry-runを表示して1回だけ確認します。確認後はinstalled state、installed receipt、review済みcandidate safety-field snapshot (`token`、`tap`、`version`、`sha256`、pin/deprecation/disable/auto-update状態、URL、homepage、artifact、dependency、conflict) を実upgrade直前に再検証し、同じsnapshotをupgrade後にも照合します。dry-runと実upgradeには`--require-sha --no-quit --skip-cask-deps`を付け、アプリを自動終了せず、指定外dependencyを導入せず、対象外packageのcleanupも実行しません。実行中アプリなどでHomebrewが失敗した場合は、自動で終了・retryせず停止します。
+helperはchecksum、download URL、homepage、artifactとtarget、release asset review、完全なdry-runを表示して1回だけ確認します。確認後はinstalled state、installed receipt、review済みcandidate safety-field snapshot (`token`、`tap`、`version`、`sha256`、pin/deprecation/disable/auto-update状態、URL、空のURL options、homepage、artifact、dependency、conflict) を実upgrade直前に再検証し、同じsnapshotをupgrade後にも照合します。dry-runと実upgradeには`--require-sha --no-quit --skip-cask-deps`を付け、アプリを自動終了せず、指定外dependencyを導入せず、対象外packageのcleanupも実行しません。実行中アプリなどでHomebrewが失敗した場合は、自動で終了・retryせず停止します。
 
 `generate_completions_from_executable`を持つCaskでは、Homebrewがinstall中に候補binaryをcompletion生成引数で実行します。このartifactは`codex`などのCLI Caskを扱うため許可しますが、必須smoke commandの代替にはしません。upgrade後のmetadataまたはsmoke検査が失敗した時点ではCaskが変更済みの可能性があります。helper独自のrollbackは行わず、Homebrewの出力を確認して手動で復旧します。
 
