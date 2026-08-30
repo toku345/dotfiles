@@ -36,3 +36,7 @@ A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal
 Setup and usage notes for Claude Code plugins and agmsg are documented in [docs/claude-code-plugins.md](docs/claude-code-plugins.md).
 
 Note: `outputStyle` (persona) is an exception — set as a personal preference at user scope. Per-repo overrides via `<repo>/.claude/settings.local.json` still take precedence over the user-scope default. See [docs/adr/0015-multi-persona-output-styles.md](docs/adr/0015-multi-persona-output-styles.md) for rationale.
+
+### Grok Build
+
+`~/.grok` is not managed as a whole. Only user-authored files under `private_dot_grok/` are tracked. See [docs/grok.md](docs/grok.md).

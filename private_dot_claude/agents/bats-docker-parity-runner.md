@@ -48,15 +48,17 @@ mirrors the GitHub Actions environment:
 - **Image**: `ubuntu:24.04` (close enough to `ubuntu-latest` for
   parity work; adjust only if the real CI runner image changes).
 - **Packages**: for a full `tests/bats/` run the baseline is `bats git
-  procps fish jq shellcheck` — the GitHub Actions Bats job installs
-  `bats fish` and implicitly relies on the `ubuntu-latest` runner's
-  `jq` / `shellcheck`. A bare container without those runner-provided
-  tools can silently `skip` hook tests, hiding the parity gap you were
-  looking for. Trim the list only when running a subset of `.bats`
-  files that does not need a package — verify by running that subset
-  and checking for exit-127 failures or skips (see Diagnostic
-  Heuristics below). When new tests introduce a dependency, extend this
-  baseline (and the `.claude/rules/bats-testing.md` recipe) instead of installing it ad hoc.
+  procps fish jq python3 shellcheck` — the GitHub Actions Bats job
+  installs `bats fish` and implicitly relies on the `ubuntu-latest`
+  runner's `jq` / `python3` / `shellcheck`. A bare container without
+  those runner-provided tools can silently `skip` hook tests or fail
+  with command-not-found, hiding the parity gap you were looking for.
+  Trim the list only when running a subset of `.bats` files that does
+  not need a package. Verify by running that subset, then check for
+  exit-127 failures or skips (see Diagnostic Heuristics below). When new
+  tests introduce a dependency, extend this baseline (and the
+  `.claude/rules/bats-testing.md` recipe) instead of installing it ad
+  hoc.
   Do not add non-apt, host-authenticated tools such as `codex` to this
   package baseline; tests that exercise those tools should keep explicit
   `command -v` skip guards, and this runner should report those skips as

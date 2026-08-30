@@ -36,6 +36,7 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 - `private_dot_claude/` → `~/.claude/`（Claude Code 設定）
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
+- `private_dot_grok/` → `~/.grok/`（Grok Build の user-authored ファイルだけ。live `config.toml` / auth / session / cache は非管理。方針は [docs/grok.md](docs/grok.md)）
 - `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`hooks/`、`settings.local.json` は machine-local・gitignore
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
 

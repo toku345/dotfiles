@@ -154,6 +154,13 @@ jobs:
             exit 1
           fi
 
+          grok_agents_target="$(chezmoi --source . target-path private_dot_grok/AGENTS.md)"
+          expected_grok_agents_target="$HOME/.grok/AGENTS.md"
+          if [ "$grok_agents_target" != "$expected_grok_agents_target" ]; then
+            echo "ERROR: private_dot_grok/AGENTS.md maps to '$grok_agents_target', expected '$expected_grok_agents_target'" >&2
+            exit 1
+          fi
+
           # Check that managed files can be listed (excluding encrypted)
           echo "Managed files (excluding encrypted):"
           chezmoi managed --include=files --exclude=encrypted 2>/dev/null || true

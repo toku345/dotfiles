@@ -771,9 +771,9 @@ collect_expected_formulae() {
   local root_formula="$1"
   local expected_file="$2"
   local index=0
-  local formula dependency deps_file safe_name
+  local formula dependency candidate deps_file safe_name
+  local dependency_seen
   local -a formula_queue=("$root_formula")
-  local -A seen_formulae=(["$root_formula"]=1)
 
   while (( index < ${#formula_queue[@]} )); do
     formula="${formula_queue[index]}"
@@ -793,8 +793,14 @@ collect_expected_formulae() {
         error "brew deps returned an unexpected dependency name"
         return 1
       fi
-      if [[ -z "${seen_formulae[$dependency]+x}" ]]; then
-        seen_formulae["$dependency"]=1
+      dependency_seen=0
+      for candidate in "${formula_queue[@]}"; do
+        if [[ "$candidate" == "$dependency" ]]; then
+          dependency_seen=1
+          break
+        fi
+      done
+      if (( ! dependency_seen )); then
         formula_queue+=("$dependency")
       fi
     done <"$deps_file"
