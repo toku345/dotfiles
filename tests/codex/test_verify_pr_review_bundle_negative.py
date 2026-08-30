@@ -620,6 +620,13 @@ def main() -> None:
             "Stage 3 `finding-verifier`",
         ),
         (
+            "finding-evidence validator linkage removed",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "scripts/validate_finding_evidence.py",
+            "scripts/skip_finding_evidence.py",
+            "scripts/validate_finding_evidence.py",
+        ),
+        (
             "finding-verifier baseline invents a recall threshold",
             "tests/codex/fixtures/pr_review_finding_verifier_baseline_v1.json",
             '"hard_recall_threshold": null',

@@ -29,6 +29,9 @@ V2_RUNTIME_CONTRACT = SKILL_DIR / "references" / "v2-runtime-contract.json"
 FINDING_VERIFIER_CONTRACT = (
     SKILL_DIR / "references" / "finding-verifier-contract.json"
 )
+FINDING_EVIDENCE_VALIDATOR = (
+    SKILL_DIR / "scripts" / "validate_finding_evidence.py"
+)
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
 DESIGN_DOC = REPO_ROOT / "docs" / "design" / "codex-pr-review.md"
@@ -293,6 +296,7 @@ EXPECTED_FINDING_VERIFIER_CONTRACT = {
             "allow_additional_fields": False,
             "path": {
                 "format": "repository-relative-non-empty-string",
+                "forbid_ascii_control_characters": True,
                 "forbid_components": [".", ".."],
             },
             "line": {
@@ -302,6 +306,19 @@ EXPECTED_FINDING_VERIFIER_CONTRACT = {
             },
             "observation": {"format": "non-empty-string"},
         },
+    },
+    "evidence_resolution": {
+        "validator": "scripts/validate_finding_evidence.py",
+        "tree_source": "exact-head-ref",
+        "path_lookup": "literal-git-tree-entry",
+        "allowed_git_modes": ["100644", "100755"],
+        "reject_binary_nul": True,
+        "line_bounds": "one-through-immutable-blob-logical-line-count",
+        "success_sentinel_template": (
+            "EVIDENCE_OK finding-verifier <candidate_id> "
+            "$HEAD_REF <evidence_count>"
+        ),
+        "invalid_evidence": "fatal-before-verdict-application",
     },
     "verdict_policy": {
         "confirmed": {
@@ -991,6 +1008,29 @@ def verify_finding_verifier_contract() -> None:
     if data != EXPECTED_FINDING_VERIFIER_CONTRACT:
         fail(f"{context}: finding-verifier contract mismatch")
 
+    if not FINDING_EVIDENCE_VALIDATOR.is_file():
+        fail(
+            "missing finding-evidence validator: "
+            f"{FINDING_EVIDENCE_VALIDATOR.relative_to(REPO_ROOT)}"
+        )
+    validator_raw = FINDING_EVIDENCE_VALIDATOR.read_text(encoding="utf-8")
+    try:
+        compile(validator_raw, str(FINDING_EVIDENCE_VALIDATOR), "exec")
+    except SyntaxError as exc:
+        fail(f"{FINDING_EVIDENCE_VALIDATOR}: invalid Python: {exc}")
+    for expected in (
+        "GIT_LITERAL_PATHSPECS",
+        "GIT_NO_REPLACE_OBJECTS",
+        'REGULAR_FILE_MODES = {"100644", "100755"}',
+        "evidence line exceeds the immutable blob",
+        "EVIDENCE_OK finding-verifier",
+    ):
+        require_contains(
+            validator_raw,
+            expected,
+            f"{FINDING_EVIDENCE_VALIDATOR}:evidence-validation-contract",
+        )
+
     skill = SKILL.read_text(encoding="utf-8")
     for expected in (
         f"sentinel `{data['sentinel']}`",
@@ -999,6 +1039,9 @@ def verify_finding_verifier_contract() -> None:
         "exact expected candidate-ID set",
         "single JSON object",
         "Refuted Findings",
+        data["evidence_resolution"]["validator"],
+        data["evidence_resolution"]["success_sentinel_template"],
+        "Never validate against the current worktree",
     ):
         require_contains(skill, expected, f"{context}:SKILL.md consistency")
 

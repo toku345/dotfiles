@@ -117,6 +117,7 @@ def validate_result(
             or path.startswith("/")
             or "\\" in path
             or any(part in {"", ".", ".."} for part in path.split("/"))
+            or any(ord(character) < 32 or ord(character) == 127 for character in path)
         ):
             raise ValueError("evidence path must be repository-relative")
         line = item["line"]
@@ -280,6 +281,7 @@ class FindingVerifierContractTests(unittest.TestCase):
             {"path": "/tmp/file", "line": 12, "observation": "Observed."},
             {"path": "../file", "line": 12, "observation": "Observed."},
             {"path": "src/./file", "line": 12, "observation": "Observed."},
+            {"path": "src/file\nignored", "line": 12, "observation": "Observed."},
             {"path": "src/file", "line": 0, "observation": "Observed."},
             {"path": "src/file", "line": True, "observation": "Observed."},
             {"path": "src/file", "line": "18-12", "observation": "Observed."},

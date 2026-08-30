@@ -70,6 +70,7 @@
       "allow_additional_fields": false,
       "path": {
         "format": "repository-relative-non-empty-string",
+        "forbid_ascii_control_characters": true,
         "forbid_components": [
           ".",
           ".."
@@ -87,6 +88,19 @@
         "format": "non-empty-string"
       }
     }
+  },
+  "evidence_resolution": {
+    "validator": "scripts/validate_finding_evidence.py",
+    "tree_source": "exact-head-ref",
+    "path_lookup": "literal-git-tree-entry",
+    "allowed_git_modes": [
+      "100644",
+      "100755"
+    ],
+    "reject_binary_nul": true,
+    "line_bounds": "one-through-immutable-blob-logical-line-count",
+    "success_sentinel_template": "EVIDENCE_OK finding-verifier <candidate_id> $HEAD_REF <evidence_count>",
+    "invalid_evidence": "fatal-before-verdict-application"
   },
   "verdict_policy": {
     "confirmed": {

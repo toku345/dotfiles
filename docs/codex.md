@@ -121,7 +121,7 @@ multi-agent version は session 開始時に固定されるため、既存 sessi
 
 V2 scheduler は canonical `FINAL_ANSWER` に加え、明示的な `completed` または qualified retirement lifecycle evidence を要求する。qualified retirement は、成功した full-tree snapshot から canonical task が消え、かつ事前に running を観測済み、またはその canonical sender の有効 FINAL を記録済みの場合だけ成立する。退役が FINAL より先行した場合は60秒以内に FINAL が届かなければ fail-closed とし、running と有効 FINAL のどちらもない task の消失・error/interrupted・conflicting FINAL は許容しない。
 
-レビューは Stage 1 の specialist 群、条件付き Stage 2 `code-simplifier`、Stage 3 `finding-verifier` の順に進む。Stage 3 は正規化済み Critical/Important 候補を1件ずつ同じ immutable scope と packet hash で検証し、`confirmed` / `refuted` / `needs-verification` のいずれかを返す。新しい finding の探索や severity の再分類は行わない。期待した candidate ID が欠落・重複した場合や結果 JSON が契約不一致の場合は partial aggregation せず fail-closed する。
+レビューは Stage 1 の specialist 群、条件付き Stage 2 `code-simplifier`、Stage 3 `finding-verifier` の順に進む。Stage 3 は正規化済み Critical/Important 候補を1件ずつ同じ immutable scope と packet hash で検証し、`confirmed` / `refuted` / `needs-verification` のいずれかを返す。新しい finding の探索や severity の再分類は行わない。期待した candidate ID が欠落・重複した場合や結果 JSON が契約不一致の場合は partial aggregation せず fail-closed する。`confirmed` / `refuted` の citation は verdict 適用前に同梱 validator が immutable `HEAD_REF` の Git tree/blob へ照合し、path 不在・非通常ファイル・binary・行範囲外を fail-closed にする。current worktree は証拠境界に使わない。
 
 ```bash
 codex exec --profile review -C <repo> '$pr-review --base <base>'
