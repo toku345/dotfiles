@@ -186,6 +186,11 @@ jobs:
       - name: Validate pr-review verifier fail-closed behavior
         run: python3 tests/codex/test_verify_pr_review_bundle_negative.py
 
+      - name: Validate finding-verifier result and evidence contracts
+        run: |
+          python3 tests/codex/test_pr_review_finding_verifier_contract.py
+          python3 tests/codex/test_pr_review_finding_evidence.py
+
       - name: Validate pr-review base-resolution abnormal paths
         run: python3 tests/codex/test_pr_review_base_resolution.py
 

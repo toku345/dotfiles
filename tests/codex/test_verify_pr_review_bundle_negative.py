@@ -22,6 +22,10 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
     repo = tmpdir / "repo"
     (repo / "tests" / "codex").mkdir(parents=True)
     shutil.copy2(REPO_ROOT / VERIFY_SCRIPT, repo / VERIFY_SCRIPT)
+    shutil.copytree(
+        REPO_ROOT / "tests" / "codex" / "fixtures",
+        repo / "tests" / "codex" / "fixtures",
+    )
     shutil.copytree(REPO_ROOT / "private_dot_codex", repo / "private_dot_codex")
     shutil.copytree(
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
@@ -243,6 +247,62 @@ def main() -> None:
             '"delivery_grace_ms": 60000',
             '"delivery_grace_ms": 120000',
             "V2 scheduler contract mismatch",
+        ),
+        (
+            "V2 Stage 3 candidate identity weakening",
+            "private_dot_codex/skills/pr-review/references/v2-runtime-contract.json",
+            '"require_exact_expected_candidate_ids": true',
+            '"require_exact_expected_candidate_ids": false',
+            "V2 scheduler contract mismatch",
+        ),
+        (
+            "finding-verifier contract sentinel drift",
+            "private_dot_codex/skills/pr-review/references/finding-verifier-contract.json",
+            "PR_REVIEW_FINDING_VERIFIER_CONTRACT_V1",
+            "PR_REVIEW_FINDING_VERIFIER_CONTRACT_V0",
+            "finding-verifier contract mismatch",
+        ),
+        (
+            "finding-verifier admits new findings",
+            "private_dot_codex/skills/pr-review/references/finding-verifier-contract.json",
+            '"allow_new_findings": false',
+            '"allow_new_findings": true',
+            "finding-verifier contract mismatch",
+        ),
+        (
+            "finding-verifier partial aggregation enabled",
+            "private_dot_codex/skills/pr-review/references/finding-verifier-contract.json",
+            '"partial_aggregation": "fatal"',
+            '"partial_aggregation": "allowed"',
+            "finding-verifier contract mismatch",
+        ),
+        (
+            "finding-verifier sandbox widened",
+            "private_dot_codex/agents/finding-verifier.toml",
+            'sandbox_mode = "read-only"',
+            'sandbox_mode = "workspace-write"',
+            "sandbox_mode must be 'read-only'",
+        ),
+        (
+            "finding-verifier pins a model",
+            "private_dot_codex/agents/finding-verifier.toml",
+            'sandbox_mode = "read-only"',
+            'sandbox_mode = "read-only"\nmodel = "gpt-5.6-sol"',
+            "model must inherit from the parent",
+        ),
+        (
+            "Stage 3 exact candidate requirement removed",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "Require exactly one usable result for the exact expected candidate-ID set.",
+            "Accept any available candidate results.",
+            "exact expected candidate-ID set",
+        ),
+        (
+            "Stage 3 refuted finding visibility removed",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "## Refuted Findings",
+            "## Omitted Findings",
+            "## Refuted Findings",
         ),
         (
             "V2 retirement prior-running requirement weakened",
@@ -551,6 +611,55 @@ def main() -> None:
             "`chezmoi apply` は変更を main に merge した後だけ実行する",
             "`chezmoi apply` は merge 前に実行する",
             "merge した後だけ",
+        ),
+        (
+            "finding-verifier operations documentation removed",
+            "docs/codex.md",
+            "Stage 3 `finding-verifier`",
+            "Stage 3 verification",
+            "Stage 3 `finding-verifier`",
+        ),
+        (
+            "finding-evidence validator linkage removed",
+            "private_dot_codex/skills/pr-review/SKILL.md",
+            "scripts/validate_finding_evidence.py",
+            "scripts/skip_finding_evidence.py",
+            "scripts/validate_finding_evidence.py",
+        ),
+        (
+            "finding-verifier baseline invents a recall threshold",
+            "tests/codex/fixtures/pr_review_finding_verifier_baseline_v1.json",
+            '"hard_recall_threshold": null',
+            '"hard_recall_threshold": 1',
+            "must not invent a recall threshold",
+        ),
+        (
+            "finding-verifier comparison scores an aborted case",
+            "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
+            '"status": "coverage_aborted",\n      "oracle_detected": null',
+            '"status": "coverage_aborted",\n      "oracle_detected": false',
+            "aborted cases must not carry scored results",
+        ),
+        (
+            "finding-verifier comparison has incomplete verdict accounting",
+            "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
+            '"verifier": {"candidates": 9, "confirmed": 7',
+            '"verifier": {"candidates": 10, "confirmed": 7',
+            "per-case verifier verdict accounting mismatch",
+        ),
+        (
+            "finding-verifier historical artifact identity is rewritten",
+            "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
+            '"skill_sha256": "5dc2fd5417230d36317cb601fab0c612e4927f375a262d1378b7fd848ceae3e9"',
+            '"skill_sha256": "0000000000000000000000000000000000000000000000000000000000000000"',
+            "historical candidate artifact identity mismatch",
+        ),
+        (
+            "finding-verifier comparison overclaims improvement",
+            "tests/codex/fixtures/pr_review_finding_verifier_post_v1.json",
+            "does not demonstrate a controlled recall or false-positive improvement",
+            "demonstrates a controlled recall and false-positive improvement",
+            "observational non-improvement conclusion is required",
         ),
     ]
 
