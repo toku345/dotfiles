@@ -222,6 +222,16 @@ def main() -> None:
         )
     )
 
+    data = copy.deepcopy(baseline)
+    data["permissions"]["defaultMode"] = "bypassPermissions"
+    mutations.append(
+        (
+            "ask entries neutralized by a bypass default mode",
+            data,
+            'permissions.defaultMode must not be "bypassPermissions"',
+        )
+    )
+
     for name, data, expected in mutations:
         assert_fails_closed(name, data, expected, verifier)
 

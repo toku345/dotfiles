@@ -151,6 +151,14 @@ def validate_permission_gates(data: object) -> list[str]:
             if entry in allow:
                 failures.append(f'permissions.allow must not contain "{entry}"')
 
+    # A bypassPermissions default makes every pinned ask entry inert: the
+    # entries are still present, but no prompt is ever raised. Absent or any
+    # other mode passes. This does not cover the --dangerously-skip-permissions
+    # CLI flag, which only `disableBypassPermissionsMode` would block; that key
+    # is deliberately not set here.
+    if permissions.get("defaultMode") == "bypassPermissions":
+        failures.append('permissions.defaultMode must not be "bypassPermissions"')
+
     return failures
 
 
