@@ -610,7 +610,7 @@ prepare_github_client() {
 lookup_github_release() {
   local output_file="$TEMP_DIR/github-release.json"
   local error_file="$TEMP_DIR/github-release-error"
-  local encoded_tag asset_values digest_check_status=0 status=0
+  local encoded_tag asset_values release_values digest_check_status=0 status=0
 
   encoded_tag="$("$JQ_BIN" -rn --arg value "$RELEASE_TAG" '$value | @uri')" || {
     RELEASE_GATE_REASON="could not encode the GitHub release tag"
@@ -678,10 +678,17 @@ lookup_github_release() {
     RELEASE_GATE_REASON="GitHub Release metadata is malformed or does not match the download tag"
     return 1
   fi
-  RELEASE_NOTES_URL="$("$JQ_BIN" -r '.html_url' "$output_file")"
-  RELEASE_RECORD_PUBLISHED_AT="$("$JQ_BIN" -r '.published_at' "$output_file")"
-  RELEASE_DRAFT="$("$JQ_BIN" -r '.draft' "$output_file")"
-  RELEASE_PRERELEASE="$("$JQ_BIN" -r '.prerelease' "$output_file")"
+  release_values="$("$JQ_BIN" -er '
+    [.html_url, .published_at, .draft, .prerelease] | @tsv
+  ' "$output_file")" || {
+    RELEASE_GATE_REASON="GitHub Release fields could not be extracted"
+    return 1
+  }
+  IFS=$'\t' read -r RELEASE_NOTES_URL RELEASE_RECORD_PUBLISHED_AT \
+    RELEASE_DRAFT RELEASE_PRERELEASE <<<"$release_values" || {
+    RELEASE_GATE_REASON="GitHub Release fields could not be parsed"
+    return 1
+  }
 
   if [[ "$RELEASE_SOURCE_KIND" != "release-asset" ]]; then
     RELEASE_GATE_REASON="GitHub tag archives are not bound to immutable release-asset metadata"

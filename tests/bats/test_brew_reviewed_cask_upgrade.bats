@@ -679,6 +679,31 @@ refute_log_contains() {
   [[ "$output" == *"marked as a prerelease"* ]]
 }
 
+@test "release field extraction failure stops before mutation" {
+  export REAL_JQ_BIN
+  REAL_JQ_BIN="$(readlink "$TEST_BIN/jq")"
+  rm "$TEST_BIN/jq"
+  cat >"$TEST_BIN/jq" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-r" && "${2:-}" == ".draft" ]]; then
+  exit 42
+fi
+if [[ "${1:-}" == "-er" && "${2:-}" == *'.html_url'* \
+  && "${2:-}" == *'.published_at'* && "${2:-}" == *'.draft'* \
+  && "${2:-}" == *'.prerelease'* ]]; then
+  exit 42
+fi
+exec "$REAL_JQ_BIN" "$@"
+EOF
+  chmod +x "$TEST_BIN/jq"
+
+  run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Release fields could not be extracted"* ]]
+  refute_log_contains $'upgrade\t--cask\t--no-ask'
+}
+
 @test "asset freshness uses the newest release or asset timestamp" {
   export GH_STUB_ASSET_UPDATED_AT=2999-01-01T00:00:00Z
   run brew-reviewed-cask-upgrade codex -- smoke-command
