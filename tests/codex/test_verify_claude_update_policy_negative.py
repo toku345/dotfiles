@@ -29,6 +29,7 @@ EXPECTED_ASK_ENTRIES = {
     "Bash(git push:*)",
     "Bash(git commit:*)",
     "Bash(git reset:*)",
+    "Bash(git clean:*)",
     "Bash(rm:*)",
     "Bash(chezmoi apply:*)",
 }

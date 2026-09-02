@@ -22,11 +22,14 @@ DEFAULT_SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 # pre-flight list. Claude Code v2.1.211 dropped the protected-branch default,
 # which leaves "Bash(git push:*)" as the only thing stopping a direct push to
 # main (ADR 0036); "Bash(chezmoi apply:*)" is the two-layer gate ADR 0014
-# depends on. Required subset, not an exact list: adding entries is fine.
+# depends on. "Bash(git clean:*)" closes the last CLAUDE.md pre-flight item
+# that had steering but no enforced gate (Issue #343). Required subset, not an
+# exact list: adding entries is fine.
 REQUIRED_ASK_ENTRIES = (
     "Bash(git push:*)",
     "Bash(git commit:*)",
     "Bash(git reset:*)",
+    "Bash(git clean:*)",
     "Bash(rm:*)",
     "Bash(chezmoi apply:*)",
 )
