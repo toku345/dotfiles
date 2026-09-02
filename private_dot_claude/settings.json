@@ -78,6 +78,7 @@
     "ask": [
       "Bash(chmod +x:*)",
       "Bash(claude config:*)",
+      "Bash(codex exec:*)",
       "Bash(curl:*)",
       "Bash(gh api:*)",
       "Bash(gh pr create:*)",
