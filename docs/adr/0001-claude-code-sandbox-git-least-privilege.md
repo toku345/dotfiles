@@ -4,6 +4,8 @@
 
 Accepted
 
+**Amendment 2026-08-26**: `permissions.deny` の Read/Edit rule と sandbox の関係を、公式 docs ([Configure permissions](https://code.claude.com/docs/en/permissions)) に基づき二層に分けて記録する。**tool-permission 層**: Read/Edit deny rule は Claude の built-in file tool と Claude Code が認識する Bash file command (`cat` / `head` / `tail` / `sed`) に適用され、sandbox の有無と独立に効く。ただし自前でファイルを open する Python / Node script のような任意の subprocess には適用されない (docs: "They don't apply to arbitrary subprocesses that read or write files indirectly"). **OS-level 層**: sandbox 有効時に限り、deny rule は `sandbox.filesystem` 設定と merge されて最終的な sandbox boundary を成す (docs: "Filesystem restrictions in the sandbox combine the `sandbox.filesystem` settings with Read and Edit deny rules; both are merged into the final sandbox boundary")。したがって `dangerouslyDisableSandbox` が外すのは OS-level 層のみで、tool-permission 層は残る — 「deny は bypass しても外れない」という要約は前者を無視するため使わない。この二層モデルの帰結として、上記 "Empirical baseline coverage snapshot" で Anthropic baseline 非カバーと確認済みの `~/.config/gcloud/**` と `~/.terraform.d/**` については user-side `permissions.deny` が唯一の tool-permission 層になる。credential Read deny 10 件は `tests/codex/verify_claude_update_policy.py` の `validate_permission_gates` が required-subset として CI で pin する。
+
 ## Context
 
 Claude Code's sandbox (`~/.claude/settings.json`) was configured with `excludedCommands: ["git", "gh"]`, which runs these commands completely outside the sandbox. This ADR addresses removing `git` from `excludedCommands`. `gh` is covered separately in [ADR 0002](0002-claude-code-sandbox-gh-investigation.md).

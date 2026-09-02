@@ -49,3 +49,6 @@ key.txt
 !/.claude/skills/**
 !/.claude/workflows/
 !/.claude/workflows/**
+
+# Python bytecode from tests/codex/ (negative tests import the verifier)
+__pycache__/

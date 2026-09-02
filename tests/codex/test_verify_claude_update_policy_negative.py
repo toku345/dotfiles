@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Negative tests for the Claude/Codex update policy verifier."""
+"""Negative tests for the Claude/Codex update policy and permission gate verifier."""
 
 from __future__ import annotations
 
@@ -17,6 +17,37 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 VERIFY_SCRIPT = REPO_ROOT / "tests" / "codex" / "verify_claude_update_policy.py"
 SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 
+# The verifier's tuples are the pin itself, so the expected contents are spelled
+# out here rather than derived from them. A suite that only generates one case
+# per tuple entry is self-weakening: deleting an entry deletes its case along
+# with it and stays green — exactly the surgical-cleanup drift the pin exists to
+# catch. Duplicating the entries is the point, not a DRY violation to fix.
+# This still does not make the pin unremovable: editing both the verifier tuple
+# and this list removes an entry. It makes the removal a deliberate two-file
+# edit rather than something a reformat or a merge resolution does silently.
+EXPECTED_ASK_ENTRIES = {
+    "Bash(git push:*)",
+    "Bash(git commit:*)",
+    "Bash(git reset:*)",
+    "Bash(rm:*)",
+    "Bash(chezmoi apply:*)",
+}
+
+EXPECTED_DENY_ENTRIES = {
+    "Read(~/.aws/config)",
+    "Read(~/.aws/credentials)",
+    "Read(~/.config/gcloud/**)",
+    "Read(~/.config/gh/hosts.yml)",
+    "Read(~/.docker/config.json)",
+    "Read(~/.kube/config)",
+    "Read(~/.netrc)",
+    "Read(~/.npmrc)",
+    "Read(~/.ssh/**)",
+    "Read(~/.terraform.d/**)",
+}
+
+EXPECTED_FORBIDDEN_ALLOW_ENTRIES = {"Bash(codex exec:*)"}
+
 
 def load_verifier() -> ModuleType:
     spec = importlib.util.spec_from_file_location("verify_claude_update_policy", VERIFY_SCRIPT)
@@ -27,8 +58,25 @@ def load_verifier() -> ModuleType:
     return module
 
 
+def assert_pin_contents(verifier: ModuleType) -> None:
+    for name, expected in (
+        ("REQUIRED_ASK_ENTRIES", EXPECTED_ASK_ENTRIES),
+        ("REQUIRED_DENY_ENTRIES", EXPECTED_DENY_ENTRIES),
+        ("FORBIDDEN_ALLOW_ENTRIES", EXPECTED_FORBIDDEN_ALLOW_ENTRIES),
+    ):
+        actual = set(getattr(verifier, name))
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        if missing or extra:
+            raise AssertionError(f"{name} drifted: missing={missing!r} extra={extra!r}")
+
+
+def all_failures(data: object, verifier: ModuleType) -> list[str]:
+    return verifier.validate_update_policy(data) + verifier.validate_permission_gates(data)
+
+
 def assert_fails_closed(name: str, data: object, expected: str, verifier: ModuleType) -> None:
-    failures = verifier.validate_update_policy(data)
+    failures = all_failures(data, verifier)
     if not failures:
         raise AssertionError(f"{name}: verifier unexpectedly passed")
     if expected not in failures:
@@ -37,8 +85,9 @@ def assert_fails_closed(name: str, data: object, expected: str, verifier: Module
 
 def main() -> None:
     verifier = load_verifier()
+    assert_pin_contents(verifier)
     baseline = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    baseline_failures = verifier.validate_update_policy(baseline)
+    baseline_failures = all_failures(baseline, verifier)
     if baseline_failures:
         raise AssertionError(f"baseline verifier failed: {baseline_failures!r}")
 
@@ -126,6 +175,63 @@ def main() -> None:
         )
     )
 
+    # Generating one case per tuple entry is safe here because
+    # assert_pin_contents already pinned the tuples themselves; a deleted entry
+    # fails there before its case can quietly disappear from this loop.
+    for entry in verifier.REQUIRED_ASK_ENTRIES:
+        data = copy.deepcopy(baseline)
+        data["permissions"]["ask"].remove(entry)
+        mutations.append(
+            (
+                f"required ask entry removed: {entry}",
+                data,
+                f'permissions.ask must contain "{entry}"',
+            )
+        )
+
+    for entry in verifier.REQUIRED_DENY_ENTRIES:
+        data = copy.deepcopy(baseline)
+        data["permissions"]["deny"].remove(entry)
+        mutations.append(
+            (
+                f"required deny entry removed: {entry}",
+                data,
+                f'permissions.deny must contain "{entry}"',
+            )
+        )
+
+    data = copy.deepcopy(baseline)
+    data.pop("permissions")
+    mutations.append(("permissions block removed", data, "permissions must be an object"))
+
+    data = copy.deepcopy(baseline)
+    data["permissions"]["ask"] = "Bash(git push:*)"
+    mutations.append(("ask rules not an array", data, "permissions.ask must be an array"))
+
+    data = copy.deepcopy(baseline)
+    data["permissions"].pop("deny")
+    mutations.append(("deny rules removed", data, "permissions.deny must be an array"))
+
+    data = copy.deepcopy(baseline)
+    data["permissions"]["allow"].append("Bash(codex exec:*)")
+    mutations.append(
+        (
+            "narrow codex exec allow rule reintroduced",
+            data,
+            'permissions.allow must not contain "Bash(codex exec:*)"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["permissions"]["defaultMode"] = "bypassPermissions"
+    mutations.append(
+        (
+            "ask entries neutralized by a bypass default mode",
+            data,
+            'permissions.defaultMode must not be "bypassPermissions"',
+        )
+    )
+
     for name, data, expected in mutations:
         assert_fails_closed(name, data, expected, verifier)
 
@@ -147,6 +253,29 @@ def main() -> None:
             )
         if 'ERROR: autoUpdatesChannel must be "stable"' not in result.stderr:
             raise AssertionError(f"CLI negative test: unexpected stderr {result.stderr!r}")
+
+        # Pins main()'s composition, not just the validator. Every in-process
+        # case above calls validate_permission_gates directly, so dropping the
+        # call from main() would leave them green while the CI step — which
+        # runs the verifier against the real, compliant settings.json — also
+        # stays green. Only a permission failure seen through the CLI catches
+        # that de-wiring.
+        data = copy.deepcopy(baseline)
+        data["permissions"]["ask"].remove("Bash(git push:*)")
+        settings.write_text(json.dumps(data), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(VERIFY_SCRIPT), "--settings", str(settings)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 1:
+            raise AssertionError(
+                f"CLI permission gate test: expected exit 1, got {result.returncode}; "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
+        if 'ERROR: permissions.ask must contain "Bash(git push:*)"' not in result.stderr:
+            raise AssertionError(f"CLI permission gate test: unexpected stderr {result.stderr!r}")
 
         missing_settings = pathlib.Path(tmpdir) / "missing-settings.json"
         result = subprocess.run(
@@ -178,7 +307,7 @@ def main() -> None:
         if "Traceback" in result.stderr or "ERROR: invalid JSON in " not in result.stderr:
             raise AssertionError(f"CLI malformed JSON test: unexpected stderr {result.stderr!r}")
 
-    print("OK: Claude/Codex update policy negative tests passed")
+    print("OK: Claude/Codex update policy and permission gate negative tests passed")
 
 
 if __name__ == "__main__":
