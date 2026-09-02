@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import sys
 
 
@@ -21,11 +22,14 @@ DEFAULT_SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 # pre-flight list. Claude Code v2.1.211 dropped the protected-branch default,
 # which leaves "Bash(git push:*)" as the only thing stopping a direct push to
 # main (ADR 0036); "Bash(chezmoi apply:*)" is the two-layer gate ADR 0014
-# depends on. Required subset, not an exact list: adding entries is fine.
+# depends on. "Bash(git clean:*)" closes the last CLAUDE.md pre-flight item
+# that had steering but no enforced gate (Issue #343). Required subset, not an
+# exact list: adding entries is fine.
 REQUIRED_ASK_ENTRIES = (
     "Bash(git push:*)",
     "Bash(git commit:*)",
     "Bash(git reset:*)",
+    "Bash(git clean:*)",
     "Bash(rm:*)",
     "Bash(chezmoi apply:*)",
 )
@@ -35,9 +39,10 @@ REQUIRED_ASK_ENTRIES = (
 # they are also merged into its filesystem boundary. ADR 0001's empirical
 # baseline snapshot found "~/.config/gcloud/**" and "~/.terraform.d/**" absent
 # from Anthropic's built-in deny, so for those two this list is the only layer.
+# "~/.aws/**" is a glob on purpose: enumerating config + credentials left
+# ~/.aws/cli/cache/** and ~/.aws/sso/cache/** readable (Issue #303).
 REQUIRED_DENY_ENTRIES = (
-    "Read(~/.aws/config)",
-    "Read(~/.aws/credentials)",
+    "Read(~/.aws/**)",
     "Read(~/.config/gcloud/**)",
     "Read(~/.config/gh/hosts.yml)",
     "Read(~/.docker/config.json)",
@@ -52,6 +57,49 @@ REQUIRED_DENY_ENTRIES = (
 # --sandbox options, reaches the auto-mode classifier instead of resolving
 # ahead of it. Re-adding it needs a deliberate decision, not an "always allow".
 FORBIDDEN_ALLOW_ENTRIES = ("Bash(codex exec:*)",)
+
+# Structural invariants for path rules in permissions.deny (Issue #303).
+#
+# Anchoring: Claude Code resolves "//path" from the filesystem root, "~/path"
+# from $HOME, a single-slash "/path" relative to the settings *source*, and a
+# bare or "./path" relative to the cwd. A user-global deny that is not "~/" or
+# "//" anchored therefore protects nothing outside the current directory, and
+# the sandbox merges deny rules into its filesystem boundary relative to cwd,
+# which is what broke `chezmoi apply` and polluted `git status` with ghost
+# char-special entries in Issue #212 (ADR 0001). Only Read and Edit rules are
+# checked: those are the only path rules Claude Code consults.
+#
+# Dead rules: Claude Code checks file permissions against Read(path) and
+# Edit(path) only. A path rule for Write, NotebookEdit, MultiEdit or Glob is
+# accepted, never consulted, and only surfaces as a startup warning nobody
+# reads in CI: protection that looks present but is not. A bare tool name
+# without a path (e.g. "NotebookEdit") is a tool-level deny and is fine.
+PATH_RULE_TOOLS = frozenset({"Read", "Edit"})
+DEAD_PATH_RULE_TOOLS = frozenset({"Write", "NotebookEdit", "MultiEdit", "Glob"})
+ANCHORED_PATH_PREFIXES = ("~/", "//")
+_TOOL_RULE = re.compile(r"^(?P<tool>[A-Za-z_][A-Za-z0-9_]*)\((?P<spec>.*)\)$")
+
+
+def deny_path_rule_failures(entry: object) -> list[str]:
+    if not isinstance(entry, str):
+        return [f"permissions.deny entry {entry!r} must be a string"]
+    match = _TOOL_RULE.match(entry)
+    if match is None:
+        return []
+    tool = match.group("tool")
+    spec = match.group("spec")
+    if tool in DEAD_PATH_RULE_TOOLS:
+        return [
+            f'permissions.deny must not contain "{entry}": {tool}(path) rules are '
+            "never consulted by Claude Code, use Edit(path) or Read(path)"
+        ]
+    if tool in PATH_RULE_TOOLS and not spec.startswith(ANCHORED_PATH_PREFIXES):
+        return [
+            f'permissions.deny entry "{entry}" must be anchored with "~/" or "//": '
+            "a bare or single-slash path is resolved relative to the cwd or the "
+            "settings source, not the filesystem root"
+        ]
+    return []
 
 
 def validate_update_policy(data: object) -> list[str]:
@@ -142,6 +190,8 @@ def validate_permission_gates(data: object) -> list[str]:
         for entry in REQUIRED_DENY_ENTRIES:
             if entry not in deny:
                 failures.append(f'permissions.deny must contain "{entry}"')
+        for entry in deny:
+            failures.extend(deny_path_rule_failures(entry))
 
     allow = permissions.get("allow")
     if not isinstance(allow, list):
