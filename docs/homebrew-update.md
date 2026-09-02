@@ -29,7 +29,7 @@ gh auth status
 
 通常更新は公開から7日を目安に保留します。security advisory、active exploit、作業を復旧するbreak/fixはこの待機期間を省略します。
 
-`brew-reviewed-upgrade` は Bash 5+ が必要です。macOS system Bash 3.2 が選ばれる場合は、`brew install bash` を実行し、Homebrewの `bin` directoryが `/bin` より前にPATHへ入っていることを確認してください。helperは古いBashを検出するとHomebrew操作前にexit 2で停止します。
+`brew-reviewed-upgrade` と `brew-reviewed-cask-upgrade` は Bash 5+ が必要です。macOS system Bash 3.2 が選ばれる場合は、`brew install bash` を実行し、Homebrewの `bin` directoryが `/bin` より前にPATHへ入っていることを確認してください。helperは古いBashを検出するとHomebrew操作前にexit 2で停止します。
 
 ### Quick Start
 
@@ -85,7 +85,7 @@ brew update &&
   brew outdated --cask --greedy --verbose
 ```
 
-一覧から更新するFormulaを1件選び、release notesとcooldownを確認してQuick Startを実行します。Caskは後述の手順で個別にレビューします。
+一覧から更新するFormulaまたは対応Caskを1件選び、release notesとcooldownを確認して各Quick Startを実行します。厳格helperの対象外Caskは後述の手順で個別にレビューします。
 
 ## dependentの修復
 
@@ -110,7 +110,35 @@ brew reinstall <dependent>
 
 ## Cask
 
-Caskはvendorがbuildしたartifactをinstallします。次の情報を確認します。
+Caskはvendorがbuildしたartifactをinstallするため、`homebrew/core` Bottleのattestationや`brew vulns`による検査は利用できません。固定checksumはdownload内容をHomebrew metadataへ結び付けますが、publisherやbuild provenanceまでは証明しません。
+
+### Quick Start
+
+```sh
+brew-reviewed-cask-upgrade codex -- codex --version
+```
+
+`brew-reviewed-cask-upgrade`は、インストール済みでpinされていない`homebrew/cask` Caskを1件だけ処理します。固定version、64桁SHA-256、`auto_updates`でないことを要求します。installed versionとpin状態はinstalled inventoryから確認し、installed artifactとinstall sourceはCaskroomの`INSTALL_RECEIPT.json`から検査します。更新候補はcurrent definitionから独立して検査します。対象artifactは`app`、`binary`、completion、manpageと付随する`zap` metadataに限定します。`pkg`、installer、service、pre/postflight、uninstall directive、Formula/Cask dependency、conflict、非空の`url_specs` / `container` / `rename`、未知artifactは通常経路の対象外です。`INSTALL_RECEIPT.json`がないlegacyまたは不完全なinstallも手動経路へ残します。
+
+smoke commandは常に必須です。helperはcommandをHomebrew操作前に解決し、管理ポリシー、developer mode、installed/candidate metadataを確認してから`brew update`を実行します。対象が最新版なら、metadata更新完了後にCaskを変更せず成功終了します。
+
+更新対象がある場合はdownload URLの正確なGitHub repository、tag、release assetを照会します。asset名とdownload URLを一意に照合し、GitHubのSHA-256 digestがCask checksumと一致することを要求します。7日cooldownの起点はRelease公開、asset作成、asset更新のうち最も新しいtimestampです。tag archiveはasset digestと更新時刻へ結び付けられないため自動cooldownの対象外です。非GitHub URL、tag archive、release asset情報を検証できない場合、security fixやbreak/fixで待機しない場合は、release notes、publisher、対象artifactを手動確認して理由付きで再実行します。
+
+```sh
+brew-reviewed-cask-upgrade \
+  --cooldown-exception "vendor release reviewed" \
+  example-app -- example-app --version
+```
+
+例外はcooldown判定だけに適用され、GitHub asset digestとCask checksumの明示的不一致、artifact、dependency、dry-run、post-upgrade metadata、smoke commandの失敗を解除しません。理由は画面とshell historyへ残り得るためsecretを含めません。
+
+helperはchecksum、download URL、homepage、artifactとtarget、release asset review、完全なdry-runを表示して1回だけ確認します。確認後はinstalled state、installed receipt、review済みcandidate safety-field snapshot (`token`、`tap`、`version`、`sha256`、pin/deprecation/disable/auto-update状態、URL、空のURL options、homepage、artifact、dependency、conflict) を実upgrade直前に再検証し、同じsnapshotをupgrade後にも照合します。dry-runと実upgradeには`--require-sha --no-quit --skip-cask-deps`を付け、アプリを自動終了せず、指定外dependencyを導入せず、対象外packageのcleanupも実行しません。実行中アプリなどでHomebrewが失敗した場合は、自動で終了・retryせず停止します。
+
+`generate_completions_from_executable`を持つCaskでは、Homebrewがinstall中に候補binaryをcompletion生成引数で実行します。このartifactは`codex`などのCLI Caskを扱うため許可しますが、必須smoke commandの代替にはしません。upgrade後のmetadataまたはsmoke検査が失敗した時点ではCaskが変更済みの可能性があります。helper独自のrollbackは行わず、Homebrewの出力を確認して手動で復旧します。
+
+### 手動レビュー対象
+
+`latest`、`sha256: no_check`、`auto_updates: true`、third-party Tap、または厳格helperが拒否したartifact/dependencyを持つCaskは、次のmetadataを確認して手動経路へ残します。
 
 ```sh
 cask_json="$(brew info --cask --json=v2 <cask>)" &&
@@ -123,7 +151,7 @@ cask_json="$(brew info --cask --json=v2 <cask>)" &&
 - `version: latest`: Homebrewが固定versionを追跡できない
 - `sha256: no_check`: download内容を固定checksumで検証できない
 
-版を管理したいCaskはアプリ側の自動更新も無効にします。`--require-sha`で拒否されたCaskは設定を一時解除してinstallせず、vendor配布物として署名主体、配布URL、release notesを別途レビューします。
+版を管理したいCaskはアプリ側の自動更新も無効にします。`--require-sha`で拒否されたCaskは設定を一時解除してinstallせず、vendor配布物として署名主体、配布URL、release notesを別途レビューします。helperの通常対象へ入れるためにCask定義やmanaged policyを一時的に緩和しません。
 
 ## third-party Tap
 
