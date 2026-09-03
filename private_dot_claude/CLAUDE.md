@@ -31,22 +31,7 @@ Claude Code は外注先ではなく、思考・探索・実装・検証の各�
 - 既存パターンの単純な横展開
 - ドキュメントのみの軽微な修正
 
-## 重要変更の相談フロー
-
-「厚く扱う対象」のみ適用する。プランまたは最終報告に短く含める:
-
-1. 目的・制約・受け入れ条件を確認する
-2. 代替案・リスク・見落としを提示する
-3. 採用案を明示する
-4. **採用理由とトレードオフ**を 2-3 行で残す
-5. 実装する
-6. 検証結果と残リスクを報告する
-
-最終報告に含める要素:
-
-- 採用方針 / 採用理由 / 捨てた代替案 / 受け入れたトレードオフ / 注意すべき副作用・失敗モード
-
-## 初回指示の受領フォーマット
+## 依頼の受領と重要変更の進め方
 
 ユーザー から対話セッションで作業依頼を受領する際、以下を冒頭で明示してから着手する:
 
@@ -56,13 +41,13 @@ Claude Code は外注先ではなく、思考・探索・実装・検証の各�
 
 不足があり、妥当な仮定で進めると曖昧さやリスクが残る場合は質問で埋める。それ以外は仮定を冒頭で宣言してから自律実行する。
 
-### auto-mode に対する優先順位
+「厚く扱う対象」では、プランと最終報告に次を短く含める: 代替案・リスク・見落とし、採用案、**採用理由と受け入れたトレードオフ**、捨てた代替案、検証結果と残リスク、注意すべき副作用・失敗モード。
 
 **対話セッションにおける auto-mode は、本ファイルの「曖昧さは質問で埋める」を上書きしない**。auto-mode の harness 命令 ("Make reasonable assumptions and proceed") は介入頻度を下げたい希望のシグナルであって、判断責任の委譲ではない。コンテキスト別の優先順位:
 
-- **対話 auto-mode**: 「曖昧さは質問で埋める」を維持。tool call の auto-approve は auto-mode 分類器が担うが、要件の曖昧さは ユーザー に質問して埋める
-- **headless 起動 (`claude -p`)**: 対話チャネル不在のため、仮定宣言型または機械的固定フォーマットで進める (詳細は下記 `### 適用除外` の headless 節)
-- **`--append-system-prompt-file` バッチ**: 専用 CLAUDE.md を明示注入した自律実行コンテキスト。注入された CLAUDE.md の指示が優先
+- **対話 auto-mode**: tool call の auto-approve は auto-mode 分類器が担うが、要件の曖昧さは ユーザー に質問して埋める
+- **headless 起動 (`claude -p`)**: 対話チャネル不在のため、仮定宣言型または機械的固定フォーマットで進める (下記 `### 適用除外` の headless 節)
+- **`--append-system-prompt-file` バッチ**: 注入された CLAUDE.md の指示が優先
 
 auto-mode 分類器の動作モデル (本ファイルが Claude と分類器の双方を steer すること、および hard override ではないこと) は dotfiles repo の `docs/adr/0018-restrict-auto-mode-override-to-non-interactive.md` §4 に記録済み。
 
@@ -155,20 +140,9 @@ AI レビューは「日常の床 / 厚い変更の gate」に分ける。軽く
 
 ## 検証ループ (Verification Loop)
 
-長時間自律実行時は、検証→再修正の自動化機構を整備すること。プロジェクトごとにテストコマンド・ビルド要件が異なるため、本ファイルでは具体的な hook 設定を規定しない。
+長時間自律実行時は、検証→再修正の自動化機構を整備すること。**検証機構なしの長時間自律実行は禁止**。テストコマンド・ビルド要件はプロジェクトごとに異なるため、本ファイルでは具体的な hook 設定を規定しない。新規プロジェクトでは `/claude-code-setup:claude-automation-recommender` を実行し、当該リポジトリに最適な hook / subagent / MCP 構成を洗い出す。
 
-検証機構なしの長時間自律実行は禁止。
-
-### セットアップ手順
-
-新規プロジェクトでは `/claude-code-setup:claude-automation-recommender` を実行し、当該リポジトリに最適な hook / subagent / MCP 構成を洗い出す。
-
-### 配置先の原則
-
-推奨された Stop hook は **`.claude/settings.local.json`** (gitignore 対象・ローカル専用) に配置する。以下には書かない:
-
-- `~/.claude/settings.json` (user-global) — プロジェクト固有のテストコマンドが全プロジェクトに leak する
-- `.claude/settings.json` (プロジェクト共有・コミット対象) — machine-specific フックが他コラボレーターへ leak する
+推奨された Stop hook は **`.claude/settings.local.json`** (gitignore 対象・ローカル専用) に配置する。`~/.claude/settings.json` (user-global — プロジェクト固有のテストコマンドが全プロジェクトに leak) と `.claude/settings.json` (プロジェクト共有・コミット対象 — machine-specific フックが他コラボレーターへ leak) には書かない。
 
 ## Git / PR 規約
 
@@ -195,9 +169,7 @@ AI レビューは「日常の床 / 厚い変更の gate」に分ける。軽く
 
 Codex (コードレビュー / 調査委譲 / 別案試行) の運用詳細は skill `codex-usage` を参照する。
 
-agmsg が導入済みで同一 team に参加済みなら、Claude Code / Codex / 別セッション間の依頼・結果共有には agmsg を使ってよい。agmsg は transport であり、`$pr-review` / `/pr-review` の base pinning や fail-closed gate を置き換えない。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/` 配下の artifact path を送り、secret・credential・長大 diff 本文は送らない。
-
-agmsg の配信モード (sandbox 下で `monitor` 単独を避ける理由と回避策) は dotfiles repo の `docs/claude-code-plugins.md` § agmsg に記録している。
+agmsg が導入済みで同一 team に参加済みなら、Claude Code / Codex / 別セッション間の依頼・結果共有には agmsg を使ってよい。agmsg は transport であり、`$pr-review` / `/pr-review` の base pinning や fail-closed gate を置き換えない。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/` 配下の artifact path を送り、secret・credential・長大 diff 本文は送らない。配信モード等の運用詳細は skill `agmsg` を参照する。
 
 「厚く理解する対象」に該当する変更で `codex` 利用可能なときのみ、プラン完成後に自動レビューを実施する。
 
