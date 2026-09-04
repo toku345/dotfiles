@@ -49,8 +49,7 @@
       "WebFetch(domain:docs.github.com)",
       "Skill(commit-commands:commit-push-pr)",
       "Bash(chezmoi cat:*)",
-      "Bash(fish -n)",
-      "Bash(codex exec:*)"
+      "Bash(fish -n)"
     ],
     "deny": [
       "Bash(sudo:*)",

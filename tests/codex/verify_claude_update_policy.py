@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Verify Claude/Codex update policy settings.
+"""Verify Claude/Codex update policy and permission gate settings.
 
-This keeps ADR 0026's AI-tool update controls from silently drifting while the
-durable runbook still claims those controls are enforced.
+This keeps ADR 0026's AI-tool update controls and the load-bearing
+``permissions`` entries recorded in ADR 0036 / ADR 0014 from silently drifting
+while the durable runbook still claims those controls are enforced.
 """
 
 from __future__ import annotations
@@ -14,6 +15,43 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
+
+# Content-scoped ask rules are evaluated before the auto-mode classifier and
+# always prompt, so these are the effective gates behind the CLAUDE.md
+# pre-flight list. Claude Code v2.1.211 dropped the protected-branch default,
+# which leaves "Bash(git push:*)" as the only thing stopping a direct push to
+# main (ADR 0036); "Bash(chezmoi apply:*)" is the two-layer gate ADR 0014
+# depends on. Required subset, not an exact list: adding entries is fine.
+REQUIRED_ASK_ENTRIES = (
+    "Bash(git push:*)",
+    "Bash(git commit:*)",
+    "Bash(git reset:*)",
+    "Bash(rm:*)",
+    "Bash(chezmoi apply:*)",
+)
+
+# Read deny rules block Claude's built-in file tools and the Bash file commands
+# Claude Code recognizes, independently of the sandbox; when the sandbox is on
+# they are also merged into its filesystem boundary. ADR 0001's empirical
+# baseline snapshot found "~/.config/gcloud/**" and "~/.terraform.d/**" absent
+# from Anthropic's built-in deny, so for those two this list is the only layer.
+REQUIRED_DENY_ENTRIES = (
+    "Read(~/.aws/config)",
+    "Read(~/.aws/credentials)",
+    "Read(~/.config/gcloud/**)",
+    "Read(~/.config/gh/hosts.yml)",
+    "Read(~/.docker/config.json)",
+    "Read(~/.kube/config)",
+    "Read(~/.netrc)",
+    "Read(~/.npmrc)",
+    "Read(~/.ssh/**)",
+    "Read(~/.terraform.d/**)",
+)
+
+# ADR 0036 removed this narrow allow rule so the full command, including its
+# --sandbox options, reaches the auto-mode classifier instead of resolving
+# ahead of it. Re-adding it needs a deliberate decision, not an "always allow".
+FORBIDDEN_ALLOW_ENTRIES = ("Bash(codex exec:*)",)
 
 
 def validate_update_policy(data: object) -> list[str]:
@@ -79,6 +117,51 @@ def validate_update_policy(data: object) -> list[str]:
     return failures
 
 
+def validate_permission_gates(data: object) -> list[str]:
+    failures: list[str] = []
+
+    if not isinstance(data, dict):
+        return ["settings root must be an object"]
+
+    permissions = data.get("permissions")
+    if not isinstance(permissions, dict):
+        return ["permissions must be an object"]
+
+    ask = permissions.get("ask")
+    if not isinstance(ask, list):
+        failures.append("permissions.ask must be an array")
+    else:
+        for entry in REQUIRED_ASK_ENTRIES:
+            if entry not in ask:
+                failures.append(f'permissions.ask must contain "{entry}"')
+
+    deny = permissions.get("deny")
+    if not isinstance(deny, list):
+        failures.append("permissions.deny must be an array")
+    else:
+        for entry in REQUIRED_DENY_ENTRIES:
+            if entry not in deny:
+                failures.append(f'permissions.deny must contain "{entry}"')
+
+    allow = permissions.get("allow")
+    if not isinstance(allow, list):
+        failures.append("permissions.allow must be an array")
+    else:
+        for entry in FORBIDDEN_ALLOW_ENTRIES:
+            if entry in allow:
+                failures.append(f'permissions.allow must not contain "{entry}"')
+
+    # A bypassPermissions default makes every pinned ask entry inert: the
+    # entries are still present, but no prompt is ever raised. Absent or any
+    # other mode passes. This does not cover the --dangerously-skip-permissions
+    # CLI flag, which only `disableBypassPermissionsMode` would block; that key
+    # is deliberately not set here.
+    if permissions.get("defaultMode") == "bypassPermissions":
+        failures.append('permissions.defaultMode must not be "bypassPermissions"')
+
+    return failures
+
+
 def parse_settings_path(argv: list[str]) -> pathlib.Path:
     if not argv:
         return DEFAULT_SETTINGS
@@ -105,14 +188,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: invalid JSON in {settings}: {exc}", file=sys.stderr)
         return 2
 
-    failures = validate_update_policy(data)
+    failures = validate_update_policy(data) + validate_permission_gates(data)
 
     if failures:
         for failure in failures:
             print(f"ERROR: {failure}", file=sys.stderr)
         return 1
 
-    print("OK: Claude/Codex update policy source settings match ADR 0026")
+    print(
+        "OK: Claude/Codex update policy and permission gate source settings "
+        "match ADR 0026 / ADR 0036"
+    )
     return 0
 
 

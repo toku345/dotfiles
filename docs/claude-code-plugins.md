@@ -59,6 +59,28 @@ team は `dotfiles`、role は `codex` を使う。
 を実行して受信できることを確認する。その後 `codex` から `cc` へ返信し、
 Claude Code 側で自動受信できることを確認する。
 
+### sandbox 下の配信モード注意 (Claude Code 側)
+
+上の「初回 smoke」は repo ごとの mode 選択 (Codex 側を `off` にするか
+`turn` にするか) を扱う。本節はそれとは別に、Claude Code 側で `monitor`
+を避ける技術的理由を記録する。
+
+Claude Code sandbox では macOS / Linux とも `both` か `turn` を既定にする
+(Linux でも composite-id watcher の起動直後自滅を実機確認 2026-07-09)。
+`monitor` 単独は避ける — sandbox は境界外プロセス (親エージェント) への
+`kill -0` を EPERM で拒否するため、`watch.sh` の composite-id
+(`<uuid>.<pid>`) liveness guard がエージェントを死亡と誤判定し、watcher が
+起動直後に自滅する (症状: Monitor task が即終了し auto-delivery が止まるが、
+手動 inbox は動く)。`turn`/`both` の Stop hook 経路 (`check-inbox.sh`) は
+SQLite read/write のみで sandbox 安全。
+
+どうしても push (monitor) が要るときは Monitor を
+**bare `$CLAUDE_CODE_SESSION_ID`** で起動する (`delivery.sh` が
+AGMSG-DIRECTIVE に焼き込む composite id をそのまま渡さない) — bare id は
+liveness guard をスキップし sandbox 下でも生存する。`delivery.sh set` の
+`settings.local.json` 書き込みは sandbox 内で `Operation not permitted` に
+なるため sandbox bypass が要る。
+
 ### 設定の保存先
 
 agmsg の install 本体は `~/.agents/skills/agmsg/` に置かれる。team 登録は

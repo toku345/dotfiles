@@ -1,11 +1,12 @@
 {
-  "sentinel": "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3",
-  "version": 3,
+  "sentinel": "PR_REVIEW_V2_SCHEDULER_CONTRACT_V4",
+  "version": 4,
   "max_concurrency": 3,
   "delivery_grace_ms": 60000,
   "stage_deadline_ms": {
     "stage1": 1800000,
-    "stage2": 600000
+    "stage2": 600000,
+    "stage3": 1800000
   },
   "spawn": {
     "max_retries": 1,
@@ -51,6 +52,12 @@
   },
   "aggregation": {
     "require_exact_expected_roles": true,
+    "identity_key_by_stage": {
+      "stage1": "role",
+      "stage2": "role",
+      "stage3": "candidate_id"
+    },
+    "require_exact_expected_candidate_ids": true,
     "require_unique_canonical_tasks": true,
     "require_all_usable": true
   }

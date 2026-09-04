@@ -1,0 +1,133 @@
+{
+  "sentinel": "PR_REVIEW_FINDING_VERIFIER_BASELINE_V1",
+  "version": 1,
+  "captured_at": "2026-08-30",
+  "purpose": "Observational pre-change baseline for Issue #282; this fixture records one gate attempt per historical case and defines no recall threshold.",
+  "runner": {
+    "codex_cli_version": "0.150.1",
+    "model_id": null,
+    "model_identity_status": "unverified",
+    "model_identity_note": "The JSONL run records did not expose an effective model identifier, so results must not be treated as model-controlled paired measurements."
+  },
+  "policy": {
+    "attempts_per_case": 1,
+    "hard_recall_threshold": null,
+    "aborted_case_oracle_result": null,
+    "interpretation": "Compare known-root detection and false-positive shape descriptively. Aborted cases are retained as gate reliability evidence and are not scored as misses or passes."
+  },
+  "pairs": [
+    {
+      "pair_id": "pr304-week0-v2-supersession",
+      "source_pr": 304,
+      "base_commit": "9f534c6d943bf0d3e1e7edb1da11765d9b6e3ba0",
+      "merge_base": "769279caaa9de6bbd9c60092e76f145672b30fc2",
+      "oracle": {
+        "root_id": "week0_v2_supersession_notice",
+        "summary": "The obsolete Week 0 v2 package is presented as selected or executable after ADR 0032 superseded it.",
+        "expected_buggy": true,
+        "expected_fixed": false
+      },
+      "cases": [
+        {
+          "variant": "buggy",
+          "head_commit": "da8bd6a8f9faa841b29ff2362a60b871d33a0ffa",
+          "packet_bytes": 346510,
+          "packet_sha256": "447b32701b0c5147409daf4951073b9b8b47be534b645f9a32f4ed30c366ea55",
+          "status": "gate_complete",
+          "thread_id": null,
+          "oracle_detected": true,
+          "counts": {"critical": 4, "important": 0, "suggestion": null},
+          "observation": "The known supersession defect was reported as Critical at docs/outer-loop/week0-v2/README.md:5. Three additional Critical candidates concerned model-drift sealing, endpoint-isolation wording, and a predictable /tmp collector path."
+        },
+        {
+          "variant": "fixed",
+          "head_commit": "b94eb436d5cbee635a133212d83510c73a45acee",
+          "packet_bytes": 349621,
+          "packet_sha256": "37c12363ae724dcf5b18f8ba7733e9c129c6ba011effeaa402381ae6292a53b7",
+          "status": "gate_complete",
+          "thread_id": "01a04e21-9fd5-76f0-8d33-b3ed1e7cc11c",
+          "oracle_detected": false,
+          "counts": {"critical": 0, "important": 0, "suggestion": 3},
+          "usage": {"input_tokens": 2052051, "cached_input_tokens": 1966592, "output_tokens": 8973, "reasoning_output_tokens": 1358},
+          "observation": "The supersession defect was absent. The remaining output was three future-facing type-design suggestions."
+        }
+      ]
+    },
+    {
+      "pair_id": "pr330-stop-hook-state-order",
+      "source_pr": 330,
+      "base_commit": "e0493e9819e6db39c37c33c0051422c67b522d2a",
+      "merge_base": "04d16ea1a4a7011e8103c2847b42a2efceaae11c",
+      "oracle": {
+        "root_id": "executing_gate_survives_reminder_persist_failure",
+        "summary": "A reminder-counter persistence failure makes an already-persisted executing gate fail open.",
+        "expected_buggy": true,
+        "expected_fixed": false
+      },
+      "cases": [
+        {
+          "variant": "buggy",
+          "head_commit": "f0240bc38310f7772f7c6685f204f68c80c1c963",
+          "packet_bytes": 39371,
+          "packet_sha256": "3501c445530ba58f910c133532828d1ee684fcad93d89ebca4061e3bbcc0634e",
+          "status": "gate_complete",
+          "thread_id": "01a04e2a-6cf3-7d22-acee-a1a3e5ac4059",
+          "oracle_detected": true,
+          "counts": {"critical": 0, "important": 3, "suggestion": 3},
+          "usage": {"input_tokens": 2103717, "cached_input_tokens": 2016000, "output_tokens": 9480, "reasoning_output_tokens": 1695},
+          "observation": "The known fail-open ordering defect was reported as Important. Two additional Important findings concerned missing clean-rearm and direct persistence-failure coverage."
+        },
+        {
+          "variant": "fixed",
+          "head_commit": "740d5d5219a302233b5f2d1ffce5269adfd5b054",
+          "packet_bytes": 50464,
+          "packet_sha256": "05077df1dda5a54fa37fdee9427eb4f11c24b2894b1244b934b487af1240b939",
+          "status": "coverage_aborted",
+          "thread_id": "01a04e33-624f-7490-8233-aabd18de2a2d",
+          "oracle_detected": null,
+          "counts": null,
+          "usage": {"input_tokens": 1402294, "cached_input_tokens": 1328128, "output_tokens": 6610, "reasoning_output_tokens": 1387},
+          "observation": "Stage 1 failed closed because code-reviewer claimed two committed files were absent from the supplied file list and packet. No partial findings were aggregated."
+        }
+      ]
+    },
+    {
+      "pair_id": "pr269-codex-hook-test-coverage",
+      "source_pr": 269,
+      "base_commit": "51821bfea5f02d7b666af500cc5bda5e4b7744b2",
+      "merge_base": "51821bfea5f02d7b666af500cc5bda5e4b7744b2",
+      "oracle": {
+        "root_id": "codex_hook_and_managed_rules_test_coverage",
+        "summary": "New Codex hooks and managed approval rules have no corresponding regression tests.",
+        "expected_buggy": true,
+        "expected_fixed": false
+      },
+      "cases": [
+        {
+          "variant": "buggy",
+          "head_commit": "d02740d1a7adac24421d15485e49e4d1050a5660",
+          "packet_bytes": 13318,
+          "packet_sha256": "4637eb824b1adead5953a1a4c4a7efc5e31447d6a0fe8a9d2582bfd8b5bfa213",
+          "status": "gate_complete",
+          "thread_id": "01a04e37-2dac-7852-9fe8-ea1a14fd6b96",
+          "oracle_detected": true,
+          "counts": {"critical": 0, "important": 5, "suggestion": 1},
+          "usage": {"input_tokens": 2088951, "cached_input_tokens": 1997056, "output_tokens": 10848, "reasoning_output_tokens": 2114},
+          "observation": "The known missing-test defect was reported as Important. Four additional Important findings concerned apply_patch payload matching, counter persistence, hook trust, and Bash 3 compatibility."
+        },
+        {
+          "variant": "fixed",
+          "head_commit": "3dd546f5299b5689556158b11286b1557327a607",
+          "packet_bytes": 23452,
+          "packet_sha256": "d10a6407c7ae38e6318f242400d6156f09bada79aff315e68087d475a910940f",
+          "status": "environment_aborted",
+          "thread_id": "01a04e41-2d4a-7460-92dc-3da9888768c2",
+          "oracle_detected": null,
+          "counts": null,
+          "usage": {"input_tokens": 400324, "cached_input_tokens": 352000, "output_tokens": 3141, "reasoning_output_tokens": 1657},
+          "observation": "The gate failed closed before specialist spawn because mktemp could not create the authoritative packet inside the read-only sandbox. No retry or partial aggregation was performed."
+        }
+      ]
+    }
+  ]
+}

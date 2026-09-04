@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Executable contract tests for the pr-review V2 scheduler.
+"""Executable contract tests for the pr-review V1/V2 schedulers.
 
 The orchestrator is defined by SKILL.md rather than an importable runtime
 module. This harness models its externally observable state transitions so the
@@ -26,6 +26,14 @@ CONTRACT_PATH = (
     / "references"
     / "v2-runtime-contract.json"
 )
+FINDING_CONTRACT_PATH = (
+    REPO_ROOT
+    / "private_dot_codex"
+    / "skills"
+    / "pr-review"
+    / "references"
+    / "finding-verifier-contract.json"
+)
 RETENTION_FIXTURE_PATH = (
     REPO_ROOT
     / "tests"
@@ -34,11 +42,16 @@ RETENTION_FIXTURE_PATH = (
     / "pr_review_v2_retention_refill.json"
 )
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-if CONTRACT.get("sentinel") != "PR_REVIEW_V2_SCHEDULER_CONTRACT_V3":
+if CONTRACT.get("sentinel") != "PR_REVIEW_V2_SCHEDULER_CONTRACT_V4":
     raise AssertionError(f"{CONTRACT_PATH}: unsupported scheduler contract")
 DELIVERY_GRACE_MS = CONTRACT["delivery_grace_ms"]
 STAGE_DEADLINES_MS = CONTRACT["stage_deadline_ms"]
 MAX_CONCURRENCY = CONTRACT["max_concurrency"]
+FINDING_CONTRACT = json.loads(FINDING_CONTRACT_PATH.read_text(encoding="utf-8"))
+if FINDING_CONTRACT.get("sentinel") != "PR_REVIEW_FINDING_VERIFIER_CONTRACT_V1":
+    raise AssertionError(f"{FINDING_CONTRACT_PATH}: unsupported finding contract")
+V1_STAGE3_MAX_CONCURRENCY = FINDING_CONTRACT["task"]["max_concurrency"]
+V1_STAGE3_DEADLINE_MS = FINDING_CONTRACT["task"]["deadline_ms"]
 
 
 class TaskState(enum.Enum):
@@ -51,6 +64,7 @@ class TaskState(enum.Enum):
 class TaskEvidence:
     canonical_path: str
     role: str = ""
+    candidate_id: str = ""
     stage_deadline_ms: int = STAGE_DEADLINES_MS["stage1"]
     final_payload: str | None = None
     final_at_ms: int | None = None
@@ -239,6 +253,27 @@ def aggregation_allowed(
         roles != expected_roles or len(roles) != len(tasks)
     ):
         return False
+    if (
+        aggregation_contract["require_unique_canonical_tasks"]
+        and len(canonical_paths) != len(tasks)
+    ):
+        return False
+    return not aggregation_contract["require_all_usable"] or all(
+        task.state(now_ms) is TaskState.USABLE for task in tasks
+    )
+
+
+def verification_aggregation_allowed(
+    tasks: list[TaskEvidence], expected_candidate_ids: set[str], now_ms: int
+) -> bool:
+    aggregation_contract = CONTRACT["aggregation"]
+    candidate_ids = [task.candidate_id for task in tasks]
+    if aggregation_contract["require_exact_expected_candidate_ids"] and (
+        set(candidate_ids) != expected_candidate_ids
+        or len(candidate_ids) != len(expected_candidate_ids)
+    ):
+        return False
+    canonical_paths = {task.canonical_path for task in tasks}
     if (
         aggregation_contract["require_unique_canonical_tasks"]
         and len(canonical_paths) != len(tasks)
@@ -845,6 +880,217 @@ class SpawnReconciliationTests(unittest.TestCase):
         self.assertIs(decision, SpawnDecision.FATAL)
 
 
+@dataclasses.dataclass(frozen=True)
+class V1WaitResult:
+    agent_id: str
+    status: str
+    candidate_id: str
+    payload: str = ""
+
+
+class V1Stage3Scheduler:
+    """Model returned-agent identity, targeted waits, refill, and close semantics."""
+
+    def __init__(self, candidate_ids: tuple[str, ...]) -> None:
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("duplicate expected candidate ID")
+        self.expected_candidate_ids = set(candidate_ids)
+        self.pending = list(candidate_ids)
+        self.running: dict[str, str] = {}
+        self.completed: dict[str, str] = {}
+        self.closed_agent_ids: list[str] = []
+        self.fatal_reason: str | None = None
+        self.max_active = 0
+        self.dispatch_available()
+
+    @staticmethod
+    def agent_id(candidate_id: str) -> str:
+        return f"agent-{candidate_id}"
+
+    @property
+    def target_ids(self) -> tuple[str, ...]:
+        return tuple(self.running)
+
+    def dispatch_available(self) -> None:
+        while (
+            self.fatal_reason is None
+            and self.pending
+            and len(self.running) < V1_STAGE3_MAX_CONCURRENCY
+        ):
+            candidate_id = self.pending.pop(0)
+            agent_id = self.agent_id(candidate_id)
+            if agent_id in self.running or agent_id in self.closed_agent_ids:
+                self.fail("duplicate returned agent ID")
+                return
+            self.running[agent_id] = candidate_id
+            self.max_active = max(self.max_active, len(self.running))
+
+    def fail(self, reason: str) -> None:
+        if self.fatal_reason is None:
+            self.fatal_reason = reason
+        self.pending.clear()
+        for agent_id in tuple(self.running):
+            self.closed_agent_ids.append(agent_id)
+            del self.running[agent_id]
+
+    def receive_targeted_wait(
+        self,
+        targeted_agent_ids: tuple[str, ...],
+        results: list[V1WaitResult],
+        *,
+        now_ms: int,
+    ) -> None:
+        if self.fatal_reason is not None:
+            return
+        if (
+            len(targeted_agent_ids) != len(set(targeted_agent_ids))
+            or set(targeted_agent_ids) != set(self.running)
+        ):
+            self.fail("targeted wait omitted or added an agent ID")
+            return
+        if now_ms >= V1_STAGE3_DEADLINE_MS:
+            self.fail("Stage 3 deadline expired")
+            return
+        for result in results:
+            expected_candidate = self.running.get(result.agent_id)
+            if expected_candidate is None:
+                self.fail("unknown or duplicate returned agent ID")
+                return
+            if result.status != "completed":
+                self.fail(f"V1 task failed: {result.status}")
+                return
+            if (
+                result.candidate_id != expected_candidate
+                or not result.payload.strip()
+                or result.candidate_id in self.completed
+            ):
+                self.fail("invalid or duplicate V1 candidate result")
+                return
+            self.completed[result.candidate_id] = result.payload
+            self.closed_agent_ids.append(result.agent_id)
+            del self.running[result.agent_id]
+        self.dispatch_available()
+
+    def aggregation_allowed(self) -> bool:
+        return (
+            self.fatal_reason is None
+            and not self.pending
+            and not self.running
+            and set(self.completed) == self.expected_candidate_ids
+        )
+
+
+class V1Stage3SchedulerTests(unittest.TestCase):
+    candidates = ("f001", "f002", "f003", "f004", "f005")
+
+    @staticmethod
+    def completed(candidate_id: str) -> V1WaitResult:
+        return V1WaitResult(
+            agent_id=V1Stage3Scheduler.agent_id(candidate_id),
+            status="completed",
+            candidate_id=candidate_id,
+            payload=f"VERIFICATION_OK {candidate_id}",
+        )
+
+    def test_targeted_wait_close_and_refill_preserve_exact_candidate_set(self) -> None:
+        scheduler = V1Stage3Scheduler(self.candidates)
+        self.assertEqual(scheduler.max_active, V1_STAGE3_MAX_CONCURRENCY)
+        self.assertEqual(
+            scheduler.target_ids,
+            ("agent-f001", "agent-f002", "agent-f003"),
+        )
+        scheduler.receive_targeted_wait(
+            scheduler.target_ids,
+            [self.completed("f002")],
+            now_ms=1_000,
+        )
+        self.assertEqual(
+            scheduler.target_ids,
+            ("agent-f001", "agent-f003", "agent-f004"),
+        )
+        scheduler.receive_targeted_wait(
+            scheduler.target_ids,
+            [self.completed("f001"), self.completed("f003")],
+            now_ms=2_000,
+        )
+        scheduler.receive_targeted_wait(
+            scheduler.target_ids,
+            [self.completed("f004"), self.completed("f005")],
+            now_ms=3_000,
+        )
+        self.assertTrue(scheduler.aggregation_allowed())
+        self.assertEqual(set(scheduler.completed), set(self.candidates))
+        self.assertEqual(
+            set(scheduler.closed_agent_ids),
+            {f"agent-{candidate_id}" for candidate_id in self.candidates},
+        )
+        self.assertEqual(scheduler.max_active, V1_STAGE3_MAX_CONCURRENCY)
+
+    def test_error_closes_running_ids_and_rejects_partial_aggregation(self) -> None:
+        scheduler = V1Stage3Scheduler(self.candidates)
+        targets = scheduler.target_ids
+        scheduler.receive_targeted_wait(
+            targets,
+            [V1WaitResult("agent-f002", "error", "f002")],
+            now_ms=1_000,
+        )
+        self.assertEqual(scheduler.fatal_reason, "V1 task failed: error")
+        self.assertFalse(scheduler.aggregation_allowed())
+        self.assertFalse(scheduler.running)
+        self.assertEqual(set(scheduler.closed_agent_ids), set(targets))
+
+    def test_deadline_closes_running_ids_and_rejects_partial_results(self) -> None:
+        scheduler = V1Stage3Scheduler(self.candidates)
+        scheduler.receive_targeted_wait(
+            scheduler.target_ids,
+            [self.completed("f001")],
+            now_ms=1_000,
+        )
+        targets = scheduler.target_ids
+        scheduler.receive_targeted_wait(
+            targets,
+            [],
+            now_ms=V1_STAGE3_DEADLINE_MS,
+        )
+        self.assertEqual(scheduler.fatal_reason, "Stage 3 deadline expired")
+        self.assertFalse(scheduler.aggregation_allowed())
+        self.assertTrue(set(targets).issubset(scheduler.closed_agent_ids))
+
+    def test_target_and_candidate_identity_mismatches_fail_closed(self) -> None:
+        scheduler = V1Stage3Scheduler(self.candidates)
+        scheduler.receive_targeted_wait(
+            scheduler.target_ids[:-1],
+            [],
+            now_ms=1_000,
+        )
+        self.assertEqual(
+            scheduler.fatal_reason,
+            "targeted wait omitted or added an agent ID",
+        )
+
+        scheduler = V1Stage3Scheduler(self.candidates)
+        scheduler.receive_targeted_wait(
+            scheduler.target_ids + (scheduler.target_ids[0],),
+            [],
+            now_ms=1_000,
+        )
+        self.assertEqual(
+            scheduler.fatal_reason,
+            "targeted wait omitted or added an agent ID",
+        )
+
+        scheduler = V1Stage3Scheduler(self.candidates)
+        scheduler.receive_targeted_wait(
+            scheduler.target_ids,
+            [V1WaitResult("agent-f001", "completed", "f999", "payload")],
+            now_ms=1_000,
+        )
+        self.assertEqual(
+            scheduler.fatal_reason,
+            "invalid or duplicate V1 candidate result",
+        )
+
+
 class CleanupAndAggregationTests(unittest.TestCase):
     owned = {"/root/prr_token_s1_code_reviewer_a1"}
 
@@ -915,6 +1161,28 @@ class CleanupAndAggregationTests(unittest.TestCase):
             aggregation_allowed([task, duplicate], expected_roles, 1_000)
         )
 
+    def test_stage3_requires_exact_candidate_identity_and_usable_results(self) -> None:
+        self.assertEqual(
+            CONTRACT["aggregation"]["identity_key_by_stage"]["stage3"],
+            "candidate_id",
+        )
+        expected = {"f001", "f002"}
+        tasks = []
+        for index, candidate_id in enumerate(sorted(expected), 1):
+            task = TaskEvidence(
+                f"/root/prr_token_s3_finding_verifier_{candidate_id}_a1",
+                candidate_id=candidate_id,
+            )
+            task.receive_final(task.canonical_path, "valid", 100 + index)
+            task.observe_status("completed", 200 + index)
+            tasks.append(task)
+        self.assertTrue(verification_aggregation_allowed(tasks, expected, 1_000))
+        self.assertFalse(
+            verification_aggregation_allowed(tasks[:1], expected, 1_000)
+        )
+        tasks[1].candidate_id = "f003"
+        self.assertFalse(verification_aggregation_allowed(tasks, expected, 1_000))
+
 
 def main() -> None:
     suite = unittest.TestSuite(
@@ -924,13 +1192,14 @@ def main() -> None:
             RunLevelRetentionReplayTests,
             SchedulerDispatchReplayTests,
             SpawnReconciliationTests,
+            V1Stage3SchedulerTests,
             CleanupAndAggregationTests,
         )
     )
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     if not result.wasSuccessful():
         raise SystemExit(1)
-    print("OK: pr-review V2 scheduler abnormal-path tests passed")
+    print("OK: pr-review V1/V2 scheduler abnormal-path tests passed")
 
 
 if __name__ == "__main__":

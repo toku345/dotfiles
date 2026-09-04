@@ -223,12 +223,17 @@ The GitHub Actions workflow (`.github/workflows/security-checks.yml`) performs:
    - PASS: No secrets detected
    - FAIL: Potential secrets found
 
-4. **AI Tool Update Policy Invariants**
+4. **AI Tool Update Policy and Permission Gate Invariants**
    - Verifies Claude Code updater policy source settings in `private_dot_claude/settings.json`
    - Requires `env.DISABLE_AUTOUPDATER="1"`, `autoUpdatesChannel="stable"`, `enabledPlugins["codex@openai-codex"]=true`, and `extraKnownMarketplaces.openai-codex` to point exactly at `github:openai/codex-plugin-cc` with `autoUpdate=false`
    - Requires `env.FORCE_AUTOUPDATE_PLUGINS` to stay unset in Claude settings
-   - PASS: AI-tool update policy source settings match ADR 0026
-   - FAIL: Claude/Codex source settings drift from ADR 0026
+   - Requires `permissions.ask` to contain `Bash(git push:*)`, `Bash(git commit:*)`, `Bash(git reset:*)`, `Bash(rm:*)`, and `Bash(chezmoi apply:*)`. Content-scoped ask rules are evaluated before the auto-mode classifier and always prompt; since v2.1.211 dropped the protected-branch default, `Bash(git push:*)` is the only control stopping a direct push to main ([ADR 0036](adr/0036-user-global-claude-md-placement-policy.md)), and `Bash(chezmoi apply:*)` is the gate [ADR 0014](adr/0014-no-custom-auto-mode-for-chezmoi.md) depends on
+   - Requires `permissions.deny` to contain the ten credential `Read(...)` rules (`~/.aws/config`, `~/.aws/credentials`, `~/.config/gcloud/**`, `~/.config/gh/hosts.yml`, `~/.docker/config.json`, `~/.kube/config`, `~/.netrc`, `~/.npmrc`, `~/.ssh/**`, `~/.terraform.d/**`). For `~/.config/gcloud/**` and `~/.terraform.d/**` these are the only tool-permission layer — Anthropic's built-in deny does not cover them ([ADR 0001](adr/0001-claude-code-sandbox-git-least-privilege.md))
+   - Requires `permissions.allow` to stay free of `Bash(codex exec:*)`, so the full command reaches the auto-mode classifier instead of resolving ahead of it ([ADR 0036](adr/0036-user-global-claude-md-placement-policy.md))
+   - Requires `permissions.defaultMode` not to be `"bypassPermissions"`, which would leave every pinned ask entry present but inert. This does not cover the `--dangerously-skip-permissions` CLI flag; only `permissions.disableBypassPermissionsMode` would, and it is deliberately not set so bypass mode stays available for isolated environments
+   - Checks are required-subset / forbidden-entry, not exact-list: adding entries is fine, removing a listed one fails
+   - PASS: Claude/Codex update policy and permission gate source settings match ADR 0026 / ADR 0036
+   - FAIL: Claude/Codex source settings drift from ADR 0026 / ADR 0036
 
 ### How It Works
 
@@ -456,7 +461,7 @@ These tools run with privileges that touch credentials, source control, cloud ac
 - cloud CLIs (`aws`, `gcloud`), credential/session helpers
 - `karabiner-elements` (input monitoring), editor casks (VS Code, etc.)
 
-**Manual update flow:** Use `brew-reviewed-upgrade FORMULA -- COMMAND [ARG...]` as the normal named-Formula path; the Japanese [Homebrew update runbook](homebrew-update.md) documents its provenance, vulnerability, linkage, smoke-test, Cask, and recovery gates. Security-sensitive libraries (`git`, `curl`, `openssl`, `ca-certificates`) still bypass the routine cooldown, but broken or outdated dependents are repaired through separately reviewed named operations rather than by re-enabling Homebrew's automatic dependent-upgrade pass. A pinned/reviewed inventory or reminder mechanism is still needed before high-privilege CLI/cask review can be considered fully enforced.
+**Manual update flow:** Use `brew-reviewed-upgrade FORMULA -- COMMAND [ARG...]` for the normal named-Formula path and `brew-reviewed-cask-upgrade CASK -- COMMAND [ARG...]` for checksum-backed Casks within the strict artifact scope. The Japanese [Homebrew update runbook](homebrew-update.md) documents their provenance, checksum, vulnerability, linkage, smoke-test, Cask, and recovery boundaries. Security-sensitive libraries (`git`, `curl`, `openssl`, `ca-certificates`) still bypass the routine cooldown, but broken or outdated dependents are repaired through separately reviewed named operations rather than by re-enabling Homebrew's automatic dependent-upgrade pass. A pinned/reviewed inventory or reminder mechanism is still needed before high-privilege CLI/cask review can be considered fully enforced.
 
 ### Homebrew and asdf update controls
 
@@ -481,7 +486,7 @@ Committed so routine OS-package and runtime updates are deliberate, not implicit
 
 **Scope limitation (asdf):** these controls are **shell-scoped**. `~/.config/asdf/.asdfrc` is read only because `dot_bashrc`/`config.fish` export `ASDF_CONFIG_FILE` to point at it; an asdf invocation that does not inherit that environment (a non-interactive script, cron job, or GUI-launched process) falls back to asdf's default `~/.asdfrc` (absent) and its built-in defaults, where the short-name repository is **enabled**. This is acceptable today because the hardened action — `asdf plugin add <short-name>` — is run interactively and no repo automation calls asdf. If a non-rc asdf path is ever added, manage `~/.asdfrc` (e.g. a symlink to the XDG file) to close it.
 
-**Homebrew Formula updates** use `brew-reviewed-upgrade` as the normal path described in the [dedicated runbook](homebrew-update.md): update metadata, classify and dry-run the named target, verify complete Bottle attestation coverage, upgrade it, then test vulnerabilities, global linkage, and behavior. Full Formula/Cask outdated listings are a separate periodic inventory. Security fixes bypass the cooldown — see [When to bypass the cooldown](#when-to-bypass-the-cooldown).
+**Homebrew Formula updates** use `brew-reviewed-upgrade` as the normal path described in the [dedicated runbook](homebrew-update.md): update metadata, classify and dry-run the named target, verify complete Bottle attestation coverage, upgrade it, then test vulnerabilities, global linkage, and behavior. **Strict Cask updates** use `brew-reviewed-cask-upgrade`: validate installed state separately from the Caskroom `INSTALL_RECEIPT.json`, reject non-empty `url_specs` / `container` / `rename`, snapshot the reviewed candidate safety fields, bind a GitHub release asset URL and digest to the Cask checksum and newest asset/release timestamp, display the named dry-run, then revalidate before upgrading without automatic app quit or dependency installation. An explicit asset/Cask digest mismatch is fatal even with a cooldown exception. The helper verifies the reviewed safety-field snapshot, installed version, and behavior after mutation. Casks have no equivalent Bottle attestation or `brew vulns` gate; unsupported Casks and tag archives remain manual-exception paths. Full Formula/Cask outdated listings are a separate periodic inventory. Security fixes bypass the cooldown — see [When to bypass the cooldown](#when-to-bypass-the-cooldown).
 
 ### VS Code extensions and updates
 
