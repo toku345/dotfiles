@@ -41,7 +41,9 @@ Claude Code は外注先ではなく、思考・探索・実装・検証の各�
 
 不足があり、妥当な仮定で進めると曖昧さやリスクが残る場合は質問で埋める。それ以外は仮定を冒頭で宣言してから自律実行する。
 
-「厚く扱う対象」では、プランと最終報告に次を短く含める: 代替案・リスク・見落とし、採用案、**採用理由と受け入れたトレードオフ**、捨てた代替案、検証結果と残リスク、注意すべき副作用・失敗モード。
+「厚く扱う対象」では、プランに 代替案・リスク・見落とし / 採用案 / **採用理由と受け入れたトレードオフ** / 捨てた代替案 を、最終報告に 検証結果と残リスク / 注意すべき副作用・失敗モード を短く含める。
+
+### auto-mode に対する優先順位
 
 **対話セッションにおける auto-mode は、本ファイルの「曖昧さは質問で埋める」を上書きしない**。auto-mode の harness 命令 ("Make reasonable assumptions and proceed") は介入頻度を下げたい希望のシグナルであって、判断責任の委譲ではない。コンテキスト別の優先順位:
 
@@ -169,7 +171,7 @@ AI レビューは「日常の床 / 厚い変更の gate」に分ける。軽く
 
 Codex (コードレビュー / 調査委譲 / 別案試行) の運用詳細は skill `codex-usage` を参照する。
 
-agmsg が導入済みで同一 team に参加済みなら、Claude Code / Codex / 別セッション間の依頼・結果共有には agmsg を使ってよい。agmsg は transport であり、`$pr-review` / `/pr-review` の base pinning や fail-closed gate を置き換えない。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/` 配下の artifact path を送り、secret・credential・長大 diff 本文は送らない。配信モード等の運用詳細は skill `agmsg` を参照する。
+agmsg が導入済みで同一 team に参加済みなら、Claude Code / Codex / 別セッション間の依頼・結果共有には agmsg を使ってよい。agmsg は transport であり、`$pr-review` / `/pr-review` の base pinning や fail-closed gate を置き換えない。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/` 配下の artifact path を送り、secret・credential・長大 diff 本文は送らない。配信モード等の運用詳細は skill `agmsg` を参照するが、Claude Code sandbox では `both` / `turn` を既定にし `monitor` 単独は避ける (watcher が silent に自滅する)。
 
 「厚く理解する対象」に該当する変更で `codex` 利用可能なときのみ、プラン完成後に自動レビューを実施する。
 
