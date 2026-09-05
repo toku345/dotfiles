@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-04-30)
+Amended (2026-09-05) — Accepted (2026-04-30)
+
+Decision 2 (JUIZ をマシン全域デフォルトに) のみ撤回し、user-global default を built-in output style `Concise` に変更した。詳細は [Amendment (2026-09-05)](#amendment-2026-09-05)。Decision 1 / 3 / 4 / 5 / 6 / 7 / 8 は有効のまま。
 
 ## Context
 
@@ -113,6 +115,24 @@ Lum 文体の本格的「らしさ」練り込みは別 Issue で iterative に�
 - `keep-coding-instructions: true` の解釈が将来変わった場合、JUIZ 適用時の coding 系挙動が変化する可能性
 - **移行期の chezmoi apply 非アトミック性**: output-styles ファイル配置 / `settings.json` への `outputStyle` 追加 / `CLAUDE.md` からの persona セクション削除は chezmoi apply 1 回で全反映されるが、ファイル単位の処理順序によっては短時間「persona セクションは消えたが output-style が解決できない」窓が発生しうる。実害は新セッション起動までは生じないが、apply 直後に新セッションを起動した場合に persona 不在状態となるリスクは存在する
 - **現セッション中無反映**: 公式仕様により実行中セッションには反映されない。本 ADR を実装した PR をマージ後、persona 適用を体感するには新しいセッションを開始する必要がある
+
+## Amendment (2026-09-05)
+
+### 変更
+
+`private_dot_claude/settings.json` の `"outputStyle"` を `"JUIZ"` から `"Concise"` (Claude Code built-in、`~/.claude/output-styles/` に配備ファイルを持たない) に変更する。Decision 2 が置いた「JUIZ をマシン全域デフォルトに」を撤回する。
+
+### 理由
+
+日常の作業セッションでは persona の装飾より簡潔な作業出力を常用したい、というユーザーの判断による。ADR 0036 が指摘した常時ロード予算 (`JUIZ.md` 73 行がシステムプロンプトを置換) も built-in style に切り替えることで解消する。
+
+### 影響しない範囲
+
+`JUIZ.md` / `Lum.md` は chezmoi 管理下に残り、`/config` から従来どおり選択できる (Decision 1)。リポジトリ単位の上書き機構も Decision 3 のまま — 逆方向 (user-global が `Concise`、persona を使いたい repo が `.claude/settings.local.json` で上書き) になるだけで、precedence の設計は変わらない。
+
+### トレードオフ
+
+user-global default が built-in style になったことで、persona を使うには repo ごとの opt-in が要る。ADR 0015 本文および ADR 0017 / 0036 の「JUIZ が user-global default」という記述は、その時点の状態を記録した歴史的記述として残置する (ADR は決定時点の記録であり遡及修正しない)。live guidance は `.claude/rules/claude-code-config.md` を正とする。
 
 ## References
 
