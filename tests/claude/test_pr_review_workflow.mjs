@@ -218,6 +218,10 @@ assert(r2.reviewChurnGuidance.includes('third or later pass'), 'S2: review churn
   assert(r3.importantTotal > rules.output_caps.important, `S3: cap exceeded in fixture (total ${r3.importantTotal})`)
   assert(r3.importantOverflow.length === r3.importantTotal - rules.output_caps.important, 'S3: overflow returns the capped-out tail in full')
   assert(r3.importantOverflow.every(f => f.why && f.specialist), 'S3: overflow entries carry full finding content')
+  // the tally exists to measure cap pressure, so it must track the pre-cap
+  // total precisely where the rendered list stops being able to
+  assert(r3.tally.important === r3.importantTotal && r3.important.length === rules.output_caps.important,
+    'S3: tally reports the pre-cap Important total while the rendered list stays capped')
 }
 
 // S4: coverage gate fails closed on echo mismatch
@@ -410,6 +414,33 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   for (const field of ['blocking', 'impact_scope', 'verified_assumptions', 'unverified_assumptions']) {
     assert(requiredText.includes(`'${field}'`), `S12: SPECIALIST_SCHEMA requires ${field}`)
   }
+}
+
+// S13: review size limits refuse loudly instead of letting an oversized packet
+// clear the coverage gate on a partial read (sha256sum succeeds at any size)
+{
+  await expectThrow(makeArgs({ packetBytes: 1048577 }), {},
+    /1048577 bytes, over the 1048576-byte review limit/, 'S13: oversized diff packet throws')
+  await expectThrow(makeArgs({ changedFiles: Array.from({ length: 501 }, (_, i) => `src/f${i}.js`) }), {},
+    /changes 501 files, over the 500-file review limit/, 'S13: too many changed files throws')
+
+  // boundary: exactly at each limit must still review — a guard that shrinks
+  // the window it protects is its own regression
+  const atByteLimit = await run(makeArgs({ packetBytes: 1048576 }))
+  assert(atByteLimit.argsContract === 'PR_REVIEW_ARGS_V2', 'S13: packet exactly at the byte limit still reviews')
+  const atFileLimit = await run(makeArgs({ changedFiles: Array.from({ length: 500 }, (_, i) => `src/f${i}.js`) }))
+  assert(atFileLimit.argsContract === 'PR_REVIEW_ARGS_V2', 'S13: exactly 500 changed files still reviews')
+}
+
+// S14: the tally the render emits verbatim must agree with the structured
+// result — recomputing it from the capped sections would understate the totals
+{
+  const r14 = await run(makeArgs())
+  assert(r14.tally.critical === r14.critical.length, 'S14: tally.critical matches the Critical list')
+  assert(r14.tally.important === r14.importantTotal, 'S14: tally.important is the pre-cap Important total')
+  assert(r14.tally.suggestion === r14.suggestionsTotal, 'S14: tally.suggestion is the pre-cap Suggestion total')
+  assert(r14.tally.refuted === r14.refuted.length, 'S14: tally.refuted matches the refuted list')
+  assert(Object.values(r14.tally).every(n => Number.isInteger(n) && n >= 0), 'S14: tally values are non-negative integers')
 }
 
 if (failed) {

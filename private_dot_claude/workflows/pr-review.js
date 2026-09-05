@@ -84,6 +84,35 @@ if (!Array.isArray(criticalDowngradePolicy.impact_scope_patterns) || !Array.isAr
 if ([...criticalDowngradePolicy.impact_scope_patterns, ...criticalDowngradePolicy.override_patterns].some(p => typeof p !== 'string' || p.trim() === ''))
   fail('severityRules.critical.downgrade_to_important patterns must be non-empty strings')
 
+// ---------------------------------------------------------------------------
+// Review size limits (fail loud rather than degrade silently)
+//
+// The coverage gate proves a specialist hashed the packet, not that it read all
+// of it: sha256sum succeeds at any size while the agent's own read of the packet
+// truncates. An oversized packet therefore satisfies every existing check and
+// only the review quality drops — the one silent-degradation path in an
+// otherwise fail-closed pipeline, and the most dangerous kind here because the
+// gate still reports full coverage.
+//
+// Both limits are hardcoded rather than read from severity-rules.json on
+// purpose: an optional policy key would be absent in a stale deployed copy,
+// leaving the guard unset and re-opening the exact silent path it closes. There
+// is no override flag for the same reason — an escape hatch is that path by
+// another name. Oversized branches get split, not waved through.
+// ---------------------------------------------------------------------------
+
+// 1 MiB of unified diff is already well past ultrareview's published 8,000-line
+// branch limit; MAX_CHANGED_FILES matches its 500-file limit and additionally
+// bounds prompt growth, since the full file list is inlined into every
+// specialist prompt (see specialistPrompt, '## Changed files').
+const MAX_PACKET_BYTES = 1048576
+const MAX_CHANGED_FILES = 500
+
+if (a.packetBytes > MAX_PACKET_BYTES)
+  fail(`diff packet is ${a.packetBytes} bytes, over the ${MAX_PACKET_BYTES}-byte review limit. Specialists would hash it successfully but read only part of it, so the coverage gate would pass on a partial review. Split the branch into smaller PRs, or narrow the base, and retry.`)
+if (a.changedFiles.length > MAX_CHANGED_FILES)
+  fail(`branch changes ${a.changedFiles.length} files, over the ${MAX_CHANGED_FILES}-file review limit. Split the branch into smaller PRs, or narrow the base, and retry.`)
+
 const scope = `${a.baseCommit}...${a.headRef}`
 
 // ---------------------------------------------------------------------------
@@ -592,6 +621,17 @@ return {
   suggestionsTotal: suggestions.length,
   strengths,
   refuted,
+  // Machine-readable severity counts for the render's one-line tally, so a CI
+  // step or a later gate pass can read the outcome without parsing prose.
+  // Counts are pre-cap on purpose: the gap between `important` here and the
+  // rendered cap is the only standing measurement of how much the caps are
+  // actually suppressing, which is what a future dedup decision needs.
+  tally: {
+    critical: critical.length,
+    important: important.length,
+    suggestion: suggestions.length,
+    refuted: refuted.length,
+  },
   stage2Ran,
   stopCondition: critical.length === 0 && important.length === 0
     ? 'Critical 0 / Important 0: stop the gate loop; Suggestions alone do not justify another run.'
