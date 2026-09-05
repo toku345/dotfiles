@@ -8,7 +8,7 @@ paths:
 - `outputStyle` 切替は `/config` メニュー経由のみ (公式スラッシュコマンド・CLI フラグ未提供)、反映は次の新規セッションから
 - `outputStyle` はシステムプロンプトを直接置換し headless `claude -p` にも適用 (Agent tool 経由の subagents には伝播しない)
 - precedence: project-local (`<repo>/.claude/settings.local.json`) > user-global (`~/.claude/settings.json`)
-- 本リポジトリは JUIZ persona を user-global default に設定。詳細: `docs/adr/0015-multi-persona-output-styles.md`
+- user-global default は built-in output style `Concise` (2026-09-05 変更)。`JUIZ` / `Lum` persona は `~/.claude/output-styles/` に配備済みで `/config` から選択可、repo 単位の常用は `<repo>/.claude/settings.local.json` で opt-in する。詳細: `docs/adr/0015-multi-persona-output-styles.md` (Amendment 2026-09-05)
 - `verbose: true` (公式 doc 未記載だが実在) — UI ラベル "Verbose output"、default `true`、turn-by-turn logging を制御 (`--verbose` CLI flag の persistent 版)
 - `viewMode` (`"default"` / `"verbose"` / `"focus"`、default `"default"`) — startup transcript view を制御。`verbose` とは別レイヤーで両者独立。verbose 表示にしたければ明示設定必要。<https://code.claude.com/docs/en/settings>
 - `/config` UI 表示値は **effective default**（stored ≠ displayed）。settings.json に該当キーが無くても UI は default を表示する。**閲覧のみでは settings.json は書き換わらず**、UI で toggle した時のみ書き込まれる (2026-05-02 実機検証)
