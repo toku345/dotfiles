@@ -26,12 +26,17 @@ Run a comprehensive specialist review of the current branch's committed changes 
 
 Run these in order. If any fails, abort with the indicated error; do not launch the workflow.
 
-1. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with its output. If output is non-empty, abort with:
+1. **Workflow tool available** — This gate runs entirely inside `~/.claude/workflows/pr-review.js`, and the `Workflow` tool is granted per session. Treat it as available if it appears in your callable tool list **or** `ToolSearch("select:Workflow")` returns its schema — `ToolSearch` only searches deferred tools, so a bare "no match" is not by itself proof of absence. Abort only when neither holds:
+   > "`Workflow` is not exposed in this session, so the gate cannot run. Run the Codex CLI `$pr-review` from a terminal instead (not from inside Claude Code — nested-bwrap). Do not substitute a manual `Agent` fan-out of the specialists: that drops the workflow's coverage echo gate and severity normalization, reintroducing exactly the partial-coverage-reported-as-full outcome this gate exists to prevent."
+
+   This check comes first because everything below it — `gh pr view` and `git fetch` under `dangerouslyDisableSandbox`, the diff packet, the reference sentinels — is wasted work on a run that cannot reach the workflow.
+
+2. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with its output. If output is non-empty, abort with:
    > "Worktree has uncommitted changes: <list>. The review covers committed branch diff only; uncommitted changes would be silently excluded. Commit or stash first, then retry."
 
    Sandbox caveat: in repos whose tracked names collide with sandbox baseline denies (e.g. a chezmoi source dir), sandboxed `git status` reports ghost char-special entries (`crw-rw-rw- nobody nogroup 1, 3` under `ls -la`) as untracked. Verify with `ls -la | grep '^c'` and re-run the status check outside the sandbox before trusting a non-empty result.
 
-2. **Base ref resolution** — Determine `$BASE` from one of three sources, in priority order:
+3. **Base ref resolution** — Determine `$BASE` from one of three sources, in priority order:
    - (a) **Explicit base** from the user prompt (e.g. `--base develop`, "review against develop"): use it verbatim and skip `gh`. If it matches a full 40-character hexadecimal commit OID (the same shape the workflow's args validation requires), set `$BASE_REF` to it. Otherwise validate it as a branch name (`git check-ref-format --branch "$BASE"`; reject leading `-`/`+`, `:`, or other refspec separators), run `git fetch --quiet origin "refs/heads/$BASE"` (abort on failure), set `$BASE_REF=FETCH_HEAD`, and resolve `$BASE_COMMIT` immediately.
    - (b) **`--allow-no-pr`** in the prompt: skip `gh`. Run `git fetch --quiet origin` and `git remote set-head origin --auto` (abort if either fails), then `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` (abort if it fails or is empty). Strip `origin/` for `$BASE`, keep the full `origin/<branch>` as `$BASE_REF`, and add a `**Degraded coverage**: no PR base, fell back to default branch` line to the final report.
    - (c) **Open PR**: run `gh pr view --json baseRefName,baseRefOid --jq '[.baseRefName,.baseRefOid] | @tsv'`. `gh` typically needs `dangerouslyDisableSandbox: true` (macOS Seatbelt / hosts.yml restrictions). If it fails with a real credential error, abort with "Run `gh auth login` and retry." Only an explicit "no pull request found" result is the no-PR case; any other failure aborts loudly. On success: validate the branch name with the same rules as (a), `git fetch --quiet origin "refs/heads/$BASE"` (abort on failure), verify `FETCH_HEAD^{commit}` equals the returned `baseRefOid` exactly (abort with both OIDs if not), then set `$BASE_REF=FETCH_HEAD`.
@@ -39,7 +44,7 @@ Run these in order. If any fails, abort with the indicated error; do not launch 
    If none of (a)–(c) yields a base, abort with:
    > "No PR found for the current branch and no explicit base provided. Create a draft PR first (so the review pins the PR's base ref), provide an explicit base, or pass `--allow-no-pr` to fall back to the default branch (residual scope-divergence risk acknowledged)."
 
-3. **Pin the base commit** — `BASE_COMMIT=$(git rev-parse --verify "$BASE_REF^{commit}")` immediately after assigning `$BASE_REF`; record the exact output. Abort on failure.
+4. **Pin the base commit** — `BASE_COMMIT=$(git rev-parse --verify "$BASE_REF^{commit}")` immediately after assigning `$BASE_REF`; record the exact output. Abort on failure.
 
 ## Collect (main session)
 
