@@ -130,7 +130,7 @@
       "autoUpdate": false
     }
   },
-  "outputStyle": "JUIZ",
+  "outputStyle": "Concise",
   "viewMode": "verbose",
   "language": "Japanese",
   "sandbox": {
@@ -173,5 +173,7 @@
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false
+  "voiceEnabled": false,
+  "model": "opus",
+  "enableWorkflows": true
 }

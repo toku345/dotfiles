@@ -20,7 +20,7 @@ The gate spans the sandbox boundary because a capability PoC proved that workflo
 
 ```
 [main Claude session]   gh available; can obtain dangerouslyDisableSandbox
-  preconditions ─ clean worktree; base resolution (gh pr view | explicit --base); record HEAD_REF
+  preconditions ─ Workflow tool available; clean worktree; base resolution (gh pr view | explicit --base); record HEAD_REF
   diff packet   ─ git diff baseCommit...headRef > $tmp ; packetSha = sha256($tmp)
   Workflow({ args: { base, baseCommit, headRef, packetPath, packetSha } })
         │
