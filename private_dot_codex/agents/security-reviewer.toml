@@ -28,7 +28,14 @@
 #   - Added an Orchestrator Scope Contract for the pr-review workflow.
 #   - Added pr-review control-plane isolation: no collaboration or nested
 #     subagent tools, with the complete review returned only in the final response.
-#     Remaining sections preserve the upstream review framework.
+#   - Confidence scale normalized. Upstream scores CONFIDENCE SCORING on a 0.7-1.0
+#     band yet filters on "confidence less than 8"; this copy rescales the bands to
+#     7-10 so the scale and the threshold agree, and restates the >= 8 threshold in
+#     CRITICAL INSTRUCTIONS (upstream: ">80% confident") and FINAL REMINDER
+#     (upstream: none). `tests/codex/verify_pr_review_bundle.py` pins this: it
+#     requires the ">= 8" wording and forbids ">80%" / "0.9-1.0" / "0.8-0.9".
+#   - Remaining sections preserve the upstream review framework.
+#     Divergence re-verified against pinned upstream 0c6a49f on 2026-09-05.
 
 
 name = "security-reviewer"
