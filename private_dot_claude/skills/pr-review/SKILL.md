@@ -26,8 +26,8 @@ Run a comprehensive specialist review of the current branch's committed changes 
 
 Run these in order. If any fails, abort with the indicated error; do not launch the workflow.
 
-1. **Workflow tool available** — This gate runs entirely inside `~/.claude/workflows/pr-review.js`, and the `Workflow` tool is granted per session. Treat it as available if it appears in your callable tool list **or** `ToolSearch("select:Workflow")` returns its schema — `ToolSearch` only searches deferred tools, so a bare "no match" is not by itself proof of absence. Abort only when neither holds:
-   > "`Workflow` is not exposed in this session, so the gate cannot run. Run the Codex CLI `$pr-review` from a terminal instead (not from inside Claude Code — nested-bwrap). Do not substitute a manual `Agent` fan-out of the specialists: that drops the workflow's coverage echo gate and severity normalization, reintroducing exactly the partial-coverage-reported-as-full outcome this gate exists to prevent."
+1. **Workflow tool available** — This gate runs entirely inside `~/.claude/workflows/pr-review.js`. Treat the `Workflow` tool as available if it is callable: it appears in your tool list, or `ToolSearch("select:Workflow")` returns its schema. Abort only when neither holds:
+   > "`Workflow` is not exposed in this session, so the gate cannot run. On the Pro plan dynamic workflows are off by default — turn them on from the **Dynamic workflows** row in `/config`, then start a new session (`disableWorkflows` in a settings file and `CLAUDE_CODE_DISABLE_WORKFLOWS` also switch them off). Otherwise run the Codex CLI `$pr-review` from a terminal (not from inside Claude Code — nested-bwrap). Do not substitute a manual `Agent` fan-out of the specialists: that drops the workflow's coverage echo gate and severity normalization, reintroducing exactly the partial-coverage-reported-as-full outcome this gate exists to prevent."
 
    This check comes first because everything below it — `gh pr view` and `git fetch` under `dangerouslyDisableSandbox`, the diff packet, the reference sentinels — is wasted work on a run that cannot reach the workflow.
 
@@ -123,7 +123,7 @@ Workflow({
 
 The workflow validates args (including both sentinels) and fails closed on any coverage mismatch, so a thrown workflow error is a gate failure — report it verbatim and stop; never retry with weakened inputs or partial coverage.
 
-Among those validations are two review size limits (1 MiB of diff packet, 500 changed files). They exist because `sha256sum` succeeds at any size while a specialist's own read of the packet truncates: an oversized packet would satisfy the coverage echo gate and silently return a partial review reported as full coverage. A refusal on either limit is a policy decision, not a bug — split the branch into smaller PRs or narrow the base. Do not work around it by trimming `changedFiles`, splitting the packet, or re-running with a subset; any of those reintroduces exactly the partial-coverage-reported-as-full outcome the limits prevent.
+Among those validations are two review size limits, one on the diff packet's byte count and one on the changed-file count; the thrown error names both the limit and the actual value, so the numbers live only in the workflow. They exist because `sha256sum` succeeds at any size while a specialist's own read of the packet truncates: an oversized packet would satisfy the coverage echo gate and silently return a partial review reported as full coverage. A refusal on either limit is a policy decision, not a bug — split the branch into smaller PRs or narrow the base. Do not work around it by trimming `changedFiles`, splitting the packet, or re-running with a subset; any of those reintroduces exactly the partial-coverage-reported-as-full outcome the limits prevent.
 
 The workflow runs in the background; wait for its completion notification before rendering. Do not start other work that mutates this repository while it runs.
 
