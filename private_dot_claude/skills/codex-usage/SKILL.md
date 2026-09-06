@@ -69,6 +69,6 @@ PROMPT
 
 ## sandbox 注意
 
-`codex exec` / `codex login` は macOS sandbox 下で `system-configuration` アクセス制限により失敗することがある。AI が `dangerouslyDisableSandbox: true` の必要性を判定し Bash 呼び出しに含めるが、最終的な実行は Claude Code の permission prompt 経由で ユーザー が承認する。事前の手動 disable は通常不要。
+`codex exec` / `codex login` は macOS / Linux いずれの sandbox 下でも失敗することがある (macOS: `system-configuration` アクセス制限、Linux: `~/.codex` が write allowlist 外で `Read-only file system`)。AI が `dangerouslyDisableSandbox: true` の必要性を判定し Bash 呼び出しに含めるが、最終的な実行は Claude Code の permission prompt 経由で ユーザー が承認する。事前の手動 disable は通常不要。
 
 なお `Bash(codex exec:*)` は user-global の `permissions.allow` から外してある。narrow allow rule は auto-mode 分類器より先に解決してしまい、起動オプション (`--sandbox` の有無等) が評価されないため。実行時に承認プロンプトが挟まることがあるが想定内。
