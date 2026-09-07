@@ -22,9 +22,9 @@ DEFAULT_SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 # pre-flight list. Claude Code v2.1.211 dropped the protected-branch default,
 # which leaves "Bash(git push:*)" as the only thing stopping a direct push to
 # main (ADR 0036); "Bash(chezmoi apply:*)" is the two-layer gate ADR 0014
-# depends on. "Bash(git clean:*)" closes the last CLAUDE.md pre-flight item
-# that had steering but no enforced gate (Issue #343). Required subset, not an
-# exact list: adding entries is fine.
+# depends on. "Bash(git clean:*)" closes the rm / reset / clean line of the
+# pre-flight list, the last of those three that had steering but no ask rule
+# (Issue #343). Required subset, not an exact list: adding entries is fine.
 REQUIRED_ASK_ENTRIES = (
     "Bash(git push:*)",
     "Bash(git commit:*)",
@@ -63,16 +63,19 @@ FORBIDDEN_ALLOW_ENTRIES = ("Bash(codex exec:*)",)
 # Anchoring: Claude Code resolves "//path" from the filesystem root, "~/path"
 # from $HOME, a single-slash "/path" relative to the settings *source*, and a
 # bare or "./path" relative to the cwd. A user-global deny that is not "~/" or
-# "//" anchored therefore protects nothing outside the current directory, and
-# the sandbox merges deny rules into its filesystem boundary relative to cwd,
-# which is what broke `chezmoi apply` and polluted `git status` with ghost
-# char-special entries in Issue #212 (ADR 0001). Only Read and Edit rules are
-# checked: those are the only path rules Claude Code consults.
+# "//" anchored therefore guards a path under the cwd or under ~/.claude/, not
+# the secret it names, and the sandbox merges cwd-relative deny rules into its
+# filesystem boundary, which is what broke `chezmoi apply` and polluted
+# `git status` with ghost char-special entries in Issue #212 (ADR 0001). Only
+# Read and Edit rules are checked: those are the only path rules Claude Code
+# consults. An entry that contains "(" but does not parse as Tool(spec) is
+# rejected too, so a typo like "Read(~/.aws/**" cannot pass as a tool-level
+# deny for a tool that does not exist.
 #
 # Dead rules: Claude Code checks file permissions against Read(path) and
 # Edit(path) only. A path rule for Write, NotebookEdit, MultiEdit or Glob is
-# accepted, never consulted, and only surfaces as a startup warning nobody
-# reads in CI: protection that looks present but is not. A bare tool name
+# accepted, never consulted, and only surfaces as a warning when an
+# interactive session starts: protection that looks present but is not. A bare tool name
 # without a path (e.g. "NotebookEdit") is a tool-level deny and is fine.
 PATH_RULE_TOOLS = frozenset({"Read", "Edit"})
 DEAD_PATH_RULE_TOOLS = frozenset({"Write", "NotebookEdit", "MultiEdit", "Glob"})
@@ -85,6 +88,8 @@ def deny_path_rule_failures(entry: object) -> list[str]:
         return [f"permissions.deny entry {entry!r} must be a string"]
     match = _TOOL_RULE.match(entry)
     if match is None:
+        if "(" in entry:
+            return [f'permissions.deny entry "{entry}" is not a well-formed Tool(spec) rule']
         return []
     tool = match.group("tool")
     spec = match.group("spec")

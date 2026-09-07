@@ -253,25 +253,42 @@ def main() -> None:
             )
         )
 
+    # One case per dead tool, spelled out rather than read from the verifier's
+    # frozenset, for the same self-weakening reason as the EXPECTED_* literals.
+    for tool in ("Write", "NotebookEdit", "MultiEdit", "Glob"):
+        entry = f"{tool}(~/.aws/**)"
+        data = copy.deepcopy(baseline)
+        data["permissions"]["deny"].append(entry)
+        mutations.append(
+            (
+                f"dead {tool}(path) deny rule added",
+                data,
+                f'permissions.deny must not contain "{entry}": {tool}(path) rules are '
+                "never consulted by Claude Code, use Edit(path) or Read(path)",
+            )
+        )
+
     data = copy.deepcopy(baseline)
-    data["permissions"]["deny"].append("Write(~/.aws/**)")
+    data["permissions"]["deny"].append("Read(~/.aws/**")
     mutations.append(
         (
-            "dead Write(path) deny rule added",
+            "malformed path rule added",
             data,
-            'permissions.deny must not contain "Write(~/.aws/**)": Write(path) rules are '
-            "never consulted by Claude Code, use Edit(path) or Read(path)",
+            'permissions.deny entry "Read(~/.aws/**" is not a well-formed Tool(spec) rule',
         )
     )
 
     # Tool-level denies carry no path and must stay legal: the real settings
     # already deny NotebookEdit this way, and a false positive here would push
     # people toward the dead NotebookEdit(path) form the check above rejects.
-    data = copy.deepcopy(baseline)
-    data["permissions"]["deny"].append("Write")
-    failures = all_failures(data, verifier)
-    if failures:
-        raise AssertionError(f"tool-level deny without a path rejected: {failures!r}")
+    # A "//"-anchored absolute path is the other legal form the real settings
+    # do not use, so it is asserted here to keep the "//" prefix from drifting.
+    for entry in ("Write", "Read(//etc/hosts)"):
+        data = copy.deepcopy(baseline)
+        data["permissions"]["deny"].append(entry)
+        failures = all_failures(data, verifier)
+        if failures:
+            raise AssertionError(f"legal deny entry {entry!r} rejected: {failures!r}")
 
     for name, data, expected in mutations:
         assert_fails_closed(name, data, expected, verifier)
