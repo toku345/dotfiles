@@ -32,9 +32,11 @@ Modifications from upstream:
     yet filters on "confidence less than 8"; this copy rescales the bands to 7-10 so
     the scale and the threshold agree, and restates the >= 8 threshold in CRITICAL
     INSTRUCTIONS (upstream: ">80% confident") and FINAL REMINDER (upstream: none).
-    Deliberate and pinned: `tests/codex/verify_pr_review_bundle.py` requires the
-    ">= 8" wording on the Codex twin and forbids the upstream ">80%" / "0.9-1.0"
-    strings. Do not "restore" the upstream wording.
+    Deliberate. The exact required and forbidden strings are pinned by
+    `tests/codex/verify_pr_review_bundle.py` (the `expected_name == "security-reviewer"`
+    branch), which scans only the Codex twin (`private_dot_codex/agents/*.toml`); this
+    Claude copy carries the same divergence but is not covered by that test.
+    Do not "restore" the upstream wording.
   - Upstream's 3-step sub-task fan-out (identify -> parallel false-positive sub-tasks
     -> filter) flattened to a 2-step single-agent self-check; Claude-side specialists
     are spawned by the pr-review workflow, not by this agent.
