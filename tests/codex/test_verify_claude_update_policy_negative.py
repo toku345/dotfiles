@@ -29,13 +29,13 @@ EXPECTED_ASK_ENTRIES = {
     "Bash(git push:*)",
     "Bash(git commit:*)",
     "Bash(git reset:*)",
+    "Bash(git clean:*)",
     "Bash(rm:*)",
     "Bash(chezmoi apply:*)",
 }
 
 EXPECTED_DENY_ENTRIES = {
-    "Read(~/.aws/config)",
-    "Read(~/.aws/credentials)",
+    "Read(~/.aws/**)",
     "Read(~/.config/gcloud/**)",
     "Read(~/.config/gh/hosts.yml)",
     "Read(~/.docker/config.json)",
@@ -231,6 +231,64 @@ def main() -> None:
             'permissions.defaultMode must not be "bypassPermissions"',
         )
     )
+
+    # Structural deny invariants (Issue #303). Each case appends a rule that
+    # looks like protection and is not: a bare name only guards the cwd (and
+    # breaks chezmoi apply / git status via the sandbox merge, Issue #212), a
+    # single-slash path resolves against the settings source rather than the
+    # filesystem root, and a Write(path) rule is accepted but never consulted.
+    anchor_message = (
+        'permissions.deny entry "{entry}" must be anchored with "~/" or "//": '
+        "a bare or single-slash path is resolved relative to the cwd or the "
+        "settings source, not the filesystem root"
+    )
+    for entry in ("Read(.env)", "Edit(secrets/**)", "Read(/etc/passwd)"):
+        data = copy.deepcopy(baseline)
+        data["permissions"]["deny"].append(entry)
+        mutations.append(
+            (
+                f"unanchored deny path rule added: {entry}",
+                data,
+                anchor_message.format(entry=entry),
+            )
+        )
+
+    # One case per dead tool, spelled out rather than read from the verifier's
+    # frozenset, for the same self-weakening reason as the EXPECTED_* literals.
+    for tool in ("Write", "NotebookEdit", "MultiEdit", "Glob"):
+        entry = f"{tool}(~/.aws/**)"
+        data = copy.deepcopy(baseline)
+        data["permissions"]["deny"].append(entry)
+        mutations.append(
+            (
+                f"dead {tool}(path) deny rule added",
+                data,
+                f'permissions.deny must not contain "{entry}": {tool}(path) rules are '
+                "never consulted by Claude Code, use Edit(path) or Read(path)",
+            )
+        )
+
+    data = copy.deepcopy(baseline)
+    data["permissions"]["deny"].append("Read(~/.aws/**")
+    mutations.append(
+        (
+            "malformed path rule added",
+            data,
+            'permissions.deny entry "Read(~/.aws/**" is not a well-formed Tool(spec) rule',
+        )
+    )
+
+    # Tool-level denies carry no path and must stay legal: the real settings
+    # already deny NotebookEdit this way, and a false positive here would push
+    # people toward the dead NotebookEdit(path) form the check above rejects.
+    # A "//"-anchored absolute path is the other legal form the real settings
+    # do not use, so it is asserted here to keep the "//" prefix from drifting.
+    for entry in ("Write", "Read(//etc/hosts)"):
+        data = copy.deepcopy(baseline)
+        data["permissions"]["deny"].append(entry)
+        failures = all_failures(data, verifier)
+        if failures:
+            raise AssertionError(f"legal deny entry {entry!r} rejected: {failures!r}")
 
     for name, data, expected in mutations:
         assert_fails_closed(name, data, expected, verifier)
