@@ -28,8 +28,21 @@ Modifications from upstream:
     the workflow validates via JSON Schema (scope + packet SHA-256). A standalone fallback
     sentinel is documented for non-workflow use.
   - Tool access restricted to read-only review (no Write/Edit); permissionMode: plan.
-  - Upstream review framework (objective, categories, methodology, false-positive
-    filtering, severity/confidence scoring) preserved verbatim.
+  - Confidence scale normalized. Upstream scores CONFIDENCE SCORING on a 0.7-1.0 band
+    yet filters on "confidence less than 8"; this copy rescales the bands to 7-10 so
+    the scale and the threshold agree, and restates the >= 8 threshold in CRITICAL
+    INSTRUCTIONS (upstream: ">80% confident") and FINAL REMINDER (upstream: none).
+    Deliberate. The exact required and forbidden strings are pinned by
+    `tests/codex/verify_pr_review_bundle.py` (the `expected_name == "security-reviewer"`
+    branch), which scans only the Codex twin (`private_dot_codex/agents/*.toml`); this
+    Claude copy carries the same divergence but is not covered by that test.
+    Do not "restore" the upstream wording.
+  - Upstream's 3-step sub-task fan-out (identify -> parallel false-positive sub-tasks
+    -> filter) flattened to a 2-step single-agent self-check; Claude-side specialists
+    are spawned by the pr-review workflow, not by this agent.
+  - Remaining upstream review framework (objective, categories, methodology,
+    false-positive filtering, severity bands) preserved verbatim.
+    Divergence re-verified against pinned upstream 0c6a49f on 2026-09-05.
 -->
 
 You are a senior security engineer conducting a focused security review of the changes on this branch.

@@ -69,6 +69,8 @@ PROMPT
 
 ## sandbox 注意
 
-`codex exec` / `codex login` は macOS sandbox 下で `system-configuration` アクセス制限により失敗することがある。AI が `dangerouslyDisableSandbox: true` の必要性を判定し Bash 呼び出しに含めるが、最終的な実行は Claude Code の permission prompt 経由で ユーザー が承認する。事前の手動 disable は通常不要。
+`codex exec` / `codex login` は macOS / Linux いずれの sandbox 下でも失敗することがある (macOS: `system-configuration` アクセス制限、Linux: `Read-only file system`)。AI が `dangerouslyDisableSandbox: true` の必要性を判定し Bash 呼び出しに含めるが、最終的な実行は Claude Code の permission prompt 経由で ユーザー が承認する。事前の手動 disable は通常不要。
+
+Linux 側の観測 (2026-09-07、codex-cli 0.153.4 / Claude Code 2.1.263): `dangerouslyDisableSandbox` 未指定・コマンド文字列が `codex --version` のみ、という最小形で `could not create PATH aliases: Read-only file system (os error 30)` が出る (path はメッセージに含まれない)。別途 `~/.codex` は sandbox 内で書き込み不可 (`touch` 失敗、`sandbox.filesystem.allowWrite` に不在)。`codex` は `sandbox.excludedCommands` に入っているが、**除外設定の存在だけを根拠に filesystem 制限を受けないとは判断できない** — 内部の除外判定はセッションからは観測できないため、必要なら実際に probe する。
 
 なお `Bash(codex exec:*)` は user-global の `permissions.allow` から外してある。narrow allow rule は auto-mode 分類器より先に解決してしまい、起動オプション (`--sandbox` の有無等) が評価されないため。実行時に承認プロンプトが挟まることがあるが想定内。
