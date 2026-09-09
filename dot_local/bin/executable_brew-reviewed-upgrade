@@ -14,7 +14,19 @@ fi
 readonly PROGRAM_NAME="brew-reviewed-upgrade"
 readonly POLICY_FILE_RELATIVE=".homebrew/brew.env"
 readonly GITHUB_API_VERSION="2026-03-10"
-readonly COOLDOWN_SECONDS=604800
+COOLDOWN_SECONDS=172800
+
+COMMON_DIR="${BASH_SOURCE[0]%/*}"
+[[ "$COMMON_DIR" != "${BASH_SOURCE[0]}" ]] || COMMON_DIR=.
+COMMON_FILE="$COMMON_DIR/../lib/brew-reviewed-upgrade/common.sh"
+if [[ ! -f "$COMMON_FILE" ]] \
+  || ! grep -Fxq '# BREW_REVIEWED_COMMON_V1' "$COMMON_FILE" \
+  || ! grep -Fxq '# BREW_REVIEWED_PROBE_V1' "${COMMON_FILE%/*}/probe.sh"; then
+  printf '%s: incompatible shared library; deploy both helpers and .local/lib/brew-reviewed-upgrade with chezmoi apply -v.\n' "$PROGRAM_NAME" >&2
+  exit 1
+fi
+# shellcheck source=../lib/brew-reviewed-upgrade/common.sh
+source "$COMMON_FILE"
 
 BREW_BIN=""
 GH_BIN=""
@@ -42,15 +54,22 @@ RELEASE_GATE_REASON=""
 usage() {
   cat <<'EOF'
 Usage:
-  brew-reviewed-upgrade [--cooldown-exception REASON] FORMULA -- COMMAND [ARG...]
+  brew-reviewed-upgrade [--cooldown-exception REASON] FORMULA [-- COMMAND [ARG...]]
   brew-reviewed-upgrade [--cooldown-exception REASON] --no-check FORMULA
+
+Settings only (no update or check execution):
+  brew-reviewed-upgrade --set-cooldown-hours HOURS|default FORMULA
+  brew-reviewed-upgrade --forget-check FORMULA
 
 Upgrade exactly one installed, unpinned homebrew/core Formula after reviewing
 its release age, release notes, and complete dry-run plan.
 
 A smoke command is required unless --no-check explicitly waives it.
-Releases newer than 7 days or without verifiable GitHub Release metadata stop
+Omit COMMAND to reuse/discover a check, or enter and remember one interactively.
+Releases newer than 48 hours or without verifiable GitHub Release metadata stop
 unless --cooldown-exception supplies a non-secret, single-line reason.
+The default cooldown is 48 hours; a saved per-package setting overrides it.
+Zero hours disables only age waiting, not release or integrity verification.
 EOF
 }
 
@@ -518,6 +537,7 @@ print_release_review() {
     remaining="$(format_duration "$((COOLDOWN_SECONDS - RELEASE_AGE_SECONDS))")" || return $?
   fi
 
+  printf 'Cooldown policy: %s hours (%s)\n' "$((COOLDOWN_SECONDS / 3600))" "$BR_COOLDOWN_SOURCE" || return 1
   {
     printf '%s\n' '==> Release review'
     printf 'Formula: %s\n' "$formula"
@@ -606,7 +626,7 @@ review_release_cooldown() {
       RELEASE_GATE_REASON="GitHub Release is marked as a prerelease"
     elif ! release_age_is_eligible; then
       RELEASE_GATE_STATUS="blocked"
-      RELEASE_GATE_REASON="GitHub Release is newer than 7 days"
+      RELEASE_GATE_REASON="GitHub Release is newer than $((COOLDOWN_SECONDS / 3600)) hours"
     else
       RELEASE_GATE_STATUS="eligible"
     fi
@@ -951,6 +971,13 @@ main() {
   local -a smoke_command=()
 
   case "${1:-}" in
+    --set-cooldown-hours|--forget-check)
+      br_config_command formula "$@"
+      return $?
+      ;;
+  esac
+
+  case "${1:-}" in
     -h|--help)
       usage
       return 0
@@ -983,12 +1010,15 @@ main() {
     *)
       formula="$1"
       shift
-      if [[ "${1:-}" != "--" ]] || (( $# < 2 )); then
+      if (( $# == 0 )); then
+        : # Automatic or remembered check.
+      elif [[ "${1:-}" != "--" ]] || (( $# < 2 )); then
         usage >&2
         return 2
+      else
+        shift
+        smoke_command=("$@")
       fi
-      shift
-      smoke_command=("$@")
       ;;
   esac
 
@@ -1004,7 +1034,7 @@ main() {
     return 2
   fi
 
-  if (( ! no_check )); then
+  if (( ! no_check && ${#smoke_command[@]} )); then
     resolved_smoke="$(resolve_command "${smoke_command[0]}")" || return $?
     smoke_command[0]="$resolved_smoke"
   fi
@@ -1024,6 +1054,10 @@ main() {
   validate_github_auth || return $?
 
   canonical="$(load_target_metadata "$formula")" || return $?
+  br_settings_init formula "$canonical" || return $?
+  if (( ! no_check && ${#smoke_command[@]} == 0 )); then
+    br_select_check smoke_command "" || return $?
+  fi
 
   printf '%s\n' "==> Updating Homebrew metadata"
   if ! "$BREW_BIN" update; then
@@ -1068,6 +1102,7 @@ main() {
     "$BREW_BIN" vulns --deps "$canonical" || return $?
   run_stage "Checking global Homebrew linkage" "$BREW_BIN" linkage --test || return $?
   if (( ! no_check )); then
+    br_verify_auto_check "${smoke_command[0]}" "" || return $?
     run_stage "Running smoke command" "${smoke_command[@]}" || return $?
   fi
 }

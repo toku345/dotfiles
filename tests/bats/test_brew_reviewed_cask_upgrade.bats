@@ -3,6 +3,7 @@
 
 bats_require_minimum_version 1.5.0
 load test_helper_bash5
+load test_helper_reviewed_checks
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -42,6 +43,8 @@ setup() {
   export BREW_STUB_RECEIPT_COUNT BREW_STUB_CASKROOM
   export BREW_STUB_SIGNAL_MARKER BREW_STUB_SIGNAL_RESULT
   export HOME="$TEST_HOME"
+  unset XDG_CONFIG_HOME
+  export TEST_PREFIX="$BATS_TEST_TMPDIR/prefix"
   resolve_bash5
   export PATH="$TEST_BIN:/usr/bin:/bin"
   export BREW_STUB_CASK="codex"
@@ -205,10 +208,13 @@ print_metadata() {
 }
 
 case "$command_name" in
+  --prefix) printf '%s\n' "$TEST_PREFIX"; exit 0 ;;
   --caskroom)
     count="$(cat "$BREW_STUB_RECEIPT_COUNT")"
     count=$((count + 1))
     printf '%s\n' "$count" >"$BREW_STUB_RECEIPT_COUNT"
+    receipt_version=1.0.0
+    if [[ -L "$TEST_PREFIX/bin/codex" && -f "$BREW_STUB_UPGRADED" ]]; then receipt_version=2.0.0; fi
     receipt_artifacts="$safe_receipt_artifacts"
     receipt_tap_git_head=abc123
     if [[ "${BREW_STUB_RECEIPT_MODE:-safe}" == dangerous ]]; then
@@ -220,8 +226,8 @@ case "$command_name" in
     if [[ "${BREW_STUB_RECEIPT_MISSING:-false}" == true ]]; then
       rm -f "$BREW_STUB_CASKROOM/.metadata/INSTALL_RECEIPT.json"
     else
-      printf '{"source":{"tap":"homebrew/cask","tap_git_head":"%s","version":"1.0.0"},"installed_on_request":true,"runtime_dependencies":{},"uninstall_artifacts":%s,"uninstall_flight_blocks":false}\n' \
-        "$receipt_tap_git_head" "$receipt_artifacts" \
+      printf '{"source":{"tap":"homebrew/cask","tap_git_head":"%s","version":"%s"},"installed_on_request":true,"runtime_dependencies":{},"uninstall_artifacts":%s,"uninstall_flight_blocks":false}\n' \
+        "$receipt_tap_git_head" "$receipt_version" "$receipt_artifacts" \
         >"$BREW_STUB_CASKROOM/.metadata/INSTALL_RECEIPT.json"
     fi
     printf '%s\n' "$BREW_STUB_CASKROOM"
@@ -341,6 +347,10 @@ CONFIG
     fi
     if [[ "${BREW_STUB_UPGRADE_STATUS:-0}" == 0 ]]; then
       : >"$BREW_STUB_UPGRADED"
+      if [[ -L "$TEST_PREFIX/bin/codex" && "${BREW_STUB_KEEP_OLD_LINK:-false}" != true ]]; then
+        rm -f "$TEST_PREFIX/bin/codex"
+        ln -s "$BREW_STUB_CASKROOM/2.0.0/bin/codex" "$TEST_PREFIX/bin/codex"
+      fi
     fi
     exit "${BREW_STUB_UPGRADE_STATUS:-0}"
     ;;
@@ -399,9 +409,6 @@ refute_log_contains() {
   run brew-reviewed-cask-upgrade --help
   [ "$status" -eq 0 ]
   [[ "$output" == *"A smoke command is always required"* ]]
-
-  run brew-reviewed-cask-upgrade codex
-  [ "$status" -eq 2 ]
 
   run brew-reviewed-cask-upgrade codex other -- smoke-command
   [ "$status" -eq 2 ]
@@ -742,11 +749,11 @@ EOF
   [[ "$output" == *"Cooldown: exception"* ]]
 }
 
-@test "seven-day cooldown boundary is exact" {
+@test "48-hour cooldown boundary is exact" {
   run "$BASH5_BIN" -c '
     source "$SOURCE"
     JQ_BIN="$TEST_BIN/jq"
-    evaluate_release_age 2020-01-01T00:00:00Z 1578441599
+    evaluate_release_age 2020-01-01T00:00:00Z 1578009599
     (( RELEASE_AGE_SECONDS == COOLDOWN_SECONDS - 1 ))
   '
   [ "$status" -eq 0 ]
@@ -754,7 +761,7 @@ EOF
   run "$BASH5_BIN" -c '
     source "$SOURCE"
     JQ_BIN="$TEST_BIN/jq"
-    evaluate_release_age 2020-01-01T00:00:00Z 1578441600
+    evaluate_release_age 2020-01-01T00:00:00Z 1578009600
     (( RELEASE_AGE_SECONDS == COOLDOWN_SECONDS ))
   '
   [ "$status" -eq 0 ]
@@ -1053,4 +1060,48 @@ EOF
   [ "$status" -eq 143 ]
   [ "$(cat "$signal_result")" = TERM ]
   ! kill -0 "$(cat "$child_pid_file")" 2>/dev/null
+}
+
+
+@test "automatic Cask check follows the receipt binary through upgrade" {
+  prepare_cask_auto_check
+  make_reviewed_binary "$TEST_BIN/codex"
+  run brew-reviewed-cask-upgrade codex <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 2 ]
+  run ! grep -Fq "$TEST_BIN/codex" "$SMOKE_STUB_LOG"
+  jq -e '.check.origin == "auto"' "$HOME/.config/brew-reviewed-upgrade/cask/codex.json"
+}
+
+@test "automatic Cask check rejects an old binary link after upgrade" {
+  prepare_cask_auto_check
+  export BREW_STUB_KEEP_OLD_LINK=true
+  run brew-reviewed-cask-upgrade codex <"$YES_FILE"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"refusing PATH fallback"* ]]
+  [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 1 ]
+}
+
+@test "Cask auto detection does not trust a same-name PATH binary" {
+  make_reviewed_binary "$TEST_BIN/codex"
+  run brew-reviewed-cask-upgrade codex
+  [ "$status" -eq 2 ]
+  [ ! -e "$SMOKE_STUB_LOG" ]
+  refute_log_contains $'update'
+}
+
+@test "Cask zero-hour setting still rejects a digest mismatch" {
+  run brew-reviewed-cask-upgrade --set-cooldown-hours 0 codex
+  [ "$status" -eq 0 ]
+  export GH_STUB_ASSET_DIGEST=sha256:1111111111111111111111111111111111111111111111111111111111111111
+  run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 1 ]
+  refute_log_contains $'upgrade\t'
+}
+
+@test "Cask saved manual check works without matching package and executable names" {
+  remember_manual_check cask codex smoke-command "two words"
+  run brew-reviewed-cask-upgrade codex <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  grep -Fxq '<two words>' "$SMOKE_STUB_LOG"
 }
