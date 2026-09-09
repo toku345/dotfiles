@@ -27,14 +27,44 @@ gh auth status
 
 ## 通常のFormula更新
 
-通常更新は公開から7日を目安に保留します。security advisory、active exploit、作業を復旧するbreak/fixはこの待機期間を省略します。
+この2つのhelperでは通常更新を標準48時間保留します。個別に保存した待機時間があれば優先します。security advisory、active exploit、作業を復旧するbreak/fixはこの待機期間を省略します。
 
 `brew-reviewed-upgrade` と `brew-reviewed-cask-upgrade` は Bash 5+ が必要です。macOS system Bash 3.2 が選ばれる場合は、`brew install bash` を実行し、Homebrewの `bin` directoryが `/bin` より前にPATHへ入っていることを確認してください。helperは古いBashを検出するとHomebrew操作前にexit 2で停止します。
+
+### 確認コマンドと個別設定（両helper共通）
+
+通常は対象名だけを指定します。保存済みの確認コマンドを試し、未保存なら対象の正式名の末尾を使って `<名前> --version`、`<名前> version` の順に試します。Formulaの自動検出は対象のopt配下、Caskはreceiptのbinary artifactに対応するリンクに限定し、実体が対象のインストールに属することを確認します。PATH上のOS版や別インストールの同名コマンドでは代用しません。アプリ配下など対応を確定できない場合は手動入力へ進みます。
+
+入力するのは `rg --version` のような単一コマンドと引数です。単一引用符・二重引用符、空白入り・空の引数、バックスラッシュによる次の文字の引用に対応します。変数・glob・コマンド置換を展開せず、パイプやリダイレクトも実行しません。複雑な確認はスクリプトを指定してください。手動入力したコマンド名は毎回PATHから解決し、絶対パスはそのまま使用します。
+
+確認コマンドの試行は対象の事前検証後、`brew update` 前に行います。終了コード0なら保存するため、待機中、更新見送り、既に最新版の場合も次回の入力は不要です。バージョン文字列の一致や機能全体の正常性までは判定しません。標準入力を閉じて実行し、10秒でTERM、その1秒後も残る同一プロセスグループへKILLを送ります。子孫を残して終了した試行も失敗とし、タイムアウトは次候補または入力へ進みます。INT/TERMは全体を中止します。自ら別セッションへ離脱するdaemonの追跡は対象外です。
+
+保存済み検査の失敗時は別の検査へ自動変更せず、対話で再設定します。非対話環境で入力が必要になった場合とEOFでは停止します。更新後は同じ確認コマンドを実行し、失敗を別の検査で置き換えません。自動検出では更新後のインストールとの対応も再確認します。
+
+従来の `TARGET -- COMMAND [ARG...]` は今回限りの指定です。実行ファイルを事前に解決し、更新後だけ実行して、保存済み設定を上書きしません。現在壊れているツールを更新で直したい場合にも、この書式を使用できます。Formulaの `--no-check` も今回限りです。
+
+```sh
+# これらは設定専用。metadataを読みますがupdate/upgradeや確認コマンドは実行しません。
+brew-reviewed-cask-upgrade --set-cooldown-hours 24 codex
+brew-reviewed-cask-upgrade --set-cooldown-hours 0 codex
+brew-reviewed-cask-upgrade --set-cooldown-hours default codex
+brew-reviewed-cask-upgrade --forget-check codex
+# Formula側も同じオプションを使用できます。
+```
+
+時間は0以上の整数です。0は経過時間の待機だけを無効化し、公開情報やchecksumなどの検証は維持します。不明な公開日時などは引き続き理由付き `--cooldown-exception` が必要です。実行中に個別設定を変更した場合は次回から適用されます。毎回最新候補を判定するため、待機期間より短い間隔でリリースされるツールには個別設定を使用してください。過去バージョンの自動選択は行いません。この変更はnpm/bun/uv等の待機設定には適用しません。
+
+保存先は `${XDG_CONFIG_HOME:-$HOME/.config}/brew-reviewed-upgrade/{formula,cask}/<正式名をURI符号化>.json` です。chezmoiには登録せず、端末ごとに保持します。アプリ用ディレクトリは0700、JSONは0600を要求し、所有者・symlink・スキーマを検証します。ロック取得後に最新JSONを読み直し、変更対象のフィールドだけを一時ファイルへ書いてrenameするため、確認コマンドの保存が並行した待機時間変更を巻き戻すことはありません。
+
+破損・権限不整合・保存失敗では停止します。診断に示されたJSONを修復するか削除すると、次回は標準48時間・未保存の確認コマンドに戻ります。`<JSONのパス>.lock` が残った場合は、該当helperが終了済みであることを確認してから、その空ディレクトリだけを `rmdir` で削除してください。生存中の別実行のロックは削除しません。
+
+両実行ファイルと `~/.local/lib/brew-reviewed-upgrade/` は一緒に配置してください。共有コードの互換性マーカーが一致しなければ起動を停止します。
 
 ### Quick Start
 
 ```sh
-brew-reviewed-upgrade ripgrep -- rg --version
+brew-reviewed-upgrade ripgrep
+# 初回、コマンド名を自動検出できなければ rg --version と入力
 ```
 
 `brew-reviewed-upgrade`は、インストール済みでpinされていない`homebrew/core` Formulaを1件だけ処理します。Cask、複数Formula、third-party Tap、targetまたは導入済みdependencyのsource buildは通常経路の対象外です。Formula固有の動作確認ができない場合だけ、明示的に次を使用します。
@@ -45,7 +75,7 @@ brew-reviewed-upgrade --no-check ripgrep
 
 helperは`--no-check`でない場合に指定した動作確認commandをHomebrew操作前に解決し、管理ポリシー、GitHub CLI認証、Formulaの導入・pin・Bottle状態を確認してから`brew update`を実行します。対象が最新版なら、`brew update`完了後にFormulaを変更せず成功終了します。
 
-更新対象がある場合はpost-updateのstable source URLからGitHub repositoryとtagを特定し、GitHub Releaseの`published_at`を基準に7日cooldownを判定します。versionからtagを推測したり、homepageからrepositoryを推測したりはしません。release notes URL、公開日時、経過時間、通常更新が可能になる日時を最初に表示します。公開から7日未満、prerelease、draft、GitHub Releaseがないtag、非GitHub source、APIまたはmetadataの異常ではdry-runより前に停止するため、通常の`y`ではcooldownを解除できません。先行するHomebrew本体とmetadataの更新は完了済みです。
+更新対象がある場合はpost-updateのstable source URLからGitHub repositoryとtagを特定し、GitHub Releaseの`published_at`を基準に設定したcooldownを判定します。versionからtagを推測したり、homepageからrepositoryを推測したりはしません。release notes URL、公開日時、経過時間、通常更新が可能になる日時を最初に表示します。設定した待機時間未満、prerelease、draft、GitHub Releaseがないtag、非GitHub source、APIまたはmetadataの異常ではdry-runより前に停止するため、通常の`y`ではcooldownを解除できません。先行するHomebrew本体とmetadataの更新は完了済みです。
 
 security advisory、active exploit、作業を復旧するbreak/fixなど、待機しない理由を手動で確認できた場合だけ、理由付きで再実行します。
 
@@ -63,7 +93,7 @@ brew-reviewed-upgrade \
   --no-check ca-certificates
 ```
 
-例外理由は画面へ表示しますがhelperはファイルへ保存しません。shell historyへ残る可能性があるため、token、advisoryの非公開情報などのsecretを含めないでください。例外はcooldown判定だけに適用され、GitHub認証、Bottle、attestation、vulnerability、linkage、動作確認の失敗は解除しません。既に7日を経過している場合は例外不要と表示して通常処理を続けます。
+例外理由は画面へ表示しますがhelperはファイルへ保存しません。shell historyへ残る可能性があるため、token、advisoryの非公開情報などのsecretを含めないでください。例外はcooldown判定だけに適用され、GitHub認証、Bottle、attestation、vulnerability、linkage、動作確認の失敗は解除しません。既に設定した待機時間を経過している場合は例外不要と表示して通常処理を続けます。
 
 cooldownを通過または明示的に例外指定した後、helperは完全なdry-run、attestation対象Formulaの名前、動作確認の有無を表示します。Homebrewの環境変数hintだけはhelper内で抑制しますが、tap trust warning、dry-runの変更内容、エラーは隠しません。最後に表示済みのdry-runと検査を実行するか1回だけ質問します。拒否またはEOFではFormulaを更新しません。
 
@@ -115,14 +145,14 @@ Caskはvendorがbuildしたartifactをinstallするため、`homebrew/core` Bott
 ### Quick Start
 
 ```sh
-brew-reviewed-cask-upgrade codex -- codex --version
+brew-reviewed-cask-upgrade codex
 ```
 
 `brew-reviewed-cask-upgrade`は、インストール済みでpinされていない`homebrew/cask` Caskを1件だけ処理します。固定version、64桁SHA-256、`auto_updates`でないことを要求します。installed versionとpin状態はinstalled inventoryから確認し、installed artifactとinstall sourceはCaskroomの`INSTALL_RECEIPT.json`から検査します。更新候補はcurrent definitionから独立して検査します。対象artifactは`app`、`binary`、completion、manpageと付随する`zap` metadataに限定します。`pkg`、installer、service、pre/postflight、uninstall directive、Formula/Cask dependency、conflict、非空の`url_specs` / `container` / `rename`、未知artifactは通常経路の対象外です。`INSTALL_RECEIPT.json`がないlegacyまたは不完全なinstallも手動経路へ残します。
 
 smoke commandは常に必須です。helperはcommandをHomebrew操作前に解決し、管理ポリシー、developer mode、installed/candidate metadataを確認してから`brew update`を実行します。対象が最新版なら、metadata更新完了後にCaskを変更せず成功終了します。
 
-更新対象がある場合はdownload URLの正確なGitHub repository、tag、release assetを照会します。asset名とdownload URLを一意に照合し、GitHubのSHA-256 digestがCask checksumと一致することを要求します。7日cooldownの起点はRelease公開、asset作成、asset更新のうち最も新しいtimestampです。tag archiveはasset digestと更新時刻へ結び付けられないため自動cooldownの対象外です。非GitHub URL、tag archive、release asset情報を検証できない場合、security fixやbreak/fixで待機しない場合は、release notes、publisher、対象artifactを手動確認して理由付きで再実行します。
+更新対象がある場合はdownload URLの正確なGitHub repository、tag、release assetを照会します。asset名とdownload URLを一意に照合し、GitHubのSHA-256 digestがCask checksumと一致することを要求します。cooldown（標準48時間）の起点はRelease公開、asset作成、asset更新のうち最も新しいtimestampです。tag archiveはasset digestと更新時刻へ結び付けられないため自動cooldownの対象外です。非GitHub URL、tag archive、release asset情報を検証できない場合、security fixやbreak/fixで待機しない場合は、release notes、publisher、対象artifactを手動確認して理由付きで再実行します。
 
 ```sh
 brew-reviewed-cask-upgrade \
