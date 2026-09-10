@@ -94,7 +94,8 @@ setup() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"incompatible shared library"* ]]
   done
-  printf '# BREW_REVIEWED_COMMON_V0\n' >"$BATS_TEST_TMPDIR/lib/brew-reviewed-upgrade/common.sh"
+  printf '# BREW_REVIEWED_COMMON_V1\n' >"$BATS_TEST_TMPDIR/lib/brew-reviewed-upgrade/common.sh"
+  printf '# BREW_REVIEWED_PROBE_V1\n' >"$BATS_TEST_TMPDIR/lib/brew-reviewed-upgrade/probe.sh"
   for tool in executable_brew-reviewed-upgrade executable_brew-reviewed-cask-upgrade; do
     run "$BASH5_BIN" "$BATS_TEST_TMPDIR/bin/$tool" --help
     [ "$status" -eq 1 ]

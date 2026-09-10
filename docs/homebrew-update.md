@@ -60,6 +60,28 @@ brew-reviewed-cask-upgrade --forget-check codex
 
 両実行ファイルと `~/.local/lib/brew-reviewed-upgrade/` は一緒に配置してください。共有コードの互換性マーカーが一致しなければ起動を停止します。
 
+### 承認後の結果表示
+
+更新を承認した実行では、後始末の後に終了サマリーをstderrへ表示します。待機中、更新見送り、最新版、設定専用操作では表示しません。例えば、更新後の脆弱性検査が失敗した場合は次のようになります。
+
+```text
+==> Result: fd
+Bottle verification: passed
+Upgrade command: completed
+Vulnerability check: failed (exit 1)
+Linkage check: not run
+Post-upgrade smoke check: not run
+Developer-mode restoration: passed
+Temporary-file cleanup: passed
+Overall: incomplete (exit 1)
+```
+
+`Upgrade command: completed` は更新コマンドの終了コードが0だったことを表し、全検査の完了を保証しません。更新中に失敗・中断した場合は、既に変更された可能性があり、インストール状態は未確認と表示します。自動検査の対象との対応確認が失敗した場合は `not run (target validation failed)`、確認コマンドを実行して失敗した場合は `failed (exit N)` と区別します。事前の確認コマンド試行は、更新後チェックの成功として数えません。
+
+Cask側も更新直前の再検証・更新・更新後の検証・確認コマンド・後始末の結果を表示します。必要な検査と後始末がすべて成功した場合だけ `Overall: completed` になります。Formulaの `--no-check` は `waived (--no-check)` と表示します。処理本体の失敗・中断コードを優先し、本体成功でも後始末またはサマリー出力に失敗すると非ゼロで終了します。
+
+Formulaの確認画面では、Homebrewの更新予定を `Upgrade plan (Homebrew dry-run)`、Bottle検証対象数を `Bottle verification scope` に分けます。後者はビルド・テスト・暗黙の依存関係を含む検証対象数です。更新件数はdry-runを確認してください。依存パッケージも更新予定に含まれる場合があります。
+
 ### Quick Start
 
 ```sh

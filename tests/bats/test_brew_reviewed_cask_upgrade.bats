@@ -403,6 +403,13 @@ refute_log_contains() {
   grep -Fq 'Installed Cask version verified: codex 2.0.0' <<<"$output"
   grep -Fq $'upgrade\t1\t1\t--cask --dry-run --require-sha --no-quit --skip-cask-deps codex' "$BREW_STUB_ENV_LOG"
   grep -Fq $'upgrade\t1\t1\t--cask --no-ask --require-sha --no-quit --skip-cask-deps codex' "$BREW_STUB_ENV_LOG"
+  [[ "$stderr" == *"Pre-upgrade validation: passed"* ]]
+  [[ "$stderr" == *"Upgrade command: completed"* ]]
+  [[ "$stderr" == *"Post-upgrade validation: passed"* ]]
+  [[ "$stderr" == *"Post-upgrade smoke check: passed"* ]]
+  [[ "$stderr" == *"Overall: completed"* ]]
+  [[ "$stderr" != *"Bottle verification:"* && "$stderr" != *"Vulnerability check:"* ]]
+  [ "$(grep -c '^==> Result:' <<<"$stderr")" -eq 1 ]
 }
 
 @test "help and usage errors do not invoke Homebrew" {
@@ -797,6 +804,7 @@ EOF
   run brew-reviewed-cask-upgrade codex -- smoke-command </dev/null
   [ "$status" -eq 1 ]
   [[ "$output" == *"confirmation input ended"* ]]
+  [[ "$output" != *"==> Result:"* ]]
 }
 
 @test "review, dry-run, and prompt display failures cannot continue" {
@@ -911,7 +919,7 @@ EOF
       fi
       command printf "$@"
     }
-    run_stage "Upgrading codex" true
+    run_stage upgrade "Upgrading codex" true
   '
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"could not display the Upgrading codex stage"* ]]
@@ -938,6 +946,8 @@ EOF
   [ "$status" -eq 1 ]
   [[ "$output" == *"installed Cask state changed before upgrade"* ]]
   refute_log_contains $'upgrade\t--cask\t--no-ask'
+  [[ "$output" == *"Pre-upgrade validation: failed (exit 1)"* ]]
+  [[ "$output" == *"Upgrade command: not run"* ]]
 }
 
 @test "current definition drift does not masquerade as installed-state drift" {
@@ -982,6 +992,9 @@ EOF
   [ "$status" -eq 7 ]
   [[ "$output" == *"failed with status 7"* ]]
   [ ! -e "$SMOKE_STUB_LOG" ]
+  [[ "$output" == *"Upgrade command: failed (exit 7); installation state uncertain"* ]]
+  [[ "$output" == *"Post-upgrade validation: not run"* ]]
+  [[ "$output" == *"Overall: incomplete (exit 7)"* ]]
 }
 
 @test "post-upgrade metadata mismatch stops smoke and reports possible mutation" {
@@ -990,6 +1003,9 @@ EOF
   [ "$status" -eq 1 ]
   [[ "$output" == *"Cask safety metadata changed during upgrade"* ]]
   [ ! -e "$SMOKE_STUB_LOG" ]
+  [[ "$output" == *"Upgrade command: completed"* ]]
+  [[ "$output" == *"Post-upgrade validation: failed (exit 1)"* ]]
+  [[ "$output" == *"Post-upgrade smoke check: not run"* ]]
 }
 
 @test "URL specs introduced during upgrade stop before smoke" {
@@ -1016,6 +1032,8 @@ EOF
   run brew-reviewed-cask-upgrade codex -- smoke-command <"$YES_FILE"
   [ "$status" -eq 9 ]
   [[ "$output" == *"Running smoke command failed with status 9"* ]]
+  [[ "$output" == *"Upgrade command: completed"* ]]
+  [[ "$output" == *"Post-upgrade smoke check: failed (exit 9)"* ]]
 }
 
 @test "TERM during Cask upgrade is forwarded and returns 143" {
@@ -1038,6 +1056,10 @@ EOF
   [ "$status" -eq 143 ]
   [ "$(cat "$BREW_STUB_SIGNAL_RESULT")" = TERM ]
   [ ! -e "$SMOKE_STUB_LOG" ]
+  grep -Fq 'Upgrade command: interrupted (exit 143); installation state uncertain' "$error_file"
+  grep -Fq 'Post-upgrade validation: not run' "$error_file"
+  grep -Fq 'Overall: incomplete (exit 143)' "$error_file"
+  [ "$(grep -c '^==> Result:' "$error_file")" -eq 1 ]
 }
 
 @test "TERM during managed-process launch is deferred, forwarded, and reaped" {
@@ -1080,6 +1102,7 @@ EOF
   [ "$status" -eq 1 ]
   [[ "$output" == *"refusing PATH fallback"* ]]
   [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 1 ]
+  [[ "$output" == *"Post-upgrade smoke check: not run (target validation failed)"* ]]
 }
 
 @test "Cask auto detection does not trust a same-name PATH binary" {
@@ -1104,4 +1127,35 @@ EOF
   run brew-reviewed-cask-upgrade codex <"$YES_FILE"
   [ "$status" -eq 0 ]
   grep -Fxq '<two words>' "$SMOKE_STUB_LOG"
+}
+
+@test "Cask temporary cleanup failure keeps the original operation status" {
+  export TMPDIR="$BATS_TEST_TMPDIR"
+  local operation_status
+  for operation_status in 0 7; do
+    export BREW_STUB_UPGRADE_STATUS="$operation_status"
+    run "$BASH5_BIN" -c '
+      source "$SOURCE"
+      rm() { return 9; }
+      main codex -- smoke-command
+    ' <"$YES_FILE"
+    if (( operation_status )); then [ "$status" -eq 7 ]; else [ "$status" -eq 1 ]; fi
+    [[ "$output" == *"Temporary-file cleanup: failed (exit 9)"* ]]
+    [[ "$output" != *"Overall: completed"* ]]
+  done
+}
+
+@test "Cask result output failure cannot report a successful invocation" {
+  run "$BASH5_BIN" -c '
+    source "$SOURCE"
+    printf() {
+      if [[ ${2:-} == "Overall: completed" ]]; then return 42; fi
+      command printf "$@"
+    }
+    main codex -- smoke-command
+  ' <"$YES_FILE"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Upgrade command: completed"* ]]
+  [[ "$output" == *"Post-upgrade smoke check: passed"* ]]
+  [[ "$output" == *"could not display the result summary"* ]]
 }

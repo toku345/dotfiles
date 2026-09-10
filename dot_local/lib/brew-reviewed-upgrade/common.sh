@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# BREW_REVIEWED_COMMON_V1
+# BREW_REVIEWED_COMMON_V2
 # shellcheck disable=SC2034
 # Exported globals and nameref outputs are consumed by the two callers.
 # Shared settings and smoke selection; Homebrew mutation stays in the callers.
@@ -17,6 +17,119 @@ BR_TARGET=""
 BR_AUTO_PATH=""
 BR_AUTO_ROOT=""
 BR_WORDS=()
+
+# Result state belongs to the parent shell, not the managed command's process.
+BR_RESULT_ENABLED=0
+BR_RESULT_TARGET=""
+BR_RESULT_ORDER=()
+declare -A BR_RESULT_LABELS=() BR_RESULT_STATES=()
+
+br_result_start() {
+  local kind="$1" target="$2" no_check="$3" automatic="$4" id
+  BR_RESULT_TARGET="$target"
+  BR_RESULT_LABELS=(
+    [bottle]='Bottle verification' [upgrade]='Upgrade command'
+    [vulns]='Vulnerability check' [linkage]='Linkage check'
+    [pre]='Pre-upgrade validation' [post]='Post-upgrade validation'
+    [target]='Smoke target validation' [smoke]='Post-upgrade smoke check'
+    [developer]='Developer-mode restoration' [temporary]='Temporary-file cleanup'
+  )
+  if [[ "$kind" == formula ]]; then
+    BR_RESULT_ORDER=(bottle upgrade vulns linkage)
+  else
+    BR_RESULT_ORDER=(pre upgrade post)
+  fi
+  if (( automatic )); then BR_RESULT_ORDER+=(target); fi
+  BR_RESULT_ORDER+=(smoke)
+  if [[ "$kind" == formula ]]; then BR_RESULT_ORDER+=(developer); fi
+  BR_RESULT_ORDER+=(temporary)
+  BR_RESULT_STATES=()
+  for id in "${BR_RESULT_ORDER[@]}"; do BR_RESULT_STATES[$id]='not run'; done
+  if (( no_check )); then BR_RESULT_STATES[smoke]='waived (--no-check)'; fi
+  BR_RESULT_ENABLED=1
+}
+
+br_result_skip() {
+  if (( BR_RESULT_ENABLED )); then BR_RESULT_STATES[$1]="$2"; fi
+}
+
+br_result_record() {
+  local id="$1" status="$2"
+  if (( ! BR_RESULT_ENABLED )); then return 0; fi
+  if (( status != 0 )); then
+    BR_RESULT_STATES[$id]="failed (exit $status)"
+  elif [[ "$id" == upgrade ]]; then
+    BR_RESULT_STATES[$id]=completed
+  else
+    BR_RESULT_STATES[$id]=passed
+  fi
+}
+
+br_result_run() {
+  local id="$1" status
+  shift
+  if (( BR_RESULT_ENABLED )); then BR_RESULT_STATES[$id]=running; fi
+  # Invoke functions directly: an extra subprocess would discard state changes.
+  if "$@"; then status=0; else status=$?; fi
+  br_result_record "$id" "$status"
+  return "$status"
+}
+
+br_result_check_target() {
+  local status
+  if br_result_run target "$@"; then return 0; else status=$?; fi
+  if (( BR_RESULT_ENABLED )); then
+    BR_RESULT_STATES[smoke]='not run (target validation failed)'
+  fi
+  return "$status"
+}
+
+br_result_render() {
+  local status="$1" id value
+  printf '\n==> Result: %s\n' "$BR_RESULT_TARGET" >&2 || return 1
+  for id in "${BR_RESULT_ORDER[@]}"; do
+    value="${BR_RESULT_STATES[$id]}"
+    if [[ "$id" == upgrade && "$value" != completed && "$value" != 'not run' ]]; then
+      value+='; installation state uncertain, changes may have occurred'
+    fi
+    printf '%s: %s\n' "${BR_RESULT_LABELS[$id]}" "$value" >&2 || return 1
+  done
+  if (( status == 0 )); then
+    printf '%s\n' 'Overall: completed' >&2 || return 1
+  else
+    printf 'Overall: incomplete (exit %s)\n' "$status" >&2 || return 1
+  fi
+}
+
+br_result_finish() {
+  local status="$1" cleanup_status="$2" id value
+  if (( status == 0 && cleanup_status != 0 )); then status=1; fi
+  if (( BR_RESULT_ENABLED )); then
+    for id in "${BR_RESULT_ORDER[@]}"; do
+      value="${BR_RESULT_STATES[$id]}"
+      if [[ "$value" == running ]]; then
+        if (( status == 130 || status == 143 )); then
+          BR_RESULT_STATES[$id]="interrupted (exit $status)"
+        else
+          BR_RESULT_STATES[$id]='incomplete (completion unconfirmed)'
+        fi
+        if [[ "$id" == target ]]; then
+          BR_RESULT_STATES[smoke]='not run (target validation incomplete)'
+        fi
+      fi
+      case "$value" in
+        passed|completed|'waived (--no-check)'|'not needed') ;;
+        *) if (( status == 0 )); then status=1; fi ;;
+      esac
+    done
+    BR_RESULT_ENABLED=0
+    if ! br_result_render "$status"; then
+      error 'could not display the result summary'
+      if (( status == 0 )); then status=1; fi
+    fi
+  fi
+  return "$status"
+}
 
 br_valid_hours() {
   # jq numbers are doubles: keep seconds exactly representable as well as
