@@ -7,6 +7,9 @@ AGENTS.md
 CLAUDE.local.md
 docs
 tests
+# Local model-comparison projects, never deployed to the home directory.
+experiments
+experiments/**
 # Linux: exclude macOS-only configs and scripts
 {{ if ne .chezmoi.os "darwin" }}
 .config/karabiner
