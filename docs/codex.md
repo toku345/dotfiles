@@ -62,6 +62,8 @@ experimental_mode = true
 
 利用開始: main への merge 後、[運用](#運用)のマージ・ACK 手順で live に反映し、ChatGPT サインインした CLI で `codex --model gpt-6-astra` を実行して新規タスクを開始する。
 
+新規タスク開始時に設定読み込みエラーがないことを確認する。エラーがないだけでは当該設定の受理や機能動作を確認したことにはせず、確認できなかった部分は未検証として記録する。
+
 無効化: live の同じキーを `false` にして新規タスクを開始する（[公式設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)）。端末単位の無効化では baseline の ACK 更新は不要。全端末向けに取り消す場合は baseline も `false` に変更し、通常の運用手順で反映する。
 
 ## agmsg writable roots
