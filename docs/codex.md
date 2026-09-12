@@ -47,34 +47,22 @@
 
 ## 実験的コンテキスト管理
 
-長い対話で要約を繰り返す際に、制約や設計判断の理由が失われる問題を軽減するため、以下を baseline に含める。複数端末で継続利用を試す設定として管理し、一時的な実験設定を live のみに置く運用も引き続き許容する。
+長い対話で制約や設計判断の理由を保持しやすくするため、以下を baseline に含める。複数端末で継続利用を試す設定として管理する。
 
 ```toml
 [features.context_management]
 experimental_mode = true
 ```
 
-### 対応条件（2026-09-12 確認）
+対応条件（2026-09-12 確認）:
 
-- [公式モデル説明](https://learn.chatgpt.com/docs/models#experimental-context-management) は、Astra がコンテキストウィンドウをまたぐメモと、同じタスク内の過去メッセージ・ツール結果の検索を利用すると説明している。別セッションへの自動引き継ぎや完全な記憶保持は前提にしない。他モデルでの対応は未確認のため、確認時は `gpt-6-astra` を明示的に選ぶ。
-- [公式設定リファレンス](https://learn.chatgpt.com/docs/config-file/config-reference) では、このキーは boolean、既定はオフで、ChatGPT Plus / Pro / Pro Lite でのサインインが必要。モデル説明は Plus / Pro のみを挙げ、開始時点の Business / Enterprise / API キー認証は対象外としている。Pro Lite は資料間に記載差があるため、個別環境での有効性は実機確認まで未検証として扱う。
-- [公式 changelog](https://learn.chatgpt.com/docs/changelog) の Codex CLI 0.154.0 には実験的コンテキスト管理の activation 追加が記載されている。このバージョンを実機確認対象とするが、対応クライアント全体の一覧と最低バージョンは未確認。設定の存在やバージョンだけで有効化成功とは判断しない。
+- [公式モデル説明](https://learn.chatgpt.com/docs/models#experimental-context-management) の対象は Astra。同じタスク内のメモと履歴検索を利用する機能で、別セッションへの自動引き継ぎは前提にしない。他モデルでの対応は未確認。
+- [公式設定リファレンス](https://learn.chatgpt.com/docs/config-file/config-reference) では既定はオフで、ChatGPT Plus / Pro / Pro Lite のサインインが必要。モデル説明は Plus / Pro のみを挙げ、開始時点の Business / Enterprise / API キー認証を対象外としている。Pro Lite は資料間に記載差があり、実機での有効性は未検証。
+- [公式 changelog](https://learn.chatgpt.com/docs/changelog) の CLI 0.154.0 に activation 追加の記載があり、このバージョンを確認対象とする。対応クライアント全体の一覧と最低バージョンは未確認。
 
-### 反映と新規タスクでの確認
+利用開始: main への merge 後、[運用](#運用)のマージ・ACK 手順で live に反映し、ChatGPT サインインした CLI で `codex --model gpt-6-astra` を実行して新規タスクを開始する。
 
-1. main への merge 後に chezmoi の差分と dry-run を確認し、baseline を配置する。既存端末では hash gate が更新を検出して停止する。
-2. 「運用」の手順で baseline 更新分を live `~/.codex/config.toml` にマージする。既存の同じキーがあれば更新し、テーブルを重複追加しない。local-only section、agmsg の writable roots、端末固有のモデル指定などは保持し、baseline の丸ごとコピーで上書きしない。
-3. マージ内容を確認してから baseline hash を ACK し、再度 `chezmoi apply` する。hash gate は baseline 更新の確認を促すもので、live 設定や機能の有効性を検証するものではない。
-4. CLI のバージョンと ChatGPT サインインを確認し、`codex --model gpt-6-astra` で新規タスクを開始する。既存タスクの resume で反映済みとは判断しない。[設定の優先順位](https://learn.chatgpt.com/docs/config-file/config-basic) に従い、profile・project・CLI override や管理者要件も確認する。
-5. 設定読み込みエラーの有無を確認する。長いタスクでメモや履歴検索の利用を観測できた場合は、その事実を別途記録する。起動成功だけで機能の有効性や記憶保持の効果を確認済みとはしない。
-
-完了報告ではリポジトリ変更、各端末への反映、クライアントのバージョン・選択モデル・サインイン条件、読み込み確認、機能の利用観測を分け、実施していない確認は未検証とする。
-
-### 無効化
-
-端末単位で止める場合は live の `features.context_management.experimental_mode` を `false` にし、新規タスクを開始する。[公式の一般的な無効化手順](https://learn.chatgpt.com/docs/config-file/config-basic) は設定値を `false` にする方法を示しているが、既存タスクへの即時反映は前提にしない。baseline は変わらないため、このローカルな無効化だけで ACK を更新する必要はない。
-
-全端末向けに取り消す場合は baseline も `false` に変更し、通常のレビュー・merge・live へのマージ・ACK の順で反映する。
+無効化: live の同じキーを `false` にして新規タスクを開始する（[公式設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)）。端末単位の無効化では baseline の ACK 更新は不要。全端末向けに取り消す場合は baseline も `false` に変更し、通常の運用手順で反映する。
 
 ## agmsg writable roots
 
