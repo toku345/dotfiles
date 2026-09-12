@@ -26,6 +26,9 @@ memories = true
 network_proxy = true
 mentions_v2 = true
 
+[features.context_management]
+experimental_mode = true
+
 [plugins."github@openai-curated"]
 enabled = true
 
