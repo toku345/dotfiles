@@ -14,7 +14,19 @@ fi
 readonly PROGRAM_NAME="brew-reviewed-upgrade"
 readonly POLICY_FILE_RELATIVE=".homebrew/brew.env"
 readonly GITHUB_API_VERSION="2026-03-10"
-readonly COOLDOWN_SECONDS=604800
+COOLDOWN_SECONDS=172800
+
+COMMON_DIR="${BASH_SOURCE[0]%/*}"
+[[ "$COMMON_DIR" != "${BASH_SOURCE[0]}" ]] || COMMON_DIR=.
+COMMON_FILE="$COMMON_DIR/../lib/brew-reviewed-upgrade/common.sh"
+if [[ ! -f "$COMMON_FILE" ]] \
+  || ! grep -Fxq '# BREW_REVIEWED_COMMON_V2' "$COMMON_FILE" \
+  || ! grep -Fxq '# BREW_REVIEWED_PROBE_V1' "${COMMON_FILE%/*}/probe.sh"; then
+  printf '%s: incompatible shared library; deploy both helpers and .local/lib/brew-reviewed-upgrade with chezmoi apply -v.\n' "$PROGRAM_NAME" >&2
+  exit 1
+fi
+# shellcheck source=../lib/brew-reviewed-upgrade/common.sh
+source "$COMMON_FILE"
 
 BREW_BIN=""
 GH_BIN=""
@@ -42,15 +54,22 @@ RELEASE_GATE_REASON=""
 usage() {
   cat <<'EOF'
 Usage:
-  brew-reviewed-upgrade [--cooldown-exception REASON] FORMULA -- COMMAND [ARG...]
+  brew-reviewed-upgrade [--cooldown-exception REASON] FORMULA [-- COMMAND [ARG...]]
   brew-reviewed-upgrade [--cooldown-exception REASON] --no-check FORMULA
+
+Settings only (no update or check execution):
+  brew-reviewed-upgrade --set-cooldown-hours HOURS|default FORMULA
+  brew-reviewed-upgrade --forget-check FORMULA
 
 Upgrade exactly one installed, unpinned homebrew/core Formula after reviewing
 its release age, release notes, and complete dry-run plan.
 
 A smoke command is required unless --no-check explicitly waives it.
-Releases newer than 7 days or without verifiable GitHub Release metadata stop
+Omit COMMAND to reuse/discover a check, or enter and remember one interactively.
+Releases newer than 48 hours or without verifiable GitHub Release metadata stop
 unless --cooldown-exception supplies a non-secret, single-line reason.
+The default cooldown is 48 hours; a saved per-package setting overrides it.
+Zero hours disables only age waiting, not release or integrity verification.
 EOF
 }
 
@@ -146,6 +165,7 @@ handle_signal() {
 cleanup_on_exit() {
   local operation_status=$?
   local cleanup_status=0
+  local temporary_status=0
   local state_status=0
   local state_output=""
 
@@ -169,10 +189,17 @@ cleanup_on_exit() {
       && ! grep -Fqx 'Developer mode is disabled.' <<<"$state_output"; then
       cleanup_status=1
     fi
+    br_result_record developer "$cleanup_status"
+  elif (( BR_RESULT_ENABLED )); then
+    br_result_skip developer 'not needed'
   fi
 
   if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
     rm -rf -- "$TEMP_DIR"
+    temporary_status=$?
+    br_result_record temporary "$temporary_status"
+  elif (( BR_RESULT_ENABLED )); then
+    br_result_skip temporary 'not needed'
   fi
 
   if (( operation_status != 0 && cleanup_status != 0 )); then
@@ -181,13 +208,12 @@ cleanup_on_exit() {
     error "developer-mode cleanup failed with status $cleanup_status"
   fi
 
-  if (( operation_status != 0 )); then
-    exit "$operation_status"
+  if (( temporary_status != 0 )); then
+    error "temporary-file cleanup failed with status $temporary_status"
+    if (( cleanup_status == 0 )); then cleanup_status="$temporary_status"; fi
   fi
-  if (( cleanup_status != 0 )); then
-    exit 1
-  fi
-  exit 0
+  br_result_finish "$operation_status" "$cleanup_status"
+  exit $?
 }
 
 install_lifecycle_traps() {
@@ -518,6 +544,7 @@ print_release_review() {
     remaining="$(format_duration "$((COOLDOWN_SECONDS - RELEASE_AGE_SECONDS))")" || return $?
   fi
 
+  printf 'Cooldown policy: %s hours (%s)\n' "$((COOLDOWN_SECONDS / 3600))" "$BR_COOLDOWN_SOURCE" || return 1
   {
     printf '%s\n' '==> Release review'
     printf 'Formula: %s\n' "$formula"
@@ -606,7 +633,7 @@ review_release_cooldown() {
       RELEASE_GATE_REASON="GitHub Release is marked as a prerelease"
     elif ! release_age_is_eligible; then
       RELEASE_GATE_STATUS="blocked"
-      RELEASE_GATE_REASON="GitHub Release is newer than 7 days"
+      RELEASE_GATE_REASON="GitHub Release is newer than $((COOLDOWN_SECONDS / 3600)) hours"
     else
       RELEASE_GATE_STATUS="eligible"
     fi
@@ -757,6 +784,7 @@ show_dry_run() {
     error "Homebrew dry-run failed"
     return 1
   fi
+  printf '%s\n' '==> Upgrade plan (Homebrew dry-run)' || return 1
   if ! cat "$output_file"; then
     error "could not display the Homebrew dry-run plan"
     return 1
@@ -815,18 +843,15 @@ show_verification_scope() {
   local expected_count="$2"
   local no_check="$3"
 
-  {
-    printf 'Expected Bottle attestations: %s\n' "$expected_count"
-    awk 'NF { print "  - " $0 }' "$expected_file"
-    if (( no_check )); then
-      printf '%s\n' 'Smoke check: waived (--no-check)'
-    else
-      printf '%s\n' 'Smoke check: configured'
-    fi
-  } || {
-    error "could not display the verification scope"
-    return 1
-  }
+  printf '==> Bottle verification scope: %s Formulae\n' "$expected_count" || return 1
+  printf '%s\n' 'Includes build, test, and implicit dependencies.' || return 1
+  printf '%s\n' 'This is a verification count, not an upgrade count.' || return 1
+  awk 'NF { print "  - " $0 }' "$expected_file" || return 1
+  if (( no_check )); then
+    printf '%s\n' 'Smoke check: waived (--no-check)' || return 1
+  else
+    printf '%s\n' 'Smoke check: configured' || return 1
+  fi
 }
 
 confirm_review() {
@@ -924,11 +949,11 @@ verify_attestations() {
 }
 
 run_stage() {
-  local label="$1"
-  shift
+  local id="$1" label="$2"
+  shift 2
 
-  printf '%s\n' "==> $label"
-  if run_managed "$@"; then
+  printf '%s\n' "==> $label" || return 1
+  if br_result_run "$id" run_managed "$@"; then
     return 0
   else
     local status=$?
@@ -949,6 +974,13 @@ main() {
   local expected_count
   local resolved_smoke=""
   local -a smoke_command=()
+
+  case "${1:-}" in
+    --set-cooldown-hours|--forget-check)
+      br_config_command formula "$@"
+      return $?
+      ;;
+  esac
 
   case "${1:-}" in
     -h|--help)
@@ -983,12 +1015,15 @@ main() {
     *)
       formula="$1"
       shift
-      if [[ "${1:-}" != "--" ]] || (( $# < 2 )); then
+      if (( $# == 0 )); then
+        : # Automatic or remembered check.
+      elif [[ "${1:-}" != "--" ]] || (( $# < 2 )); then
         usage >&2
         return 2
+      else
+        shift
+        smoke_command=("$@")
       fi
-      shift
-      smoke_command=("$@")
       ;;
   esac
 
@@ -1004,7 +1039,7 @@ main() {
     return 2
   fi
 
-  if (( ! no_check )); then
+  if (( ! no_check && ${#smoke_command[@]} )); then
     resolved_smoke="$(resolve_command "${smoke_command[0]}")" || return $?
     smoke_command[0]="$resolved_smoke"
   fi
@@ -1024,6 +1059,10 @@ main() {
   validate_github_auth || return $?
 
   canonical="$(load_target_metadata "$formula")" || return $?
+  br_settings_init formula "$canonical" || return $?
+  if (( ! no_check && ${#smoke_command[@]} == 0 )); then
+    br_select_check smoke_command "" || return $?
+  fi
 
   printf '%s\n' "==> Updating Homebrew metadata"
   if ! "$BREW_BIN" update; then
@@ -1061,14 +1100,18 @@ main() {
   show_verification_scope "$expected_file" "$expected_count" "$no_check" || return $?
 
   confirm_review "$canonical" || return $?
-  verify_attestations "$canonical" "$expected_file" || return $?
+  br_result_start formula "$canonical" "$no_check" "$BR_CHECK_AUTO"
+  br_result_run bottle verify_attestations "$canonical" "$expected_file" || return $?
   HOMEBREW_NO_INSTALL_CLEANUP=1 \
-    run_stage "Upgrading $canonical" "$BREW_BIN" upgrade --formula --no-ask "$canonical" || return $?
-  run_stage "Checking vulnerabilities for $canonical and dependencies" \
+    run_stage upgrade "Upgrading $canonical" "$BREW_BIN" upgrade --formula --no-ask "$canonical" || return $?
+  run_stage vulns "Checking vulnerabilities for $canonical and dependencies" \
     "$BREW_BIN" vulns --deps "$canonical" || return $?
-  run_stage "Checking global Homebrew linkage" "$BREW_BIN" linkage --test || return $?
+  run_stage linkage "Checking global Homebrew linkage" "$BREW_BIN" linkage --test || return $?
   if (( ! no_check )); then
-    run_stage "Running smoke command" "${smoke_command[@]}" || return $?
+    if (( BR_CHECK_AUTO )); then
+      br_result_check_target br_verify_auto_check "${smoke_command[0]}" "" || return $?
+    fi
+    run_stage smoke "Running smoke command" "${smoke_command[@]}" || return $?
   fi
 }
 

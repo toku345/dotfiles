@@ -186,6 +186,9 @@ abbr -a gd git diff-delta
 abbr -a gst git status
 
 ## alias functions
+alias bru 'brew-reviewed-upgrade'
+alias brcu 'brew-reviewed-cask-upgrade'
+
 function l --description 'eza -ahl --git'
     eza -ahl --git $argv
 end
