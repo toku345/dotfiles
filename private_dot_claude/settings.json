@@ -173,6 +173,6 @@
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
-  "model": "opus",
+  "model": "opus[1m]",
   "enableWorkflows": true
 }
