@@ -3,6 +3,7 @@
 
 bats_require_minimum_version 1.5.0
 load test_helper_bash5
+load test_helper_reviewed_checks
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -34,6 +35,8 @@ setup() {
   export SMOKE_STUB_LOG BREW_STUB_SIGNAL_MARKER BREW_STUB_SIGNAL_RESULT
   export LAUNCH_CHILD_PID_FILE
   export HOME="$TEST_HOME"
+  unset XDG_CONFIG_HOME
+  export TEST_PREFIX="$BATS_TEST_TMPDIR/prefix"
   resolve_bash5
   export PATH="$TEST_BIN:/usr/bin:/bin"
   unset HOMEBREW_NO_INSTALL_CLEANUP HOMEBREW_NO_ENV_HINTS
@@ -172,6 +175,8 @@ formula_info() {
 }
 
 case "$command_name" in
+  --prefix) printf '%s\n' "$TEST_PREFIX"; exit 0 ;;
+  --cellar) printf '%s\n' "$TEST_PREFIX/Cellar/$BREW_STUB_FORMULA"; exit 0 ;;
   config)
     cat <<'CONFIG'
 HOMEBREW_CASK_OPTS: ["--require-sha"]
@@ -237,6 +242,10 @@ CONFIG
         exit "${BREW_STUB_DRY_RUN_STATUS:-0}"
       fi
     done
+    if [[ -d "$TEST_PREFIX/Cellar/$BREW_STUB_FORMULA/2.0" && "${BREW_STUB_KEEP_OLD_LINK:-false}" != true ]]; then
+      rm -f "$TEST_PREFIX/opt/$BREW_STUB_FORMULA"
+      ln -s "$TEST_PREFIX/Cellar/$BREW_STUB_FORMULA/2.0" "$TEST_PREFIX/opt/$BREW_STUB_FORMULA"
+    fi
     exit "${BREW_STUB_UPGRADE_STATUS:-0}"
     ;;
   deps)
@@ -374,6 +383,17 @@ refute_log() {
   grep -Fxq $'deps\t1\t--formula --full-name --include-build --include-test --include-implicit ripgrep' "$BREW_STUB_HINT_LOG"
   [ "$(awk -F '\t' '$1 != "upgrade" && $1 != "deps" && $2 == "1" { count++ } END { print count + 0 }' "$BREW_STUB_HINT_LOG")" -eq 0 ]
   [[ "$stderr" == *"Developer mode is disabled."* ]]
+  [[ "$stderr" == *"Developer mode is disabled."*"==> Result: ripgrep"* ]]
+  [[ "$stderr" == *"Upgrade command: completed"* ]]
+  [[ "$stderr" == *"Vulnerability check: passed"* ]]
+  [[ "$stderr" == *"Linkage check: passed"* ]]
+  [[ "$stderr" == *"Post-upgrade smoke check: passed"* ]]
+  [[ "$stderr" == *"Developer-mode restoration: passed"* ]]
+  [[ "$stderr" == *"Temporary-file cleanup: passed"* ]]
+  [[ "$stderr" == *"Overall: completed"* ]]
+  [ "$(grep -c '^==> Result:' <<<"$stderr")" -eq 1 ]
+  [[ "$output" == *"==> Upgrade plan (Homebrew dry-run)"* ]]
+  [[ "$output" == *"This is a verification count, not an upgrade count."* ]]
 }
 
 @test "no-check explicitly skips the smoke command" {
@@ -381,13 +401,15 @@ refute_log() {
 
   [ "$status" -eq 0 ]
   [ ! -e "$SMOKE_STUB_LOG" ]
+  [[ "$output" == *"Post-upgrade smoke check: waived (--no-check)"* ]]
+  [[ "$output" == *"Overall: completed"* ]]
 }
 
-@test "missing smoke command is a usage error before Homebrew runs" {
+@test "missing automatic check in noninteractive mode stops before brew update" {
   run brew-reviewed-upgrade ripgrep
 
   [ "$status" -eq 2 ]
-  [ ! -s "$BREW_STUB_LOG" ]
+  refute_log line update
 }
 
 @test "unavailable smoke command fails before Homebrew runs" {
@@ -540,9 +562,10 @@ refute_log() {
   refute_log contains $'verify\t'
   run ! grep -Fq $'api\t' "$GH_STUB_LOG"
   [ ! -e "$SMOKE_STUB_LOG" ]
+  [[ "$output" != *"==> Result:"* ]]
 }
 
-@test "release age boundary becomes eligible at exactly seven days" {
+@test "release age boundary becomes eligible at exactly 48 hours" {
   run "$BASH5_BIN" -c '
     source "$SOURCE"
     JQ_BIN="$TEST_BIN/jq"
@@ -550,14 +573,14 @@ refute_log() {
     published_epoch="$("$JQ_BIN" -nr \
       --arg published "$published" "\$published | fromdateiso8601")"
 
-    evaluate_release_age "$published" "$((published_epoch + 604799))"
+    evaluate_release_age "$published" "$((published_epoch + 172799))"
     if release_age_is_eligible; then
       before=eligible
     else
       before=blocked
     fi
 
-    evaluate_release_age "$published" "$((published_epoch + 604800))"
+    evaluate_release_age "$published" "$((published_epoch + 172800))"
     if release_age_is_eligible; then
       exact=eligible
     else
@@ -567,7 +590,7 @@ refute_log() {
   '
 
   [ "$status" -eq 0 ]
-  [ "$output" = "blocked eligible 2026-01-08T00:00:00Z" ]
+  [ "$output" = "blocked eligible 2026-01-03T00:00:00Z" ]
 }
 
 @test "new release stops before dry-run unless a reasoned exception is supplied" {
@@ -579,7 +602,7 @@ refute_log() {
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"Cooldown: blocked"* ]]
-  [[ "$output" == *"GitHub Release is newer than 7 days"* ]]
+  [[ "$output" == *"GitHub Release is newer than 48 hours"* ]]
   [[ "$stderr" == *"--cooldown-exception REASON"* ]]
   refute_log contains $'upgrade\t--formula\t--dry-run'
   refute_log contains $'deps\t'
@@ -755,6 +778,7 @@ refute_log() {
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"brew update completed"* ]]
   refute_log contains $'verify\t'
+  [[ "$output" != *"==> Result:"* ]]
 }
 
 @test "mixed-case confirmation is accepted without external normalization" {
@@ -826,7 +850,7 @@ refute_log() {
   run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Expected Bottle attestations: 3"* ]]
+  [[ "$output" == *"Bottle verification scope: 3 Formulae"* ]]
   [ "$(count_log_line $'deps\t--formula\t--full-name\t--include-build\t--include-test\t--include-implicit\tzlib')" -eq 1 ]
   [ "$(count_log_line $'info\t--formula\t--json=v2\tzlib')" -eq 1 ]
 }
@@ -974,6 +998,10 @@ refute_log() {
   [ "$(count_log_line $'developer\toff')" -eq 1 ]
   [ "$(count_log_line $'developer\tstate')" -eq 2 ]
   refute_log contains $'upgrade\t--formula\t--no-ask'
+  grep -Fq 'Bottle verification: interrupted (exit 143)' "$error_file"
+  grep -Fq 'Upgrade command: not run' "$error_file"
+  grep -Fq 'Overall: incomplete (exit 143)' "$error_file"
+  [ "$(grep -c '^==> Result:' "$error_file")" -eq 1 ]
 }
 
 @test "INT during verify terminates the child cleans up once and returns 130" {
@@ -1004,6 +1032,10 @@ refute_log() {
   [ "$(count_log_line $'developer\toff')" -eq 1 ]
   [ "$(count_log_line $'developer\tstate')" -eq 2 ]
   refute_log contains $'upgrade\t--formula\t--no-ask'
+  grep -Fq 'Bottle verification: interrupted (exit 130)' "$error_file"
+  grep -Fq 'Upgrade command: not run' "$error_file"
+  grep -Fq 'Overall: incomplete (exit 130)' "$error_file"
+  [ "$(grep -c '^==> Result:' "$error_file")" -eq 1 ]
 }
 
 @test "signal queued during launch is delivered after PID publication" {
@@ -1060,4 +1092,249 @@ refute_log() {
   [ "$status" -eq 130 ]
   [[ "$stderr" == *"could not stop managed process 12345 after INT"* ]]
   [[ "$stderr" == *"could not reap managed process 12345 after INT"* ]]
+}
+
+
+@test "automatic Formula check binds to opt instead of a shadowing PATH command" {
+  prepare_formula_auto_check
+  make_reviewed_binary "$TEST_BIN/ripgrep"
+  run brew-reviewed-upgrade ripgrep <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 2 ]
+  run ! grep -Fq "$TEST_BIN/ripgrep" "$SMOKE_STUB_LOG"
+  jq -e '.check.origin == "auto" and .check.argv[1] == "--version"' \
+    "$HOME/.config/brew-reviewed-upgrade/formula/ripgrep.json"
+}
+
+@test "automatic Formula check tries version after --version and remembers it" {
+  prepare_formula_auto_check
+  export CHECK_FIRST_FAIL=true
+  run brew-reviewed-upgrade ripgrep <"$NO_FILE"
+  [ "$status" -eq 1 ]
+  [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 2 ]
+  jq -e '.check.argv[1] == "version"' "$HOME/.config/brew-reviewed-upgrade/formula/ripgrep.json"
+  : >"$SMOKE_STUB_LOG"
+  run brew-reviewed-upgrade ripgrep <"$NO_FILE"
+  [ "$status" -eq 1 ]
+  [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 1 ]
+}
+
+@test "automatic post-upgrade failure never selects another check" {
+  prepare_formula_auto_check
+  export CHECK_POST_STATUS=9
+  run brew-reviewed-upgrade ripgrep <"$YES_FILE"
+  [ "$status" -eq 9 ]
+  [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 2 ]
+  ! grep -Fq ' version' "$SMOKE_STUB_LOG"
+}
+
+@test "automatic Formula check refuses an old opt link after upgrade" {
+  prepare_formula_auto_check
+  export BREW_STUB_KEEP_OLD_LINK=true
+  run brew-reviewed-upgrade ripgrep <"$YES_FILE"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"different Formula version"* ]]
+  [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 1 ]
+  [[ "$output" == *"Upgrade command: completed"* ]]
+  [[ "$output" == *"Post-upgrade smoke check: not run (target validation failed)"* ]]
+}
+
+@test "automatic check is saved even when release cooldown blocks upgrade" {
+  prepare_formula_auto_check
+  export GH_STUB_RELEASE_PUBLISHED_AT
+  GH_STUB_RELEASE_PUBLISHED_AT="$(jq -nr 'now | floor | strftime("%Y-%m-%dT%H:%M:%SZ")')"
+  run brew-reviewed-upgrade ripgrep
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"newer than 48 hours"* ]]
+  [ -f "$HOME/.config/brew-reviewed-upgrade/formula/ripgrep.json" ]
+  refute_log contains $'upgrade\t'
+  [[ "$output" != *"==> Result:"* ]]
+}
+
+@test "setting-only commands preserve checks and need no GitHub auth or update" {
+  export GH_STUB_STATUS=1
+  remember_manual_check formula ripgrep smoke-command
+  run brew-reviewed-upgrade --set-cooldown-hours 0 ripgrep
+  [ "$status" -eq 0 ]
+  jq -e '.cooldown_hours == 0 and .check.origin == "manual"' \
+    "$HOME/.config/brew-reviewed-upgrade/formula/ripgrep.json"
+  run brew-reviewed-upgrade --set-cooldown-hours default ripgrep
+  [ "$status" -eq 0 ]
+  run brew-reviewed-upgrade --forget-check ripgrep
+  [ "$status" -eq 0 ]
+  jq -e 'has("cooldown_hours") == false and has("check") == false' \
+    "$HOME/.config/brew-reviewed-upgrade/formula/ripgrep.json"
+  [ ! -s "$GH_STUB_LOG" ]
+  refute_log line update
+  [ ! -e "$SMOKE_STUB_LOG" ]
+  [[ "$output" != *"==> Result:"* ]]
+}
+
+@test "zero-hour policy does not waive unverified release metadata" {
+  run brew-reviewed-upgrade --set-cooldown-hours 0 ripgrep
+  [ "$status" -eq 0 ]
+  export GH_STUB_API_STATUS=1
+  run brew-reviewed-upgrade ripgrep -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 1 ]
+  refute_log contains $'upgrade\t'
+}
+
+@test "explicit and no-check invocations bypass and preserve the saved check" {
+  remember_manual_check formula ripgrep missing-command
+  run brew-reviewed-upgrade ripgrep -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  jq -e '.check.argv == ["missing-command"]' "$HOME/.config/brew-reviewed-upgrade/formula/ripgrep.json"
+  rm -f "$SMOKE_STUB_LOG"
+  run brew-reviewed-upgrade --no-check ripgrep <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SMOKE_STUB_LOG" ]
+}
+
+@test "interactive manual check preserves quoted arguments and is reused" {
+  printf 'smoke-command "two words" "" "*"\nno\n' >"$BATS_TEST_TMPDIR/input"
+  run "$BASH5_BIN" -c 'source "$SOURCE"; br_has_terminal() { return 0; }; main ripgrep' \
+    <"$BATS_TEST_TMPDIR/input"
+  [ "$status" -eq 1 ]
+  jq -e '.check.argv == ["smoke-command", "two words", "", "*"]' \
+    "$HOME/.config/brew-reviewed-upgrade/formula/ripgrep.json"
+  run brew-reviewed-upgrade ripgrep <"$NO_FILE"
+  [ "$status" -eq 1 ]
+  grep -Fxq 'argc=3' "$SMOKE_STUB_LOG"
+  grep -Fxq '<>' "$SMOKE_STUB_LOG"
+}
+
+@test "failed saved check and interactive EOF stop before metadata update" {
+  remember_manual_check formula ripgrep missing-command
+  run brew-reviewed-upgrade ripgrep
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"one-time post-upgrade check"* ]]
+  run "$BASH5_BIN" -c 'source "$SOURCE"; br_has_terminal() { return 0; }; main ripgrep' </dev/null
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"check input ended"* ]]
+  refute_log line update
+}
+
+
+@test "saved auto checks are revalidated before execution and never fall back to PATH" {
+  prepare_formula_auto_check
+  run brew-reviewed-upgrade ripgrep <"$NO_FILE"
+  [ "$status" -eq 1 ]
+  rm "$TEST_PREFIX/opt/ripgrep"
+  make_reviewed_binary "$TEST_BIN/ripgrep"
+  : >"$SMOKE_STUB_LOG"
+  : >"$BREW_STUB_LOG"
+  run brew-reviewed-upgrade ripgrep
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"no longer belongs to the target"* ]]
+  [ ! -s "$SMOKE_STUB_LOG" ]
+  refute_log line update
+}
+
+@test "post-upgrade vulnerability failure reports completed mutation and unrun checks" {
+  export BREW_STUB_VULNS_STATUS=8
+  run --separate-stderr brew-reviewed-upgrade ripgrep -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 8 ]
+  [[ "$stderr" == *"Bottle verification: passed"* ]]
+  [[ "$stderr" == *"Upgrade command: completed"* ]]
+  [[ "$stderr" == *"Vulnerability check: failed (exit 8)"* ]]
+  [[ "$stderr" == *"Linkage check: not run"* ]]
+  [[ "$stderr" == *"Post-upgrade smoke check: not run"* ]]
+  [[ "$stderr" == *"Overall: incomplete (exit 8)"* ]]
+  refute_log contains $'linkage\t--test'
+  [ ! -e "$SMOKE_STUB_LOG" ]
+}
+
+@test "summary distinguishes failed attestation from a failed upgrade command" {
+  export BREW_STUB_VERIFY_STATUS=6
+  run brew-reviewed-upgrade ripgrep -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 6 ]
+  [[ "$output" == *"Bottle verification: failed (exit 6)"* ]]
+  [[ "$output" == *"Upgrade command: not run"* ]]
+  unset BREW_STUB_VERIFY_STATUS
+  export BREW_STUB_UPGRADE_STATUS=7
+  run brew-reviewed-upgrade ripgrep -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 7 ]
+  [[ "$output" == *"Upgrade command: failed (exit 7); installation state uncertain"* ]]
+  [[ "$output" == *"Vulnerability check: not run"* ]]
+  [[ "$output" == *"Overall: incomplete (exit 7)"* ]]
+}
+
+@test "stage heading failure leaves the upgrade unrun" {
+  run "$BASH5_BIN" -c '
+    source "$SOURCE"
+    printf() {
+      if [[ ${2:-} == "==> Upgrading ripgrep" ]]; then return 42; fi
+      command printf "$@"
+    }
+    main ripgrep -- smoke-command
+  ' <"$YES_FILE"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Upgrade command: not run"* ]]
+  refute_log contains $'upgrade\t--formula\t--no-ask'
+}
+
+@test "verification scope output failure cannot consume approval or mutate" {
+  run "$BASH5_BIN" -c '
+    source "$SOURCE"
+    printf() {
+      if [[ ${2:-} == "Includes build, test, and implicit dependencies." ]]; then return 42; fi
+      command printf "$@"
+    }
+    main ripgrep -- smoke-command
+  ' <"$YES_FILE"
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"Proceed with"* && "$output" != *"==> Result:"* ]]
+  refute_log contains $'verify\t'
+  refute_log contains $'upgrade\t--formula\t--no-ask'
+}
+
+@test "result rendering failure retains completed upgrade and original failure status" {
+  local operation_status
+  for operation_status in 0 8; do
+    export BREW_STUB_VULNS_STATUS="$operation_status"
+    run "$BASH5_BIN" -c '
+      source "$SOURCE"
+      printf() {
+        if [[ $1 == "Overall: incomplete (exit %s)\n" || ${2:-} == "Overall: completed" ]]; then return 42; fi
+        command printf "$@"
+      }
+      main ripgrep -- smoke-command
+    ' <"$YES_FILE"
+    if (( operation_status )); then [ "$status" -eq 8 ]; else [ "$status" -eq 1 ]; fi
+    [[ "$output" == *"Upgrade command: completed"* ]]
+    [[ "$output" == *"could not display the result summary"* ]]
+    [[ "$output" != *"Overall: completed"* ]]
+  done
+}
+
+@test "temporary cleanup failure is visible and does not replace operation failure" {
+  export TMPDIR="$BATS_TEST_TMPDIR"
+  local operation_status
+  for operation_status in 0 8; do
+    export BREW_STUB_VULNS_STATUS="$operation_status"
+    run "$BASH5_BIN" -c '
+      source "$SOURCE"
+      rm() { return 9; }
+      main ripgrep -- smoke-command
+    ' <"$YES_FILE"
+    if (( operation_status )); then [ "$status" -eq 8 ]; else [ "$status" -eq 1 ]; fi
+    [[ "$output" == *"Temporary-file cleanup: failed (exit 9)"* ]]
+    [[ "$output" == *"Developer-mode restoration: passed"* ]]
+    [[ "$output" != *"Overall: completed"* ]]
+  done
+}
+
+@test "developer restoration and temporary cleanup failures are both reported" {
+  export TMPDIR="$BATS_TEST_TMPDIR"
+  export BREW_STUB_DEVELOPER_OFF_STATUS=9
+  export BREW_STUB_UPGRADE_STATUS=7
+  run "$BASH5_BIN" -c '
+    source "$SOURCE"
+    rm() { return 12; }
+    main ripgrep -- smoke-command
+  ' <"$YES_FILE"
+  [ "$status" -eq 7 ]
+  [[ "$output" == *"Developer-mode restoration: failed (exit 9)"* ]]
+  [[ "$output" == *"Temporary-file cleanup: failed (exit 12)"* ]]
+  [[ "$output" == *"Overall: incomplete (exit 7)"* ]]
 }

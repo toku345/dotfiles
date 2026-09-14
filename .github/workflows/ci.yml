@@ -59,7 +59,7 @@ jobs:
             echo ""
             echo "Checking: $script"
             shellcheck --severity=warning "$script" || FAILED=1
-          done < <(find .chezmoiscripts dot_local/bin dot_git-template/hooks tests/bats/bin .claude/hooks \
+          done < <(find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks tests/bats/bin .claude/hooks \
               -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" \) \
               2>/dev/null)
 
@@ -327,9 +327,10 @@ jobs:
 
       - name: Run Bash 5 runtime tests
         run: |
-          export PATH="$(dirname "$BASH5_BIN"):$PATH"
+          export PATH="${BASH5_BIN%/*}:$PATH"
           "$BATS_BIN" \
             tests/bats/test_bash5_runtime.bats \
+            tests/bats/test_reviewed_upgrade_common.bats \
             tests/bats/test_brew_reviewed_cask_upgrade.bats \
             tests/bats/test_brew_reviewed_upgrade.bats \
             tests/bats/test_ghostty_theme.bats \

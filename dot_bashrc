@@ -51,6 +51,8 @@ fi
 
 # Aliases (translated from fish abbr/function)
 alias be='bundle exec'
+alias bru='brew-reviewed-upgrade'
+alias brcu='brew-reviewed-cask-upgrade'
 alias cm='chezmoi'
 alias d='docker'
 alias dc='docker compose'
