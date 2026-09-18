@@ -11,6 +11,8 @@
 - `private_dot_codex/private_review.config.toml` -> `~/.codex/review.config.toml`
 - `private_dot_codex/private_review_deep.config.toml` -> `~/.codex/review_deep.config.toml`
 - `private_dot_codex/private_review_audit.config.toml` -> `~/.codex/review_audit.config.toml`
+- `private_dot_codex/private_quick.config.toml` -> `~/.codex/quick.config.toml`
+- `private_dot_codex/private_work.config.toml` -> `~/.codex/work.config.toml`
 - `private_dot_codex/rules/managed.rules` -> `~/.codex/rules/managed.rules`
 - `.chezmoiscripts/run_after_check-codex-config.sh`
 - `.chezmoiscripts/run_after_setup-agmsg.sh`
@@ -44,6 +46,96 @@
 - `[desktop]`
 
 必要に応じて、ローカル provider や一時的な実験設定も `~/.codex/config.toml` 側にのみ置く。
+
+## ターミナルの起動入口: cx / cf
+
+`dot_local/bin/executable_cx` / `executable_cf` を `~/.local/bin/cx` / `cf` に配置する。既存の fish / Bash の PATH を使い、shell ごとの function は追加しない。
+
+| 入口 | 選び方 | 通常モード |
+| --- | --- | --- |
+| `cx quick` | 方針・範囲・検証方法が明確で、やり直しやすい作業 | `gpt-6-astra` / `low` |
+| `cx work` | 不確実な作業、迷う場合 | `gpt-6-astra` / `high` |
+| `cf` | Fugu を使う作業 | installer / user が管理する既存 Fugu profile |
+
+quick は変更行数の少なさや Fast モードを意味しない。通常側の Fast・承認・UI は共通設定を継承し、Plan は共通の `plan_mode_reasoning_effort = "xhigh"` を使う。profile 選択は Plan への切替ではない。`deep`、自動選択、自動昇格、独自の選択メニューは提供しない。
+
+```bash
+cx quick '確認済みの方針で修正して'
+cx work 'Issue を確認して'
+cx work resume <known-openai-session-id>
+cf 'Issue を確認して'
+cf resume <known-sakana-session-id>
+cx --help
+cf --help
+```
+
+対応対象は対話起動・初期プロンプト・同じ provider の既知のセッションIDによる resume。元の起動先が分かるIDを Codex の終了表示などから控えて使う。picker / `--last` は未検証で、provider が同じとは仮定しない。provider 間の履歴移行や自動引き継ぎは行わない。
+
+### 設定レイヤーと対応範囲
+
+通常側の profile は `model` / `model_reasoning_effort` の2キーだけを持つ。独立環境ではなく、同じ CODEX_HOME の共通設定・認証・履歴を利用する。既存 review profile と同じ直接管理方式なので、baseline の hash gate 対象ではない。
+
+関係する優先順位は共通設定 → 選択 profile → trusted project config → CLI override。`cx` は profile を選ぶだけで、project の model / effort や明示的な Codex 引数による上書きを防がない。管理者の requirements は別途適用される。[公式 profile 仕様](https://learn.chatgpt.com/docs/config-file/config-advanced)
+
+`cf` は `codex-fugu --no-update -- ...` を実行する。Fugu の model / provider / effort / catalog は既存 profile に任せ、追加の profile を合成しない。次の値だけをプロセス限定で指定する。
+
+- `check_for_update_on_startup=false`: Codex 本体の更新確認も抑止。
+- `features.fast_mode=false`: `fast` / `priority` を実効 tier から除く。任意の tier 全部を解除する設定ではない。
+- `approvals_reviewer="user"` / `approval_policy="on-request"`: 必要時に人間へ承認を求める。
+
+sandbox / network 制約は上書きしない。承認依頼を有効にしても、管理者ポリシー等で禁止された操作が許可されるとは限らない。
+
+Fugu と矛盾する model / effort / catalog / tier を project config に指定した環境、別 profile / provider、互換設定への明示的な上書き（`--approve-for-me` を含む）はサポート対象外。project config は Fugu profile より優先されるため、例えば Astra / low の project 設定は `cf` でも継承され得る。ラッパーは独自の設定解析・競合検出をしない。任意のサブコマンドへの完全対応も提供しない。
+
+`CODEX_HOME` を明示した場合はその配置を尊重するが、profile を自動コピーしない。通常の chezmoi 配置先は `~/.codex`。
+
+### Fugu のバージョン警告と更新
+
+`cf` は同じランチャーの読み取り専用 `--status` で installed version / deployed_target を比較する。探索処理は複製せず、status や state を shell として source しない。一致時は無表示、不一致時は毎回 stderr に英語で警告して継続する。
+
+```text
+cf: warning: Codex is 0.155.0; the installed Fugu configuration targets 0.154.0.
+Compatibility is unverified. Continuing without checking for updates.
+Run codex-fugu directly to review the mismatch and update options.
+```
+
+status 失敗・形式変更・不明なバージョンは確認不能の警告になる。一致は互換性保証、不一致は非互換の断定とは扱わない。profile または `.fugu/state` 不在はセットアップエラーで停止する。実機ランチャーでは `--no-update` 判定前に adoption が走るため、状態不在のまま起動しない。
+
+更新・キー管理は `cf` へ透過させない。まず `codex-fugu --status` で確認し、更新を確認すると決めたときにターミナルで `codex-fugu --check`、再設定時は公式 installer を直接使う。提示されるバージョン変更・設定再配置の内容を確認して選択する。更新後は status と下記の手動確認を再実施する。[公式 Fugu ランチャー](https://github.com/SakanaAI/fugu)
+
+### 導入・検証・ロールバック
+
+main への反映後、対象4ファイルだけを確認して配置する。導入前に利用する shell で `type -a cx cf` を実行し、既存 function / alias / command と衝突しないことを確認する。以下は手動の導入コマンドで、実装・テストからは実行しない。
+
+```bash
+chezmoi diff ~/.codex/quick.config.toml ~/.codex/work.config.toml ~/.local/bin/cx ~/.local/bin/cf
+chezmoi apply --dry-run ~/.codex/quick.config.toml ~/.codex/work.config.toml ~/.local/bin/cx ~/.local/bin/cf
+chezmoi apply -v ~/.codex/quick.config.toml ~/.codex/work.config.toml ~/.local/bin/cx ~/.local/bin/cf
+```
+
+baseline / live config の上書き・ACK や CLI の更新は不要。Fugu は公式セットアップ済みであることを前提とする。
+
+自動テストは `bats tests/bats/test_codex_launchers.bats`。公式ランチャーを事前に読み取り確認した環境では、次で一時 HOME と偽 Codex を使う接続テストも実行できる。実機認証・モデル・更新処理は使わない。
+
+```bash
+CODEX_FUGU_TEST_LAUNCHER="$(command -v codex-fugu)" bats tests/bats/test_codex_launchers.bats
+```
+
+接続テストは `CODEX_FUGU_ASSUME_TTY=1` で非対話時の自動スキップを避け、`--no-update` なしなら repository check に到達する負の対照も持つ。偽コマンドの成功は、実 CLI の実効設定やモデル動作の証明ではない。
+
+手動確認（モデル呼び出しを行う場合は利用枠を消費する）:
+
+1. Ghostty 上の fish / Bash で `cx quick` と `cx work` を起動し、model / effort、Fast、承認、Plan の xhigh を確認する。初期プロンプト、日本語・引用符、Ctrl-C、終了コードも確認する。
+2. `cf` で警告、Fugu model / effort、Fast 抑止、人間への承認依頼、sandbox / network 制約の維持を確認する。更新チェックが発生しないことは表示の不在だけでなく、実効設定・診断でも確認する。
+3. provider が分かる既知のIDで再開し、quick → work の high と、Fugu の承認・tier override の再適用を確認する。競合する project 設定がある場合は通常側の優先順位と Fugu の対象外条件を照合する。
+
+2026-09-18 の検証範囲: Codex CLI 0.155.0、Fugu launcher revision `0e04afcc10d8fb7f82cdbe903b83666dc0fe51ec` / 配置済み target 0.154.0。ラッパーの引数・警告・終了コード・更新抑止は偽コマンドで検証する。実 CLI の診断は隔離 HOME の `debug prompt-input` で行い、profile / project / CLI の読み込み順と人間承認用の指示を確認する。モデル・effort・tier の全実効値、Ghostty / fish、承認画面、モデル接続、resume は未検証。resume は引数転送のみの確認であり、対応を検証済み・完了とは扱わない。
+
+ロールバックは、追加した2つの profile と2つのラッパーについて、source 側の管理定義と上記4つの配置先を除去する。配置先だけの削除では次の apply で復活する。`config.toml`、Fugu installer 管理ファイル、認証・履歴は削除しない。従来の `codex` / `codex-fugu` を直接使う。
+
+### 途中で難しくなった場合
+
+同じ失敗の反復、未確認の前提の増加、変更範囲の拡大を手動切替の判断材料にする。同一 provider 内では作業を止めてセッションIDを控え、work での resume 後に effort を確認する。provider を変える場合は新規セッションにする。目的・制約・確認済み事実・差分・テスト結果・未解決点を引き継ぎ、仮説を確認済み事実として扱わない。
 
 ## 実験的コンテキスト管理
 
@@ -130,7 +222,7 @@ status line の項目ごとの色表示は `status_line_use_colors = true` で�
 
 ## review profile
 
-通常の Codex session と `$pr-review` は `gpt-5.6-sol` を使う。レビュー用途では、直接 chezmoi 管理する独立 profile で reasoning effort だけを切り替える。
+managed baseline と `$pr-review` 用 profile は `gpt-5.6-sol` を使う。通常作業の `cx` は上記の Astra profile を選ぶ。レビュー用途では、直接 chezmoi 管理する独立 profile で reasoning effort だけを切り替える。
 
 - `review.config.toml`: `gpt-5.6-sol` / `medium`
 - `review_deep.config.toml`: `gpt-5.6-sol` / `high`
