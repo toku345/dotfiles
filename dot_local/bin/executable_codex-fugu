@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+set -euo pipefail
+
+if (( BASH_VERSINFO[0] < 5 )); then
+  printf 'codex-fugu requires bash 5+ (macOS: brew install bash).\n' >&2
+  exit 2
+fi
+
+export CODEX_HOME="$HOME/.codex-fugu"
+export CODEX_INSTALL_DIR="$CODEX_HOME/bin"
+export CODEX_FUGU_REAL_CODEX="$CODEX_INSTALL_DIR/codex"
+export CODEX_SQLITE_HOME="$CODEX_HOME"
+export FUGU_ENV_FILE="$CODEX_HOME/.env"
+export CODEX_BACKUP_ROOT="$CODEX_HOME/backups"
+
+# The dedicated dotenv file owns the key; do not inherit another session's key.
+unset SAKANA_API_KEY
+
+launcher="$CODEX_INSTALL_DIR/codex-fugu"
+for executable in "$launcher" "$CODEX_FUGU_REAL_CODEX"; do
+  if [[ ! -f "$executable" || ! -x "$executable" ]]; then
+    printf 'codex-fugu: missing executable: %s\nComplete the isolated Fugu setup described in dotfiles docs/codex.md.\n' "$executable" >&2
+    exit 127
+  fi
+  if [[ "$executable" -ef "${BASH_SOURCE[0]}" ]]; then
+    printf 'codex-fugu: refusing recursive launcher: %s\n' "$executable" >&2
+    exit 126
+  fi
+done
+
+# The official installer otherwise edits shell profiles, even in noninteractive
+# mode. Seeing its own binary first suppresses that PATH/conflict handling.
+export PATH="$CODEX_INSTALL_DIR:$PATH"
+exec "$launcher" "$@"

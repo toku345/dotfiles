@@ -4,6 +4,65 @@
 
 設計判断 (3-file 構成 / hash gate / migration fail-closed) の詳細は [ADR 0024](adr/0024-codex-baseline-hash-state.md) を参照。
 
+## Fugu と通常版 CLI の分離
+
+`codex` は Homebrew の通常版（Apple Silicon Mac は `/opt/homebrew/bin/codex`）と `~/.codex` を使う。`codex-fugu` は Bash 5+ の管理ラッパーから、`~/.codex-fugu/bin/codex-fugu`（Fugu 公式ランチャー）と `~/.codex-fugu/bin/codex`（bundle 指定版）を起動する。専用の bin をシェル全体の PATH に追加しない。
+
+管理対象は `~/.local/bin/codex-fugu` だけ。専用 HOME 内の実行ファイル、設定、キー、Memory、Session は chezmoi 非管理とする。公式インストーラーは専用 bin のランチャーを更新するため、管理ラッパーを上書きしない。専用実行ファイルがない場合は停止し、PATH 上の CLI へフォールバックしない。
+
+ラッパーの子プロセスだけに以下を固定する。親シェル、通常版 CLI、Codex アプリの環境は変更しない。
+
+```bash
+export CODEX_HOME="$HOME/.codex-fugu"
+export CODEX_INSTALL_DIR="$CODEX_HOME/bin"
+export CODEX_FUGU_REAL_CODEX="$CODEX_INSTALL_DIR/codex"
+export CODEX_SQLITE_HOME="$CODEX_HOME"
+export FUGU_ENV_FILE="$CODEX_HOME/.env"
+export CODEX_BACKUP_ROOT="$CODEX_HOME/backups"
+unset SAKANA_API_KEY
+```
+
+API キーは専用 `.env` を使用する。ラッパーは継承キーを除去するだけで `.env` を source せず、読み込みは Codex に任せる。キーの値を引数・ログ・Git に残さない。キー変更には `codex-fugu --set-key` を使う。
+
+専用 CLI の存在確認後、ラッパーの子プロセス内だけ `CODEX_INSTALL_DIR` を PATH の先頭に置く。公式 Codex installer は非対話実行でも shell profile を編集するため、更新時に自身の専用 CLI を最初に見つけさせ、PATH 追記と Homebrew 競合処理を回避する。親シェルの `codex` の解決順は変わらない。
+
+### 初回セットアップ
+
+以下は **Bash 5 の端末**で実施する。Fish からは先に `bash` に入る。開発中は一時 destination の実行可能ファイルを `chezmoi add` して管理元に登録し、既存の live ランチャーを置き換えない。worktree の変更は main に取り込んでから apply する。
+
+1. 通常版のコマンド解決・バージョン、Fugu clone の変更・commit・`configs/bundle.sh` の `BUNDLE_CODEX_VERSION` を再確認する。既存の `~/.codex` の設定・認証・baseline/ACK は保持する。
+2. `~/.codex-fugu` を `0700` で作成する。既に存在する場合は新規環境とみなさず内容と設定の保存先を確認する。既存 `~/.local/bin/codex-fugu` を専用 HOME 内の日時付きバックアップへコピーする。移動やアンインストールはしない。
+3. 上記の環境変数をセットした **subshell 内**で以後のインストールを行う。`FUGU_PINNED_VERSION`、`CODEX_RELEASE`、`FUGU_CONFIGS_DIR`、`CODEX_INSTALLER_CMD` の意図しない上書きを除去する。初回は `FUGU_ASSUME_YES=0 FUGU_FORCE=0 FUGU_DRY_RUN=0 FUGU_SKIP_BACKUP=0` とする。
+4. 専用 CLI がない場合は、`https://github.com/openai/codex/releases/download/rust-v<VERSION>/install.sh` を一時ファイルへ取得し、内容を確認して `PATH="$CODEX_INSTALL_DIR:/usr/bin:/bin:/usr/sbin:/sbin" CODEX_NON_INTERACTIVE=1 /bin/sh <installer> --release <VERSION>` で導入する。初回は Homebrew CLI を競合検出させず shell profile の編集を防ぐため、この PATH を使う。必要なシステムコマンドがなければ停止する。`<VERSION>` は bundle 指定版。取得失敗時に別バージョンへ進まない。専用 CLI の `--version` が指定版と一致することを確認する。PATH 上に同じ版があるだけでは専用 CLI の導入を省略しない（Fugu installer が早期終了する場合がある）。
+5. 専用 CLI の導入後、同じ subshell で `export PATH="$CODEX_INSTALL_DIR:$PATH"` を設定し、 `<fugu-repo>/scripts/install.sh --reconfigure` を Bash 5 で実行し、キーを非表示入力する。通常版の `.env`、`auth.json`、設定、Memory、Session をコピーしない。既存の専用 CLI の版が異なる場合は公式 installer の切り替え確認に従い、完了後に版の一致を再確認する。
+
+### 入口を切り替える前の検証
+
+未適用の `dot_local/bin/executable_codex-fugu` を Bash 5 の絶対パスで実行する（source ファイルは実行可能 mode とは限らない）。専用公式ランチャーを環境指定なしで直接起動すると通常版 HOME を使うため、必ず管理ラッパーを経由する。
+
+- `--status` で専用 HOME、専用 bin、実体、bundle 指定版、repo/branch を確認する。status 成功だけでは設定や認証の正常性を証明しない。
+- 専用設定・profile 内に通常版を指す `sqlite_home` や catalog 参照がないこと、専用 `.env` が `0600` であることを確認する。キーの内容は表示しない。
+- `--no-update exec --sandbox read-only --skip-git-repo-check 'Reply with FUGU_ISOLATION_OK only. Do not use tools.'` をラッパーに渡し、実際の API 応答と専用 HOME 内の新規 Session を確認する。失敗時は入口を切り替えない。この確認には Sakana API の利用が発生する。
+
+成功後、main の source から **対象を限定**して適用する。
+
+```bash
+chezmoi diff "$HOME/.local/bin/codex-fugu"
+chezmoi apply --dry-run "$HOME/.local/bin/codex-fugu"
+chezmoi apply -v "$HOME/.local/bin/codex-fugu"
+codex-fugu --status
+```
+
+Mac Fish / Linux Bash で `codex` が通常版、`codex-fugu` が管理ラッパーに解決されることを確認する。通常版設定と baseline/ACK が変わっていないことも確認する。失敗時はバックアップした旧ランチャーと管理元の変更を戻す。これは従来の共有環境への復帰であり、専用 HOME は調査用に残す。
+
+### 更新と Memory の扱い
+
+通常起動の公式更新機能は維持する。更新や `--set-key` の子プロセスにも専用環境が渡るため、公式の配置・環境変数の契約が変わらない限り、Fugu や対応 CLI の更新でラッパー編集・chezmoi 再適用は不要。検証時だけ `--no-update` を使う。clone にローカル変更がある場合は更新による破棄を承認せず、先に変更を保護する。
+
+標準の生成 Memory は `CODEX_HOME/memories` に保存されるため、リポジトリに関する記憶も分離対象。リポジトリ内の `AGENTS.md` や文書は引き続き共有する。これは保存先の分離であり、Fugu で Memory の生成・利用が正常に動作することは別途検証する。Memory をこの作業で有効化したり既存状態を移行したりしない。[公式 Memory 説明](https://learn.chatgpt.com/docs/customization/memories) / [環境変数](https://learn.chatgpt.com/docs/config-file/environment-variables)。
+
+fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、auto-review は [#367](https://github.com/toku345/dotfiles/issues/367) で扱う。通常版 HOME に残る Fugu 設定の整理も分離成功後の別作業。旧アンインストーラーは記録済みの `~/.local/bin/codex-fugu` を削除する場合があるため、そのまま実行しない。新旧 CLI の交互利用で Memory が破損すると確認されたわけではなく、分離は未確認の互換性への依存を避けるために行う。
+
 ## 管理するもの
 
 - `private_dot_codex/AGENTS.md` -> `~/.codex/AGENTS.md`
