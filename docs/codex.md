@@ -2,7 +2,7 @@
 
 このリポジトリでは `~/.codex` を丸ごと管理しない。
 
-設計判断 (3-file 構成 / hash gate / migration fail-closed) の詳細は [ADR 0024](adr/0024-codex-baseline-hash-state.md) を参照。
+設計判断 (per-key pin/seed/free と `modify_` script) の詳細は [ADR 0037](adr/0037-codex-config-per-key-policy.md) を参照。ADR 0024 の 3-file 構成と hash gate は ADR 0037 が置き換えた。
 
 ## Fugu と通常版 CLI の分離
 
@@ -30,7 +30,7 @@ API キーは専用 `.env` を使用する。ラッパーは継承キーを除�
 
 以下は **Bash 5 の端末**で実施する。Fish からは先に `bash` に入る。開発中は一時 destination の実行可能ファイルを `chezmoi add` して管理元に登録し、既存の live ランチャーを置き換えない。worktree の変更は main に取り込んでから apply する。
 
-1. 通常版のコマンド解決・バージョン、Fugu clone の変更・commit・`configs/bundle.sh` の `BUNDLE_CODEX_VERSION` を再確認する。既存の `~/.codex` の設定・認証・baseline/ACK は保持する。
+1. 通常版のコマンド解決・バージョン、Fugu clone の変更・commit・`configs/bundle.sh` の `BUNDLE_CODEX_VERSION` を再確認する。既存の `~/.codex` の設定・認証は保持する。
 2. `~/.codex-fugu` を `0700` で作成する。既に存在する場合は新規環境とみなさず内容と設定の保存先を確認する。既存 `~/.local/bin/codex-fugu` を専用 HOME 内の日時付きバックアップへコピーする。移動やアンインストールはしない。
 3. 上記の環境変数をセットした **subshell 内**で以後のインストールを行う。`FUGU_PINNED_VERSION`、`CODEX_RELEASE`、`FUGU_CONFIGS_DIR`、`CODEX_INSTALLER_CMD` の意図しない上書きを除去する。初回は `FUGU_ASSUME_YES=0 FUGU_FORCE=0 FUGU_DRY_RUN=0 FUGU_SKIP_BACKUP=0` とする。
 4. 専用 CLI がない場合は、`https://github.com/openai/codex/releases/download/rust-v<VERSION>/install.sh` を一時ファイルへ取得し、内容を確認して `PATH="$CODEX_INSTALL_DIR:/usr/bin:/bin:/usr/sbin:/sbin" CODEX_NON_INTERACTIVE=1 /bin/sh <installer> --release <VERSION>` で導入する。初回は Homebrew CLI を競合検出させず shell profile の編集を防ぐため、この PATH を使う。必要なシステムコマンドがなければ停止する。`<VERSION>` は bundle 指定版。取得失敗時に別バージョンへ進まない。専用 CLI の `--version` が指定版と一致することを確認する。PATH 上に同じ版があるだけでは専用 CLI の導入を省略しない（Fugu installer が早期終了する場合がある）。
@@ -53,7 +53,7 @@ chezmoi apply -v "$HOME/.local/bin/codex-fugu"
 codex-fugu --status
 ```
 
-Mac Fish / Linux Bash で `codex` が通常版、`codex-fugu` が管理ラッパーに解決されることを確認する。通常版設定と baseline/ACK が変わっていないことも確認する。失敗時はバックアップした旧ランチャーと管理元の変更を戻す。これは従来の共有環境への復帰であり、専用 HOME は調査用に残す。
+Mac Fish / Linux Bash で `codex` が通常版、`codex-fugu` が管理ラッパーに解決されることを確認する。通常版設定が変わっていないことも確認する。失敗時はバックアップした旧ランチャーと管理元の変更を戻す。これは従来の共有環境への復帰であり、専用 HOME は調査用に残す。
 
 ### 更新と Memory の扱い
 
@@ -66,12 +66,11 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 ## 管理するもの
 
 - `private_dot_codex/AGENTS.md` -> `~/.codex/AGENTS.md`
-- `private_dot_codex/private_config.chezmoi.toml` -> `~/.codex/config.chezmoi.toml`
+- `private_dot_codex/modify_private_config.toml` -> `~/.codex/config.toml` の per-key 更新（chezmoi の `modify_` target）
 - `private_dot_codex/private_review.config.toml` -> `~/.codex/review.config.toml`
 - `private_dot_codex/private_review_deep.config.toml` -> `~/.codex/review_deep.config.toml`
 - `private_dot_codex/private_review_audit.config.toml` -> `~/.codex/review_audit.config.toml`
 - `private_dot_codex/rules/managed.rules` -> `~/.codex/rules/managed.rules`
-- `.chezmoiscripts/run_after_check-codex-config.sh`
 - `.chezmoiscripts/run_after_setup-agmsg.sh`
 - `.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh`
 
@@ -84,14 +83,17 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 - `~/.codex/logs_*.sqlite*`
 - `~/.codex/cache/`
 - `~/.codex/rules/default.rules` (Codex UI が更新する user-local allow rules)
-- `~/.codex/.baseline-hash` (chezmoi script が生成する hash state)
+- `~/.codex/config.toml` の `free` キー: `plugins` / `mcp_servers` / `projects` / `notice` / `hooks.state` / `notify` / `service_tier` / `sandbox_workspace_write.writable_roots`
 
 ## 運用
 
-1. `chezmoi apply` で `~/.codex/config.chezmoi.toml` を配置する
-2. `~/.codex/config.toml` が存在しない場合だけ、script が baseline をコピーして初期化する
-3. 以後 `~/.codex/config.toml` は live file として残し、Codex が書いた local-only section を保持する
-4. baseline を更新したら、`chezmoi apply` が baseline の hash 変化を検出して exit 1 で停止する。`diff -u ~/.codex/config.toml ~/.codex/config.chezmoi.toml` で baseline 更新分を確認し、local-only section を保ったまま live に取り込む。merge 後、新 baseline を ACK するため `hash=$(sha256sum ~/.codex/config.chezmoi.toml 2>/dev/null || shasum -a 256 ~/.codex/config.chezmoi.toml) && printf '%s\n' "${hash%% *}" > ~/.codex/.baseline-hash && chmod 600 ~/.codex/.baseline-hash` を実行し、再 `chezmoi apply` する。無関係な dotfile を急ぎ apply したい場合は `chezmoi apply <target>` で個別指定すればこの script は trigger されない
+`chezmoi apply` は `private_dot_codex/modify_private_config.toml` を通して `~/.codex/config.toml` を更新する。live file は chezmoi の所有物にはならず、script が live を読んで per-key 更新した内容だけを書き戻す。
+
+1. ポリシー表は `private_dot_codex/modify_private_config.toml` に 1 つだけ置く。行の形式は `<section>|<key>|<toml-value>` で、`pin` と `seed` を分けて書く。`free` は表に載せず docs に列挙する
+2. `pin` は apply ごとに再適用され、`seed` はキーが無いときだけ投入される。`seed` の live 値が宣言値と違う場合は stderr に `codex-config: seed <key> differs...` と警告し、live を保持する
+3. 変更手順は script の表を編集して `chezmoi apply` するだけ。hash gate も ACK も手動 merge も不要。`chezmoi diff ~/.codex/config.toml` で pin の差分を確認できる
+4. 移行時に旧 baseline と hash state を削除する: `rm -f ~/.codex/config.chezmoi.toml ~/.codex/.baseline-hash`。chezmoi は source から消えた `config.chezmoi.toml` を `apply` で削除するが、`.baseline-hash` は手動削除が必要
+5. 未知キーや Codex / installer が書く section は行単位でそのまま保持される。TOML を構造として再生成しないため、整形の差は drift として扱われない
 
 ## local-only とする section
 
@@ -106,7 +108,7 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 
 ## 実験的コンテキスト管理
 
-長い対話で制約や設計判断の理由を保持しやすくするため、以下を baseline に含める。複数端末で継続利用を試す設定として管理する。
+長い対話で制約や設計判断の理由を保持しやすくするため、以下を `pin` に含める。複数端末で継続利用を試す設定として管理する。
 
 ```toml
 [features.context_management]
@@ -123,7 +125,7 @@ experimental_mode = true
 
 新規タスク開始時に設定読み込みエラーがないことを確認する。エラーがないだけでは当該設定の受理や機能動作を確認したことにはせず、確認できなかった部分は未検証として記録する。
 
-無効化: live の同じキーを `false` にして新規タスクを開始する（[公式設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)）。端末単位の無効化では baseline の ACK 更新は不要。全端末向けに取り消す場合は baseline も `false` に変更し、通常の運用手順で反映する。
+無効化: live の同じキーを `false` にして新規タスクを開始する（[公式設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)）。端末単位の無効化ではポリシー変更は不要。全端末向けに取り消す場合は `pin` の値を `false` に変更し、`chezmoi apply` で反映する。
 
 ## agmsg writable roots
 
@@ -137,8 +139,7 @@ agmsg installer は Codex bridge / monitor beta 用に、`~/.codex/config.toml`
 この repo では Codex monitor beta を通常運用の対象外とし、Codex delivery
 mode は `off` で使うが、agmsg runtime state の書き込み先として同じ
 3ディレクトリを許可する。これらは
-`~/.codex/config.chezmoi.toml` ではなく installer-managed local entry として
-live config に保持する。baseline 更新時は他の local-only section と同様に残す。
+`free` キーとして扱い、installer-managed local entry のまま live config に保持する。ポリシー変更時も残る。
 
 `.chezmoiscripts/run_after_setup-agmsg.sh` は install/update 前後の
 `~/.codex/config.toml` diff を確認し、この3ディレクトリの writable roots 追加
@@ -154,7 +155,7 @@ command = "/absolute/path/to/cc-session-finder"
 args = ["mcp"]
 ```
 
-この section は `~/.codex/config.chezmoi.toml` ではなく installer-managed local entry として live config に保持する。baseline 更新時は他の local-only section と同様に残す。
+この section は `free` キーとして installer-managed local entry のまま live config に保持する。ポリシー変更時も残る。
 
 managed install は `${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-session-finder` (CARGO_INSTALL_ROOT → CARGO_HOME → `~/.cargo` の順で解決) を優先する。通常の `chezmoi apply` は既存 binary の revision を判定せず、`CC_SESSION_FINDER_REINSTALL=1 chezmoi apply -v` のときだけ pinned revision を managed path へ強制再インストールする。`CC_SESSION_FINDER_REF` の reviewed bump 手順は [docs/claude-code-plugins.md の定期更新チェックリスト](claude-code-plugins.md#定期更新チェックリスト) を参照。
 
@@ -170,7 +171,7 @@ managed install は `${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-s
 
 ## status line
 
-Codex CLI の TUI footer は baseline で最小限の常時表示にする。
+Codex CLI の TUI footer は `pin` で最小限の常時表示にする。
 
 - `model-with-reasoning`
 - `current-dir`
@@ -185,7 +186,7 @@ Codex CLI の TUI footer は baseline で最小限の常時表示にする。
 
 status line の項目ごとの色表示は `status_line_use_colors = true` で有効にする。
 
-`used-tokens` は長時間セッションの診断には有用だが、常時表示ではノイズになりやすいため baseline には入れない。必要な時は `/status` または `/statusline` で確認する。
+`used-tokens` は長時間セッションの診断には有用だが、常時表示ではノイズになりやすいため `pin` には入れない。必要な時は `/status` または `/statusline` で確認する。
 
 ## review profile
 
@@ -195,7 +196,7 @@ status line の項目ごとの色表示は `status_line_use_colors = true` で�
 - `review_deep.config.toml`: `gpt-5.6-sol` / `high`
 - `review_audit.config.toml`: `gpt-5.6-sol` / `xhigh`
 
-これらの profile は `multi_agent` を有効にし、現在の model metadata が選ぶ V2 runtime で動作する。`approval_policy = "on-request"`、`sandbox_mode = "workspace-write"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は managed baseline から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は `config.chezmoi.toml` の hash gate 対象ではない。通常 session の baseline と `run_after_check-codex-config.sh` による live config 保護は従来どおり維持する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
+これらの profile は `multi_agent` を有効にし、現在の model metadata が選ぶ V2 runtime で動作する。`approval_policy = "on-request"`、`sandbox_mode = "workspace-write"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `private_dot_codex/modify_private_config.toml` が管理する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
 
 multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。`$pr-review` は実際に公開された tool schema を検査し、V1/V2 のどちらにも対応する。
 
@@ -223,7 +224,7 @@ codex \
 
 runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は isolated `CODEX_HOME` と `/tmp` の fixture を使い、live config や chezmoi target を変更しない。`chezmoi apply` は変更を main に merge した後だけ実行する。
 
-`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常 session の baseline は `high` とし、review用途では profile を明示的に切り替える。
+`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常 session は `high` とし、review用途では profile を明示的に切り替える。
 
 - `review`: 通常レビュー・dogfood iteration 用
 - `review_deep`: 複雑な PR や main pre-merge review 用
@@ -233,8 +234,8 @@ runtime smoke は credentials と server-side model catalog に依存するた�
 
 ## commit attribution
 
-Codex CLI 0.131 系で `codex_git_commit` feature flag と `commit_attribution` config は削除された。baseline ではこれらの削除済み config は使わず、個人 preference として `~/.codex/AGENTS.md` に実行時の model ID を含む Co-authored-by trailer 指示を置く。
+Codex CLI 0.131 系で `codex_git_commit` feature flag と `commit_attribution` config は削除された。ポリシー表ではこれらの削除済み config は扱わず、個人 preference として `~/.codex/AGENTS.md` に実行時の model ID を含む Co-authored-by trailer 指示を置く。
 
 ## 通知
 
-macOS の desktop notification は今後の検討事項。`notify = [...]` は helper の存在や OS 差分に依存するため、baseline へ固定値として入れる前に template / opt-in / availability check の方針を決める。
+macOS の desktop notification は今後の検討事項。`notify = [...]` は helper の存在や OS 差分に依存するため、`pin` として固定する前に template / opt-in / availability check の方針を決める。
