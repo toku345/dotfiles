@@ -1,0 +1,189 @@
+#!/bin/sh
+# chezmoi `modify_` script for ~/.codex/config.toml (policy: docs/codex.md).
+#
+# The live file arrives on stdin and the desired file is written to stdout.
+# `pin` entries are re-asserted on every apply, `seed` entries are written only
+# when the key is absent (divergence is reported on stderr), and `free` keys are
+# never touched. Reports go to stderr only; stdout is file content.
+#
+# Policy table format: "<section>|<key>|<toml-value>"; an empty section means a
+# top-level key. Table-valued pins are compared with whitespace stripped, so a
+# reformat by Codex (for example a multi-line array) is not treated as drift.
+set -eu
+
+policy_pins() {
+	cat <<'POLICY'
+|sandbox_mode|"workspace-write"
+|approval_policy|"on-request"
+|approvals_reviewer|"guardian_subagent"
+sandbox_workspace_write|network_access|false
+features|multi_agent|true
+features|apps|true
+features|guardian_approval|true
+features|terminal_resize_reflow|true
+features|memories|true
+features|network_proxy|true
+features|mentions_v2|true
+features.context_management|experimental_mode|true
+tui|status_line|["model-with-reasoning", "current-dir", "git-branch", "context-remaining", "five-hour-limit", "codex-version", "pull-request-number", "branch-changes", "run-state", "task-progress"]
+tui|status_line_use_colors|true
+POLICY
+}
+
+policy_seeds() {
+	cat <<'POLICY'
+|model|"gpt-6-astra"
+|model_reasoning_effort|"medium"
+|plan_mode_reasoning_effort|"xhigh"
+|personality|"pragmatic"
+POLICY
+}
+
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/codex-config-policy.XXXXXX")"
+trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
+policy_pins >"$tmpdir/pins"
+policy_seeds >"$tmpdir/seeds"
+
+cat >"$tmpdir/merge.awk" <<'AWK'
+# The file is modelled as an ordered list of sections: section 0 is the
+# implicit top-level section, later sections carry their original header line.
+# Policies are then applied per section, and the model is rendered back out.
+
+function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+
+ # Compare values after dropping the key, surrounding brackets, quotes and
+ # whitespace, so a reformatted array (Codex writes one element per line and
+ # keeps a trailing comma) is not treated as drift.
+function norm(s) {
+	gsub(/[ \t\r\n]/, "", s)
+	gsub(/^[^=]*=/, "", s)
+	gsub(/^\[/, "", s)
+	gsub(/\]$/, "", s)
+	gsub(/"/, "", s)
+	gsub(/,$/, "", s)
+	return s
+}
+
+function warn(m) { printf "codex-config: %s\n", m > "/dev/stderr" }
+
+function load(path, start, is_seed,   line, n, a) {
+	n = 0
+	while ((getline line < path) > 0) {
+		if (line == "") continue
+		n++
+		split(line, a, "|")
+		P_SEC[start + n] = a[1]
+		P_KEY[start + n] = a[2]
+		P_VAL[start + n] = a[3]
+		P_SEED[start + n] = is_seed
+	}
+	close(path)
+	return n
+}
+
+function add_line(sec, txt) {
+	SEC_N[sec]++
+	SEC_L[sec, SEC_N[sec]] = txt
+}
+
+function find_sec(name,   i) {
+	for (i = 0; i <= nsec; i++) if (SEC_NAME[i] == name) return i
+	return -1
+}
+
+function bracket_depth(t,   k, c, n, d) {
+	d = 0; n = length(t)
+	for (k = 1; k <= n; k++) {
+		c = substr(t, k, 1)
+		if (c == "[" || c == "{") d++
+		else if (c == "]" || c == "}") d--
+	}
+	return d
+}
+
+# Last line of the value that starts on line j (a multi-line TOML array).
+function value_end(sec, j,   depth, p) {
+	depth = bracket_depth(SEC_L[sec, j])
+	if (depth <= 0) return j
+	for (p = j + 1; p <= SEC_N[sec]; p++) {
+		depth += bracket_depth(SEC_L[sec, p])
+		if (depth <= 0) return p
+	}
+	return SEC_N[sec]
+}
+
+function join_lines(sec, j1, j2,   s, j) {
+	s = ""
+	for (j = j1; j <= j2; j++) s = s SEC_L[sec, j] "\n"
+	return s
+}
+
+function apply_policy(name, k, v, is_seed,   sec, j, e, ind, shift, x) {
+	sec = find_sec(name)
+	if (sec < 0) {
+		nsec++
+		SEC_NAME[nsec] = name
+		SEC_HDR[nsec] = "[" name "]"
+		SEC_NEW[nsec] = 1
+		SEC_N[nsec] = 0
+		add_line(nsec, k " = " v)
+		return
+	}
+	for (j = 1; j <= SEC_N[sec]; j++) {
+		if (trim(SEC_L[sec, j]) !~ ("^\"" k "\"[ \t]*=|^" k "[ \t]*=")) continue
+		e = value_end(sec, j)
+		if (norm(join_lines(sec, j, e)) == norm(k " = " v)) return
+		if (is_seed) {
+			warn("seed " k " differs from the declared value; keeping " trim(join_lines(sec, j, e)))
+			return
+		}
+		ind = SEC_L[sec, j]
+		sub(/[^ \t].*$/, "", ind)
+		SEC_L[sec, j] = ind k " = " v
+		for (shift = e - j; shift > 0; shift--) {
+			for (x = j + 1; x < SEC_N[sec]; x++) SEC_L[sec, x] = SEC_L[sec, x + 1]
+			delete SEC_L[sec, SEC_N[sec]]
+			SEC_N[sec]--
+		}
+		return
+	}
+	add_line(sec, k " = " v)
+}
+
+BEGIN {
+	np = load(pins, 0, 0)
+	ns = load(seeds, np, 1)
+	nsec = 0
+	SEC_NAME[0] = ""
+	SEC_N[0] = 0
+	cur = 0
+}
+
+{
+	t = trim($0)
+	if (t ~ /^\[.*\]$/) {
+		nsec++
+		SEC_NAME[nsec] = substr(t, 2, length(t) - 2)
+		SEC_HDR[nsec] = t
+		SEC_N[nsec] = 0
+		cur = nsec
+	} else {
+		add_line(cur, $0)
+	}
+}
+
+END {
+	for (i = 1; i <= np + ns; i++) apply_policy(P_SEC[i], P_KEY[i], P_VAL[i], P_SEED[i])
+
+	for (j = 1; j <= SEC_N[0]; j++) printf "%s\n", SEC_L[0, j]
+	for (i = 1; i <= nsec; i++) {
+		if (SEC_N[i] == 0) continue
+		if (SEC_NEW[i]) printf "\n"
+		printf "%s\n", SEC_HDR[i]
+		for (j = 1; j <= SEC_N[i]; j++) printf "%s\n", SEC_L[i, j]
+	}
+}
+AWK
+
+awk -v pins="$tmpdir/pins" -v seeds="$tmpdir/seeds" -f "$tmpdir/merge.awk"

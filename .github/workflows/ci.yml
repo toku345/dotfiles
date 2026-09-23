@@ -59,8 +59,8 @@ jobs:
             echo ""
             echo "Checking: $script"
             shellcheck --severity=warning "$script" || FAILED=1
-          done < <(find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks tests/bats/bin .claude/hooks \
-              -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" \) \
+          done < <(find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks tests/bats/bin .claude/hooks private_dot_codex \
+              -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" -o -name "modify_*" \) \
               2>/dev/null)
 
           if [ $FOUND -eq 0 ]; then
