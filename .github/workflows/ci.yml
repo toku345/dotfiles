@@ -290,18 +290,13 @@ jobs:
           HERDR_CONFIG_PATH: ${{ github.workspace }}/private_dot_config/herdr/config.toml
         run: herdr config check
 
-      - name: Set up Python for config policy tests
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.11"
-
       - name: Set up uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Prepare isolated config policy dependencies
         run: |
           policy_test_root=$(mktemp -d)
-          XDG_DATA_HOME="$policy_test_root/data" UV_CACHE_DIR="$policy_test_root/cache" sh scripts/codex-config/setup.sh "$(command -v python3)"
+          XDG_DATA_HOME="$policy_test_root/data" UV_CACHE_DIR="$policy_test_root/cache" sh scripts/codex-config/setup.sh
           echo "CODEX_CONFIG_TEST_PYTHON=$policy_test_root/data/codex-config-policy/venv/bin/python" >> "$GITHUB_ENV"
 
       - name: Run bats test suite
@@ -316,14 +311,17 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            python: "3.11"
+            python: "uv-managed"
           - os: macos-15
-            python: "3.14"
+            python: "uv-managed"
+          - os: ubuntu-latest
+            python: "3.11"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: matrix.python != 'uv-managed'
         with:
           python-version: ${{ matrix.python }}
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -333,10 +331,16 @@ jobs:
           sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$RUNNER_TEMP/policy-bin"
           echo "$RUNNER_TEMP/policy-bin" >> "$GITHUB_PATH"
       - name: Prepare dependencies and test
+        env:
+          POLICY_TEST_PYTHON: ${{ matrix.python }}
         run: |
           policy_test_root=$(mktemp -d)
           export UV_CACHE_DIR="$policy_test_root/cache"
-          XDG_DATA_HOME="$policy_test_root/data" sh scripts/codex-config/setup.sh "$(command -v python3)"
+          if [ "$POLICY_TEST_PYTHON" = uv-managed ]; then
+            XDG_DATA_HOME="$policy_test_root/data" sh scripts/codex-config/setup.sh
+          else
+            XDG_DATA_HOME="$policy_test_root/data" sh scripts/codex-config/setup.sh "$(command -v python3)"
+          fi
           "$policy_test_root/data/codex-config-policy/venv/bin/python" -B tests/codex/test_config_policy.py
           "$policy_test_root/data/codex-config-policy/venv/bin/python" -B tests/codex/test_config_setup.py
 
