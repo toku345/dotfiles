@@ -91,54 +91,45 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 
 ### 初回準備・依存更新
 
-asdf で選択した Python 3.11 以上と uv が必要。初回の `diff` / `apply` **より前**に準備する（例は POSIX shell / Bash）。既存の対応バージョンがあれば、その選択を維持する。
-
-Python が未準備の場合は、[asdf-python のビルド依存](https://github.com/asdf-community/asdf-python#use)を OS に合わせて先に導入する。`asdf plugin list` に python がなければ次で追加する。短縮名リポジトリには依存しない。
-
-```sh
-asdf plugin add python https://github.com/asdf-community/asdf-python.git
-```
-
-次の `<version>` は端末で使う Python 3.11 以上の具体的なバージョンに置換する。`asdf set -u` は HOME の設定を変更するため、既存の選択を変更したい場合だけ実行する。
-
-```sh
-asdf install python <version>
-asdf set -u python <version>
-```
-
-source directory で依存を準備する。
+Homebrew で uv を用意し、初回の `status` / `diff` / `apply` **より前**に source directory で次を実行する（例は POSIX shell / Bash）。asdf の Python プラグインや Python のビルド依存は不要。
 
 ```sh
 sh scripts/codex-config/setup.sh
 ```
 
-引数省略時は HOME で `asdf which python3` を実行する。asdf の環境変数による明示的な選択も尊重するが、呼び出し元や source の親にある別プロジェクトの設定には依存しない。CI 等では `sh scripts/codex-config/setup.sh /absolute/path/to/python3` で実行ファイルを明示でき、この場合は asdf 不要。別の Python への自動フォールバックはしない。
+setup は `scripts/codex-config/.python-version` の系列（現在は 3.14）を使う。初回だけ uv が Python を取得し、`${XDG_DATA_HOME:-$HOME/.local/share}/codex-config-policy/python` に配置する。専用 venv は同じ親ディレクトリの `venv` に置く。グローバルの PATH、asdf の選択、他用途の Python は変更しない。別プロジェクトの `.python-version` や activate 済み venv にも依存しない。
 
-セットアップは `${XDG_DATA_HOME:-$HOME/.local/share}/codex-config-policy/venv` に、選択した Python を明示した `uv sync --locked --no-python-downloads` で依存を用意する。Python 本体は自動取得しない。通常の `diff` / `apply` は専用 venv を直接使い、asdf の呼び出し・通信・依存導入はしない。環境がない、または TOML Kit の版が lock と異なる場合は停止して準備手順を表示する。
+通常の再実行は既存 venv の Python を再利用し、`uv sync --locked --no-python-downloads` で依存だけを同期する。Python のパッチ版を自動更新せず、正常な venv を退避・再作成しない。依存更新が失敗したら、原因を解消して同じ setup を再実行する。この経路では依存の自動ロールバックは行わない。
 
-依存は `scripts/codex-config/pyproject.toml` と `uv.lock` で管理する。Dependabot は `uv` ecosystem で週次更新し、7日間の cooldown を適用する。更新 PR を確認・取り込んだ後は同じセットアップを再実行する。Python・uv 本体は端末側の既存の方法で更新する。セキュリティ更新は Dependabot の cooldown 対象外なので、通常更新と同様に内容をレビューする。
+TOML Kit は `pyproject.toml` と `uv.lock` で管理する。Dependabot の `uv` ecosystem による更新 PR を確認・取り込んだ後も、同じ setup を実行する。通常更新の cooldown は7日間で、セキュリティ更新は対象外。uv 本体は [Homebrew 更新手順](homebrew-update.md) で更新する。取得可能な Python の版は uv に組み込まれているため、新しいパッチを取得するには uv の更新が必要な場合がある。
 
-### Python の切り替え・venv の再作成
+通常の `status` / `diff` / `apply` は専用 venv を直接使い、uv の呼び出し・通信・依存導入はしない。環境がない、または TOML Kit の版が lock と異なる場合は停止して setup を案内する。
 
-既存 venv のベース Python が選択先と異なる、または起動できない場合、セットアップは uv の実行前に停止する。旧 Python を削除せず、専用 venv を退避してから再作成する。この間は `chezmoi diff` / `apply` を並行実行しない。
+### Python の更新・既存環境からの移行
 
-```sh
-policy_venv="${XDG_DATA_HOME:-$HOME/.local/share}/codex-config-policy/venv"
-policy_backup="$(mktemp -d "${policy_venv}.backup.XXXXXX")"
-mv "$policy_venv" "$policy_backup/venv" &&
-  sh scripts/codex-config/setup.sh
-```
-
-成功したら、更新処理のテストまたは対象 config の `chezmoi diff` を確認する。退避先は表示・記録しておき、不要と確認してから削除する。旧 Python は他の venv から参照されていないことも確認して削除する。
-
-失敗時は、同じシェルの上記変数を使い、作成途中の専用 venv だけを除去して元の場所へ戻す。退避先では venv を実行しない。
+Python の最新パッチへの更新、外部 Python を使う旧 venv からの移行、壊れた venv の再作成には次を使う。
 
 ```sh
-test -d "$policy_backup/venv" &&
-  rm -rf -- "$policy_venv" &&
-  mv "$policy_backup/venv" "$policy_venv" &&
-  rmdir "$policy_backup"
+sh scripts/codex-config/setup.sh --upgrade-python
 ```
+
+uv は宣言された系列内の最新パッチを専用ディレクトリに取得する。選択した interpreter が変わる、または既存 venv の Python が起動不能な場合だけ、旧 venv を `venv.backup` に退避して元の配置先で再作成する。Python が同じで venv も正常なら依存同期だけを行う。通常の setup は、外部 Python・異なる系列・起動不能を検出しても黙って切り替えず、この更新コマンドを案内する。
+
+新しい Python の取得・起動確認は退避前に行う。再作成後の interpreter・依存・設定更新処理の検証が成功したら退避 venv を削除する。再作成・検証の失敗や捕捉可能な中断では旧 venv を元の場所へ戻し、非ゼロ終了する。Python 本体の旧版は自動削除しない。
+
+復元するのは旧 venv の内容であり、ソースの lock が変更済みの場合や旧環境が元から壊れていた場合に、modifier の動作まで復旧するとは限らない。setup と `chezmoi status/diff/apply` は並行実行しない。
+
+CI・互換性検証では `sh scripts/codex-config/setup.sh /absolute/path/to/python` も使える。この経路は Python 3.11 以上を受け付け、Python を取得しない。既存 venv と interpreter が異なる場合は停止するため、別の XDG ディレクトリで検証する。`--upgrade-python` との併用はできない。
+
+### 強制終了後の復旧
+
+setup 同士の二重実行は `setup.lock` ディレクトリで拒否する。強制終了で残ったロック・退避データは自動削除しない。
+
+1. setup が動いていないことを確認する。
+2. エラーに表示された専用ディレクトリの `venv` と `venv.backup` を確認する。退避があれば、作成途中の `venv` を別名へ移して保護し、`venv.backup` を元の `venv` へ戻す。退避した位置では venv を実行しない。
+3. 復元が済んだら空の `setup.lock` を `rmdir` で除去し、setup を再実行する。旧環境が壊れている、または移行が必要なら `--upgrade-python` を付ける。
+
+復元自体に失敗した場合も両方のパスとロックを残す。内容を確認する前に削除しない。
 
 ### 設定の変更
 

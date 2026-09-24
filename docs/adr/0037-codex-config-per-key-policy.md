@@ -26,7 +26,7 @@ ADR 0024 は `~/.codex/config.toml` を chezmoi の所有物にせず、baseline
 
 値の比較は TOML の構造を解析した後、型と値で行う。独自の行解析はコメント内の括弧で free キーを削除したり、コメント付き見出しで重複テーブルを生成したため廃止する。pin 以外の値・既存 seed と installer ブロックの保持を出力前に検証し、失敗時は非ゼロ終了・stdout 空とする。変更が不要な入力はそのまま返す。
 
-依存は非パッケージ型 uv プロジェクト (`pyproject.toml` + `uv.lock`) として管理する。明示的なセットアップで専用 venv を準備し、通常の diff/apply は通信・インストールを行わない。Dependabot の uv ecosystem で依存更新を提案し、取り込み後にセットアップを再実行する。Python・uv 本体の更新は端末側で行う。
+依存は非パッケージ型 uv プロジェクト (`pyproject.toml` + `uv.lock`) として管理する。明示的なセットアップで専用 venv を準備し、通常の diff/apply は通信・インストールを行わない。Dependabot の uv ecosystem で依存更新を提案し、取り込み後にセットアップを再実行する。uv 本体は Homebrew で管理し、Python は setup が専用ディレクトリに uv で導入する。系列は `.python-version` で宣言し、パッチ更新は `setup.sh --upgrade-python` で明示する。通常の依存同期は uv に任せ、interpreter の変更時だけ venv の退避・再作成・失敗時復元を行う。
 
 `requirements.toml` は採用しない。0.154.0 の requirements schema は allow-list と feature requirement のみで reasoning effort を表現できず、読込パスも `/etc/codex/requirements.toml` と managed-requirements に限られ、ユーザー層のパスは確認できなかった。sudo を `chezmoi apply` の経路へ持ち込まないことを優先する。
 
@@ -45,5 +45,5 @@ hash gate は廃止する。pin は無条件に再適用され、seed の乖離�
 
 - `~/.codex/config.toml` が chezmoi の `diff` / `status` に出る target になった（内容は script の計算結果として表示される）。
 - pin は TUI での変更を打ち消す。日常的に切り替える値は seed に分類する必要がある。
-- Python 3.11 以上・uv・TOML Kit の準備が初回 diff/apply 前に必要となる。依存不足を黙って無視しない。
+- uv の導入と setup による Python・TOML Kit の準備が初回 status/diff/apply 前に必要となる。依存不足を黙って無視しない。
 - TOML Kit は一部の array-of-tables の配置を正規化する。値の保持は検証するが、変更時のファイル全体のバイト一致は保証しない。

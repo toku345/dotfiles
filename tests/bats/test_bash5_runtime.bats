@@ -31,15 +31,15 @@ setup() {
 }
 
 @test "bootstrap documents Bash 5 on macOS and config policy prerequisites on both platforms" {
-  run grep -Fxc '   brew install age bash asdf uv' "$README_FILE"
+  run grep -Fxc '   brew install age bash uv' "$README_FILE"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
 
-  run grep -Fxc '   brew install chezmoi age bash asdf uv' "$BACKUP_RESTORE_FILE"
+  run grep -Fxc '   brew install chezmoi age bash uv' "$BACKUP_RESTORE_FILE"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
 
-  run grep -Fxc 'brew install chezmoi age asdf uv' "$BACKUP_RESTORE_FILE"
+  run grep -Fxc 'brew install chezmoi age uv' "$BACKUP_RESTORE_FILE"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
 }

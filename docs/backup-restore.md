@@ -129,13 +129,13 @@ git push backup main
    # Homebrewのインストール（macOS）
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-   # chezmoi、age、Bash 5+のインストール
+   # chezmoi、age、Bash 5+、uv のインストール
    export HOMEBREW_NO_AUTO_UPDATE=1
    export HOMEBREW_NO_INSTALL_UPGRADE=1
    export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
    export HOMEBREW_CASK_OPTS=--require-sha
    export HOMEBREW_UPDATE_TO_TAG=1
-   brew install chezmoi age bash asdf uv
+   brew install chezmoi age bash uv
    ```
 
 2. **SSH鍵の設定**
@@ -164,10 +164,10 @@ git push backup main
 
 4. **dotfilesの適用**
 
-   初回 apply 前に [asdf の Python 準備手順](codex.md#初回準備依存更新)で Python 3.11+ とビルド依存を用意します。既存の対応バージョンはそのまま利用できます。
+   初回 status/diff/apply 前に、以下の setup で uv 管理の専用 Python と依存を準備します。[準備・更新手順](codex.md#初回準備依存更新)も参照してください。
 
    ```bash
-   # Python 3.11+ / uv で Codex 設定の依存を準備
+   # uv で Codex 設定用の Python と依存を準備
    cd "$(chezmoi source-path)"
    sh scripts/codex-config/setup.sh
 
@@ -202,16 +202,15 @@ sudo apt-get install -y build-essential curl file git procps
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
-# Step 3: chezmoi + age + asdf + uv
+# Step 3: chezmoi + age + uv
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_CASK_OPTS=--require-sha
 export HOMEBREW_UPDATE_TO_TAG=1
-brew install chezmoi age asdf uv
+brew install chezmoi age uv
 
-# Step 4: docs/codex.md の手順で asdf の Python 3.11+ を準備してから実行
-# source + dependencies + apply
+# Step 4: source + uv-managed Python/dependencies + apply
 chezmoi init toku345
 cd "$(chezmoi source-path)"
 sh scripts/codex-config/setup.sh
