@@ -160,13 +160,14 @@ class CommandTests(unittest.TestCase):
         self.home = self.base / "home"
         self.home.mkdir()
         self.env = os.environ.copy()
-        self.env.update(HOME=str(self.home), CHEZMOI_SOURCE_DIR=str(self.source),
+        self.env.update(HOME=str(self.home),
                         XDG_DATA_HOME=str(self.base / "data"),
                         XDG_CONFIG_HOME=str(self.base / "config"),
                         XDG_CACHE_HOME=str(self.base / "cache"),
                         XDG_STATE_HOME=str(self.base / "state"),
                         UV_CACHE_DIR=str(self.base / "uv-cache"),
                         PYTHONDONTWRITEBYTECODE="1")
+        self.env.pop("CHEZMOI_SOURCE_DIR", None)
         self.env.pop("PYTHONPATH", None)
         self.env.pop("PYTHONHOME", None)
         self.venv = self.base / "data" / "codex-config-policy" / "venv"
@@ -176,8 +177,10 @@ class CommandTests(unittest.TestCase):
         self.venv.symlink_to(sys.prefix, target_is_directory=True)
 
     def wrapper_run(self, source):
+        env = self.env.copy()
+        env["CHEZMOI_SOURCE_DIR"] = str(self.source)
         return subprocess.run(["/bin/sh", str(self.wrapper)], input=source, text=True,
-                              capture_output=True, env=self.env, cwd=self.base)
+                              capture_output=True, env=env, cwd=self.base)
 
     def test_wrapper_from_other_cwd(self):
         result = self.wrapper_run("")
@@ -214,6 +217,8 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
 
     def test_chezmoi_lifecycle(self):
+        # The real chezmoi invocation must provide the modifier's source directory.
+        self.assertNotIn("CHEZMOI_SOURCE_DIR", self.env)
         chezmoi = shutil.which("chezmoi")
         self.assertIsNotNone(chezmoi, "chezmoi is required for integration coverage")
         config = self.base / "chezmoi.toml"

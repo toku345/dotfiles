@@ -105,6 +105,12 @@ TOML Kit は `pyproject.toml` と `uv.lock` で管理する。Dependabot の `uv
 
 通常の `status` / `diff` / `apply` は専用 venv を直接使い、uv の呼び出し・通信・依存導入はしない。環境がない、または TOML Kit の版が lock と異なる場合は停止して setup を案内する。
 
+### GitHub plugin の初回導入
+
+plugin は端末ごとの local-only 設定として管理する。このリポジトリの policy は GitHub plugin を新規環境で自動的に有効化しない。既存の `plugins` 設定は、有効・無効の選択を含めて保持する。
+
+GitHub plugin を使う場合は、Codex CLI を起動して `/plugins` を開き、GitHub を選択してインストールする。表示される接続・認証手順を完了し、新しいセッションを開始して利用する。詳細は [公式の plugin 導入手順](https://learn.chatgpt.com/docs/plugins#install-and-use-a-plugin) を参照する。
+
 ### Python の更新・既存環境からの移行
 
 Python の最新パッチへの更新、外部 Python を使う旧 venv からの移行、壊れた venv の再作成には次を使う。
@@ -285,7 +291,7 @@ codex \
 
 runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は isolated `CODEX_HOME` と `/tmp` の fixture を使い、live config や chezmoi target を変更しない。`chezmoi apply` は変更を main に merge した後だけ実行する。
 
-`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常 session は `high` とし、review用途では profile を明示的に切り替える。
+`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。このリポジトリの初回設定値は `medium` で、seed のため既存の値は保持する。review 用途では profile を明示的に切り替える。
 
 - `review`: 通常レビュー・dogfood iteration 用
 - `review_deep`: 複雑な PR や main pre-merge review 用
