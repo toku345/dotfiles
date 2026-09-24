@@ -30,7 +30,7 @@ docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
   /tmp/uv-bootstrap/bin/pip install --only-binary=:all: uv
   export PATH="/tmp/uv-bootstrap/bin:$PATH"
   export XDG_DATA_HOME=/tmp/policy-test/data UV_CACHE_DIR=/tmp/policy-test/cache
-  sh scripts/codex-config/setup.sh
+  sh scripts/codex-config/setup.sh /usr/bin/python3
   export CODEX_CONFIG_TEST_PYTHON="$XDG_DATA_HOME/codex-config-policy/venv/bin/python"
   bats tests/bats/
 '

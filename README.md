@@ -5,15 +5,19 @@ toku345's dotfiles managed by chezmoi.
 ## Setup
 
 1. Install [chezmoi](https://www.chezmoi.io/install/)
-2. Install age, Bash 5+, Python 3.11+, and uv
+2. Install age, Bash 5+, asdf, and uv
 
    ```sh
-   brew install age bash python uv
+   brew install age bash asdf uv
    ```
 
    Managed tools such as `brew-reviewed-upgrade` and `ghostty-theme` require
    Bash 5 or newer. macOS system Bash 3.2 remains available only for shell
    configuration that intentionally supports it.
+
+   Before the first apply, configure Python 3.11+ in asdf at HOME using the
+   [Python setup instructions](docs/codex.md#初回準備依存更新).
+   Keep an existing compatible asdf selection; no repository version pin is needed.
 
 3. Fetch the source, prepare Codex config dependencies, then apply
 

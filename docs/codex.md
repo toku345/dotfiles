@@ -91,15 +91,54 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 
 ### 初回準備・依存更新
 
-Python 3.11 以上と uv が必要。初回の `diff` / `apply` **より前**に source directory で次を実行する（例は POSIX shell / Bash）。
+asdf で選択した Python 3.11 以上と uv が必要。初回の `diff` / `apply` **より前**に準備する（例は POSIX shell / Bash）。既存の対応バージョンがあれば、その選択を維持する。
+
+Python が未準備の場合は、[asdf-python のビルド依存](https://github.com/asdf-community/asdf-python#use)を OS に合わせて先に導入する。`asdf plugin list` に python がなければ次で追加する。短縮名リポジトリには依存しない。
+
+```sh
+asdf plugin add python https://github.com/asdf-community/asdf-python.git
+```
+
+次の `<version>` は端末で使う Python 3.11 以上の具体的なバージョンに置換する。`asdf set -u` は HOME の設定を変更するため、既存の選択を変更したい場合だけ実行する。
+
+```sh
+asdf install python <version>
+asdf set -u python <version>
+```
+
+source directory で依存を準備する。
 
 ```sh
 sh scripts/codex-config/setup.sh
 ```
 
-セットアップは `${XDG_DATA_HOME:-$HOME/.local/share}/codex-config-policy/venv` に `uv sync --locked --no-python-downloads --python python3` で依存を用意する。Python 本体は自動取得しない。通常の `diff` / `apply` はその Python を直接使い、通信・依存導入はしない。環境がない、または TOML Kit の版が lock と異なる場合は停止して準備手順を表示する。
+引数省略時は HOME で `asdf which python3` を実行する。asdf の環境変数による明示的な選択も尊重するが、呼び出し元や source の親にある別プロジェクトの設定には依存しない。CI 等では `sh scripts/codex-config/setup.sh /absolute/path/to/python3` で実行ファイルを明示でき、この場合は asdf 不要。別の Python への自動フォールバックはしない。
+
+セットアップは `${XDG_DATA_HOME:-$HOME/.local/share}/codex-config-policy/venv` に、選択した Python を明示した `uv sync --locked --no-python-downloads` で依存を用意する。Python 本体は自動取得しない。通常の `diff` / `apply` は専用 venv を直接使い、asdf の呼び出し・通信・依存導入はしない。環境がない、または TOML Kit の版が lock と異なる場合は停止して準備手順を表示する。
 
 依存は `scripts/codex-config/pyproject.toml` と `uv.lock` で管理する。Dependabot は `uv` ecosystem で週次更新し、7日間の cooldown を適用する。更新 PR を確認・取り込んだ後は同じセットアップを再実行する。Python・uv 本体は端末側の既存の方法で更新する。セキュリティ更新は Dependabot の cooldown 対象外なので、通常更新と同様に内容をレビューする。
+
+### Python の切り替え・venv の再作成
+
+既存 venv のベース Python が選択先と異なる、または起動できない場合、セットアップは uv の実行前に停止する。旧 Python を削除せず、専用 venv を退避してから再作成する。この間は `chezmoi diff` / `apply` を並行実行しない。
+
+```sh
+policy_venv="${XDG_DATA_HOME:-$HOME/.local/share}/codex-config-policy/venv"
+policy_backup="$(mktemp -d "${policy_venv}.backup.XXXXXX")"
+mv "$policy_venv" "$policy_backup/venv" &&
+  sh scripts/codex-config/setup.sh
+```
+
+成功したら、更新処理のテストまたは対象 config の `chezmoi diff` を確認する。退避先は表示・記録しておき、不要と確認してから削除する。旧 Python は他の venv から参照されていないことも確認して削除する。
+
+失敗時は、同じシェルの上記変数を使い、作成途中の専用 venv だけを除去して元の場所へ戻す。退避先では venv を実行しない。
+
+```sh
+test -d "$policy_backup/venv" &&
+  rm -rf -- "$policy_venv" &&
+  mv "$policy_backup/venv" "$policy_venv" &&
+  rmdir "$policy_backup"
+```
 
 ### 設定の変更
 
@@ -116,9 +155,11 @@ TOML Kit で構文を解析し、値と型で比較する。出力前に再解�
 
 ```sh
 policy_test_root=$(mktemp -d)
-XDG_DATA_HOME="$policy_test_root/data" UV_CACHE_DIR="$policy_test_root/cache" sh scripts/codex-config/setup.sh
+export UV_CACHE_DIR="$policy_test_root/cache"
+XDG_DATA_HOME="$policy_test_root/data" sh scripts/codex-config/setup.sh
 export CODEX_CONFIG_TEST_PYTHON="$policy_test_root/data/codex-config-policy/venv/bin/python"
 "$CODEX_CONFIG_TEST_PYTHON" -B tests/codex/test_config_policy.py
+"$CODEX_CONFIG_TEST_PYTHON" -B tests/codex/test_config_setup.py
 bats tests/bats/test_codex_config_policy.bats
 ```
 

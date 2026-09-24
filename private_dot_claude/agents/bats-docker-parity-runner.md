@@ -65,7 +65,7 @@ mirrors the GitHub Actions environment:
   run the bats suite for the full `tests/bats/` tree (or the specific
   `.bats` files the user requested).
 - **Config policy runtime**: follow the isolated uv bootstrap and
-  `scripts/codex-config/setup.sh` steps in `.claude/rules/bats-testing.md`.
+  `scripts/codex-config/setup.sh /usr/bin/python3` steps in `.claude/rules/bats-testing.md`.
   Export `CODEX_CONFIG_TEST_PYTHON` to that environment's Python before
   running Bats. Python 3.11+ and TOML Kit are required; their absence must
   fail these tests rather than silently skip them. Keep all environments
