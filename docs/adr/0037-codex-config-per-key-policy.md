@@ -16,15 +16,17 @@ ADR 0024 は `~/.codex/config.toml` を chezmoi の所有物にせず、baseline
 
 ## Decision
 
-`~/.codex/config.toml` を chezmoi の `modify_` target にし、`private_dot_codex/modify_private_config.toml`（POSIX sh + awk）が live file を stdin で受け取り、ポリシー適用後の内容を stdout に出す。chezmoi は live file を所有せず、script が計算した内容だけを書き戻す。script の stderr は警告専用で、`apply` と `diff` の両方にそのまま出る。
+`~/.codex/config.toml` を chezmoi の `modify_` target にし、`private_dot_codex/modify_private_config.toml`（POSIX sh ラッパー + Python / TOML Kit）が live file を stdin で受け取り、ポリシー適用後の内容を stdout に出す。chezmoi は script が計算・検証した内容を書き戻す。script の stderr は警告・エラー診断用で、`apply` と `diff` の両方にそのまま出る。
 
-ポリシーは script 内の 1 つの表に集約し、3 種類に分ける。
+ポリシーは `scripts/codex-config/policy.toml` の `[pin]` / `[seed]` に集約し、3 種類に分ける。
 
 - **pin**: `chezmoi apply` ごとに再適用する (`sandbox_mode` / `approval_policy` / `approvals_reviewer` / `sandbox_workspace_write.network_access` / 宣言済み `features.*` / `features.context_management` / `tui.status_line*`)
 - **seed**: キーが存在しないときだけ投入する (`model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` / `personality`)。live の値が宣言値と違うときは stderr に警告し、live を保持する
 - **free**: 一切触らない (`plugins` / `mcp_servers` / `projects` / `notice` / `hooks.state` / `notify` / `service_tier` / `sandbox_workspace_write.writable_roots`)
 
-値の比較は空白・括弧・引用符・末尾カンマを正規化して行う。Codex が配列を複数行に整形し直しても drift とみなさないため。
+値の比較は TOML の構造を解析した後、型と値で行う。独自の行解析はコメント内の括弧で free キーを削除したり、コメント付き見出しで重複テーブルを生成したため廃止する。pin 以外の値・既存 seed と installer ブロックの保持を出力前に検証し、失敗時は非ゼロ終了・stdout 空とする。変更が不要な入力はそのまま返す。
+
+依存は非パッケージ型 uv プロジェクト (`pyproject.toml` + `uv.lock`) として管理する。明示的なセットアップで専用 venv を準備し、通常の diff/apply は通信・インストールを行わない。Dependabot の uv ecosystem で依存更新を提案し、取り込み後にセットアップを再実行する。Python・uv 本体の更新は端末側で行う。
 
 `requirements.toml` は採用しない。0.154.0 の requirements schema は allow-list と feature requirement のみで reasoning effort を表現できず、読込パスも `/etc/codex/requirements.toml` と managed-requirements に限られ、ユーザー層のパスは確認できなかった。sudo を `chezmoi apply` の経路へ持ち込まないことを優先する。
 
@@ -43,4 +45,5 @@ hash gate は廃止する。pin は無条件に再適用され、seed の乖離�
 
 - `~/.codex/config.toml` が chezmoi の `diff` / `status` に出る target になった（内容は script の計算結果として表示される）。
 - pin は TUI での変更を打ち消す。日常的に切り替える値は seed に分類する必要がある。
-- script は TOML を構造としてではなく行レベルで扱う。複数行文字列やインラインテーブルをポリシーへ追加する場合は script の拡張が必要。
+- Python 3.11 以上・uv・TOML Kit の準備が初回 diff/apply 前に必要となる。依存不足を黙って無視しない。
+- TOML Kit は一部の array-of-tables の配置を正規化する。値の保持は検証するが、変更時のファイル全体のバイト一致は保証しない。

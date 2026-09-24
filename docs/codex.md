@@ -87,13 +87,42 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 
 ## 運用
 
-`chezmoi apply` は `private_dot_codex/modify_private_config.toml` を通して `~/.codex/config.toml` を更新する。live file は chezmoi の所有物にはならず、script が live を読んで per-key 更新した内容だけを書き戻す。
+`~/.codex/config.toml` は chezmoi の `modify_` target として管理する。`private_dot_codex/modify_private_config.toml` は stdin の live TOML を、同じ source checkout 内の Python 更新処理へ渡す。結果の検証が成功した場合だけ chezmoi が書き戻す。
 
-1. ポリシー表は `private_dot_codex/modify_private_config.toml` に 1 つだけ置く。行の形式は `<section>|<key>|<toml-value>` で、`pin` と `seed` を分けて書く。`free` は表に載せず docs に列挙する
-2. `pin` は apply ごとに再適用され、`seed` はキーが無いときだけ投入される。`seed` の live 値が宣言値と違う場合は stderr に `codex-config: seed <key> differs...` と警告し、live を保持する
-3. 変更手順は script の表を編集して `chezmoi apply` するだけ。hash gate も ACK も手動 merge も不要。`chezmoi diff ~/.codex/config.toml` で pin の差分を確認できる
-4. 移行時に旧 baseline と hash state を削除する: `rm -f ~/.codex/config.chezmoi.toml ~/.codex/.baseline-hash`。chezmoi は source から消えた `config.chezmoi.toml` を `apply` で削除するが、`.baseline-hash` は手動削除が必要
-5. 未知キーや Codex / installer が書く section は行単位でそのまま保持される。TOML を構造として再生成しないため、整形の差は drift として扱われない
+### 初回準備・依存更新
+
+Python 3.11 以上と uv が必要。初回の `diff` / `apply` **より前**に source directory で次を実行する（例は POSIX shell / Bash）。
+
+```sh
+sh scripts/codex-config/setup.sh
+```
+
+セットアップは `${XDG_DATA_HOME:-$HOME/.local/share}/codex-config-policy/venv` に `uv sync --locked --no-python-downloads --python python3` で依存を用意する。Python 本体は自動取得しない。通常の `diff` / `apply` はその Python を直接使い、通信・依存導入はしない。環境がない、または TOML Kit の版が lock と異なる場合は停止して準備手順を表示する。
+
+依存は `scripts/codex-config/pyproject.toml` と `uv.lock` で管理する。Dependabot は `uv` ecosystem で週次更新し、7日間の cooldown を適用する。更新 PR を確認・取り込んだ後は同じセットアップを再実行する。Python・uv 本体は端末側の既存の方法で更新する。セキュリティ更新は Dependabot の cooldown 対象外なので、通常更新と同様に内容をレビューする。
+
+### 設定の変更
+
+- 編集先は `scripts/codex-config/policy.toml`。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないすべてのキーは free。
+- seed の現在値が宣言と異なる場合は保持し、stderr にキー名だけ警告する。宣言値が現在値とは限らない。
+- main への merge 後、`chezmoi diff ~/.codex/config.toml` で確認し、`chezmoi apply ~/.codex/config.toml` で反映する。hash gate・ACK・手動 merge は不要。
+- 旧 baseline / hash state が残る場合は、内容を確認して `rm -f ~/.codex/config.chezmoi.toml ~/.codex/.baseline-hash` で削除する。
+
+TOML Kit で構文を解析し、値と型で比較する。出力前に再解析し、pin の値、既存 seed と全 free キーの保持、installer のマーカーブロック不変性を確認する。構文不正・ポリシー衝突・構造衝突は非ゼロ終了し、stdout に部分的な設定を出さない。変更不要なら入力をそのまま返す。コメントと配列の書式は保持するが、TOML Kit が一部の array-of-tables の配置を正規化するため、変更時のファイル全体のバイト一致は保証しない。
+
+### 隔離した検証
+
+実端末の venv を更新しないよう、一時ディレクトリで依存を準備する。
+
+```sh
+policy_test_root=$(mktemp -d)
+XDG_DATA_HOME="$policy_test_root/data" UV_CACHE_DIR="$policy_test_root/cache" sh scripts/codex-config/setup.sh
+export CODEX_CONFIG_TEST_PYTHON="$policy_test_root/data/codex-config-policy/venv/bin/python"
+"$CODEX_CONFIG_TEST_PYTHON" -B tests/codex/test_config_policy.py
+bats tests/bats/test_codex_config_policy.bats
+```
+
+Python テストには `chezmoi` が必要。Bats は依存未準備を skip せず失敗として扱う。テスト内の HOME・XDG・chezmoi source/destination/state はすべて一時領域を使う。
 
 ## local-only とする section
 
@@ -121,11 +150,11 @@ experimental_mode = true
 - [公式設定リファレンス](https://learn.chatgpt.com/docs/config-file/config-reference) では既定はオフで、ChatGPT Plus / Pro / Pro Lite のサインインが必要。モデル説明は Plus / Pro のみを挙げ、開始時点の Business / Enterprise / API キー認証を対象外としている。Pro Lite は資料間に記載差があり、実機での有効性は未検証。
 - [公式 changelog](https://learn.chatgpt.com/docs/changelog) の CLI 0.154.0 に activation 追加の記載があり、このバージョンを確認対象とする。対応クライアント全体の一覧と最低バージョンは未確認。
 
-利用開始: main への merge 後、[運用](#運用)のマージ・ACK 手順で live に反映し、ChatGPT サインインした CLI で `codex --model gpt-6-astra` を実行して新規タスクを開始する。
+利用開始: main への merge 後、[運用](#運用)の準備・diff・apply 手順で live に反映し、ChatGPT サインインした CLI で `codex --model gpt-6-astra` を実行して新規タスクを開始する。
 
 新規タスク開始時に設定読み込みエラーがないことを確認する。エラーがないだけでは当該設定の受理や機能動作を確認したことにはせず、確認できなかった部分は未検証として記録する。
 
-無効化: live の同じキーを `false` にして新規タスクを開始する（[公式設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)）。端末単位の無効化ではポリシー変更は不要。全端末向けに取り消す場合は `pin` の値を `false` に変更し、`chezmoi apply` で反映する。
+無効化: live の同じキーを `false` にして新規タスクを開始する（[公式設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)）。これは一時的な無効化で、次回 `chezmoi apply` で pin の `true` に戻る。全端末向けに取り消す場合は `pin` の値を `false` に変更し、`chezmoi apply` で反映する。
 
 ## agmsg writable roots
 
@@ -196,7 +225,7 @@ status line の項目ごとの色表示は `status_line_use_colors = true` で�
 - `review_deep.config.toml`: `gpt-5.6-sol` / `high`
 - `review_audit.config.toml`: `gpt-5.6-sol` / `xhigh`
 
-これらの profile は `multi_agent` を有効にし、現在の model metadata が選ぶ V2 runtime で動作する。`approval_policy = "on-request"`、`sandbox_mode = "workspace-write"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `private_dot_codex/modify_private_config.toml` が管理する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
+これらの profile は `multi_agent` を有効にし、現在の model metadata が選ぶ V2 runtime で動作する。`approval_policy = "on-request"`、`sandbox_mode = "workspace-write"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `scripts/codex-config/policy.toml` が管理する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
 
 multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。`$pr-review` は実際に公開された tool schema を検査し、V1/V2 のどちらにも対応する。
 

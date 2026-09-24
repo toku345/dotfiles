@@ -18,7 +18,7 @@ import tomllib
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 AGENTS_DIR = REPO_ROOT / "private_dot_codex" / "agents"
 CODEX_POLICY = (
-    REPO_ROOT / "private_dot_codex" / "modify_private_config.toml"
+    REPO_ROOT / "scripts" / "codex-config" / "policy.toml"
 )
 SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
@@ -1234,62 +1234,53 @@ def verify_claude_share_templates() -> None:
             )
 
 
-def parse_policy_table(text: str) -> dict[tuple[str, str], str]:
-    """Parse `<section>|<key>|<toml-value>` rows from a policy table."""
-    rows: dict[tuple[str, str], str] = {}
-    for line in text.splitlines():
-        if line.count("|") != 2:
-            continue
-        section, key, value = (part.strip() for part in line.split("|"))
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            continue
-        rows[(section, key)] = value
-    return rows
+def load_config_policy(path: pathlib.Path) -> tuple[dict, dict]:
+    # Share validation with the modifier; this module has no third-party deps.
+    sys.path.insert(0, str(path.parent))
+    from config_policy import PolicyError, load_policy
 
-
-def load_config_policy(
-    path: pathlib.Path,
-) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], str]]:
-    """Return the pin and seed tables of the chezmoi modify-script policy."""
-    raw = path.read_text(encoding="utf-8")
-    head, marker, tail = raw.partition("policy_seeds")
-    if not marker:
-        fail(f"{path}: policy_seeds table is missing")
-    return parse_policy_table(head), parse_policy_table(tail)
+    try:
+        policy = load_policy(path)
+    except PolicyError as exc:
+        fail(f"{path}: {exc}")
+    return tuple(
+        {(".".join(key[:-1]), key[-1]): value for key, value in policy[mode].items()}
+        for mode in ("pin", "seed")
+    )
 
 
 def verify_codex_config_profiles() -> None:
     pins, seeds = load_config_policy(CODEX_POLICY)
 
     pinned = (
-        ("", "approval_policy", '"on-request"', "approval_policy must be 'on-request'"),
-        ("", "sandbox_mode", '"workspace-write"', "sandbox_mode must be 'workspace-write'"),
+        ("", "approval_policy", 'on-request', "approval_policy must be 'on-request'"),
+        ("", "sandbox_mode", 'workspace-write', "sandbox_mode must be 'workspace-write'"),
         (
             "sandbox_workspace_write",
             "network_access",
-            "false",
+            False,
             "sandbox_workspace_write.network_access must be false",
         ),
-        ("features", "multi_agent", "true", "features.multi_agent must be true"),
-        ("features", "network_proxy", "true", "features.network_proxy must be true"),
+        ("features", "multi_agent", True, "features.multi_agent must be true"),
+        ("features", "network_proxy", True, "features.network_proxy must be true"),
     )
     for section, key, expected, message in pinned:
         actual = pins.get((section, key))
-        if actual != expected:
+        if type(actual) is not type(expected) or actual != expected:
             fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
 
     seeded = (
-        ("", "model", '"gpt-6-astra"', "model must be 'gpt-6-astra'"),
+        ("", "model", 'gpt-6-astra', "model must be 'gpt-6-astra'"),
         (
             "",
             "model_reasoning_effort",
-            '"medium"',
+            'medium',
             "model_reasoning_effort must be 'medium'",
         ),
     )
     for section, key, expected, message in seeded:
         actual = seeds.get((section, key))
-        if actual != expected:
+        if type(actual) is not type(expected) or actual != expected:
             fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
 
     rows = [*pins, *seeds]

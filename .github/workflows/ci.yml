@@ -59,7 +59,7 @@ jobs:
             echo ""
             echo "Checking: $script"
             shellcheck --severity=warning "$script" || FAILED=1
-          done < <(find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks tests/bats/bin .claude/hooks private_dot_codex \
+          done < <(find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks tests/bats/bin .claude/hooks private_dot_codex scripts/codex-config \
               -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" -o -name "modify_*" \) \
               2>/dev/null)
 
@@ -290,8 +290,53 @@ jobs:
           HERDR_CONFIG_PATH: ${{ github.workspace }}/private_dot_config/herdr/config.toml
         run: herdr config check
 
+      - name: Set up Python for config policy tests
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: Prepare isolated config policy dependencies
+        run: |
+          policy_test_root=$(mktemp -d)
+          XDG_DATA_HOME="$policy_test_root/data" UV_CACHE_DIR="$policy_test_root/cache" sh scripts/codex-config/setup.sh
+          echo "CODEX_CONFIG_TEST_PYTHON=$policy_test_root/data/codex-config-policy/venv/bin/python" >> "$GITHUB_ENV"
+
       - name: Run bats test suite
         run: bats tests/bats/
+
+  codex-config-policy:
+    name: Codex Config Policy (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.11"
+          - os: macos-15
+            python: "3.14"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Install chezmoi for isolated integration tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/policy-bin"
+          sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$RUNNER_TEMP/policy-bin"
+          echo "$RUNNER_TEMP/policy-bin" >> "$GITHUB_PATH"
+      - name: Prepare dependencies and test
+        run: |
+          policy_test_root=$(mktemp -d)
+          XDG_DATA_HOME="$policy_test_root/data" UV_CACHE_DIR="$policy_test_root/cache" sh scripts/codex-config/setup.sh
+          "$policy_test_root/data/codex-config-policy/venv/bin/python" -B tests/codex/test_config_policy.py
 
   bash5-macos-tests:
     name: Bash 5 macOS Tests

@@ -25,7 +25,13 @@ push 前に CI (ubuntu-latest + `apt-get install bats fish`) と同等環境で�
 docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
   apt-get update -qq >/dev/null
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    bats git procps fish jq shellcheck >/dev/null
+    bats git procps fish jq shellcheck python3 python3-venv ca-certificates >/dev/null
+  python3 -m venv /tmp/uv-bootstrap
+  /tmp/uv-bootstrap/bin/pip install --only-binary=:all: uv
+  export PATH="/tmp/uv-bootstrap/bin:$PATH"
+  export XDG_DATA_HOME=/tmp/policy-test/data UV_CACHE_DIR=/tmp/policy-test/cache
+  sh scripts/codex-config/setup.sh
+  export CODEX_CONFIG_TEST_PYTHON="$XDG_DATA_HOME/codex-config-policy/venv/bin/python"
   bats tests/bats/
 '
 ```

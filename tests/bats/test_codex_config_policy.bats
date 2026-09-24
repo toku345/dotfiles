@@ -7,6 +7,17 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  : "${CODEX_CONFIG_TEST_PYTHON:?Prepare an isolated codex-config environment and set CODEX_CONFIG_TEST_PYTHON}"
+  "$CODEX_CONFIG_TEST_PYTHON" -c 'import tomlkit, tomllib' || return 1
+  export HOME="$BATS_TEST_TMPDIR/home"
+  export XDG_DATA_HOME="$HOME/data"
+  export XDG_CONFIG_HOME="$HOME/config"
+  export XDG_CACHE_HOME="$HOME/cache"
+  export XDG_STATE_HOME="$HOME/state"
+  export CHEZMOI_SOURCE_DIR
+  CHEZMOI_SOURCE_DIR="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+  mkdir -p "$XDG_DATA_HOME/codex-config-policy"
+  ln -s "$(dirname "$(dirname "$CODEX_CONFIG_TEST_PYTHON")")" "$XDG_DATA_HOME/codex-config-policy/venv"
   MERGE="$BATS_TEST_DIRNAME/../../private_dot_codex/modify_private_config.toml"
   OUT="$BATS_TEST_TMPDIR/out.toml"
   ERR="$BATS_TEST_TMPDIR/err.txt"
@@ -69,8 +80,7 @@ merge() {
 }
 
 toml_valid() {
-  command -v python3 >/dev/null 2>&1 || skip "python3 is unavailable"
-  python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' "$1"
+  "$CODEX_CONFIG_TEST_PYTHON" -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' "$1"
 }
 
 @test "creates the managed skeleton from an empty config" {
