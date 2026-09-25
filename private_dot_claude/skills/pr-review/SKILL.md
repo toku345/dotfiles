@@ -26,10 +26,31 @@ Run a comprehensive specialist review of the current branch's committed changes 
 
 Run these in order. If any fails, abort with the indicated error; do not launch the workflow.
 
+Do not change repository or git state to make a failing precondition pass: no `git stash` or commit on the user's behalf, no `.gitignore` / `.git/info/exclude` / `git update-index --assume-unchanged` / `--skip-worktree` edits, no deleting untracked files. Report the failing state and stop; the user decides how to resolve it. The ref updates that **Base ref resolution** itself prescribes (`git fetch` writing `FETCH_HEAD`, `git remote set-head origin --auto`) are part of the procedure, not a workaround, and stay allowed.
+
 1. **Workflow tool available** — This gate runs entirely inside `~/.claude/workflows/pr-review.js`. Treat the `Workflow` tool as available if it is callable: it appears in your tool list, or `ToolSearch("select:Workflow")` returns its schema. Abort only when neither holds:
    > "`Workflow` is not exposed in this session, so the gate cannot run. On the Pro plan dynamic workflows are off by default — turn them on from the **Dynamic workflows** row in `/config`, then start a new session (`disableWorkflows` in a settings file and `CLAUDE_CODE_DISABLE_WORKFLOWS` also switch them off). Otherwise run the Codex CLI `$pr-review` from a terminal (not from inside Claude Code — nested-bwrap). Do not substitute a manual `Agent` fan-out of the specialists: that drops the workflow's coverage echo gate and severity normalization, reintroducing exactly the partial-coverage-reported-as-full outcome this gate exists to prevent."
 
    This check comes first because everything below it — `gh pr view` and `git fetch` under `dangerouslyDisableSandbox`, the diff packet, the reference sentinels — is wasted work on a run that cannot reach the workflow.
+
+   Second check — **no project-scoped workflow shadows the gate.** The Workflow tool resolves the name `pr-review` by each script's `meta.name`: it registers user scope `~/.claude/workflows/` first, then lets any parseable project-scope `.claude/workflows/` script with the same name override it. A project copy would run in place of this gate, and the render-side `argsContract` check cannot tell them apart. Run this block verbatim (glob-free, and it starts from the physical path because `git rev-parse --show-toplevel` resolves symlinks while `$PWD` does not):
+
+   ```sh
+   top=$(git rev-parse --show-toplevel) || exit 1
+   d=$(pwd -P)
+   while :; do
+     if [ -d "$d/.claude/workflows" ]; then
+       find "$d/.claude/workflows" -maxdepth 1 -type f -name '*.js' \
+         -exec env LC_ALL=C grep -l -E "name:[[:space:]]*['\"]pr-review['\"]" {} +
+     fi
+     [ "$d" = "$top" ] && break
+     [ "$d" = / ] && break
+     d=$(dirname "$d")
+   done
+   ```
+
+   If it prints any path, abort with:
+   > "A project-scoped `.claude/workflows/` script declares the workflow name `pr-review` (<printed paths>) and would override the user-scope gate. Remove or rename it, then retry."
 
 2. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with its output. If output is non-empty, abort with:
    > "Worktree has uncommitted changes: <list>. The review covers committed branch diff only; uncommitted changes would be silently excluded. Commit or stash first, then retry."
@@ -100,11 +121,11 @@ Run these in order. If any fails, abort with the indicated error; do not launch 
 
 ## Launch the workflow
 
-Invoke the Workflow tool with the script deployed at `~/.claude/workflows/pr-review.js` (expand `~` to the absolute home path) and pass every value as real JSON (objects/arrays, not JSON-encoded strings):
+Invoke the Workflow tool by the predefined workflow's `name` parameter. chezmoi deploys the script at `~/.claude/workflows/pr-review.js`, and the tool resolves it from its `meta.name`. Do not pass a script path: the tool's `scriptPath` parameter only accepts paths inside the working directory or an added directory, so the deployed file is rejected there (accepted on Claude Code 2.1.247, rejected from 2.1.259 on). Pass every value as real JSON (objects/arrays, not JSON-encoded strings):
 
 ```
 Workflow({
-  scriptPath: "<home>/.claude/workflows/pr-review.js",
+  name: "pr-review",
   args: {
     base: "<$BASE>",
     baseCommit: "<$BASE_COMMIT>",
@@ -120,6 +141,11 @@ Workflow({
   }
 })
 ```
+
+If the Workflow tool itself refuses the call (the name does not resolve, or it reports a tool input error), abort with:
+> "pr-review workflow is not resolvable by name (`~/.claude/workflows/pr-review.js` missing or failed to load). Run `chezmoi apply -v`, then retry."
+
+Do not work around a refusal by copying the script elsewhere, launching it through the `scriptPath` parameter, adding a directory with `/add-dir`, or fanning out the specialists with `Agent` by hand. Each of those runs something other than the deployed, reviewed gate.
 
 The workflow validates args (including both sentinels) and fails closed on any coverage mismatch, so a thrown workflow error is a gate failure — report it verbatim and stop; never retry with weakened inputs or partial coverage.
 
