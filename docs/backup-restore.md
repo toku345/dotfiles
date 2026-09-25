@@ -129,13 +129,13 @@ git push backup main
    # Homebrewのインストール（macOS）
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-   # chezmoi、age、Bash 5+のインストール
+   # chezmoi、age、Bash 5+、uv のインストール
    export HOMEBREW_NO_AUTO_UPDATE=1
    export HOMEBREW_NO_INSTALL_UPGRADE=1
    export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
    export HOMEBREW_CASK_OPTS=--require-sha
    export HOMEBREW_UPDATE_TO_TAG=1
-   brew install chezmoi age bash
+   brew install chezmoi age bash uv
    ```
 
 2. **SSH鍵の設定**
@@ -163,7 +163,14 @@ git push backup main
    ```
 
 4. **dotfilesの適用**
+
+   初回 status/diff/apply 前に、以下の setup で uv 管理の専用 Python と依存を準備します。[準備・更新手順](codex.md#初回準備依存更新)も参照してください。
+
    ```bash
+   # uv で Codex 設定用の Python と依存を準備
+   cd "$(chezmoi source-path)"
+   sh scripts/codex-config/setup.sh
+
    # 変更内容を確認
    chezmoi diff
 
@@ -195,16 +202,19 @@ sudo apt-get install -y build-essential curl file git procps
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
-# Step 3: chezmoi + age
+# Step 3: chezmoi + age + uv
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_CASK_OPTS=--require-sha
 export HOMEBREW_UPDATE_TO_TAG=1
-brew install chezmoi age
+brew install chezmoi age uv
 
-# Step 4: init + apply
-chezmoi init --apply toku345
+# Step 4: source + uv-managed Python/dependencies + apply
+chezmoi init toku345
+cd "$(chezmoi source-path)"
+sh scripts/codex-config/setup.sh
+chezmoi apply
 ```
 
 macOS 専用設定は [`.chezmoiignore`](../.chezmoiignore) の OS 分岐により Linux では自動的にスキップされます（除外対象の正確な一覧は同ファイルを参照）。

@@ -30,16 +30,16 @@ setup() {
   done
 }
 
-@test "macOS bootstrap documents Bash 5 while Linux bootstrap stays unchanged" {
-  run grep -Fxc '   brew install age bash' "$README_FILE"
+@test "bootstrap documents Bash 5 on macOS and config policy prerequisites on both platforms" {
+  run grep -Fxc '   brew install age bash uv' "$README_FILE"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
 
-  run grep -Fxc '   brew install chezmoi age bash' "$BACKUP_RESTORE_FILE"
+  run grep -Fxc '   brew install chezmoi age bash uv' "$BACKUP_RESTORE_FILE"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
 
-  run grep -Fxc 'brew install chezmoi age' "$BACKUP_RESTORE_FILE"
+  run grep -Fxc 'brew install chezmoi age uv' "$BACKUP_RESTORE_FILE"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
 }

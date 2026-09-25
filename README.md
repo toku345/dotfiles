@@ -5,20 +5,27 @@ toku345's dotfiles managed by chezmoi.
 ## Setup
 
 1. Install [chezmoi](https://www.chezmoi.io/install/)
-2. Install age and Bash 5+
+2. Install age, Bash 5+, and uv
 
    ```sh
-   brew install age bash
+   brew install age bash uv
    ```
 
    Managed tools such as `brew-reviewed-upgrade` and `ghostty-theme` require
    Bash 5 or newer. macOS system Bash 3.2 remains available only for shell
    configuration that intentionally supports it.
 
-3. Initialize chezmoi
+   The setup command below installs a dedicated Python with uv and prepares
+   the locked config dependencies before the first status/diff/apply.
+   See [runtime setup and updates](docs/codex.md#初回準備依存更新).
+
+3. Fetch the source, prepare Codex config dependencies, then apply
 
    ```sh
-   chezmoi init --apply toku345
+   chezmoi init toku345
+   cd "$(chezmoi source-path)"
+   sh scripts/codex-config/setup.sh
+   chezmoi apply
    ```
 
 ## Additional Setup

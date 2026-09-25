@@ -27,6 +27,7 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
         repo / "tests" / "codex" / "fixtures",
     )
     shutil.copytree(REPO_ROOT / "private_dot_codex", repo / "private_dot_codex")
+    shutil.copytree(REPO_ROOT / "scripts" / "codex-config", repo / "scripts" / "codex-config")
     shutil.copytree(
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
         repo / "private_dot_claude" / "skills" / "pr-review" / "references",
@@ -152,21 +153,21 @@ def main() -> None:
         ),
         (
             "managed baseline disables approval escalation",
-            "private_dot_codex/private_config.chezmoi.toml",
+            "scripts/codex-config/policy.toml",
             'approval_policy = "on-request"',
             'approval_policy = "never"',
             "approval_policy must be 'on-request'",
         ),
         (
             "managed baseline opens sandbox network",
-            "private_dot_codex/private_config.chezmoi.toml",
+            "scripts/codex-config/policy.toml",
             "network_access = false",
             "network_access = true",
             "network_access must be false",
         ),
         (
             "managed baseline disables network proxy",
-            "private_dot_codex/private_config.chezmoi.toml",
+            "scripts/codex-config/policy.toml",
             "network_proxy = true",
             "network_proxy = false",
             "features.network_proxy must be true",

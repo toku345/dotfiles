@@ -17,7 +17,9 @@ import tomllib
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 AGENTS_DIR = REPO_ROOT / "private_dot_codex" / "agents"
-CODEX_BASELINE = REPO_ROOT / "private_dot_codex" / "private_config.chezmoi.toml"
+CODEX_POLICY = (
+    REPO_ROOT / "scripts" / "codex-config" / "policy.toml"
+)
 SKILL_DIR = REPO_ROOT / "private_dot_codex" / "skills" / "pr-review"
 SKILL = SKILL_DIR / "SKILL.md"
 REVIEW_CRITERIA = SKILL_DIR / "references" / "review-criteria.md"
@@ -1232,45 +1234,68 @@ def verify_claude_share_templates() -> None:
             )
 
 
+def load_config_policy(path: pathlib.Path) -> tuple[dict, dict]:
+    # Share validation with the modifier; this module has no third-party deps.
+    sys.path.insert(0, str(path.parent))
+    from config_policy import PolicyError, load_policy
+
+    try:
+        policy = load_policy(path)
+    except PolicyError as exc:
+        fail(f"{path}: {exc}")
+    return tuple(
+        {(".".join(key[:-1]), key[-1]): value for key, value in policy[mode].items()}
+        for mode in ("pin", "seed")
+    )
+
+
 def verify_codex_config_profiles() -> None:
-    baseline = load_toml(CODEX_BASELINE, "managed Codex baseline")
-    expected_baseline = {
-        "model": "gpt-5.6-sol",
-        "model_reasoning_effort": "high",
-        "approval_policy": "on-request",
-        "sandbox_mode": "workspace-write",
-    }
-    for key, expected in expected_baseline.items():
-        actual = baseline.get(key)
-        if actual != expected:
-            fail(f"{CODEX_BASELINE}: {key} must be {expected!r}, got {actual!r}")
+    pins, seeds = load_config_policy(CODEX_POLICY)
 
-    baseline_features = baseline.get("features")
-    if not isinstance(baseline_features, dict):
-        fail(f"{CODEX_BASELINE}: [features] must be a table")
-    if baseline_features.get("multi_agent") is not True:
-        fail(f"{CODEX_BASELINE}: features.multi_agent must be true")
-    if baseline_features.get("network_proxy") is not True:
-        fail(f"{CODEX_BASELINE}: features.network_proxy must be true")
-    sandbox_workspace_write = baseline.get("sandbox_workspace_write")
-    if not isinstance(sandbox_workspace_write, dict):
-        fail(f"{CODEX_BASELINE}: [sandbox_workspace_write] must be a table")
-    if sandbox_workspace_write.get("network_access") is not False:
-        fail(
-            f"{CODEX_BASELINE}: sandbox_workspace_write.network_access "
-            "must be false"
-        )
+    pinned = (
+        ("", "approval_policy", 'on-request', "approval_policy must be 'on-request'"),
+        ("", "sandbox_mode", 'workspace-write', "sandbox_mode must be 'workspace-write'"),
+        (
+            "sandbox_workspace_write",
+            "network_access",
+            False,
+            "sandbox_workspace_write.network_access must be false",
+        ),
+        ("features", "multi_agent", True, "features.multi_agent must be true"),
+        ("features", "network_proxy", True, "features.network_proxy must be true"),
+    )
+    for section, key, expected, message in pinned:
+        actual = pins.get((section, key))
+        if type(actual) is not type(expected) or actual != expected:
+            fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
 
-    legacy_profiles = baseline.get("profiles", {})
-    if not isinstance(legacy_profiles, dict):
-        fail(f"{CODEX_BASELINE}: profiles must be a table when present")
-    stale = sorted(set(EXPECTED_REVIEW_PROFILES).intersection(legacy_profiles))
+    seeded = (
+        ("", "model", 'gpt-6-astra', "model must be 'gpt-6-astra'"),
+        (
+            "",
+            "model_reasoning_effort",
+            'medium',
+            "model_reasoning_effort must be 'medium'",
+        ),
+    )
+    for section, key, expected, message in seeded:
+        actual = seeds.get((section, key))
+        if type(actual) is not type(expected) or actual != expected:
+            fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
+
+    rows = [*pins, *seeds]
+    stale = sorted({key for (section, key) in rows if section.startswith("profiles")})
     if stale:
         fail(
-            f"{CODEX_BASELINE}: legacy review profile tables must be removed: "
+            f"{CODEX_POLICY}: legacy review profile tables must be removed: "
             f"{', '.join(stale)}"
         )
-    require_no_hide_spawn_metadata(baseline, CODEX_BASELINE)
+    hidden = sorted({key for (_, key) in rows if key == "hide_spawn_agent_metadata"})
+    if hidden:
+        fail(
+            f"{CODEX_POLICY}: hide_spawn_agent_metadata must not be configured "
+            f"(found at {', '.join(hidden)})"
+        )
 
     for profile_name, spec in EXPECTED_REVIEW_PROFILES.items():
         path = spec["path"]
