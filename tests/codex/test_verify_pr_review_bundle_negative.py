@@ -31,6 +31,15 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
         repo / "private_dot_claude" / "skills" / "pr-review" / "references",
     )
+    shutil.copy2(
+        REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md",
+        repo / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md",
+    )
+    (repo / "private_dot_claude" / "workflows").mkdir(parents=True)
+    shutil.copy2(
+        REPO_ROOT / "private_dot_claude" / "workflows" / "pr-review.js",
+        repo / "private_dot_claude" / "workflows" / "pr-review.js",
+    )
     (repo / "docs" / "design").mkdir(parents=True)
     shutil.copy2(REPO_ROOT / "docs" / "codex.md", repo / "docs" / "codex.md")
     shutil.copy2(
@@ -660,6 +669,20 @@ def main() -> None:
             "does not demonstrate a controlled recall or false-positive improvement",
             "demonstrates a controlled recall and false-positive improvement",
             "observational non-improvement conclusion is required",
+        ),
+        (
+            "claude skill launch regression to scriptPath",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'Workflow({\n  name: "pr-review",',
+            'Workflow({\n  scriptPath: "<home>/.claude/workflows/pr-review.js",',
+            "missing 'Workflow({",
+        ),
+        (
+            "claude workflow meta.name drift",
+            "private_dot_claude/workflows/pr-review.js",
+            "name: 'pr-review',",
+            "name: 'pr-review-v2',",
+            "does not match the name 'pr-review' the Claude skill launches",
         ),
     ]
 

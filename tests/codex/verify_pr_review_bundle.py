@@ -33,6 +33,8 @@ FINDING_EVIDENCE_VALIDATOR = (
     SKILL_DIR / "scripts" / "validate_finding_evidence.py"
 )
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
+CLAUDE_SKILL = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md"
+CLAUDE_WORKFLOW = REPO_ROOT / "private_dot_claude" / "workflows" / "pr-review.js"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
 DESIGN_DOC = REPO_ROOT / "docs" / "design" / "codex-pr-review.md"
 FINDING_VERIFIER_BASELINE = (
@@ -1232,6 +1234,41 @@ def verify_claude_share_templates() -> None:
             )
 
 
+CLAUDE_WORKFLOW_NAME = "pr-review"
+
+
+def verify_claude_skill_launch_contract() -> None:
+    # The Workflow tool rejects a scriptPath outside the session's read scope, so
+    # the Claude skill must launch the deployed workflow by its meta.name.
+    context = str(CLAUDE_SKILL.relative_to(REPO_ROOT))
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    require_contains(
+        skill, f'Workflow({{\n  name: "{CLAUDE_WORKFLOW_NAME}",', f"{context}:launch-by-name"
+    )
+    require_not_contains(skill, "scriptPath:", f"{context}:launch-by-name")
+    require_contains(
+        skill,
+        "Do not change repository or git state to make a failing precondition pass",
+        f"{context}:precondition-workaround-ban",
+    )
+    require_contains(
+        skill, "would override the user-scope gate", f"{context}:shadowing-guard"
+    )
+
+    workflow_context = str(CLAUDE_WORKFLOW.relative_to(REPO_ROOT))
+    source = CLAUDE_WORKFLOW.read_text(encoding="utf-8")
+    meta = re.search(
+        r"export const meta = \{.*?\bname:\s*['\"]([^'\"]+)['\"]", source, re.DOTALL
+    )
+    if meta is None:
+        fail(f"{workflow_context}: meta.name not found")
+    if meta.group(1) != CLAUDE_WORKFLOW_NAME:
+        fail(
+            f"{workflow_context}: meta.name {meta.group(1)!r} does not match the name "
+            f"{CLAUDE_WORKFLOW_NAME!r} the Claude skill launches"
+        )
+
+
 def verify_codex_config_profiles() -> None:
     baseline = load_toml(CODEX_BASELINE, "managed Codex baseline")
     expected_baseline = {
@@ -1667,6 +1704,7 @@ def main() -> None:
     verify_v2_runtime_contract()
     verify_finding_verifier_contract()
     verify_claude_share_templates()
+    verify_claude_skill_launch_contract()
     verify_codex_config_profiles()
     verify_agent_toml()
     verify_skill_contract()
