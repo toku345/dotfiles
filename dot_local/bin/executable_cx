@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' \
+    'Usage: cx {quick|work} [CODEX_ARGS...]' \
+    '       cx {quick|work} resume <same-provider-session-id>' \
+    '' \
+    'quick: clear, bounded, reversible work (Astra / low).' \
+    'work:  uncertain work; use this when in doubt (Astra / high).' \
+    'Project configuration and explicit Codex options retain native precedence.'
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  quick|work) mode=$1; shift ;;
+  *) printf '%s\n' 'cx: expected mode: quick or work' >&2; usage >&2; exit 2 ;;
+esac
+
+if ! codex_bin=$(type -P codex); then
+  printf '%s\n' 'cx: required command not found on PATH: codex' >&2
+  exit 127
+fi
+
+exec "$codex_bin" --profile "$mode" "$@"

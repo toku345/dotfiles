@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' \
+    'Usage: cf [CODEX_ARGS...]' \
+    '       cf resume <known-sakana-session-id>' \
+    '' \
+    'Launch the installed Fugu profile without checking for updates.' \
+    'Fast mode is disabled; approval requests go to you.' \
+    'Run codex-fugu directly for setup, update, and key management.' \
+    'Conflicting profile/provider/compatibility overrides are unsupported.'
+}
+
+warn_unknown_version() {
+  printf '%s\n' \
+    'cf: warning: unable to verify the Codex/Fugu version match.' \
+    'Continuing without checking for updates. Run codex-fugu --status to inspect the installation.' >&2
+}
+
+check_versions() {
+  local report line installed='' target='' installed_count=0 target_count=0
+  # --status exits before adoption, update checks, and config deployment.
+  # Parse only the two labelled fields; never source status or installer state.
+  if ! report=$("$launcher" --status 2>/dev/null); then
+    warn_unknown_version
+    return
+  fi
+  while IFS= read -r line; do
+    if [[ $line =~ ^[[:space:]]*installed[[:space:]]version[[:space:]]*:[[:space:]]*([^[:space:]]+)[[:space:]]*$ ]]; then
+      installed=${BASH_REMATCH[1]}
+      installed_count=$((installed_count + 1))
+    elif [[ $line =~ ^[[:space:]]*deployed_target[[:space:]]*:[[:space:]]*([^[:space:]]+)[[:space:]]*$ ]]; then
+      target=${BASH_REMATCH[1]}
+      target_count=$((target_count + 1))
+    fi
+  done <<< "$report"
+  if [[ $installed_count != 1 || $target_count != 1 ||
+        ! $installed =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-][[:alnum:].-]+)?$ ||
+        ! $target =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-][[:alnum:].-]+)?$ ]]; then
+    warn_unknown_version
+  elif [[ $installed != "$target" ]]; then
+    printf 'cf: warning: Codex is %s; the installed Fugu configuration targets %s.\n' "$installed" "$target" >&2
+    printf '%s\n' \
+      'Compatibility is unverified. Continuing without checking for updates.' \
+      'Run codex-fugu directly to review the mismatch and update options.' >&2
+  fi
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
+if ! launcher=$(type -P codex-fugu); then
+  printf '%s\n' 'cf: required command not found on PATH: codex-fugu' >&2
+  exit 127
+fi
+
+fugu_home=${CODEX_HOME:-$HOME/.codex}
+if [[ ! -f "$fugu_home/fugu.config.toml" || ! -f "$fugu_home/.fugu/state" ]]; then
+  # Without state, even --no-update can enter the launcher's adoption path.
+  printf '%s\n' \
+    'cf: Fugu profile or installation state is missing.' \
+    'Complete setup with the official Fugu installer before using cf.' >&2
+  exit 1
+fi
+
+check_versions
+exec "$launcher" --no-update -- \
+  -c 'check_for_update_on_startup=false' \
+  --disable fast_mode \
+  -c 'approvals_reviewer="user"' \
+  --ask-for-approval on-request \
+  "$@"
