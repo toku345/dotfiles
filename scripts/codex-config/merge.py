@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Read live TOML on stdin; emit a fully validated update on stdout."""
+"""Read live TOML on stdin; emit a fully validated update on stdout.
+
+Usage: merge.py [--policy policy.toml]
+"""
 
 from __future__ import annotations
 
@@ -102,10 +105,32 @@ def set_value(document: MutableMapping, path: tuple[str, ...], value: Any) -> No
     target[path[-1]] = copy.deepcopy(value)
 
 
+def root_values_prefix(document: MutableMapping, policy: dict) -> str:
+    """Render root-level policy rows whose key is absent, for the file header.
+
+    A new root-level key must not be placed just before the first table: that
+    position can sit inside an installer-owned block, which the caller's
+    integrity check rejects. Writing the key ahead of every existing item keeps
+    it at the top level and leaves such a block untouched.
+    """
+    import tomlkit
+
+    prefix = tomlkit.document()
+    for rows in policy.values():
+        for path, value in rows.items():
+            if len(path) == 1 and path[0] not in document:
+                prefix[path[0]] = copy.deepcopy(value)
+    return tomlkit.dumps(prefix) if len(prefix) > 0 else ""
+
+
 def merge(text: str, policy: dict) -> tuple[str, list[str]]:
     import tomlkit
 
     document = tomlkit.parse(text)
+    prefix = root_values_prefix(document, policy)
+    if prefix:
+        text = prefix + ("\n" + text if text else "")
+        document = tomlkit.parse(text)
     expected = copy.deepcopy(document.unwrap())
     blocks = marker_blocks(text)
     warnings = []
@@ -136,10 +161,25 @@ def merge(text: str, policy: dict) -> tuple[str, list[str]]:
     return output, warnings
 
 
+def select_policy(argv: list[str]) -> str:
+    """Return the policy file name requested on the command line."""
+    if not argv:
+        return "policy.toml"
+    if len(argv) == 2 and argv[0] == "--policy":
+        name = argv[1]
+        if not re.fullmatch(r"policy[a-z0-9-]*\.toml", name):
+            raise PolicyError("invalid policy name")
+        path = PROJECT / name
+        if path.resolve().parent != PROJECT or not path.is_file():
+            raise PolicyError("policy file not found")
+        return name
+    raise PolicyError("unsupported arguments")
+
+
 def main() -> int:
     try:
         check_environment()
-        policy = load_policy(PROJECT / "policy.toml")
+        policy = load_policy(PROJECT / select_policy(sys.argv[1:]))
         text = sys.stdin.buffer.read().decode("utf-8")
         output, warnings = merge(text, policy)
     except Exception as exc:

@@ -25,8 +25,8 @@ def load_policy(path: pathlib.Path) -> dict[str, dict[tuple[str, ...], Any]]:
         )
 
     def flatten(table: Any, prefix: tuple[str, ...], rows: dict) -> None:
-        if not isinstance(table, dict) or not table:
-            raise PolicyError("policy tables must be non-empty")
+        if not isinstance(table, dict):
+            raise PolicyError("policy tables must be tables")
         for key, value in table.items():
             if not key or any(ord(c) < 32 or ord(c) == 127 for c in key):
                 raise PolicyError("policy keys must be non-empty and printable")
@@ -41,6 +41,8 @@ def load_policy(path: pathlib.Path) -> dict[str, dict[tuple[str, ...], Any]]:
     result: dict[str, dict[tuple[str, ...], Any]] = {"pin": {}, "seed": {}}
     for mode in result:
         flatten(raw[mode], (), result[mode])
+    if not result["pin"] and not result["seed"]:
+        raise PolicyError("policy must declare at least one value")
     paths = [*result["pin"], *result["seed"]]
     for i, left in enumerate(paths):
         for right in paths[i + 1:]:
