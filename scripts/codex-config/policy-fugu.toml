@@ -1,0 +1,15 @@
+# pin: reassert on apply. seed: initialize only when absent.
+# Every undeclared key is free, including unknown keys added by Codex.
+# This policy manages the base layer of the isolated Fugu home
+# (~/.codex-fugu/config.toml, wrapper: private_dot_codex-fugu/).
+
+[pin]
+# Codex's built-in Plan mode effort is "medium", which the Sakana API rejects
+# for every Fugu model (the catalog declares high / xhigh, plus max on
+# fugu-ultra-v1.1). Pin a supported level so a stored value cannot silently
+# keep Plan mode broken.
+plan_mode_reasoning_effort = "xhigh"
+
+[seed]
+# No seeds: the installer-owned bundle profile (fugu.config.toml) owns the
+# model defaults for this home.

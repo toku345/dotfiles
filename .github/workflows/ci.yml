@@ -59,7 +59,7 @@ jobs:
             echo ""
             echo "Checking: $script"
             shellcheck --severity=warning "$script" || FAILED=1
-          done < <(find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks tests/bats/bin .claude/hooks private_dot_codex scripts/codex-config \
+          done < <(find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks tests/bats/bin .claude/hooks private_dot_codex private_dot_codex-fugu scripts/codex-config \
               -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" -o -name "modify_*" \) \
               2>/dev/null)
 

@@ -18,6 +18,22 @@ import merge
 from config_policy import PolicyError, load_policy
 
 
+FUGU_BLOCK = """# >>> fugu:model_providers.sakana >>>
+[model_providers.sakana]
+name = "Sakana API"
+base_url = "https://api.sakana.ai/v1"
+# <<< fugu:model_providers.sakana <<<
+"""
+
+FUGU_RUNTIME = """[projects."/tmp/repo"]
+trust_level = "trusted"
+
+[hooks.state."/tmp/repo/.codex/hooks.json:stop:0:0"]
+trusted_hash = "sha256:deadbeef"
+enabled = true
+"""
+
+
 class MergeTests(unittest.TestCase):
     def setUp(self):
         self.policy = load_policy(PROJECT / "policy.toml")
@@ -144,6 +160,122 @@ name = "second"
                     load_policy(path)
 
 
+class RootInsertionTests(unittest.TestCase):
+    """New root-level rows must not be written inside an installer block."""
+
+    def setUp(self):
+        self.policy = load_policy(PROJECT / "policy.toml")
+
+    def test_new_root_keys_are_prefixed_above_an_installer_block(self):
+        source = FUGU_BLOCK + "\n" + FUGU_RUNTIME
+        output, warnings = merge.merge(source, self.policy)
+        self.assertFalse(warnings)
+        self.assertIn(FUGU_BLOCK, output)
+        lines = output.splitlines()
+        opener = lines.index("# >>> fugu:model_providers.sakana >>>")
+        for key in ('sandbox_mode = "workspace-write"', 'approval_policy = "on-request"'):
+            self.assertLess(lines.index(key), opener)
+        data = tomllib.loads(output)
+        self.assertEqual(data["sandbox_mode"], "workspace-write")
+        self.assertEqual(data["projects"]["/tmp/repo"]["trust_level"], "trusted")
+
+    def test_new_root_keys_stay_above_the_first_table(self):
+        output, _ = merge.merge('service_tier = "fast"\n\n[features]\napps = false\n', self.policy)
+        lines = output.splitlines()
+        self.assertLess(
+            lines.index('sandbox_mode = "workspace-write"'),
+            lines.index("[features]"),
+        )
+        self.assertEqual(tomllib.loads(output)["service_tier"], "fast")
+
+
+class FuguPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.policy = load_policy(PROJECT / "policy-fugu.toml")
+
+    def update(self, source):
+        result, warnings = merge.merge(source, self.policy)
+        return result, tomllib.loads(result), warnings
+
+    def test_new_home_gets_only_the_pin(self):
+        output, data, warnings = self.update("")
+        self.assertEqual(output, 'plan_mode_reasoning_effort = "xhigh"\n')
+        self.assertEqual(data, {"plan_mode_reasoning_effort": "xhigh"})
+        self.assertFalse(warnings)
+
+    def test_pin_is_placed_above_the_installer_block(self):
+        output, data, warnings = self.update(FUGU_BLOCK)
+        self.assertIn(FUGU_BLOCK, output)
+        lines = output.splitlines()
+        self.assertLess(
+            lines.index('plan_mode_reasoning_effort = "xhigh"'),
+            lines.index("# >>> fugu:model_providers.sakana >>>"),
+        )
+        self.assertEqual(set(data), {"plan_mode_reasoning_effort", "model_providers"})
+        self.assertFalse(warnings)
+
+    def test_pin_reasserts_a_stored_plan_effort(self):
+        _, data, warnings = self.update(
+            'plan_mode_reasoning_effort = "medium"\n\n[tui]\nstatus_line_use_colors = true\n'
+        )
+        self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
+        self.assertIs(data["tui"]["status_line_use_colors"], True)
+        # Pins re-assert silently; only seed divergence is reported.
+        self.assertFalse(warnings)
+
+    def test_runtime_state_is_preserved(self):
+        output, data, _ = self.update(FUGU_BLOCK + "\n" + FUGU_RUNTIME)
+        self.assertIn(FUGU_BLOCK, output)
+        self.assertEqual(data["projects"]["/tmp/repo"]["trust_level"], "trusted")
+        self.assertIs(
+            data["hooks"]["state"]["/tmp/repo/.codex/hooks.json:stop:0:0"]["enabled"], True
+        )
+
+    def test_converges_and_does_not_import_vanilla_pins(self):
+        first, data, _ = self.update(FUGU_BLOCK + "\n" + FUGU_RUNTIME)
+        second, warnings = merge.merge(first, self.policy)
+        self.assertEqual(first, second)
+        self.assertFalse(warnings)
+        for absent in ("sandbox_mode", "features", "tui"):
+            self.assertNotIn(absent, data)
+
+
+class PolicySelectionTests(unittest.TestCase):
+    def test_default_policy(self):
+        self.assertEqual(merge.select_policy([]), "policy.toml")
+
+    def test_explicit_policy(self):
+        self.assertEqual(merge.select_policy(["--policy", "policy-fugu.toml"]), "policy-fugu.toml")
+
+    def test_rejects_unsafe_or_unknown_arguments(self):
+        cases = (
+            ["extra"],
+            ["--policy"],
+            ["--policy", "../policy.toml"],
+            ["--policy", "/etc/policy.toml"],
+            ["--policy", "policy.txt"],
+            ["--policy", "policy.toml", "extra"],
+        )
+        for argv in cases:
+            with self.subTest(argv=argv), self.assertRaises(PolicyError):
+                merge.select_policy(argv)
+
+    def test_rejects_a_missing_policy_file(self):
+        with self.assertRaisesRegex(PolicyError, "not found"):
+            merge.select_policy(["--policy", "policy-missing.toml"])
+
+    def test_policy_may_leave_one_table_empty(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "policy.toml"
+            path.write_text('[pin]\napps = true\n[seed]\n')
+            self.assertEqual(load_policy(path), {"pin": {("apps",): True}, "seed": {}})
+            path.write_text('[pin]\n[seed]\nmodel = "x"\n')
+            self.assertEqual(load_policy(path), {"pin": {}, "seed": {("model",): "x"}})
+            path.write_text("[pin]\n[seed]\n")
+            with self.assertRaisesRegex(PolicyError, "at least one value"):
+                load_policy(path)
+
+
 class CommandTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -152,11 +284,20 @@ class CommandTests(unittest.TestCase):
         self.source = self.base / "source"
         self.project = self.source / "scripts" / "codex-config"
         shutil.copytree(PROJECT, self.project, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
-        source_codex = self.source / "private_dot_codex"
-        source_codex.mkdir()
-        self.wrapper = source_codex / "modify_private_config.toml"
-        shutil.copy2(ROOT / "private_dot_codex" / self.wrapper.name, self.wrapper)
-        (self.source / ".chezmoiignore").write_text("scripts\n")
+        for directory in ("private_dot_codex", "private_dot_codex-fugu"):
+            source_dir = self.source / directory
+            source_dir.mkdir()
+            shutil.copy2(
+                ROOT / directory / "modify_private_config.toml",
+                source_dir / "modify_private_config.toml",
+            )
+        self.wrapper = self.source / "private_dot_codex" / "modify_private_config.toml"
+        self.fugu_wrapper = (
+            self.source / "private_dot_codex-fugu" / "modify_private_config.toml"
+        )
+        # The real ignore file carries the codexFugu opt-in gate; the temp
+        # source only holds the two Codex trees and the shared scripts.
+        shutil.copy2(ROOT / ".chezmoiignore", self.source / ".chezmoiignore")
         self.home = self.base / "home"
         self.home.mkdir()
         self.env = os.environ.copy()
@@ -181,6 +322,20 @@ class CommandTests(unittest.TestCase):
         env["CHEZMOI_SOURCE_DIR"] = str(self.source)
         return subprocess.run(["/bin/sh", str(self.wrapper)], input=source, text=True,
                               capture_output=True, env=env, cwd=self.base)
+
+    def fugu_wrapper_run(self, source):
+        env = self.env.copy()
+        env["CHEZMOI_SOURCE_DIR"] = str(self.source)
+        return subprocess.run(["/bin/sh", str(self.fugu_wrapper)], input=source, text=True,
+                              capture_output=True, env=env, cwd=self.base)
+
+    def chezmoi_run(self, config, destination, state, *args):
+        chezmoi = shutil.which("chezmoi")
+        self.assertIsNotNone(chezmoi, "chezmoi is required for integration coverage")
+        command = [chezmoi, "--source", str(self.source), "--destination", str(destination),
+                   "--config", str(config), "--persistent-state", str(state),
+                   "--no-tty", "--force"]
+        return subprocess.run([*command, *args], env=self.env, capture_output=True, text=True)
 
     def test_wrapper_from_other_cwd(self):
         result = self.wrapper_run("")
@@ -216,19 +371,68 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "")
 
+    def test_fugu_wrapper_selects_its_own_policy(self):
+        result = self.fugu_wrapper_run(FUGU_BLOCK)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('plan_mode_reasoning_effort = "xhigh"', result.stdout)
+        self.assertIn("# <<< fugu:model_providers.sakana <<<", result.stdout)
+        self.assertNotIn("sandbox_mode", result.stdout)
+        self.assertEqual(
+            tomllib.loads(result.stdout)["model_providers"]["sakana"]["name"], "Sakana API"
+        )
+
+    def test_fugu_gate_off_leaves_the_isolated_home_alone(self):
+        config = self.base / "gate-off.toml"
+        config.write_text("")
+        result = self.chezmoi_run(config, self.home, self.base / "gate-off.db", "apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.home / ".codex" / "config.toml").exists())
+        self.assertFalse((self.home / ".codex-fugu").exists())
+
+    def test_fugu_gate_on_manages_the_base_config(self):
+        config = self.base / "gate-on.toml"
+        config.write_text("[data]\ncodexFugu = true\n")
+        home = self.base / "fugu-home"
+        home.mkdir()
+        state = self.base / "gate-on.db"
+
+        def call(*args):
+            return self.chezmoi_run(config, home, state, *args)
+
+        result = call("apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        fugu_dir = home / ".codex-fugu"
+        live = fugu_dir / "config.toml"
+        self.assertEqual(fugu_dir.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(live.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(tomllib.loads(live.read_text()), {"plan_mode_reasoning_effort": "xhigh"})
+        self.assertTrue((home / ".codex" / "config.toml").exists())
+        diff = call("diff")
+        self.assertEqual(diff.returncode, 0, diff.stderr)
+        self.assertEqual(diff.stdout, "")
+        self.assertEqual(call("status").stdout, "")
+
+        # The installer-owned block and Codex runtime state survive, and the
+        # pin is written above the block.
+        live.write_text(FUGU_BLOCK + "\n" + FUGU_RUNTIME)
+        result = call("apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        content = live.read_text()
+        self.assertTrue(content.startswith('plan_mode_reasoning_effort = "xhigh"'))
+        self.assertIn(FUGU_BLOCK, content)
+        self.assertIn('trust_level = "trusted"', content)
+        self.assertIn('trusted_hash = "sha256:deadbeef"', content)
+        self.assertEqual(live.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(call("status").stdout, "")
+
     def test_chezmoi_lifecycle(self):
         # The real chezmoi invocation must provide the modifier's source directory.
         self.assertNotIn("CHEZMOI_SOURCE_DIR", self.env)
-        chezmoi = shutil.which("chezmoi")
-        self.assertIsNotNone(chezmoi, "chezmoi is required for integration coverage")
         config = self.base / "chezmoi.toml"
         config.write_text("")
-        command = [chezmoi, "--source", str(self.source), "--destination", str(self.home),
-                   "--config", str(config), "--persistent-state", str(self.base / "chezmoi.db"),
-                   "--no-tty", "--force"]
 
         def call(*args):
-            return subprocess.run([*command, *args], env=self.env, capture_output=True, text=True)
+            return self.chezmoi_run(config, self.home, self.base / "chezmoi.db", *args)
 
         result = call("apply")
         self.assertEqual(result.returncode, 0, result.stderr)
