@@ -136,6 +136,11 @@ exec(source)
                                 capture_output=True, text=True, timeout=30)
         self.assertNotEqual(broken.returncode, 0)
         self.assertIn("codex-config", broken.stderr)
+        (project / "policy.toml").unlink()
+        missing = subprocess.run(["/bin/sh", str(project / "setup.sh")], env=self.env,
+                                 capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("policy.toml is missing", missing.stderr)
 
     def assert_restored(self, result, original):
         self.assertNotEqual(result.returncode, 0, result.stderr)
