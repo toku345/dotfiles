@@ -18,7 +18,7 @@ Accepted (2026-09-26).
 
 宣言するのは `plan_mode_reasoning_effort = "xhigh"` の **pin** だけとする。seed ではないのは、Plan mode を壊す値が live に保存されていても `apply` ごとに戻す必要があるため。`[seed]` は空にし、`config_policy.load_policy` は `[pin]` / `[seed]` の両テーブルを要求しつつ、片方の空を許容して全体で 1 つ以上の宣言を必須にする。
 
-配布はマシン単位の opt-in にする。`.chezmoi.toml.tmpl` の `[data]` に `codexFugu` を追加し、`.chezmoiignore` が `{{ if not (index . "codexFugu") }}` で `.codex-fugu` と `.codex-fugu/**` を除外する。`~/.codex-fugu` を持たない machine に空の target を作らないため。既に init 済みの machine では chezmoi data に `codexFugu = true` を追記する（`.chezmoi.toml.tmpl` は再描画されない）。
+配布はマシン単位の opt-in にする。`.chezmoi.toml.tmpl` の `[data]` に `codexFugu` を追加し、`.chezmoiignore` が `{{ if not (index . "codexFugu") }}` で `.codex-fugu` と `.codex-fugu/**` を除外する。`~/.codex-fugu` を持たない machine に空の target を作らないため。既に init 済みの machine では `chezmoi init` を実行して `codexFugu` のプロンプトに答える（実測: data への手動追記だけでは config template 変更の警告が残り、`promptBoolOnce` は TTY を要求するため `--promptBool` では埋まらない。非対話では data 追記後に `chezmoi init` を実行する）。
 
 `merge.py` は未設定の root キーをファイル先頭に前置する。installer のマーカーブロックが最初のテーブルを含むため、TOML Kit の既定配置（最初のテーブル直前）では新しい root キーがブロックの内側に入り、既存の「installer ブロック不変」検証で停止する。前置はブロックを触らず、root キーが常に top-level に残る。
 
