@@ -8,6 +8,13 @@ CLAUDE.local.md
 docs
 tests
 scripts
+
+# Fugu: opt-in per machine (enable the codexFugu data key)
+{{ if not (index . "codexFugu") }}
+.codex-fugu
+.codex-fugu/**
+{{ end }}
+
 # Linux: exclude macOS-only configs and scripts
 {{ if ne .chezmoi.os "darwin" }}
 .config/karabiner

@@ -8,7 +8,7 @@
 
 `codex` は Homebrew の通常版（Apple Silicon Mac は `/opt/homebrew/bin/codex`）と `~/.codex` を使う。`codex-fugu` は Bash 5+ の管理ラッパーから、`~/.codex-fugu/bin/codex-fugu`（Fugu 公式ランチャー）と `~/.codex-fugu/bin/codex`（bundle 指定版）を起動する。専用の bin をシェル全体の PATH に追加しない。
 
-管理対象は `~/.local/bin/codex-fugu` だけ。専用 HOME 内の実行ファイル、設定、キー、Memory、Session は chezmoi 非管理とする。公式インストーラーは専用 bin のランチャーを更新するため、管理ラッパーを上書きしない。専用実行ファイルがない場合は停止し、PATH 上の CLI へフォールバックしない。
+管理対象は `~/.local/bin/codex-fugu` と、opt-in したマシンの `~/.codex-fugu/config.toml`（per-key ポリシー）だけ。専用 HOME 内の実行ファイル、キー、Memory、Session、`fugu.config.toml`（公式インストーラーが丸ごと上書きする bundle profile）は chezmoi 非管理とする。公式インストーラーは専用 bin のランチャーを更新するため、管理ラッパーを上書きしない。専用実行ファイルがない場合は停止し、PATH 上の CLI へフォールバックしない。
 
 ラッパーの子プロセスだけに以下を固定する。親シェル、通常版 CLI、Codex アプリの環境は変更しない。
 
@@ -54,6 +54,17 @@ codex-fugu --status
 ```
 
 Mac Fish / Linux Bash で `codex` が通常版、`codex-fugu` が管理ラッパーに解決されることを確認する。通常版設定が変わっていないことも確認する。失敗時はバックアップした旧ランチャーと管理元の変更を戻す。これは従来の共有環境への復帰であり、専用 HOME は調査用に残す。
+
+### base config の管理（マシン単位の opt-in）
+
+分離した Fugu home で Codex が読む base layer は `~/.codex-fugu/config.toml` だけ（`fugu.config.toml` は公式インストーラーが上書きする bundle profile）。この base layer を chezmoi の `modify_` target として管理する。マージは通常版と同じ `scripts/codex-config/merge.py` を使い、`--policy policy-fugu.toml` で Fugu 用ポリシーを選ぶ。
+
+- 宣言する値は `scripts/codex-config/policy-fugu.toml` に置く。現在は `plan_mode_reasoning_effort = "xhigh"` の **pin** のみ。Fugu モデルの catalog は `high` / `xhigh`（`fugu-ultra-v1.1` は `max`）しか宣言せず、CLI の Plan mode 既定 `medium` は Sakana API が拒否する。pin なので live に別の値が保存されていても `apply` ごとに戻す。
+- 前提は通常版と同じ `sh scripts/codex-config/setup.sh`（[初回準備・依存更新](#初回準備依存更新)）。venv がない場合、Fugu 側の target も適用前に停止する。
+- 有効化はマシン単位の opt-in。`chezmoi init` を実行し、`codexFugu` のプロンプトに `yes` と答える。既存の `[data]` は再利用され、他のキーは再質問されない。`.chezmoi.toml.tmpl` が変わると chezmoi は `run chezmoi init to regenerate config file` と警告し続けるため、data への手動追記だけで済ませず `chezmoi init` で config file を再生成する。非対話で有効化する場合は `[data]` に `codexFugu = true` を先に追記してから `chezmoi init` を実行する（`promptBoolOnce` は TTY を要求し、`--promptBool` では埋まらない）。無効のマシンでは `.chezmoiignore` が Fugu source 一式を除外するため `~/.codex-fugu` を作らない。**`~/.codex-fugu` を持つマシンでのみ有効化する**。有効にすると専用 HOME がまだ無い machine でも skeleton を作るため、Fugu を使わない machine では無効のままにする。
+- 反映は main への merge 後: `chezmoi diff ~/.codex-fugu/config.toml` で確認し、`chezmoi apply ~/.codex-fugu/config.toml` を実行する。installer のマーカーブロック、Codex が書く `[projects.*]` / `[hooks.state]`、未知キーは保持される。
+- 収束確認: `chezmoi status ~/.codex-fugu/config.toml` が空。pin は最初のテーブルより前の top-level に置かれる。
+- 実機確認: `codex-fugu` の新規セッションで Plan mode を 1 往復し、`grep -o '"mode":"plan".\{0,120\}' ~/.codex-fugu/sessions/**/rollout-*.jsonl` が `"reasoning_effort":"xhigh"` を示すことを確認する。bundle 更新で `fugu.config.toml` が plan effort を宣言した場合は profile 層が優先されるため、更新後に再確認する。
 
 ### 更新と Memory の扱い
 
@@ -139,12 +150,12 @@ setup 同士の二重実行は `setup.lock` ディレクトリで拒否する。
 
 ### 設定の変更
 
-- 編集先は `scripts/codex-config/policy.toml`。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないすべてのキーは free。
+- 編集先は `scripts/codex-config/policy.toml`（通常版 `~/.codex/config.toml`）。分離した Fugu home 用は `scripts/codex-config/policy-fugu.toml`（前述の「base config の管理」）。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないすべてのキーは free。
 - seed の現在値が宣言と異なる場合は保持し、stderr にキー名だけ警告する。宣言値が現在値とは限らない。
 - main への merge 後、`chezmoi diff ~/.codex/config.toml` で確認し、`chezmoi apply ~/.codex/config.toml` で反映する。hash gate・ACK・手動 merge は不要。
 - 旧 baseline / hash state が残る場合は、内容を確認して `rm -f ~/.codex/config.chezmoi.toml ~/.codex/.baseline-hash` で削除する。
 
-TOML Kit で構文を解析し、値と型で比較する。出力前に再解析し、pin の値、既存 seed と全 free キーの保持、installer のマーカーブロック不変性を確認する。構文不正・ポリシー衝突・構造衝突は非ゼロ終了し、stdout に部分的な設定を出さない。変更不要なら入力をそのまま返す。コメントと配列の書式は保持するが、TOML Kit が一部の array-of-tables の配置を正規化するため、変更時のファイル全体のバイト一致は保証しない。
+TOML Kit で構文を解析し、値と型で比較する。出力前に再解析し、pin の値、既存 seed と全 free キーの保持、installer のマーカーブロック不変性を確認する。構文不正・ポリシー衝突・構造衝突は非ゼロ終了し、stdout に部分的な設定を出さない。変更不要なら入力をそのまま返す。未設定の root キーはファイル先頭に追加し、installer が所有するブロックの内側へは入れない。コメントと配列の書式は保持するが、TOML Kit が一部の array-of-tables の配置を正規化するため、変更時のファイル全体のバイト一致は保証しない。
 
 ### 隔離した検証
 
@@ -158,6 +169,7 @@ export CODEX_CONFIG_TEST_PYTHON="$policy_test_root/data/codex-config-policy/venv
 "$CODEX_CONFIG_TEST_PYTHON" -B tests/codex/test_config_policy.py
 "$CODEX_CONFIG_TEST_PYTHON" -B tests/codex/test_config_setup.py
 bats tests/bats/test_codex_config_policy.bats
+bats tests/bats/test_codex_fugu_config_policy.bats
 ```
 
 Python テストには `chezmoi` が必要。Bats は依存未準備を skip せず失敗として扱う。テスト内の HOME・XDG・chezmoi source/destination/state はすべて一時領域を使う。
