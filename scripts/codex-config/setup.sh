@@ -117,11 +117,14 @@ fi
 uv sync --project "$project_dir" --locked --no-python-downloads "$@"
 actual_base=$("$venv_dir/bin/python" -I -c "$python_probe" '' venv) || fail 'venv Python cannot start after sync'
 [ "$actual_base" = "$python_base" ] || fail 'venv uses a different Python after sync'
-# main validates dependencies and a complete merge without reading live config.
-# The project path is removed from argv so the merge CLI sees no arguments.
-"$venv_dir/bin/python" -I -B -c \
-    'import sys; sys.path.insert(0, sys.argv.pop(1)); from merge import main; sys.exit(main())' \
-    "$project_dir" </dev/null >/dev/null
+# main validates dependencies and a complete merge for every policy without
+# reading live config. The project path is consumed before main() runs so the
+# merge CLI sees only the policy selection.
+for policy in "$project_dir"/policy*.toml; do
+    "$venv_dir/bin/python" -I -B -c \
+        'import sys; sys.path.insert(0, sys.argv.pop(1)); from merge import main; sys.exit(main())' \
+        "$project_dir" --policy "$(basename "$policy")" </dev/null >/dev/null
+done
 rollback=false
 if [ -e "$backup" ] || [ -L "$backup" ]; then
     rm -rf -- "$backup"

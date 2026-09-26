@@ -125,6 +125,18 @@ exec(source)
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
+    def test_smoke_check_covers_every_policy(self):
+        project = self.base / "project"
+        shutil.copytree(SETUP.parent, project, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
+        intact = subprocess.run(["/bin/sh", str(project / "setup.sh")], env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(intact.returncode, 0, intact.stderr)
+        (project / "policy-fugu.toml").write_text("[pin]\n[seed]\n")
+        broken = subprocess.run(["/bin/sh", str(project / "setup.sh")], env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(broken.returncode, 0)
+        self.assertIn("codex-config", broken.stderr)
+
     def assert_restored(self, result, original):
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.venv / "bin/python").read_bytes(), original)
