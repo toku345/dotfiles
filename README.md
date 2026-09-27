@@ -45,9 +45,10 @@ regenerate the config file.
 ### 3. Answer the per-machine prompts
 
 `chezmoi init` asks these once per machine and stores the answers in
-`~/.config/chezmoi/chezmoi.toml`. To change an answer afterwards (or on a
-machine initialized before the key existed), re-run `chezmoi init`; the
-`promptBoolOnce` questions need an interactive terminal.
+`~/.config/chezmoi/chezmoi.toml`. A stored answer is never asked again: to
+change one, set the value in that file (or delete the key to be asked again)
+and re-run `chezmoi init` so the config file is regenerated. `chezmoi init
+--prompt` forces the questions and needs an interactive terminal.
 
 | Key | Default | Enables |
 | --- | --- | --- |
@@ -91,10 +92,12 @@ API key, sessions, and memory, launched through the managed wrapper
    On a machine that already ran the standalone Fugu installer, first copy the
    existing `~/.local/bin/codex-fugu` to a dated backup (see `docs/codex.md`);
    never move or uninstall it.
-6. Re-run `chezmoi init`, answer `codexFugu` with yes, then
+6. Enable `codexFugu`: set it to `true` in `~/.config/chezmoi/chezmoi.toml`
+   (a stored answer is not asked again) and re-run `chezmoi init`, or run
+   `chezmoi init --prompt` and answer yes. Then
    `chezmoi diff ~/.codex-fugu/config.toml` and
-   `chezmoi apply -v ~/.codex-fugu/config.toml`. `chezmoi status` must be
-   empty afterwards.
+   `chezmoi apply -v ~/.codex-fugu/config.toml`;
+   `chezmoi status ~/.codex-fugu/config.toml` must be empty afterwards.
 7. In a new `codex-fugu` session, one Plan mode turn must record
    `"reasoning_effort":"xhigh"`; the Fugu catalog rejects the CLI default.
 
