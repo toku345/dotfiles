@@ -174,7 +174,9 @@ AI レビューは「日常の床 / 厚い変更の gate」に分ける。軽く
 
 Codex (コードレビュー / 調査委譲 / 別案試行) の運用詳細は skill `codex-usage` を参照する。
 
-agmsg が導入済みで同一 team に参加済みなら、Claude Code / Codex / 別セッション間の依頼・結果共有には agmsg を使ってよい。agmsg は transport であり、`$pr-review` / `/pr-review` の base pinning や fail-closed gate を置き換えない。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/` 配下の artifact path を送り、secret・credential・長大 diff 本文は送らない。配信モード等の運用詳細は skill `agmsg` を参照するが、Claude Code sandbox では `both` / `turn` を既定にし `monitor` 単独は避ける (watcher が silent に自滅する)。
+独立した別セッションへの通信は、agmsg・標準通信ともユーザーの明示依頼時だけ行う。現在のタスク配下のサブエージェント通信は対象外とする。
+
+agmsg は配信モード `off` を維持する。ユーザーが指定した team と送受信者名で公式スクリプトを使い、自動参加・監視開始・自動返信は行わない。未指定の宛先や自分の agent 名を推測して送受信しない。agmsg は transport であり、`$pr-review` / `/pr-review` の base pinning や fail-closed gate を置き換えない。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/` 配下の artifact path を送り、secret・credential・長大 diff 本文は送らない。
 
 「厚く理解する対象」に該当する変更で `codex` 利用可能なときのみ、プラン完成後に自動レビューを実施する。
 

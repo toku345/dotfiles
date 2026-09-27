@@ -19,67 +19,53 @@ Claude Code / Codex / 別セッション間の handoff transport。
 agmsg はレビュー gate そのものではない。`$pr-review` / `/pr-review`
 の base pinning / fail-closed aggregation は既存 gate 側で維持する。
 
-### 初回 smoke
+### 手動運用
 
-agmsg の team はリポジトリごとに分ける。別 repo の依頼や履歴と混ざるのを
-避けるため、この repo では team 名を `dotfiles` にする。
-agent 名は通常 `cc` / `codex` にする。Codex はレビュー専用ではなく
-メイン作業セッションにもなるため、`codex-reviewer` のような固定責務名は
-必要になった時だけ一時 role として使う。
+独立した別セッションへの通信は、agmsg・Claude 標準通信ともユーザーの明示依頼時だけ行う。
+現在のタスク配下のサブエージェント通信は対象外とする。
 
-配信 mode は repo の Codex hook 管理方針で分ける:
+- Claude Code / Codex とも配信モードは `off` を維持する。
+- team と送受信者名をユーザーが明示する。この repo の既存登録は `dotfiles` team の `cc` / `codex` だが、同じ repo で起動しただけではその名前を自動使用しない。
+- 自動参加・監視開始・自動返信は行わない。未参加なら、参加先と agent 名を確認してから公式 `join.sh` で登録し、配信は `off` のまま使う。
+- 同じ agent 名を複数セッションで使う場合、手動受信先を分離する保証はない。
 
-- この dotfiles repo、または `.codex/hooks.json` を Git 管理している repo:
-  Codex は `off` にして手動受信 (`$agmsg`) にする。`turn` は Codex hook
-  設定を書き換えるため、作業ツリーを汚す可能性がある
-- `.codex/hooks.json` を Git 管理していない repo:
-  Codex は `turn` にする。Codex は `both` をサポートしないため使わない
-- Codex `monitor` は beta / PATH shim 依存なので通常は使わない
-- Claude Code 側は `turn` か `both` を使う。`both` は monitor push と
-  turn pull の両経路で同一 message が見えることがある
+引数なしの `/agmsg` / `$agmsg` は identity 解決や inbox 読み取りを伴うため、停止確認には使わない。
+送受信は後述の公式スクリプトで対象を明示する。`inbox.sh` は表示したメッセージを既読にする。
 
-Claude Code 側:
+### この repo の自動配信を停止する
 
-```text
-/agmsg
-/agmsg mode both
+実環境への反映承認後、project-local 設定を日時付きでバックアップし、repo root で実行する:
+
+```bash
+bash ~/.agents/skills/agmsg/scripts/delivery.sh set off claude-code "$PWD"
+bash ~/.agents/skills/agmsg/scripts/delivery.sh status claude-code "$PWD"
+bash ~/.agents/skills/agmsg/scripts/delivery.sh status codex "$PWD"
 ```
 
-team は `dotfiles`、role は `cc` を使う。
+Claude 側の agmsg フックだけを除去し、他の設定は保持する。
+Codex は既に `off` のため、Git 管理の検証用フックを書き換えない。
+`delivery.sh stop` は全 watcher が対象になるため、この停止作業では使わない。
 
-Codex 側:
+`set off` は watcher 停止失敗を無視し、状態表示は pidfile に依存する。
+終了コードや `off` 表示だけで完了とせず、プロセスを確認できる環境で、
+この project path と agent type に一致する watcher の不在を確認する。
+残っていれば対象を限定して停止し、Claude 側の Monitor task は所有セッションでも確認する。
+確認権限が不足する場合は停止確認を未完了として報告する。
+変更前から動いている対象セッションは再起動し、通常作業で自動受信や agmsg フック出力がないことを確認する。
 
-```text
-$agmsg
-$agmsg mode off
+### Claude 標準通信の受信
+
+ユーザー設定の `crossSessionInbound` は `refuse` とし、既定で受信を拒否する。
+受信が必要なセッションだけ次のように起動する:
+
+```bash
+claude --settings '{"crossSessionInbound":"accept"}'
 ```
 
-team は `dotfiles`、role は `codex` を使う。
-最後に `cc` から `codex` へ短い message を送り、Codex 側で `$agmsg`
-を実行して受信できることを確認する。その後 `codex` から `cc` へ返信し、
-Claude Code 側で自動受信できることを確認する。
-
-### sandbox 下の配信モード注意 (Claude Code 側)
-
-上の「初回 smoke」は repo ごとの mode 選択 (Codex 側を `off` にするか
-`turn` にするか) を扱う。本節はそれとは別に、Claude Code 側で `monitor`
-を避ける技術的理由を記録する。
-
-Claude Code sandbox では macOS / Linux とも `both` か `turn` を既定にする
-(Linux でも composite-id watcher の起動直後自滅を実機確認 2026-07-09)。
-`monitor` 単独は避ける — sandbox は境界外プロセス (親エージェント) への
-`kill -0` を EPERM で拒否するため、`watch.sh` の composite-id
-(`<uuid>.<pid>`) liveness guard がエージェントを死亡と誤判定し、watcher が
-起動直後に自滅する (症状: Monitor task が即終了し auto-delivery が止まるが、
-手動 inbox は動く)。`turn`/`both` の Stop hook 経路 (`check-inbox.sh`) は
-SQLite read/write のみで sandbox 安全。
-
-どうしても push (monitor) が要るときは Monitor を
-**bare `$CLAUDE_CODE_SESSION_ID`** で起動する (`delivery.sh` が
-AGMSG-DIRECTIVE に焼き込む composite id をそのまま渡さない) — bare id は
-liveness guard をスキップし sandbox 下でも生存する。`delivery.sh set` の
-`settings.local.json` 書き込みは sandbox 内で `Operation not permitted` に
-なるため sandbox bypass が要る。
+project-local の `refuse` はこの上書きより優先されるため、既定値はユーザー設定に置く。
+`accept` は特定の送信者だけを許可する設定ではない。
+また、`refuse` は送信禁止ではないため、標準通信による送信もユーザーの明示依頼時だけ行う。
+詳細は [Claude Code のセッション間通信](https://code.claude.com/docs/en/cross-session-messaging) を参照する。
 
 ### 設定の保存先
 
@@ -92,58 +78,32 @@ chezmoi 管理対象ではなく、agmsg installer/runtime が管理する local
 
 ### 使い方例
 
-agmsg を使う前に、依頼元・依頼先の両方のセッションで同じ repo 用 team に
-join しておく。この repo では `dotfiles` team を使う。別 repo では、その repo
-専用の team を作る。
+ユーザーが `dotfiles` team の `cc` から `codex` への送信を指定した場合:
 
-Claude Code から Codex に軽いレビューを依頼する例:
-
-```text
-/agmsg send codex "repo: /Users/toku345/.local/share/chezmoi
-branch: feat/agmsg-handoff-setup
-base: origin/main
-目的: docs/claude-code-plugins.md の agmsg 使い方追記をレビューしてください。
-非対象: 実装修正、PR 操作、agmsg installer の変更。
-確認: typo、手順の不足、repo ごとに team が必要な旨が伝わるか。
-1 回実行して、DONE または blocked を返してください。"
+```bash
+bash ~/.agents/skills/agmsg/scripts/send.sh dotfiles cc codex \
+  'repo の調査依頼: /tmp/agmsg-handoff-dotfiles/request.md'
 ```
 
-Codex から Claude Code に結果だけ返す例:
+受信側でもユーザーが `dotfiles` / `codex` の手動受信を指定した場合:
 
-```text
-$agmsg send cc "DONE: docs の使い方例を確認しました。
-気になる点: 長文依頼は agmsg 本文ではなく /tmp 配下の request.md を渡す運用が
-もう少し目立つとよさそうです。
-追加変更はしていません。"
+```bash
+bash ~/.agents/skills/agmsg/scripts/inbox.sh dotfiles codex
 ```
 
-長い handoff は本文を直接送らず、ファイルに置いて path を送る:
-
-```sh
-mkdir -p /tmp/agmsg-handoff-dotfiles-docs
-$EDITOR /tmp/agmsg-handoff-dotfiles-docs/request.md
-```
-
-```text
-/agmsg send codex "handoff request:
-/tmp/agmsg-handoff-dotfiles-docs/request.md
-
-repo: /Users/toku345/.local/share/chezmoi
-team: dotfiles
-1 回実行して、result を /tmp/agmsg-handoff-dotfiles-docs/result.md に書き、
-DONE または blocked を返してください。"
-```
+返信は別途ユーザーが明示した場合だけ送信する。既存の実セッション宛てに動作確認用メッセージを送らない。
 
 ### 運用ルール
 
-- 長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md`
-  / `result.md` に置き、agmsg では path を送る
+- 長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md` / `result.md` に置き、agmsg では path を送る
 - secret、credential、長大 diff 本文は agmsg に送らない
-- 依頼文には「1 回実行して DONE/blocked を返す」を入れ、自動往復ループを作らない
-- Codex monitor beta は通常使わない。v1.1.10 では shell function が推奨経路で、
-  global PATH shim は任意の互換経路として残っている
+- 依頼文には repo path、branch/base、目的、非対象、検証方法と「1 回実行して結果を artifact に保存する」を含める
+- 通信テストは一時ディレクトリに scripts をコピーし、空の team・DB・run を使う。`AGMSG_STORAGE_PATH` だけでは team 登録を隔離できないため、実インストールの `join.sh` で検証用登録を作らない
+- 通常起動での受信拒否と `accept` 指定時の受信確認は専用 Claude セッションで行い、未実施なら未検証として記録する
 
 ### 更新
+
+今回の停止対応では v1.1.10 と既存 pin を維持する。更新は [Issue #376](https://github.com/toku345/dotfiles/issues/376) で別途扱う。
 
 agmsg は automatic latest 追従しない。更新時は
 `.chezmoiscripts/run_after_setup-agmsg.sh` の `AGMSG_REF` をレビュー付きで
