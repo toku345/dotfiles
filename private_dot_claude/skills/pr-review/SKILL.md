@@ -33,15 +33,26 @@ Do not change repository or git state to make a failing precondition pass: no `g
 
    This check comes first because everything below it — `gh pr view` and `git fetch` under `dangerouslyDisableSandbox`, the diff packet, the reference sentinels — is wasted work on a run that cannot reach the workflow.
 
-   Second check — **no project-scoped workflow shadows the gate.** The Workflow tool resolves the name `pr-review` by each script's `meta.name`: it registers user scope `~/.claude/workflows/` first, then lets any parseable project-scope `.claude/workflows/` script with the same name override it. A project copy would run in place of this gate, and the render-side `argsContract` check cannot tell them apart. Run this block verbatim (glob-free, and it starts from the physical path because `git rev-parse --show-toplevel` resolves symlinks while `$PWD` does not):
+   Second check — **no project-scoped workflow shadows the gate.** The Workflow tool resolves the name `pr-review` by each script's `meta.name`: it registers user scope `~/.claude/workflows/` first, then lets any parseable project-scope `.claude/workflows/` script with the same name override it. A project copy would run in place of this gate, and the render-side `argsContract` check cannot tell them apart. The check matches the fixed string `pr-review` anywhere in any file under those directories, so every spelling of the name (quoted key, backtick value, any extension, subdirectory, symlinked file) is caught; only a name assembled at runtime, such as `'pr-' + 'review'`, evades it. Run this block verbatim. It is glob-free, starts from the physical path because `git rev-parse --show-toplevel` resolves symlinks while `$PWD` does not, and fails closed when a directory or file cannot be read:
 
    ```sh
    top=$(git rev-parse --show-toplevel) || exit 1
    d=$(pwd -P)
    while :; do
-     if [ -d "$d/.claude/workflows" ]; then
-       find "$d/.claude/workflows" -maxdepth 1 -type f -name '*.js' \
-         -exec env LC_ALL=C grep -l -E "name:[[:space:]]*['\"]pr-review['\"]" {} +
+     if [ -d "$d/.claude" ] && [ ! -x "$d/.claude" ]; then
+       echo "ABORT: cannot search $d/.claude for project workflows" >&2; exit 1
+     fi
+     if [ -e "$d/.claude/workflows" ]; then
+       find -L "$d/.claude/workflows" -type f -exec sh -c '
+         for f do
+           LC_ALL=C grep -qF pr-review "$f"
+           case $? in
+             0) echo "$f" ;;
+             1) ;;
+             *) echo "ERROR: cannot read $f" >&2; exit 2 ;;
+           esac
+         done
+       ' sh {} + || { echo "ABORT: shadowing check failed under $d/.claude/workflows" >&2; exit 1; }
      fi
      [ "$d" = "$top" ] && break
      [ "$d" = / ] && break
@@ -49,8 +60,8 @@ Do not change repository or git state to make a failing precondition pass: no `g
    done
    ```
 
-   If it prints any path, abort with:
-   > "A project-scoped `.claude/workflows/` script declares the workflow name `pr-review` (<printed paths>) and would override the user-scope gate. Remove or rename it, then retry."
+   If the block exits non-zero, abort with its stderr. If it prints any path, abort with:
+   > "A project-scoped `.claude/workflows/` file mentions `pr-review` (<printed paths>); a script declaring that name would override the user-scope gate. Remove, rename, or move it out of `.claude/workflows/`, then retry."
 
 2. **Clean worktree** — Run `git status --porcelain --untracked-files=normal`. If the command fails, abort with its output. If output is non-empty, abort with:
    > "Worktree has uncommitted changes: <list>. The review covers committed branch diff only; uncommitted changes would be silently excluded. Commit or stash first, then retry."
@@ -143,7 +154,7 @@ Workflow({
 ```
 
 If the Workflow tool itself refuses the call (the name does not resolve, or it reports a tool input error), abort with:
-> "pr-review workflow is not resolvable by name (`~/.claude/workflows/pr-review.js` missing or failed to load). Run `chezmoi apply -v`, then retry."
+> "pr-review workflow launch was refused by the Workflow tool: <tool error verbatim>. If the error says the name is unknown or the script failed to load, run `chezmoi apply -v`, then retry. Otherwise the args built above are malformed; fix them and retry."
 
 Do not work around a refusal by copying the script elsewhere, launching it through the `scriptPath` parameter, adding a directory with `/add-dir`, or fanning out the specialists with `Agent` by hand. Each of those runs something other than the deployed, reviewed gate.
 
