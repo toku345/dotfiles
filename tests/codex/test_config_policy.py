@@ -33,6 +33,13 @@ trusted_hash = "sha256:deadbeef"
 enabled = true
 """
 
+# Static user files shared into the isolated Fugu home: target -> link target.
+FUGU_STATIC_FILES = {
+    ".codex-fugu/AGENTS.md": "../.codex/AGENTS.md",
+    ".codex-fugu/agents": "../.codex/agents",
+    ".codex-fugu/rules/managed.rules": "../../.codex/rules/managed.rules",
+}
+
 
 class MergeTests(unittest.TestCase):
     def setUp(self):
@@ -298,12 +305,13 @@ class CommandTests(unittest.TestCase):
         self.source = self.base / "source"
         self.project = self.source / "scripts" / "codex-config"
         shutil.copytree(PROJECT, self.project, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
+        # Copy both Codex trees wholesale so the modifiers, the static user
+        # files and their symlink sources all come from the real source tree.
         for directory in ("private_dot_codex", "private_dot_codex-fugu"):
-            source_dir = self.source / directory
-            source_dir.mkdir()
-            shutil.copy2(
-                ROOT / directory / "modify_private_config.toml",
-                source_dir / "modify_private_config.toml",
+            shutil.copytree(
+                ROOT / directory,
+                self.source / directory,
+                ignore=shutil.ignore_patterns("__pycache__", ".venv"),
             )
         self.wrapper = self.source / "private_dot_codex" / "modify_private_config.toml"
         self.fugu_wrapper = (
@@ -438,6 +446,63 @@ class CommandTests(unittest.TestCase):
         self.assertIn('trusted_hash = "sha256:deadbeef"', content)
         self.assertEqual(live.stat().st_mode & 0o777, 0o600)
         self.assertEqual(call("status").stdout, "")
+
+    def test_fugu_static_user_files_are_shared_by_symlink(self):
+        config = self.base / "fugu-static.toml"
+        config.write_text("[data]\ncodexFugu = true\n")
+        home = self.base / "static-home"
+        home.mkdir()
+        state = self.base / "static.db"
+
+        def call(*args):
+            return self.chezmoi_run(config, home, state, *args)
+
+        result = call("apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        for relative, target in FUGU_STATIC_FILES.items():
+            path = home / relative
+            self.assertTrue(path.is_symlink(), f"{relative} must be a symlink")
+            self.assertEqual(os.readlink(path), target)
+            self.assertTrue(path.exists(), f"{relative} must resolve")
+            self.assertEqual(
+                path.resolve(),
+                (home / ".codex" / Path(relative).relative_to(".codex-fugu")).resolve(),
+            )
+
+        fugu_dir = home / ".codex-fugu"
+        self.assertEqual(fugu_dir.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((fugu_dir / "rules").stat().st_mode & 0o777, 0o755)
+        shared_rules = fugu_dir / "rules" / "managed.rules"
+        self.assertEqual(shared_rules.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(
+            shared_rules.read_text(),
+            (home / ".codex" / "rules" / "managed.rules").read_text(),
+        )
+        # The Phase 4 pin and the static files converge in the same apply.
+        self.assertEqual(
+            tomllib.loads((fugu_dir / "config.toml").read_text()),
+            {"plan_mode_reasoning_effort": "xhigh"},
+        )
+
+        self.assertEqual(call("diff").stdout, "")
+        self.assertEqual(call("status").stdout, "")
+        before = {relative: os.readlink(home / relative) for relative in FUGU_STATIC_FILES}
+        self.assertEqual(call("apply").returncode, 0)
+        after = {relative: os.readlink(home / relative) for relative in FUGU_STATIC_FILES}
+        self.assertEqual(after, before)
+        self.assertEqual(call("status").stdout, "")
+
+    def test_fugu_static_user_files_stay_ignored_when_gate_is_off(self):
+        config = self.base / "fugu-static-off.toml"
+        config.write_text("")
+        home = self.base / "static-off-home"
+        home.mkdir()
+        result = self.chezmoi_run(config, home, self.base / "static-off.db", "apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((home / ".codex-fugu").exists())
+        for relative in FUGU_STATIC_FILES:
+            self.assertFalse((home / relative).exists(), f"{relative} must not exist")
 
     def test_chezmoi_lifecycle(self):
         # The real chezmoi invocation must provide the modifier's source directory.
