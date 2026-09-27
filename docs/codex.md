@@ -64,7 +64,7 @@ Mac Fish / Linux Bash で `codex` が通常版、`codex-fugu` が管理ラッパ
 - 有効化はマシン単位の opt-in。`chezmoi init` を実行し、`codexFugu` のプロンプトに `yes` と答える。既存の `[data]` は再利用され、他のキーは再質問されない。`.chezmoi.toml.tmpl` が変わると chezmoi は `run chezmoi init to regenerate config file` と警告し続けるため、data への手動追記だけで済ませず `chezmoi init` で config file を再生成する。非対話で有効化する場合は `[data]` に `codexFugu = true` を先に追記してから `chezmoi init` を実行する（`promptBoolOnce` は TTY を要求し、`--promptBool` では埋まらない）。無効のマシンでは `.chezmoiignore` が Fugu source 一式を除外するため `~/.codex-fugu` を作らない。**`~/.codex-fugu` を持つマシンでのみ有効化する**。有効にすると専用 HOME がまだ無い machine でも skeleton を作るため、Fugu を使わない machine では無効のままにする。
 - 反映は main への merge 後: `chezmoi diff ~/.codex-fugu/config.toml` で確認し、`chezmoi apply ~/.codex-fugu/config.toml` を実行する。installer のマーカーブロック、Codex が書く `[projects.*]` / `[hooks.state]`、未知キーは保持される。
 - 収束確認: `chezmoi status ~/.codex-fugu/config.toml` が空。pin は最初のテーブルより前の top-level に置かれる。
-- 実機確認: `codex-fugu` の新規セッションで Plan mode を 1 往復し、`grep -o '"mode":"plan".\{0,120\}' ~/.codex-fugu/sessions/**/rollout-*.jsonl` が `"reasoning_effort":"xhigh"` を示すことを確認する。bundle 更新で `fugu.config.toml` が plan effort を宣言した場合は profile 層が優先されるため、更新後に再確認する。
+- 実機確認: `codex-fugu` の新規セッションで Plan mode を 1 往復し、`find ~/.codex-fugu/sessions -name 'rollout-*.jsonl' -exec grep -o '"mode":"plan".\{0,120\}' {} +` が `"reasoning_effort":"xhigh"` を示すことを確認する（`**/` は `globstar` を有効にしていないシェルでは展開されないため `find` を使う）。bundle 更新で `fugu.config.toml` が plan effort を宣言した場合は profile 層が優先されるため、更新後に再確認する。
 
 ### 更新と Memory の扱い
 

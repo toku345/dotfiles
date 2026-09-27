@@ -27,6 +27,11 @@ def load_policy(path: pathlib.Path) -> dict[str, dict[tuple[str, ...], Any]]:
     def flatten(table: Any, prefix: tuple[str, ...], rows: dict) -> None:
         if not isinstance(table, dict):
             raise PolicyError("policy tables must be tables")
+        if not table and prefix:
+            # Only the top-level [pin] / [seed] tables may be empty. An empty
+            # nested table is a declaration mistake that flatten would
+            # otherwise drop without any effect.
+            raise PolicyError("nested policy tables must be non-empty")
         for key, value in table.items():
             if not key or any(ord(c) < 32 or ord(c) == 127 for c in key):
                 raise PolicyError("policy keys must be non-empty and printable")

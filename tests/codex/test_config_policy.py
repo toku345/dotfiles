@@ -275,6 +275,20 @@ class PolicySelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(PolicyError, "at least one value"):
                 load_policy(path)
 
+    def test_policy_rejects_empty_nested_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "policy.toml"
+            path.write_text('[pin]\napps = true\n[pin.features]\n[seed]\nmodel = "x"\n')
+            with self.assertRaisesRegex(PolicyError, "nested policy tables"):
+                load_policy(path)
+            path.write_text(
+                "[pin]\napps = true\n[pin.features.memories]\nenabled = true\n[seed]\n"
+            )
+            self.assertEqual(
+                load_policy(path),
+                {"pin": {("apps",): True, ("features", "memories", "enabled"): True}, "seed": {}},
+            )
+
 
 class CommandTests(unittest.TestCase):
     def setUp(self):

@@ -16,7 +16,7 @@ Accepted (2026-09-26).
 
 `~/.codex-fugu/config.toml` を chezmoi の `modify_` target にし、通常版と同じ `scripts/codex-config/merge.py` で per-key policy を適用する。Fugu 側のポリシーは `scripts/codex-config/policy-fugu.toml` に分離し、`merge.py` の `--policy <name>`（`policy*.toml` のファイル名のみ許可し、source directory 直下で解決する）で選択する。通常版の sandbox / features / tui の pin は Fugu home へ持ち込まない。
 
-宣言するのは `plan_mode_reasoning_effort = "xhigh"` の **pin** だけとする。seed ではないのは、Plan mode を壊す値が live に保存されていても `apply` ごとに戻す必要があるため。`[seed]` は空にし、`config_policy.load_policy` は `[pin]` / `[seed]` の両テーブルを要求しつつ、片方の空を許容して全体で 1 つ以上の宣言を必須にする。
+宣言するのは `plan_mode_reasoning_effort = "xhigh"` の **pin** だけとする。seed ではないのは、Plan mode を壊す値が live に保存されていても `apply` ごとに戻す必要があるため。`[seed]` は空にし、`config_policy.load_policy` は `[pin]` / `[seed]` の両テーブルを要求しつつ、トップレベルの空テーブルを許容して全体で 1 つ以上の宣言を必須にする。空の **ネスト** テーブル（例: `[pin.features]` を宣言して中身が無い）は、黙って無効化される宣言ミスになるため引き続き拒否する。
 
 配布はマシン単位の opt-in にする。`.chezmoi.toml.tmpl` の `[data]` に `codexFugu` を追加し、`.chezmoiignore` が `{{ if not (index . "codexFugu") }}` で `.codex-fugu` と `.codex-fugu/**` を除外する。`~/.codex-fugu` を持たない machine に空の target を作らないため。既に init 済みの machine では `chezmoi init` を実行して `codexFugu` のプロンプトに答える（実測: data への手動追記だけでは config template 変更の警告が残り、`promptBoolOnce` は TTY を要求するため `--promptBool` では埋まらない。非対話では data 追記後に `chezmoi init` を実行する）。
 
