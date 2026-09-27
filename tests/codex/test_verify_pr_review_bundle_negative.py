@@ -684,6 +684,27 @@ def main() -> None:
             "name: 'pr-review-v2',",
             "does not match the name 'pr-review' the Claude skill launches",
         ),
+        (
+            "claude skill scriptPath alongside name",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'Workflow({\n  name: "pr-review",',
+            'Workflow({\n  name: "pr-review",\n  scriptPath: "/x",',
+            "launch-by-name: forbidden stale text 'scriptPath:'",
+        ),
+        (
+            "claude skill workaround ban removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "Do not change repository or git state to make a failing precondition pass",
+            "Avoid changing repository state when a precondition fails",
+            "precondition-workaround-ban: missing",
+        ),
+        (
+            "claude skill shadowing guard removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "would override the user-scope gate",
+            "may conflict with the gate",
+            "shadowing-guard: missing",
+        ),
     ]
 
     with tempfile.TemporaryDirectory(prefix="pr-review-verifier-negative-") as tmp:

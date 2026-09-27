@@ -1238,8 +1238,9 @@ CLAUDE_WORKFLOW_NAME = "pr-review"
 
 
 def verify_claude_skill_launch_contract() -> None:
-    # The Workflow tool rejects a scriptPath outside the session's read scope, so
-    # the Claude skill must launch the deployed workflow by its meta.name.
+    # The Workflow tool only accepts a scriptPath inside the working directory or an
+    # added directory, so the Claude skill must launch the deployed workflow by its
+    # meta.name.
     context = str(CLAUDE_SKILL.relative_to(REPO_ROOT))
     skill = CLAUDE_SKILL.read_text(encoding="utf-8")
     require_contains(
