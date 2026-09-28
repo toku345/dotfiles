@@ -48,7 +48,7 @@ mirrors the GitHub Actions environment:
 - **Image**: `ubuntu:24.04` (close enough to `ubuntu-latest` for
   parity work; adjust only if the real CI runner image changes).
 - **Packages**: for a full `tests/bats/` run the baseline is `bats git
-  procps fish jq shellcheck` — the GitHub Actions Bats job installs
+  procps fish jq shellcheck python3 python3-venv ca-certificates` — the GitHub Actions Bats job installs
   `bats fish` and implicitly relies on the `ubuntu-latest` runner's
   `jq` / `shellcheck`. A bare container without those runner-provided
   tools can silently `skip` hook tests, hiding the parity gap you were
@@ -64,6 +64,12 @@ mirrors the GitHub Actions environment:
 - **Scope**: mount the repo at the container's working directory and
   run the bats suite for the full `tests/bats/` tree (or the specific
   `.bats` files the user requested).
+- **Config policy runtime**: follow the isolated uv bootstrap and
+  `scripts/codex-config/setup.sh` steps in `.claude/rules/bats-testing.md`.
+  Export `CODEX_CONFIG_TEST_PYTHON` to that environment's Python before
+  running Bats. Python 3.11+ and TOML Kit are required; their absence must
+  fail these tests rather than silently skip them. Keep all environments
+  and caches in the container's temporary directory, not the mounted repo.
 - **Output**: stream stdout/stderr to the user as the run progresses;
   long apt installs are expected.
 

@@ -1,4 +1,5 @@
 {
+  "crossSessionInbound": "refuse",
   "env": {
     "EDITOR": "code-insiders --wait",
     "VISUAL": "code-insiders --wait",

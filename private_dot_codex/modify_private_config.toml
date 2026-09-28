@@ -1,0 +1,15 @@
+#!/bin/sh
+# stdin: live TOML; stdout: validated TOML; stderr: diagnostics only.
+# Policy and updater are read from the current source, never deployed copies.
+set -eu
+: "${CHEZMOI_SOURCE_DIR:?chezmoi source directory is required}"
+venv_dir="${XDG_DATA_HOME:-$HOME/.local/share}/codex-config-policy/venv"
+case "$venv_dir" in
+    /*) ;;
+    *) echo 'codex-config: XDG_DATA_HOME must be absolute' >&2; exit 1 ;;
+esac
+if [ ! -x "$venv_dir/bin/python" ]; then
+    echo 'codex-config: dependency environment missing; run sh scripts/codex-config/setup.sh in the source directory' >&2
+    exit 1
+fi
+exec "$venv_dir/bin/python" -B "$CHEZMOI_SOURCE_DIR/scripts/codex-config/merge.py"

@@ -13,3 +13,11 @@ updates:
       default-days: 7
     commit-message:
       prefix: "ci"
+  - package-ecosystem: "uv"
+    directory: "/scripts/codex-config"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps"

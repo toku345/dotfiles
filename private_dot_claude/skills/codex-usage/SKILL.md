@@ -7,7 +7,7 @@ description: Codex (codex exec / `/codex:adversarial-review` / `/codex:rescue`) 
 
 Codex は実装プランの第二意見・adversarial レビュー・長時間調査委譲に使う外部レビュアー兼補助実行系。Claude Code の判断を補強するが、最終採用判断は ユーザー が保持する。
 
-agmsg が導入済みで同一 team に参加済みなら、Claude Code 内に Codex を同期実行で抱え込む代わりに、別 Codex セッションへ peer handoff してよい。agmsg は transport であり、レビュー gate の base pinning / fail-closed aggregation は既存の `$pr-review` / `/pr-review` が担う。
+別 Codex セッションへの peer handoff はユーザーの明示依頼時だけ行う。agmsg は配信モード `off` で手動利用する transport であり、レビュー gate の base pinning / fail-closed aggregation は既存の `$pr-review` / `/pr-review` が担う。
 
 ## 用途と起動者
 
@@ -17,7 +17,7 @@ agmsg が導入済みで同一 team に参加済みなら、Claude Code 内に C
 | adversarial コードレビュー | `/codex:adversarial-review` | ユーザー (手動) |
 | 調査委譲・長時間タスク・別案の試行 | `/codex:rescue` | ユーザー (手動) |
 | バックグラウンド実行管理 | `/codex:status`, `/codex:result` | ユーザー (手動) |
-| peer session handoff | agmsg (`/agmsg` / `$agmsg`) | AI or ユーザー |
+| peer session handoff | agmsg の公式送受信スクリプト | ユーザー (明示依頼) |
 
 ## 実装計画立案時の自動 Codex レビュー
 
@@ -53,9 +53,9 @@ agmsg が導入済みで同一 team に参加済みなら、Claude Code 内に C
 
 ### agmsg handoff が使える場合
 
-agmsg が導入済みで、送信元・受信先が同じ team に参加している場合は、長時間調査や別セッションレビューを agmsg で依頼してよい。team は repo ごとに分ける。依頼文は短くし、repo path、branch/base、目的、非対象、検証コマンド、artifact path を含める。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md` / `result.md` に置き、message では path だけを送る。secret、credential、長大 diff 本文は送らない。
+ユーザーが agmsg による依頼を明示し、team と送受信者名を指定し、双方が参加済みの場合だけ利用する。配信モードは `off` を維持し、`bash ~/.agents/skills/agmsg/scripts/send.sh <team> <from> <to> <message>` で送信、`bash ~/.agents/skills/agmsg/scripts/inbox.sh <team> <agent>` で明示された宛先だけを手動受信する。自動参加・監視開始・自動返信は行わない。team は repo ごとに分ける。依頼文は短くし、repo path、branch/base、目的、非対象、検証コマンド、artifact path を含める。長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md` / `result.md` に置き、message では path だけを送る。secret、credential、長大 diff 本文は送らない。
 
-依頼文には「1 回実行して DONE/blocked を返す」を含め、自動往復ループを作らない。agmsg が未導入、未 join、または受信側が不明な場合は従来どおり `codex exec` / `/codex:*` を使う。
+依頼文には「1 回実行して結果を artifact に保存する」を含める。返信の送信もユーザーの明示依頼時だけ行い、自動往復ループを作らない。agmsg が未導入、未 join、または受信側が不明な場合は送受信を止め、不足情報をユーザーに確認する。通常の `codex exec` / `/codex:*` の起動条件は上記のままとし、独立した別セッションへの依頼を標準通信で自動的に代替しない。
 
 ### Gotcha: background + 長い HEREDOC は stdin redirect で渡す
 

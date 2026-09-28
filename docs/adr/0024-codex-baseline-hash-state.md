@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-05-20)
+Superseded (2026-09-23). The baseline file, hash gate and `run_after_check-codex-config.sh` were replaced by per-key `pin`/`seed` policies owned by `private_dot_codex/modify_private_config.toml` ([ADR 0037](0037-codex-config-per-key-policy.md)). The 3-file rationale recorded here remains historically accurate.
+
+Previously: Accepted (2026-05-20)
 
 ## Context
 

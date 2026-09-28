@@ -28,7 +28,7 @@ sudo apt-get install -y build-essential curl file git procps
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 ```
 
-### Step 3: Bootstrap ツール (chezmoi, age) を導入
+### Step 3: Bootstrap ツール (chezmoi, age, uv) を導入
 
 ```bash
 export HOMEBREW_NO_AUTO_UPDATE=1
@@ -36,18 +36,21 @@ export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_CASK_OPTS=--require-sha
 export HOMEBREW_UPDATE_TO_TAG=1
-brew install chezmoi age
+brew install chezmoi age uv
 ```
 
-chezmoi と age は `chezmoi init` の実行に必須なため、chezmoi 管理下の install script **ではなく**手動で導入します。
+次の setup が uv で専用 Python と依存を準備します。asdf の Python 設定やビルド依存は不要です。詳細は [Codex 設定の準備手順](codex.md#初回準備依存更新)を参照してください。
 
-### Step 4: chezmoi init --apply を実行
+### Step 4: source 取得・依存準備・apply
 
 ```bash
-chezmoi init --apply toku345
+chezmoi init toku345
+cd "$(chezmoi source-path)"
+sh scripts/codex-config/setup.sh
+chezmoi apply
 ```
 
-このコマンドが以下を自動で行います:
+`chezmoi apply` が以下を自動で行います:
 
 1. `key.txt.age` を 1Password のパスワードで復号 (`run_once_before_decrypt-private-key.sh`)
 2. apt と Linuxbrew で CLI アプリ群をインストール (`run_once_before_install-minimum-packages.sh` の Linux 分岐)
@@ -70,7 +73,7 @@ SSH 接続時には login shell として `~/.bash_profile` 経由で `~/.bashrc
 
 ### 言語マネージャーの導入
 
-Linux でも macOS と同じく **asdf** が Linuxbrew 経由で導入されます (`brew install asdf`)。プラグインは **explicit Git URL 指定で追加**します (`asdf plugin add <name> <git-url>`)。supply-chain 対策で短縮名リポジトリ (short-name repository) を無効化しているため、`asdf plugin add <name>` 単体 (短縮名) は使えません ([docs/security.md](security.md#homebrew-and-asdf-update-controls) 参照)。追加後は `asdf install` で利用可能 (参照: [ADR 0023](adr/0023-asdf-on-linux-via-linuxbrew.md))。Java は asdf-java の `set-java-home.bash` hook が `dot_bashrc` で source されるため、`JAVA_HOME` が自動設定され Gradle/Maven 等もそのまま動きます。
+**asdf** は Step 4 の apply で導入済みです。プラグインは **explicit Git URL 指定で追加**します (`asdf plugin add <name> <git-url>`)。supply-chain 対策で短縮名リポジトリ (short-name repository) を無効化しているため、`asdf plugin add <name>` 単体 (短縮名) は使えません ([docs/security.md](security.md#homebrew-and-asdf-update-controls) 参照)。追加後は `asdf install` で利用可能 (参照: [ADR 0023](adr/0023-asdf-on-linux-via-linuxbrew.md))。Java は asdf-java の `set-java-home.bash` hook が `dot_bashrc` で source されるため、`JAVA_HOME` が自動設定され Gradle/Maven 等もそのまま動きます。
 
 言語ごとの専用ツール (Python: `uv` の高速インストーラー / JS: `bun` ランタイム / Rust: `rustup` 公式ツールチェイン) も併用可能です。`dot_bashrc` は `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin` を asdf shim より**後ろ**で PATH に prepend するため、最終 PATH では専用ツールが asdf shim より優先されます。
 
@@ -89,10 +92,7 @@ Linux でも macOS と同じく **asdf** が Linuxbrew 経由で導入されま�
   curl -fsSL https://bun.sh/install | bash
   ```
 
-- **Python (uv)**:
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
+- **Python (uv)**: Step 3 で導入済みの uv を利用する。
 
 導入後は `source ~/.bashrc` でシェルをリロードしてください。
 
@@ -104,7 +104,7 @@ Linux に影響する変更を PR 化する前に、Docker で再現テストを
 docker run --rm -it ubuntu:24.04 bash -c '
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        sudo curl git file build-essential procps
+        sudo curl git file build-essential procps ca-certificates
     # sudo 権限を持つ非 root ユーザーで本番 SSH ホストを模倣
     useradd -m -s /bin/bash dev
     echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -116,8 +116,11 @@ docker run --rm -it ubuntu:24.04 bash -c '
         export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
         export HOMEBREW_CASK_OPTS=--require-sha
         export HOMEBREW_UPDATE_TO_TAG=1
-        brew install chezmoi age
-        chezmoi init --apply toku345 --verbose
+        brew install chezmoi age uv
+        chezmoi init toku345 --verbose
+        cd ~/.local/share/chezmoi
+        sh scripts/codex-config/setup.sh
+        chezmoi apply --verbose
     "
 '
 ```
@@ -134,7 +137,7 @@ AGENTS.md の「Docker での Ubuntu CI parity 検証」節も併せて参照し
 
 ### `Error: Linuxbrew not found at /home/linuxbrew/.linuxbrew`
 
-`chezmoi init --apply` の install script がこのエラーで停止する場合、Step 2 の Linuxbrew インストールが失敗しているか、非標準のプレフィックスにインストールされています。`/home/linuxbrew/.linuxbrew` 固定が前提です。
+`chezmoi apply` の install script がこのエラーで停止する場合、Step 2 の Linuxbrew インストールが失敗しているか、非標準のプレフィックスにインストールされています。`/home/linuxbrew/.linuxbrew` 固定が前提です。
 
 ### `Error: Refusing to write insecure trust store`
 
