@@ -59,7 +59,11 @@ Mac Fish / Linux Bash で `codex` が通常版、`codex-fugu` が管理ラッパ
 
 分離した Fugu home で Codex が読む base layer は `~/.codex-fugu/config.toml` だけ（`fugu.config.toml` は公式インストーラーが上書きする bundle profile）。この base layer を chezmoi の `modify_` target として管理する。マージは通常版と同じ `scripts/codex-config/merge.py` を使い、`--policy policy-fugu.toml` で Fugu 用ポリシーを選ぶ。
 
-- 宣言する値は `scripts/codex-config/policy-fugu.toml` に置く。現在は `plan_mode_reasoning_effort = "xhigh"` の **pin** のみ。Fugu モデルの catalog は `high` / `xhigh`（`fugu-ultra-v1.1` は `max`）しか宣言せず、CLI の Plan mode 既定 `medium` は Sakana API が拒否する。pin なので live に別の値が保存されていても `apply` ごとに戻す。
+- 宣言する値は `scripts/codex-config/policy-fugu.toml` に置く。すべて **pin**（live に別の値が保存されていても `apply` ごとに戻す）。4 key は 0.154.0 で受理を実測確認済み（不正値は config load が失敗する）。
+  - `plan_mode_reasoning_effort = "xhigh"`: Fugu モデルの catalog は `high` / `xhigh`（`fugu-ultra-v1.1` は `max`）しか宣言せず、CLI の Plan mode 既定 `medium` は Sakana API が拒否する。
+  - `check_for_update_on_startup = false`: Codex 自身の自己更新プロンプトだけを抑止する。**ランチャーの更新フローは維持**する（専用 HOME の CLI 版は bundle が所有し、更新は公式ランチャーの `install.sh` 経由で行う。CLI だけが bundle 検証版からずれる事故を防ぐ）。
+  - `approvals_reviewer = "user"` と `approval_policy = "on-request"`: 承認を人間に回す。vanilla は `guardian_subagent` のままなので、この 2 key は Fugu 専用の起動時既定。
+  - `[pin.features] fast_mode = false`: Fast / priority tier をこの HOME では使わない。
 - 前提は通常版と同じ `sh scripts/codex-config/setup.sh`（[初回準備・依存更新](#初回準備依存更新)）。venv がない場合、Fugu 側の target も適用前に停止する。
 - 有効化はマシン単位の opt-in。`~/.config/chezmoi/chezmoi.toml` の `[data]` に `codexFugu = true` を設定（既存値を書き換え、未設定なら追記）してから `chezmoi init` を実行し、config file を再生成する。キーが未設定なら `chezmoi init` のプロンプトで `yes` と答えてもよい。**一度保存された回答は再質問されない**ため、既に `false` が入っている machine ではプロンプトを待たず data を書き換える（保存済みの値も含めて再質問させるには `chezmoi init --prompt` を使う。`promptBoolOnce` は TTY を要求し、`--promptBool` では埋まらない）。`.chezmoi.toml.tmpl` が変わると chezmoi は `run chezmoi init to regenerate config file` と警告し続けるため、data の手動追記だけで済ませず `chezmoi init` で config file を再生成する。無効のマシンでは `.chezmoiignore` が Fugu source 一式を除外するため `~/.codex-fugu` を作らない。**`~/.codex-fugu` を持つマシンでのみ有効化する**。有効にすると専用 HOME がまだ無い machine でも skeleton を作るため、Fugu を使わない machine では無効のままにする。
 - 反映は main への merge 後: `chezmoi diff --exclude=scripts` で確認し、**full `chezmoi apply`** を実行する。`~/.codex-fugu/config.toml` だけの target 限定 apply は symlink 3 件を作らないため使わない。installer のマーカーブロック、Codex が書く `[projects.*]` / `[hooks.state]`、未知キーは保持される。
@@ -111,7 +115,10 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 - `private_dot_codex/private_review.config.toml` -> `~/.codex/review.config.toml`
 - `private_dot_codex/private_review_deep.config.toml` -> `~/.codex/review_deep.config.toml`
 - `private_dot_codex/private_review_audit.config.toml` -> `~/.codex/review_audit.config.toml`
+- `private_dot_codex/private_quick.config.toml` -> `~/.codex/quick.config.toml`（`cx quick`）
+- `private_dot_codex/private_work.config.toml` -> `~/.codex/work.config.toml`（`cx work`）
 - `private_dot_codex/rules/managed.rules` -> `~/.codex/rules/managed.rules`
+- `dot_local/bin/executable_cx` -> `~/.local/bin/cx`
 - `private_dot_codex-fugu/modify_private_config.toml` -> `~/.codex-fugu/config.toml` の per-key 更新（opt-in）
 - `private_dot_codex-fugu/symlink_AGENTS.md` / `symlink_agents` / `rules/symlink_managed.rules` -> `~/.codex` への symlink 共有（opt-in）
 - `.chezmoiscripts/run_before_check-codex-fugu-static-conflicts.sh` -> 既存 real target の置換防止（opt-in）
@@ -209,6 +216,34 @@ bats tests/bats/test_codex_fugu_config_policy.bats
 ```
 
 Python テストには `chezmoi` が必要。Bats は依存未準備を skip せず失敗として扱う。テスト内の HOME・XDG・chezmoi source/destination/state はすべて一時領域を使う。
+
+## ターミナルの起動入口: `cx`
+
+`dot_local/bin/executable_cx` を `~/.local/bin/cx` に配置する。既存の fish / Bash の PATH を使い、shell ごとの function は追加しない。
+
+| 入口 | 選び方 | 通常モード |
+| --- | --- | --- |
+| `cx quick` | 方針・範囲・検証方法が明確で、やり直しやすい作業 | `gpt-6-astra` / `low` |
+| `cx work` | 不確実な作業、迷う場合 | `gpt-6-astra` / `high` |
+
+quick は変更行数の少なさや Fast モードを意味しない。Plan は共通の `plan_mode_reasoning_effort = "xhigh"` を使う。profile 選択は Plan への切替ではない。`deep`、自動選択、自動昇格、独自の選択メニューは提供しない。
+
+```bash
+cx quick '確認済みの方針で修正して'
+cx work 'Issue を確認して'
+cx work resume <known-openai-session-id>
+cx --help
+```
+
+対応対象は対話起動・初期プロンプト・同じ provider の既知のセッションIDによる resume。picker / `--last` は未検証で、provider が同じとは仮定しない。provider 間の履歴移行や自動引き継ぎは行わない。
+
+### 設定レイヤーと対応範囲
+
+通常側の profile は `model` / `model_reasoning_effort` の 2 key だけを持つ。独立環境ではなく、同じ `CODEX_HOME` の共通設定・認証・履歴を利用する。既存 review profile と同じ直接管理方式なので、config policy（`policy.toml`）の対象ではない。
+
+関係する優先順位は共通設定 → 選択 profile → trusted project config → CLI override。`cx` は profile を選ぶだけで、project の model / effort や明示的な Codex 引数による上書きを防がない。
+
+Fugu は `cx` ではなく `codex-fugu`（専用 HOME）を使う。Fugu 側の起動時既定は専用 HOME の config policy が持つ（前述の「base config の管理」）。`cf` のような別ランチャーは作らない。
 
 ## local-only とする section
 
