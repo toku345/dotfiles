@@ -496,7 +496,9 @@ class CommandTests(unittest.TestCase):
         self.assertTrue(live_config.startswith('plan_mode_reasoning_effort = "xhigh"'))
         self.assertIn(FUGU_BLOCK, live_config)
 
-        self.assertEqual(call("diff", str(fugu_dir)).stdout, "")
+        diff = call("diff", "--recursive", str(fugu_dir))
+        self.assertEqual(diff.returncode, 0, diff.stderr)
+        self.assertEqual(diff.stdout, "")
         self.assertEqual(call("status", str(fugu_dir)).stdout, "")
         before = {relative: os.readlink(home / relative) for relative in FUGU_STATIC_FILES}
         self.assertEqual(call("apply").returncode, 0)
