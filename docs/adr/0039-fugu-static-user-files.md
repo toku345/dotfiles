@@ -37,12 +37,12 @@ Accepted (2026-09-27). Extends [ADR 0038](0038-fugu-home-config-policy.md).
 
 - Fugu セッションでも user-global 指示、agent ロール、managed rules が使える。
 - コピーが無いため、片側だけ更新されて drift する事故が起きない。vanilla を更新すれば Fugu 側も同じ内容になる。
-- 既存ファイルを変更せず、`rules/` と 3 つの symlink を新規に作るだけ。
+- 既存の real file や directory は置換せず、`run_before_check-codex-fugu-static-conflicts.sh` が apply を停止して内容の保全を強制する。`rules/` と 3 つの symlink はその後に新規作成される。
 
 ### Negative
 
 - Fugu home が vanilla のファイルに依存する。vanilla 側を削除すると dangling になる（`~/.codex` の該当 target は常に管理対象なので通常は起きない）。
-- 新規 machine で `~/.codex-fugu/AGENTS.md` だけを target 限定 apply すると一時的に dangling になり得る。full apply（`.codex` → `.codex-fugu` の順）を使う。
+- 反映は常に full apply（`.codex` → `.codex-fugu` の順）を使う。`~/.codex-fugu/AGENTS.md` だけを target 限定 apply すると一時的に dangling になり得るほか、`config.toml` だけの apply では 3 つの symlink が作られず、`run_before_` script も実行されない。
 - `agents/` と `rules/managed.rules` は `debug prompt-input` のような自動確認面が無く、実セッションでの手動確認に頼る。`AGENTS.md` は `codex debug prompt-input` で自動確認できる。
 
 ### Alternatives
