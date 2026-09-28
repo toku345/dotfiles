@@ -62,8 +62,8 @@ Mac Fish / Linux Bash で `codex` が通常版、`codex-fugu` が管理ラッパ
 - 宣言する値は `scripts/codex-config/policy-fugu.toml` に置く。現在は `plan_mode_reasoning_effort = "xhigh"` の **pin** のみ。Fugu モデルの catalog は `high` / `xhigh`（`fugu-ultra-v1.1` は `max`）しか宣言せず、CLI の Plan mode 既定 `medium` は Sakana API が拒否する。pin なので live に別の値が保存されていても `apply` ごとに戻す。
 - 前提は通常版と同じ `sh scripts/codex-config/setup.sh`（[初回準備・依存更新](#初回準備依存更新)）。venv がない場合、Fugu 側の target も適用前に停止する。
 - 有効化はマシン単位の opt-in。`~/.config/chezmoi/chezmoi.toml` の `[data]` に `codexFugu = true` を設定（既存値を書き換え、未設定なら追記）してから `chezmoi init` を実行し、config file を再生成する。キーが未設定なら `chezmoi init` のプロンプトで `yes` と答えてもよい。**一度保存された回答は再質問されない**ため、既に `false` が入っている machine ではプロンプトを待たず data を書き換える（保存済みの値も含めて再質問させるには `chezmoi init --prompt` を使う。`promptBoolOnce` は TTY を要求し、`--promptBool` では埋まらない）。`.chezmoi.toml.tmpl` が変わると chezmoi は `run chezmoi init to regenerate config file` と警告し続けるため、data の手動追記だけで済ませず `chezmoi init` で config file を再生成する。無効のマシンでは `.chezmoiignore` が Fugu source 一式を除外するため `~/.codex-fugu` を作らない。**`~/.codex-fugu` を持つマシンでのみ有効化する**。有効にすると専用 HOME がまだ無い machine でも skeleton を作るため、Fugu を使わない machine では無効のままにする。
-- 反映は main への merge 後: `chezmoi diff ~/.codex-fugu/config.toml` で確認し、`chezmoi apply ~/.codex-fugu/config.toml` を実行する。installer のマーカーブロック、Codex が書く `[projects.*]` / `[hooks.state]`、未知キーは保持される。
-- 収束確認: `chezmoi status ~/.codex-fugu/config.toml` が空。pin は最初のテーブルより前の top-level に置かれる。
+- 反映は main への merge 後: `chezmoi diff --exclude=scripts` で確認し、**full `chezmoi apply`** を実行する。`~/.codex-fugu/config.toml` だけの target 限定 apply は symlink 3 件を作らないため使わない。installer のマーカーブロック、Codex が書く `[projects.*]` / `[hooks.state]`、未知キーは保持される。
+- 収束確認: `chezmoi status ~/.codex-fugu` が空。pin は最初のテーブルより前の top-level に置かれる。
 - 実機確認: `codex-fugu` の新規セッションで Plan mode を 1 往復し、`find ~/.codex-fugu/sessions -name 'rollout-*.jsonl' -exec grep -o '"mode":"plan".\{0,120\}' {} +` が `"reasoning_effort":"xhigh"` を示すことを確認する（`**/` は `globstar` を有効にしていないシェルでは展開されないため `find` を使う）。bundle 更新で `fugu.config.toml` が plan effort を宣言した場合は profile 層が優先されるため、更新後に再確認する。
 
 ### 静的ユーザーファイルの共有（symlink）
@@ -79,7 +79,8 @@ Fugu home には user-global の指示とロールが無く、分離直後は `A
 - コピーを持たないため、片側だけ更新されて drift する事故が起きない。vanilla 側の target は既存の chezmoi source が配置する。
 - `skills/pr-review` は共有しない。skill の互換ドリフト時の逃げ道が `codex exec --profile review`（vanilla の `gpt-5.6-sol` を前提）であり、Fugu home にその profile も model provider も無いため。Fugu で `$pr-review` を有効化する変更は行わない。
 - `rules/default.rules`、`skills/.system`、sessions、SQLite、Memory、installer-owned files は非管理のまま。
-- 新規 machine では **full `chezmoi apply`** を使う。`~/.codex` 側の target が先に作られるため dangling にならない。`~/.codex-fugu/AGENTS.md` だけを target 限定で apply すると一時的に dangling になり得る。gate off の machine では現行の `.chezmoiignore` が一式を除外し、`~/.codex-fugu` も symlink も作らない。
+- 反映では常に **full `chezmoi apply`** を使う。`~/.codex` 側の target が先に作られるため dangling にならない。target 限定 apply は config だけの適用で symlink を作らないほか、`run_before_` script も実行されないため衝突保護から外れる。gate off の machine では現行の `.chezmoiignore` が一式を除外し、`~/.codex-fugu` も symlink も作らない。
+- 既存の `AGENTS.md` / `agents` / `rules/managed.rules` が real file や directory の場合、`run_before_check-codex-fugu-static-conflicts.sh` が full apply を停止する。内容が必要なら日時付き backup へ退避し、該当 target を削除してから再実行する。
 - 検証:
 
 ```sh
@@ -113,6 +114,7 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 - `private_dot_codex/rules/managed.rules` -> `~/.codex/rules/managed.rules`
 - `private_dot_codex-fugu/modify_private_config.toml` -> `~/.codex-fugu/config.toml` の per-key 更新（opt-in）
 - `private_dot_codex-fugu/symlink_AGENTS.md` / `symlink_agents` / `rules/symlink_managed.rules` -> `~/.codex` への symlink 共有（opt-in）
+- `.chezmoiscripts/run_before_check-codex-fugu-static-conflicts.sh` -> 既存 real target の置換防止（opt-in）
 - `.chezmoiscripts/run_after_setup-agmsg.sh`
 - `.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh`
 
