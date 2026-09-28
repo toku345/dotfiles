@@ -748,6 +748,13 @@ def main() -> None:
             "break",
             "shadowing-guard: missing '[ \"$d\" = \"$top\" ] && break'",
         ),
+        (
+            "claude workflow meta.name taken from a later object",
+            "private_dot_claude/workflows/pr-review.js",
+            "name: 'pr-review',",
+            "label: 'pr-review',\n  alias: { name: 'pr-review' },",
+            "meta.name not found",
+        ),
     ]
 
     with tempfile.TemporaryDirectory(prefix="pr-review-verifier-negative-") as tmp:

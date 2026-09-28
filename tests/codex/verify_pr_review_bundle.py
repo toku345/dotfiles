@@ -1272,9 +1272,9 @@ def verify_claude_skill_launch_contract() -> None:
 
     workflow_context = str(CLAUDE_WORKFLOW.relative_to(REPO_ROOT))
     source = CLAUDE_WORKFLOW.read_text(encoding="utf-8")
-    meta = re.search(
-        r"export const meta = \{.*?\bname:\s*['\"]([^'\"]+)['\"]", source, re.DOTALL
-    )
+    # name must be meta's first key so the match cannot run past meta into a
+    # later object that happens to carry the same name.
+    meta = re.search(r"export const meta = \{\s*name:\s*['\"]([^'\"]+)['\"]", source)
     if meta is None:
         fail(f"{workflow_context}: meta.name not found")
     if meta.group(1) != CLAUDE_WORKFLOW_NAME:
