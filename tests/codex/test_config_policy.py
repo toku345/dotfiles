@@ -204,10 +204,26 @@ class FuguPolicyTests(unittest.TestCase):
         result, warnings = merge.merge(source, self.policy)
         return result, tomllib.loads(result), warnings
 
-    def test_new_home_gets_only_the_pin(self):
+    def test_new_home_gets_the_managed_defaults(self):
         output, data, warnings = self.update("")
-        self.assertEqual(output, 'plan_mode_reasoning_effort = "xhigh"\n')
-        self.assertEqual(data, {"plan_mode_reasoning_effort": "xhigh"})
+        self.assertEqual(
+            output,
+            'plan_mode_reasoning_effort = "xhigh"\n'
+            'check_for_update_on_startup = false\n'
+            'approval_policy = "on-request"\n'
+            'approvals_reviewer = "user"\n'
+            "\n[features]\nfast_mode = false\n",
+        )
+        self.assertEqual(
+            data,
+            {
+                "plan_mode_reasoning_effort": "xhigh",
+                "check_for_update_on_startup": False,
+                "approval_policy": "on-request",
+                "approvals_reviewer": "user",
+                "features": {"fast_mode": False},
+            },
+        )
         self.assertFalse(warnings)
 
     def test_pin_is_placed_above_the_installer_block(self):
@@ -218,14 +234,26 @@ class FuguPolicyTests(unittest.TestCase):
             lines.index('plan_mode_reasoning_effort = "xhigh"'),
             lines.index("# >>> fugu:model_providers.sakana >>>"),
         )
-        self.assertEqual(set(data), {"plan_mode_reasoning_effort", "model_providers"})
+        self.assertEqual(
+            set(data),
+            {
+                "plan_mode_reasoning_effort",
+                "check_for_update_on_startup",
+                "approval_policy",
+                "approvals_reviewer",
+                "features",
+                "model_providers",
+            },
+        )
         self.assertFalse(warnings)
 
     def test_pin_reasserts_a_stored_plan_effort(self):
         _, data, warnings = self.update(
-            'plan_mode_reasoning_effort = "medium"\n\n[tui]\nstatus_line_use_colors = true\n'
+            'plan_mode_reasoning_effort = "medium"\n\n[features]\nfast_mode = true\n'
+            "\n[tui]\nstatus_line_use_colors = true\n"
         )
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
+        self.assertIs(data["features"]["fast_mode"], False)
         self.assertIs(data["tui"]["status_line_use_colors"], True)
         # Pins re-assert silently; only seed divergence is reported.
         self.assertFalse(warnings)
@@ -243,7 +271,8 @@ class FuguPolicyTests(unittest.TestCase):
         second, warnings = merge.merge(first, self.policy)
         self.assertEqual(first, second)
         self.assertFalse(warnings)
-        for absent in ("sandbox_mode", "features", "tui"):
+        self.assertEqual(data["features"], {"fast_mode": False})
+        for absent in ("sandbox_mode", "tui"):
             self.assertNotIn(absent, data)
 
 
@@ -437,7 +466,16 @@ class CommandTests(unittest.TestCase):
         live = fugu_dir / "config.toml"
         self.assertEqual(fugu_dir.stat().st_mode & 0o777, 0o700)
         self.assertEqual(live.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(tomllib.loads(live.read_text()), {"plan_mode_reasoning_effort": "xhigh"})
+        self.assertEqual(
+            tomllib.loads(live.read_text()),
+            {
+                "plan_mode_reasoning_effort": "xhigh",
+                "check_for_update_on_startup": False,
+                "approval_policy": "on-request",
+                "approvals_reviewer": "user",
+                "features": {"fast_mode": False},
+            },
+        )
         self.assertTrue((home / ".codex" / "config.toml").exists())
         diff = call("diff")
         self.assertEqual(diff.returncode, 0, diff.stderr)
