@@ -706,6 +706,48 @@ def main() -> None:
             "may conflict with the gate",
             "shadowing-guard: missing",
         ),
+        (
+            "claude skill shadowing check stops following symlinks",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'find -L "$d/.claude/workflows"',
+            'find "$d/.claude/workflows"',
+            "shadowing-guard: missing 'find -L",
+        ),
+        (
+            "claude skill shadowing check unsearchable .claude passes",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'if [ -d "$d/.claude" ] && [ ! -x "$d/.claude" ]; then',
+            "if false; then",
+            "shadowing-guard: missing 'if [ -d",
+        ),
+        (
+            "claude skill shadowing check fixed-string grep removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'LC_ALL=C grep -qF pr-review "$f"',
+            'LC_ALL=C grep -qF pr-review-x "$f"',
+            "shadowing-guard: missing 'LC_ALL=C grep -qF pr-review",
+        ),
+        (
+            "claude skill shadowing check unreadable file passes",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '*) echo "ERROR: cannot read $f" >&2; exit 2 ;;',
+            "*) ;;",
+            "shadowing-guard: missing '*) echo",
+        ),
+        (
+            "claude skill shadowing check find failure passes",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "' sh {} + || { echo \"ABORT: shadowing check failed",
+            "' sh {} + ; true || { echo \"ABORT: shadowing check failed",
+            "shadowing-guard: missing '\\' sh {} + ||",
+        ),
+        (
+            "claude skill shadowing check walk stops before toplevel",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '[ "$d" = "$top" ] && break',
+            "break",
+            "shadowing-guard: missing '[ \"$d\" = \"$top\" ] && break'",
+        ),
     ]
 
     with tempfile.TemporaryDirectory(prefix="pr-review-verifier-negative-") as tmp:

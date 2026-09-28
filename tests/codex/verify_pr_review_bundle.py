@@ -1257,6 +1257,18 @@ def verify_claude_skill_launch_contract() -> None:
     require_contains(
         skill, "would override the user-scope gate", f"{context}:shadowing-guard"
     )
+    # The lines that make the shadowing check follow symlinks, walk up to the
+    # toplevel, and fail closed; dropping any of them turns a shadow into a
+    # silent pass while the abort message above still matches.
+    for needle in (
+        'if [ -d "$d/.claude" ] && [ ! -x "$d/.claude" ]; then',
+        'find -L "$d/.claude/workflows" -type f -exec sh -c \'',
+        'LC_ALL=C grep -qF pr-review "$f"',
+        '*) echo "ERROR: cannot read $f" >&2; exit 2 ;;',
+        "' sh {} + || { echo \"ABORT: shadowing check failed",
+        '[ "$d" = "$top" ] && break',
+    ):
+        require_contains(skill, needle, f"{context}:shadowing-guard")
 
     workflow_context = str(CLAUDE_WORKFLOW.relative_to(REPO_ROOT))
     source = CLAUDE_WORKFLOW.read_text(encoding="utf-8")
