@@ -11,7 +11,10 @@ import hashlib
 import json
 import pathlib
 import re
+import subprocess
 import sys
+import tempfile
+import textwrap
 import tomllib
 
 
@@ -35,6 +38,8 @@ FINDING_EVIDENCE_VALIDATOR = (
     SKILL_DIR / "scripts" / "validate_finding_evidence.py"
 )
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
+CLAUDE_SKILL = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md"
+CLAUDE_WORKFLOW = REPO_ROOT / "private_dot_claude" / "workflows" / "pr-review.js"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
 DESIGN_DOC = REPO_ROOT / "docs" / "design" / "codex-pr-review.md"
 FINDING_VERIFIER_BASELINE = (
@@ -1234,6 +1239,87 @@ def verify_claude_share_templates() -> None:
             )
 
 
+CLAUDE_WORKFLOW_NAME = "pr-review"
+
+
+def verify_claude_skill_launch_contract() -> None:
+    # The Workflow tool only accepts a scriptPath inside the working directory or an
+    # added directory, so the Claude skill must launch the deployed workflow by its
+    # meta.name.
+    context = str(CLAUDE_SKILL.relative_to(REPO_ROOT))
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    require_contains(
+        skill, f'Workflow({{\n  name: "{CLAUDE_WORKFLOW_NAME}",', f"{context}:launch-by-name"
+    )
+    require_not_contains(skill, "scriptPath:", f"{context}:launch-by-name")
+    require_contains(
+        skill,
+        "Do not change repository or git state to make a failing precondition pass",
+        f"{context}:precondition-workaround-ban",
+    )
+    require_contains(
+        skill, "would override the user-scope gate", f"{context}:shadowing-guard"
+    )
+    # The lines that make the shadowing check follow symlinks, walk up to the
+    # toplevel, and fail closed; dropping any of them turns a shadow into a
+    # silent pass while the abort message above still matches.
+    for needle in (
+        'if [ -d "$d/.claude" ] && [ ! -x "$d/.claude" ]; then',
+        'find -L "$d/.claude/workflows" -type f -exec sh -c \'',
+        'LC_ALL=C grep -qF pr-review "$f"',
+        '*) echo "ERROR: cannot read $f" >&2; exit 2 ;;',
+        "' sh {} + || { echo \"ABORT: shadowing check failed",
+        '[ "$d" = "$top" ] && break',
+    ):
+        require_contains(skill, needle, f"{context}:shadowing-guard")
+
+    workflow_context = str(CLAUDE_WORKFLOW.relative_to(REPO_ROOT))
+    source = CLAUDE_WORKFLOW.read_text(encoding="utf-8")
+    # name must be meta's first key so the match cannot run past meta into a
+    # later object that happens to carry the same name.
+    meta = re.search(r"export const meta = \{\s*name:\s*['\"]([^'\"]+)['\"]", source)
+    if meta is None:
+        fail(f"{workflow_context}: meta.name not found")
+    if meta.group(1) != CLAUDE_WORKFLOW_NAME:
+        fail(
+            f"{workflow_context}: meta.name {meta.group(1)!r} does not match the name "
+            f"{CLAUDE_WORKFLOW_NAME!r} the Claude skill launches"
+        )
+
+
+def verify_claude_skill_shadowing_check_runs() -> None:
+    # String pins cannot tell a live guard from a commented-out one, so run the
+    # verbatim block: from a subdirectory it must report the same-name project
+    # workflow at the toplevel and nothing else.
+    context = f"{CLAUDE_SKILL.relative_to(REPO_ROOT)}:shadowing-check-run"
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    block = re.search(r"Second check.*?\n   ```sh\n(.*?)\n   ```\n", skill, re.DOTALL)
+    if block is None:
+        fail(f"{context}: shadowing sh block not found")
+    script = textwrap.dedent(block.group(1))
+    with tempfile.TemporaryDirectory(prefix="pr-review-shadowing-") as tmp:
+        repo = pathlib.Path(tmp).resolve()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        workflows = repo / ".claude" / "workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "shadow.js").write_text(
+            f"export const meta = {{ name: '{CLAUDE_WORKFLOW_NAME}' }}\n", encoding="utf-8"
+        )
+        (workflows / "other.js").write_text(
+            "export const meta = { name: 'other' }\n", encoding="utf-8"
+        )
+        (repo / "sub").mkdir()
+        result = subprocess.run(
+            ["sh", "-c", script], cwd=repo / "sub", capture_output=True, text=True
+        )
+    expected = f"{workflows / 'shadow.js'}\n"
+    if result.returncode != 0 or result.stdout != expected:
+        fail(
+            f"{context}: expected exit 0 and stdout {expected!r}, got exit "
+            f"{result.returncode}, stdout {result.stdout!r}, stderr {result.stderr!r}"
+        )
+
+
 def load_config_policy(path: pathlib.Path) -> tuple[dict, dict]:
     # Share validation with the modifier; this module has no third-party deps.
     sys.path.insert(0, str(path.parent))
@@ -1692,6 +1778,8 @@ def main() -> None:
     verify_v2_runtime_contract()
     verify_finding_verifier_contract()
     verify_claude_share_templates()
+    verify_claude_skill_launch_contract()
+    verify_claude_skill_shadowing_check_runs()
     verify_codex_config_profiles()
     verify_agent_toml()
     verify_skill_contract()

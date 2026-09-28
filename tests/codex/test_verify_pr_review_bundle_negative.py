@@ -32,6 +32,15 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
         repo / "private_dot_claude" / "skills" / "pr-review" / "references",
     )
+    shutil.copy2(
+        REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md",
+        repo / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md",
+    )
+    (repo / "private_dot_claude" / "workflows").mkdir(parents=True)
+    shutil.copy2(
+        REPO_ROOT / "private_dot_claude" / "workflows" / "pr-review.js",
+        repo / "private_dot_claude" / "workflows" / "pr-review.js",
+    )
     (repo / "docs" / "design").mkdir(parents=True)
     shutil.copy2(REPO_ROOT / "docs" / "codex.md", repo / "docs" / "codex.md")
     shutil.copy2(
@@ -661,6 +670,97 @@ def main() -> None:
             "does not demonstrate a controlled recall or false-positive improvement",
             "demonstrates a controlled recall and false-positive improvement",
             "observational non-improvement conclusion is required",
+        ),
+        (
+            "claude skill launch regression to scriptPath",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'Workflow({\n  name: "pr-review",',
+            'Workflow({\n  scriptPath: "<home>/.claude/workflows/pr-review.js",',
+            "missing 'Workflow({",
+        ),
+        (
+            "claude workflow meta.name drift",
+            "private_dot_claude/workflows/pr-review.js",
+            "name: 'pr-review',",
+            "name: 'pr-review-v2',",
+            "does not match the name 'pr-review' the Claude skill launches",
+        ),
+        (
+            "claude skill scriptPath alongside name",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'Workflow({\n  name: "pr-review",',
+            'Workflow({\n  name: "pr-review",\n  scriptPath: "/x",',
+            "launch-by-name: forbidden stale text 'scriptPath:'",
+        ),
+        (
+            "claude skill workaround ban removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "Do not change repository or git state to make a failing precondition pass",
+            "Avoid changing repository state when a precondition fails",
+            "precondition-workaround-ban: missing",
+        ),
+        (
+            "claude skill shadowing guard removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "would override the user-scope gate",
+            "may conflict with the gate",
+            "shadowing-guard: missing",
+        ),
+        (
+            "claude skill shadowing check stops following symlinks",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'find -L "$d/.claude/workflows"',
+            'find "$d/.claude/workflows"',
+            "shadowing-guard: missing 'find -L",
+        ),
+        (
+            "claude skill shadowing check unsearchable .claude passes",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'if [ -d "$d/.claude" ] && [ ! -x "$d/.claude" ]; then',
+            "if false; then",
+            "shadowing-guard: missing 'if [ -d",
+        ),
+        (
+            "claude skill shadowing check fixed-string grep removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'LC_ALL=C grep -qF pr-review "$f"',
+            'LC_ALL=C grep -qF pr-review-x "$f"',
+            "shadowing-guard: missing 'LC_ALL=C grep -qF pr-review",
+        ),
+        (
+            "claude skill shadowing check grep commented out",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'LC_ALL=C grep -qF pr-review "$f"',
+            '# LC_ALL=C grep -qF pr-review "$f"',
+            "shadowing-check-run: expected exit 0 and stdout",
+        ),
+        (
+            "claude skill shadowing check unreadable file passes",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '*) echo "ERROR: cannot read $f" >&2; exit 2 ;;',
+            "*) ;;",
+            "shadowing-guard: missing '*) echo",
+        ),
+        (
+            "claude skill shadowing check find failure passes",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "' sh {} + || { echo \"ABORT: shadowing check failed",
+            "' sh {} + ; true || { echo \"ABORT: shadowing check failed",
+            "shadowing-guard: missing '\\' sh {} + ||",
+        ),
+        (
+            "claude skill shadowing check walk stops before toplevel",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '[ "$d" = "$top" ] && break',
+            "break",
+            "shadowing-guard: missing '[ \"$d\" = \"$top\" ] && break'",
+        ),
+        (
+            "claude workflow meta.name taken from a later object",
+            "private_dot_claude/workflows/pr-review.js",
+            "name: 'pr-review',",
+            "label: 'pr-review',\n  alias: { name: 'pr-review' },",
+            "meta.name not found",
         ),
     ]
 
