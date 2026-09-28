@@ -728,6 +728,13 @@ def main() -> None:
             "shadowing-guard: missing 'LC_ALL=C grep -qF pr-review",
         ),
         (
+            "claude skill shadowing check grep commented out",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            'LC_ALL=C grep -qF pr-review "$f"',
+            '# LC_ALL=C grep -qF pr-review "$f"',
+            "shadowing-check-run: expected exit 0 and stdout",
+        ),
+        (
             "claude skill shadowing check unreadable file passes",
             "private_dot_claude/skills/pr-review/SKILL.md",
             '*) echo "ERROR: cannot read $f" >&2; exit 2 ;;',

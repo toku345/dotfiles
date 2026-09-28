@@ -11,7 +11,10 @@ import hashlib
 import json
 import pathlib
 import re
+import subprocess
 import sys
+import tempfile
+import textwrap
 import tomllib
 
 
@@ -1284,6 +1287,39 @@ def verify_claude_skill_launch_contract() -> None:
         )
 
 
+def verify_claude_skill_shadowing_check_runs() -> None:
+    # String pins cannot tell a live guard from a commented-out one, so run the
+    # verbatim block: from a subdirectory it must report the same-name project
+    # workflow at the toplevel and nothing else.
+    context = f"{CLAUDE_SKILL.relative_to(REPO_ROOT)}:shadowing-check-run"
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    block = re.search(r"Second check.*?\n   ```sh\n(.*?)\n   ```\n", skill, re.DOTALL)
+    if block is None:
+        fail(f"{context}: shadowing sh block not found")
+    script = textwrap.dedent(block.group(1))
+    with tempfile.TemporaryDirectory(prefix="pr-review-shadowing-") as tmp:
+        repo = pathlib.Path(tmp).resolve()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        workflows = repo / ".claude" / "workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "shadow.js").write_text(
+            f"export const meta = {{ name: '{CLAUDE_WORKFLOW_NAME}' }}\n", encoding="utf-8"
+        )
+        (workflows / "other.js").write_text(
+            "export const meta = { name: 'other' }\n", encoding="utf-8"
+        )
+        (repo / "sub").mkdir()
+        result = subprocess.run(
+            ["sh", "-c", script], cwd=repo / "sub", capture_output=True, text=True
+        )
+    expected = f"{workflows / 'shadow.js'}\n"
+    if result.returncode != 0 or result.stdout != expected:
+        fail(
+            f"{context}: expected exit 0 and stdout {expected!r}, got exit "
+            f"{result.returncode}, stdout {result.stdout!r}, stderr {result.stderr!r}"
+        )
+
+
 def load_config_policy(path: pathlib.Path) -> tuple[dict, dict]:
     # Share validation with the modifier; this module has no third-party deps.
     sys.path.insert(0, str(path.parent))
@@ -1743,6 +1779,7 @@ def main() -> None:
     verify_finding_verifier_contract()
     verify_claude_share_templates()
     verify_claude_skill_launch_contract()
+    verify_claude_skill_shadowing_check_runs()
     verify_codex_config_profiles()
     verify_agent_toml()
     verify_skill_contract()
