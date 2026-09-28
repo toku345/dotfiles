@@ -52,6 +52,8 @@ Codex は既に `off` のため、Git 管理の検証用フックを書き換え
 残っていれば対象を限定して停止し、Claude 側の Monitor task は所有セッションでも確認する。
 確認権限が不足する場合は停止確認を未完了として報告する。
 変更前から動いている対象セッションは再起動し、通常作業で自動受信や agmsg フック出力がないことを確認する。
+他 repo・他マシンで agmsg に参加したことがある場合は、`teams/<team>/config.json` の project path ごとに
+`delivery.sh status` を実行し、`off` でなければ同じ手順で停止する。
 
 ### Claude 標準通信の受信
 
@@ -103,7 +105,7 @@ bash ~/.agents/skills/agmsg/scripts/inbox.sh dotfiles codex
 
 ### 更新
 
-今回の停止対応では v1.1.10 と既存 pin を維持する。更新は [Issue #376](https://github.com/toku345/dotfiles/issues/376) で別途扱う。
+現行 pin は `AGMSG_REF` を正とする。次回更新は [Issue #376](https://github.com/toku345/dotfiles/issues/376) で扱う。
 
 agmsg は automatic latest 追従しない。更新時は
 `.chezmoiscripts/run_after_setup-agmsg.sh` の `AGMSG_REF` をレビュー付きで
