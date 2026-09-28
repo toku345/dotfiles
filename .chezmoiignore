@@ -13,6 +13,7 @@ scripts
 {{ if not (index . "codexFugu") }}
 .codex-fugu
 .codex-fugu/**
+.chezmoiscripts/check-codex-fugu-static-conflicts.sh
 {{ end }}
 
 # Linux: exclude macOS-only configs and scripts

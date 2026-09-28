@@ -94,10 +94,13 @@ API key, sessions, and memory, launched through the managed wrapper
    never move or uninstall it.
 6. Enable `codexFugu`: set it to `true` in `~/.config/chezmoi/chezmoi.toml`
    (a stored answer is not asked again) and re-run `chezmoi init`, or run
-   `chezmoi init --prompt` and answer yes. Then
-   `chezmoi diff ~/.codex-fugu/config.toml` and
-   `chezmoi apply -v ~/.codex-fugu/config.toml`;
-   `chezmoi status ~/.codex-fugu/config.toml` must be empty afterwards.
+   `chezmoi init --prompt` and answer yes. Then run
+   `chezmoi diff --exclude=scripts` and a full `chezmoi apply -v`; applying
+   only `~/.codex-fugu/config.toml` would leave the three shared-file
+   symlinks uncreated. If an existing
+   `~/.codex-fugu/AGENTS.md`, `agents/`, or `rules/managed.rules` is a real
+   file or directory, back it up outside the target and remove it before the
+   apply. `chezmoi status ~/.codex-fugu` must be empty afterwards.
 7. In a new `codex-fugu` session, one Plan mode turn must record
    `"reasoning_effort":"xhigh"`; the Fugu catalog rejects the CLI default.
 
