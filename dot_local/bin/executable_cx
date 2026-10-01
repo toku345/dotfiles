@@ -7,8 +7,8 @@ usage() {
     'Usage: cx {quick|work} [CODEX_ARGS...]' \
     '       cx {quick|work} resume <same-provider-session-id>' \
     '' \
-    'quick: clear, bounded, reversible work (Astra / low).' \
-    'work:  uncertain work; use this when in doubt (Astra / high).' \
+    'quick: clear, bounded, reversible work (GPT-6.1 Sol / low; Plan: medium).' \
+    'work:  uncertain work; use this when in doubt (Astra / high; Plan: xhigh).' \
     'Project configuration and explicit Codex options retain native precedence.'
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # shellcheck shell=bash
 #
-# `cx` picks an Astra effort profile without touching shared Codex settings
+# `cx` picks a model and mode-effort profile without touching shared Codex settings
 # (dot_local/bin/executable_cx, profiles: ~/.codex/{quick,work}.config.toml).
 #
 # Bats gives each test its own environment; changes do not leak across tests.
