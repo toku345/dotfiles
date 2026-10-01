@@ -84,6 +84,20 @@ def assert_fails_closed(name: str, repo: pathlib.Path, expected: str) -> None:
 def main() -> None:
     mutations = [
         (
+            f"managed baseline {mode}s {key}",
+            "scripts/codex-config/policy.toml",
+            f"[{mode}]",
+            f'[{mode}]\n{key} = "{value}"',
+            f"{key} must remain free",
+        )
+        for mode in ("pin", "seed")
+        for key, value in (
+            ("model", "gpt-6-astra"),
+            ("model_reasoning_effort", "medium"),
+            ("plan_mode_reasoning_effort", "xhigh"),
+        )
+    ] + [
+        (
             "coverage-sentinel contract removal",
             "private_dot_codex/agents/code-reviewer.toml",
             "COVERAGE_OK code-reviewer $BASE_COMMIT...$HEAD_REF",

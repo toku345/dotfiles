@@ -105,12 +105,31 @@ custom = { nested = [1, true, "value"] }
         self.assertIn(block, output)
         self.assertIn("# free values include multiline strings and inline tables", output)
 
+    def test_missing_model_and_efforts_follow_codex_defaults(self):
+        output, data, warnings = self.update("")
+        for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+            self.assertNotIn(key, data)
+        self.assertFalse(warnings)
+        self.assertEqual(self.update(output)[0], output)
+
+    def test_existing_model_and_efforts_are_free(self):
+        source = '''model = "private-provider-value" # preserve local choice
+model_reasoning_effort = "high"
+plan_mode_reasoning_effort = "low"
+'''
+        output, data, warnings = self.update(source)
+        for key, value in tomllib.loads(source).items():
+            self.assertEqual(data[key], value)
+        self.assertIn(source, output)
+        self.assertFalse(warnings)
+        self.assertEqual(self.update(output)[0], output)
+
     def test_seed_warnings_do_not_include_live_value(self):
-        _, data, warnings = self.update('model = "private-provider-value"\n')
-        self.assertEqual(data["model"], "private-provider-value")
+        _, data, warnings = self.update('personality = "private-style-value"\n')
+        self.assertEqual(data["personality"], "private-style-value")
         self.assertEqual(len(warnings), 1)
-        self.assertNotIn("private-provider-value", warnings[0])
-        self.assertIn("seed model differs", warnings[0])
+        self.assertNotIn("private-style-value", warnings[0])
+        self.assertIn("seed personality differs", warnings[0])
 
     def test_free_arrays_of_tables(self):
         source = '''[[custom.providers]]
@@ -144,7 +163,7 @@ name = "second"
         self.assertEqual(first, second)
 
     def test_structure_conflicts(self):
-        for source in ('features = false', '[model]\ncustom = true', '[[features]]\napps = false'):
+        for source in ('features = false', '[personality]\ncustom = true', '[[features]]\napps = false'):
             with self.subTest(source=source), self.assertRaises(PolicyError):
                 merge.merge(source, self.policy)
 
@@ -609,12 +628,28 @@ class CommandTests(unittest.TestCase):
         live = self.home / ".codex" / "config.toml"
         self.assertEqual(live.stat().st_mode & 0o777, 0o600)
         first = live.read_bytes()
+        for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+            self.assertNotIn(key, tomllib.loads(first.decode()))
         result = call("diff")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertEqual(call("apply").returncode, 0)
         self.assertEqual(live.read_bytes(), first)
         self.assertFalse((self.home / "scripts").exists())
+
+        # Old seeds become free values; apply/status must not warn or erase them.
+        existing = ('model = "custom-provider"\nmodel_reasoning_effort = "high"\n'
+                    'plan_mode_reasoning_effort = "low"\n').encode() + first
+        live.write_bytes(existing)
+        result = call("apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(live.read_bytes(), existing)
+        for command in ("diff", "status"):
+            result = call(command)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(result.stderr, "")
 
         # Verify the wrapper also protects an already deployed file on failure.
         broken = b'model = "SECRET'

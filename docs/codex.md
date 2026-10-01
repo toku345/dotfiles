@@ -195,10 +195,37 @@ setup 同士の二重実行は `setup.lock` ディレクトリで拒否する。
 
 - 編集先は `scripts/codex-config/policy.toml`（通常版 `~/.codex/config.toml`）。分離した Fugu home 用は `scripts/codex-config/policy-fugu.toml`（前述の「base config の管理」）。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないすべてのキーは free。
 - seed の現在値が宣言と異なる場合は保持し、stderr にキー名だけ警告する。宣言値が現在値とは限らない。
+- 通常版の `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` は free。未設定なら Codex 側のデフォルトを使い、明示した現在値は警告なく保持する。固定した用途別設定は `quick` / `work` profile に置く。
 - main への merge 後、`chezmoi diff ~/.codex/config.toml` で確認し、`chezmoi apply ~/.codex/config.toml` で反映する。hash gate・ACK・手動 merge は不要。
 - 旧 baseline / hash state が残る場合は、内容を確認して `rm -f ~/.codex/config.chezmoi.toml ~/.codex/.baseline-hash` で削除する。
 
 TOML Kit で構文を解析し、値と型で比較する。出力前に再解析し、pin の値、既存 seed と全 free キーの保持、installer のマーカーブロック不変性を確認する。構文不正・ポリシー衝突・構造衝突は非ゼロ終了し、stdout に部分的な設定を出さない。変更不要なら入力をそのまま返す。未設定の root キーはファイル先頭に追加し、installer が所有するブロックの内側へは入れない。コメントと配列の書式は保持するが、TOML Kit が一部の array-of-tables の配置を正規化するため、変更時のファイル全体のバイト一致は保証しない。
+
+### 既存環境でデフォルト追従へ切り替える
+
+seed を削除しても live の現在値は残るため、既存環境では一度だけ次の移行が必要。新規環境には不要。Codex が設定を書き戻す可能性があるため、通常版の Codex セッションを閉じて別の端末で行う。
+
+1. 変更を main に merge し、chezmoi の main source directory を更新する。worktree から apply しない。
+2. 現在の設定を権限 0600 の日時付きバックアップに保存する。
+
+   ```sh
+   config_backup="$HOME/.codex/config.toml.bak.$(date +%Y%m%d-%H%M%S)"
+   cp -p "$HOME/.codex/config.toml" "$config_backup"
+   chmod 600 "$config_backup"
+   ```
+
+3. `~/.codex/config.toml` を編集し、root の `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` の3項目だけを削除する。ほかの設定・コメントを残し、ファイルの権限を 0600 に保つ。
+4. 次の対象だけを反映し、同じ対象の diff / status が空であることを確認する。
+
+   ```sh
+   chezmoi apply -v "$HOME/.codex/config.toml" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml" "$HOME/.local/bin/cx"
+   chezmoi diff "$HOME/.codex/config.toml" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml" "$HOME/.local/bin/cx"
+   chezmoi status "$HOME/.codex/config.toml" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml" "$HOME/.local/bin/cx"
+   ```
+
+5. 新規セッションで `codex` / `cx quick` / `cx work` の通常モードと Plan mode を確認し、通常起動の実効モデル・エフォートを記録する。
+
+デフォルト追従は明示指定がない場合の動作。TUI で設定を保存した場合や、project config・起動オプションに指定がある場合は、その値が優先される。
 
 ### 隔離した検証
 
@@ -221,12 +248,13 @@ Python テストには `chezmoi` が必要。Bats は依存未準備を skip せ
 
 `dot_local/bin/executable_cx` を `~/.local/bin/cx` に配置する。既存の fish / Bash の PATH を使い、shell ごとの function は追加しない。
 
-| 入口 | 選び方 | 通常モード |
-| --- | --- | --- |
-| `cx quick` | 方針・範囲・検証方法が明確で、やり直しやすい作業 | `gpt-6-astra` / `low` |
-| `cx work` | 不確実な作業、迷う場合 | `gpt-6-astra` / `high` |
+| 入口 | 選び方 | モデル | 通常モードの effort | Plan mode の effort |
+| --- | --- | --- | --- | --- |
+| `codex` | Codex 側のデフォルトを使う | Codex 側のデフォルト | Codex 側のデフォルト | Codex 側のデフォルト |
+| `cx quick` | 方針・範囲・検証方法が明確で、やり直しやすい作業 | `gpt-6.1-sol` | `low` | `medium` |
+| `cx work` | 不確実な作業、迷う場合 | `gpt-6-astra` | `high` | `xhigh` |
 
-quick は変更行数の少なさや Fast モードを意味しない。Plan は共通の `plan_mode_reasoning_effort = "xhigh"` を使う。profile 選択は Plan への切替ではない。`deep`、自動選択、自動昇格、独自の選択メニューは提供しない。
+quick は変更行数の少なさや Fast モードを意味しない。Plan mode でも選択したモデルを使い、effort は profile の `plan_mode_reasoning_effort` から選ぶ。通常起動ではこれを未設定にして、Plan mode の組み込み既定に任せる。Codex CLI 0.159.2 の隔離した preset 確認では `medium` だったが、この値は固定しない。profile 選択は Plan への切替ではない。`deep`、自動選択、自動昇格、独自の選択メニューは提供しない。
 
 ```bash
 cx quick '確認済みの方針で修正して'
@@ -239,7 +267,7 @@ cx --help
 
 ### 設定レイヤーと対応範囲
 
-通常側の profile は `model` / `model_reasoning_effort` の 2 key だけを持つ。独立環境ではなく、同じ `CODEX_HOME` の共通設定・認証・履歴を利用する。既存 review profile と同じ直接管理方式なので、config policy（`policy.toml`）の対象ではない。
+quick / work profile は `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` の 3 key だけを持つ。独立環境ではなく、同じ `CODEX_HOME` の共通設定・認証・履歴を利用する。既存 review profile と同じ直接管理方式なので、config policy（`policy.toml`）の対象ではない。
 
 関係する優先順位は共通設定 → 選択 profile → trusted project config → CLI override。`cx` は profile を選ぶだけで、project の model / effort や明示的な Codex 引数による上書きを防がない。
 
@@ -374,7 +402,7 @@ codex \
 
 runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は isolated `CODEX_HOME` と `/tmp` の fixture を使い、live config や chezmoi target を変更しない。`chezmoi apply` は変更を main に merge した後だけ実行する。
 
-`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。このリポジトリの初回設定値は `medium` で、seed のため既存の値は保持する。review 用途では profile を明示的に切り替える。
+`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常起動の effort は Codex 側のデフォルトに任せる。review 用途では profile を明示的に切り替える。
 
 - `review`: 通常レビュー・dogfood iteration 用
 - `review_deep`: 複雑な PR や main pre-merge review 用
