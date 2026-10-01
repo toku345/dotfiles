@@ -168,6 +168,27 @@ def main() -> None:
             "model must be 'gpt-5.6-sol'",
         ),
         (
+            "quick profile key typo",
+            "private_dot_codex/private_quick.config.toml",
+            "plan_mode_reasoning_effort",
+            "plan_mode_reasoning_efort",
+            "must be exactly",
+        ),
+        (
+            "work profile effort change",
+            "private_dot_codex/private_work.config.toml",
+            'plan_mode_reasoning_effort = "xhigh"',
+            'plan_mode_reasoning_effort = "medium"',
+            "must be exactly",
+        ),
+        (
+            "quick profile extra key",
+            "private_dot_codex/private_quick.config.toml",
+            'model = "gpt-6.1-sol"',
+            'model = "gpt-6.1-sol"\nsandbox_mode = "workspace-write"',
+            "must be exactly",
+        ),
+        (
             "review profile pins legacy V1",
             "private_dot_codex/private_review.config.toml",
             "multi_agent = true",

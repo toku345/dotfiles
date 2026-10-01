@@ -75,9 +75,13 @@ toml_valid() {
   }
 }
 
-@test "re-asserts a stored Plan mode effort" {
-  printf 'plan_mode_reasoning_effort = "medium"\n\n[features]\nfast_mode = true\n\n[tui]\nstatus_line_use_colors = true\n' | merge
+@test "re-asserts stored pinned values" {
+  printf 'plan_mode_reasoning_effort = "medium"\ncheck_for_update_on_startup = true\napproval_policy = "never"\napprovals_reviewer = "guardian_subagent"\n\n[features]\nfast_mode = true\n\n[tui]\nstatus_line_use_colors = true\n' | merge
   grep -qxF 'plan_mode_reasoning_effort = "xhigh"' "$OUT"
+  grep -qxF 'check_for_update_on_startup = false' "$OUT"
+  grep -qxF 'approval_policy = "on-request"' "$OUT"
+  grep -qxF 'approvals_reviewer = "user"' "$OUT"
+  [ "$(grep -c '^approval_policy = ' "$OUT")" -eq 1 ]
   grep -qxF 'fast_mode = false' "$OUT"
   [ "$(grep -c '^\[features\]$' "$OUT")" -eq 1 ]
   grep -qxF 'status_line_use_colors = true' "$OUT"

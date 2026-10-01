@@ -266,12 +266,19 @@ class FuguPolicyTests(unittest.TestCase):
         )
         self.assertFalse(warnings)
 
-    def test_pin_reasserts_a_stored_plan_effort(self):
+    def test_pins_reassert_stored_values(self):
         _, data, warnings = self.update(
-            'plan_mode_reasoning_effort = "medium"\n\n[features]\nfast_mode = true\n'
+            'plan_mode_reasoning_effort = "medium"\n'
+            "check_for_update_on_startup = true\n"
+            'approval_policy = "never"\n'
+            'approvals_reviewer = "guardian_subagent"\n'
+            "\n[features]\nfast_mode = true\n"
             "\n[tui]\nstatus_line_use_colors = true\n"
         )
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
+        self.assertIs(data["check_for_update_on_startup"], False)
+        self.assertEqual(data["approval_policy"], "on-request")
+        self.assertEqual(data["approvals_reviewer"], "user")
         self.assertIs(data["features"]["fast_mode"], False)
         self.assertIs(data["tui"]["status_line_use_colors"], True)
         # Pins re-assert silently; only seed divergence is reported.
