@@ -23,4 +23,11 @@ if ! codex_bin=$(type -P codex); then
   exit 127
 fi
 
+# Codex silently falls back to its defaults when the profile file is missing.
+profile="${CODEX_HOME:-$HOME/.codex}/$mode.config.toml"
+if [[ ! -f $profile ]]; then
+  printf 'cx: profile not found: %s (run chezmoi apply)\n' "$profile" >&2
+  exit 1
+fi
+
 exec "$codex_bin" --profile "$mode" "$@"

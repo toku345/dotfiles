@@ -59,7 +59,7 @@ Mac Fish / Linux Bash で `codex` が通常版、`codex-fugu` が管理ラッパ
 
 分離した Fugu home で Codex が読む base layer は `~/.codex-fugu/config.toml` だけ（`fugu.config.toml` は公式インストーラーが上書きする bundle profile）。この base layer を chezmoi の `modify_` target として管理する。マージは通常版と同じ `scripts/codex-config/merge.py` を使い、`--policy policy-fugu.toml` で Fugu 用ポリシーを選ぶ。
 
-- 宣言する値は `scripts/codex-config/policy-fugu.toml` に置く。すべて **pin**（live に別の値が保存されていても `apply` ごとに戻す）。4 key は 0.154.0 で受理を実測確認済み（不正値は config load が失敗する）。
+- 宣言する値は `scripts/codex-config/policy-fugu.toml` に置く。すべて **pin**（live に別の値が保存されていても `apply` ごとに戻す）。ADR 0040 で追加した 4 key（`check_for_update_on_startup` / `approval_policy` / `approvals_reviewer` / `features.fast_mode`）は 0.154.0 で受理を実測確認済み（不正値は config load が失敗する）。
   - `plan_mode_reasoning_effort = "xhigh"`: Fugu モデルの catalog は `high` / `xhigh`（`fugu-ultra-v1.1` は `max`）しか宣言せず、CLI の Plan mode 既定 `medium` は Sakana API が拒否する。
   - `check_for_update_on_startup = false`: Codex 自身の自己更新プロンプトだけを抑止する。**ランチャーの更新フローは維持**する（専用 HOME の CLI 版は bundle が所有し、更新は公式ランチャーの `install.sh` 経由で行う。CLI だけが bundle 検証版からずれる事故を防ぐ）。
   - `approvals_reviewer = "user"` と `approval_policy = "on-request"`: 承認を人間に回す。vanilla は `guardian_subagent` のままなので、この 2 key は Fugu 専用の起動時既定。
@@ -262,6 +262,8 @@ cx work 'Issue を確認して'
 cx work resume <known-openai-session-id>
 cx --help
 ```
+
+選択した profile（`${CODEX_HOME:-$HOME/.codex}/<mode>.config.toml`）が無い場合、`cx` は Codex を起動せず exit 1 で停止する。Codex CLI 0.159.2 は存在しない profile を指定されても警告なしに既定のモデル・effort で起動するため、`chezmoi apply` 前の machine で意図しないモデルを使わないようにする。
 
 対応対象は対話起動・初期プロンプト・同じ provider の既知のセッションIDによる resume。picker / `--last` は未検証で、provider が同じとは仮定しない。provider 間の履歴移行や自動引き継ぎは行わない。
 

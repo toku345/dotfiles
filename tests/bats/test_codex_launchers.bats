@@ -19,6 +19,8 @@ setup() {
   export ARGV_LOG="$BATS_TEST_TMPDIR/argv"
   export TEST_BASH
   mkdir -p "$TEST_BIN" "$CODEX_HOME"
+  : > "$CODEX_HOME/quick.config.toml"
+  : > "$CODEX_HOME/work.config.toml"
   cat > "$TEST_BIN/codex" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == --version ]]; then
@@ -73,6 +75,13 @@ assert_argv() {
   rm "$TEST_BIN/codex"
   run -127 "$TEST_BASH" "$CX_SOURCE" work
   [[ "$output" == *'required command not found on PATH: codex'* ]]
+}
+
+@test "a missing profile stops before launching Codex" {
+  rm "$CODEX_HOME/work.config.toml"
+  run --separate-stderr -1 "$TEST_BASH" "$CX_SOURCE" work
+  [[ "$stderr" == *"profile not found: $CODEX_HOME/work.config.toml"* ]]
+  [ ! -e "$ARGV_LOG" ]
 }
 
 @test "cx propagates the child exit code" {
