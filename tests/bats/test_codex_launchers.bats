@@ -19,8 +19,10 @@ setup() {
   export ARGV_LOG="$BATS_TEST_TMPDIR/argv"
   export TEST_BASH
   mkdir -p "$TEST_BIN" "$CODEX_HOME"
-  : > "$CODEX_HOME/quick.config.toml"
-  : > "$CODEX_HOME/work.config.toml"
+  for mode in quick work; do
+    printf '%s\n' 'model = "m"' 'model_reasoning_effort = "e"' \
+      'plan_mode_reasoning_effort = "p"' > "$CODEX_HOME/$mode.config.toml"
+  done
   cat > "$TEST_BIN/codex" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == --version ]]; then
@@ -81,6 +83,21 @@ assert_argv() {
   rm "$CODEX_HOME/work.config.toml"
   run --separate-stderr -1 "$TEST_BASH" "$CX_SOURCE" work
   [[ "$stderr" == *"profile not found: $CODEX_HOME/work.config.toml"* ]]
+  [ ! -e "$ARGV_LOG" ]
+}
+
+@test "an empty profile stops before launching Codex" {
+  : > "$CODEX_HOME/quick.config.toml"
+  run --separate-stderr -1 "$TEST_BASH" "$CX_SOURCE" quick
+  [[ "$stderr" == *"is missing model "* ]]
+  [ ! -e "$ARGV_LOG" ]
+}
+
+@test "a profile missing one key stops before launching Codex" {
+  printf '%s\n' 'model = "m"' 'model_reasoning_effort = "e"' \
+    '# plan_mode_reasoning_effort = "p"' > "$CODEX_HOME/work.config.toml"
+  run --separate-stderr -1 "$TEST_BASH" "$CX_SOURCE" work
+  [[ "$stderr" == *"is missing plan_mode_reasoning_effort "* ]]
   [ ! -e "$ARGV_LOG" ]
 }
 

@@ -23,11 +23,18 @@ if ! codex_bin=$(type -P codex); then
   exit 127
 fi
 
-# Codex silently falls back to its defaults when the profile file is missing.
+# Codex silently falls back to its defaults when the profile file or one of
+# its keys is missing. Values are checked repo-side by verify_pr_review_bundle.py.
 profile="${CODEX_HOME:-$HOME/.codex}/$mode.config.toml"
 if [[ ! -f $profile ]]; then
   printf 'cx: profile not found: %s (run chezmoi apply)\n' "$profile" >&2
   exit 1
 fi
+for key in model model_reasoning_effort plan_mode_reasoning_effort; do
+  if ! grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$profile"; then
+    printf 'cx: profile %s is missing %s (run chezmoi apply)\n' "$profile" "$key" >&2
+    exit 1
+  fi
+done
 
 exec "$codex_bin" --profile "$mode" "$@"

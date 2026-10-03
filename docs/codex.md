@@ -263,7 +263,7 @@ cx work resume <known-openai-session-id>
 cx --help
 ```
 
-選択した profile（`${CODEX_HOME:-$HOME/.codex}/<mode>.config.toml`）が無い場合、`cx` は Codex を起動せず exit 1 で停止する。Codex CLI 0.159.2 は存在しない profile を指定されても警告なしに既定のモデル・effort で起動するため、`chezmoi apply` 前の machine で意図しないモデルを使わないようにする。
+選択した profile（`${CODEX_HOME:-$HOME/.codex}/<mode>.config.toml`）が無い場合、または 3 key のいずれかが無い場合、`cx` は Codex を起動せず exit 1 で停止する。Codex CLI 0.159.2 は存在しない profile を指定されても警告なしに既定のモデル・effort で起動するため、`chezmoi apply` 前の machine や手編集で欠けた profile で意図しないモデルを使わないようにする。`cx` は key の有無だけを見る。値は repo 側の `verify_pr_review_bundle.py` が完全一致で検査し、Codex CLI 0.160.0 は profile の不正な effort 値を読み込み時に拒否しない。
 
 対応対象は対話起動・初期プロンプト・同じ provider の既知のセッションIDによる resume。picker / `--last` は未検証で、provider が同じとは仮定しない。provider 間の履歴移行や自動引き継ぎは行わない。
 
