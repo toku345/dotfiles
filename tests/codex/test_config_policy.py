@@ -105,12 +105,31 @@ custom = { nested = [1, true, "value"] }
         self.assertIn(block, output)
         self.assertIn("# free values include multiline strings and inline tables", output)
 
+    def test_missing_model_and_efforts_follow_codex_defaults(self):
+        output, data, warnings = self.update("")
+        for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+            self.assertNotIn(key, data)
+        self.assertFalse(warnings)
+        self.assertEqual(self.update(output)[0], output)
+
+    def test_existing_model_and_efforts_are_free(self):
+        source = '''model = "private-provider-value" # preserve local choice
+model_reasoning_effort = "high"
+plan_mode_reasoning_effort = "low"
+'''
+        output, data, warnings = self.update(source)
+        for key, value in tomllib.loads(source).items():
+            self.assertEqual(data[key], value)
+        self.assertIn(source, output)
+        self.assertFalse(warnings)
+        self.assertEqual(self.update(output)[0], output)
+
     def test_seed_warnings_do_not_include_live_value(self):
-        _, data, warnings = self.update('model = "private-provider-value"\n')
-        self.assertEqual(data["model"], "private-provider-value")
+        _, data, warnings = self.update('personality = "private-style-value"\n')
+        self.assertEqual(data["personality"], "private-style-value")
         self.assertEqual(len(warnings), 1)
-        self.assertNotIn("private-provider-value", warnings[0])
-        self.assertIn("seed model differs", warnings[0])
+        self.assertNotIn("private-style-value", warnings[0])
+        self.assertIn("seed personality differs", warnings[0])
 
     def test_free_arrays_of_tables(self):
         source = '''[[custom.providers]]
@@ -144,7 +163,7 @@ name = "second"
         self.assertEqual(first, second)
 
     def test_structure_conflicts(self):
-        for source in ('features = false', '[model]\ncustom = true', '[[features]]\napps = false'):
+        for source in ('features = false', '[personality]\ncustom = true', '[[features]]\napps = false'):
             with self.subTest(source=source), self.assertRaises(PolicyError):
                 merge.merge(source, self.policy)
 
@@ -204,10 +223,26 @@ class FuguPolicyTests(unittest.TestCase):
         result, warnings = merge.merge(source, self.policy)
         return result, tomllib.loads(result), warnings
 
-    def test_new_home_gets_only_the_pin(self):
+    def test_new_home_gets_the_managed_defaults(self):
         output, data, warnings = self.update("")
-        self.assertEqual(output, 'plan_mode_reasoning_effort = "xhigh"\n')
-        self.assertEqual(data, {"plan_mode_reasoning_effort": "xhigh"})
+        self.assertEqual(
+            output,
+            'plan_mode_reasoning_effort = "xhigh"\n'
+            'check_for_update_on_startup = false\n'
+            'approval_policy = "on-request"\n'
+            'approvals_reviewer = "user"\n'
+            "\n[features]\nfast_mode = false\n",
+        )
+        self.assertEqual(
+            data,
+            {
+                "plan_mode_reasoning_effort": "xhigh",
+                "check_for_update_on_startup": False,
+                "approval_policy": "on-request",
+                "approvals_reviewer": "user",
+                "features": {"fast_mode": False},
+            },
+        )
         self.assertFalse(warnings)
 
     def test_pin_is_placed_above_the_installer_block(self):
@@ -218,14 +253,33 @@ class FuguPolicyTests(unittest.TestCase):
             lines.index('plan_mode_reasoning_effort = "xhigh"'),
             lines.index("# >>> fugu:model_providers.sakana >>>"),
         )
-        self.assertEqual(set(data), {"plan_mode_reasoning_effort", "model_providers"})
+        self.assertEqual(
+            set(data),
+            {
+                "plan_mode_reasoning_effort",
+                "check_for_update_on_startup",
+                "approval_policy",
+                "approvals_reviewer",
+                "features",
+                "model_providers",
+            },
+        )
         self.assertFalse(warnings)
 
-    def test_pin_reasserts_a_stored_plan_effort(self):
+    def test_pins_reassert_stored_values(self):
         _, data, warnings = self.update(
-            'plan_mode_reasoning_effort = "medium"\n\n[tui]\nstatus_line_use_colors = true\n'
+            'plan_mode_reasoning_effort = "medium"\n'
+            "check_for_update_on_startup = true\n"
+            'approval_policy = "never"\n'
+            'approvals_reviewer = "guardian_subagent"\n'
+            "\n[features]\nfast_mode = true\n"
+            "\n[tui]\nstatus_line_use_colors = true\n"
         )
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
+        self.assertIs(data["check_for_update_on_startup"], False)
+        self.assertEqual(data["approval_policy"], "on-request")
+        self.assertEqual(data["approvals_reviewer"], "user")
+        self.assertIs(data["features"]["fast_mode"], False)
         self.assertIs(data["tui"]["status_line_use_colors"], True)
         # Pins re-assert silently; only seed divergence is reported.
         self.assertFalse(warnings)
@@ -243,7 +297,8 @@ class FuguPolicyTests(unittest.TestCase):
         second, warnings = merge.merge(first, self.policy)
         self.assertEqual(first, second)
         self.assertFalse(warnings)
-        for absent in ("sandbox_mode", "features", "tui"):
+        self.assertEqual(data["features"], {"fast_mode": False})
+        for absent in ("sandbox_mode", "tui"):
             self.assertNotIn(absent, data)
 
 
@@ -437,7 +492,16 @@ class CommandTests(unittest.TestCase):
         live = fugu_dir / "config.toml"
         self.assertEqual(fugu_dir.stat().st_mode & 0o777, 0o700)
         self.assertEqual(live.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(tomllib.loads(live.read_text()), {"plan_mode_reasoning_effort": "xhigh"})
+        self.assertEqual(
+            tomllib.loads(live.read_text()),
+            {
+                "plan_mode_reasoning_effort": "xhigh",
+                "check_for_update_on_startup": False,
+                "approval_policy": "on-request",
+                "approvals_reviewer": "user",
+                "features": {"fast_mode": False},
+            },
+        )
         self.assertTrue((home / ".codex" / "config.toml").exists())
         diff = call("diff")
         self.assertEqual(diff.returncode, 0, diff.stderr)
@@ -571,12 +635,28 @@ class CommandTests(unittest.TestCase):
         live = self.home / ".codex" / "config.toml"
         self.assertEqual(live.stat().st_mode & 0o777, 0o600)
         first = live.read_bytes()
+        for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+            self.assertNotIn(key, tomllib.loads(first.decode()))
         result = call("diff")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertEqual(call("apply").returncode, 0)
         self.assertEqual(live.read_bytes(), first)
         self.assertFalse((self.home / "scripts").exists())
+
+        # Old seeds become free values; apply/status must not warn or erase them.
+        existing = ('model = "custom-provider"\nmodel_reasoning_effort = "high"\n'
+                    'plan_mode_reasoning_effort = "low"\n').encode() + first
+        live.write_bytes(existing)
+        result = call("apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(live.read_bytes(), existing)
+        for command in ("diff", "status"):
+            result = call(command)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(result.stderr, "")
 
         # Verify the wrapper also protects an already deployed file on failure.
         broken = b'model = "SECRET'

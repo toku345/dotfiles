@@ -72,6 +72,26 @@ EXPECTED_REVIEW_PROFILES = {
     },
 }
 
+# cx launch profiles (ADR 0040): exactly these keys and values, nothing else.
+EXPECTED_LAUNCH_PROFILES = {
+    "quick": {
+        "path": REPO_ROOT / "private_dot_codex" / "private_quick.config.toml",
+        "values": {
+            "model": "gpt-6.1-sol",
+            "model_reasoning_effort": "low",
+            "plan_mode_reasoning_effort": "medium",
+        },
+    },
+    "work": {
+        "path": REPO_ROOT / "private_dot_codex" / "private_work.config.toml",
+        "values": {
+            "model": "gpt-6-astra",
+            "model_reasoning_effort": "high",
+            "plan_mode_reasoning_effort": "xhigh",
+        },
+    },
+}
+
 RUNTIME_CONTRACT_SENTINEL = "PR_REVIEW_RUNTIME_CONTRACT_V1_V2"
 BASE_RESOLUTION_SENTINEL = "PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2"
 V2_SCHEDULER_SENTINEL = "PR_REVIEW_V2_SCHEDULER_CONTRACT_V4"
@@ -1355,19 +1375,9 @@ def verify_codex_config_profiles() -> None:
         if type(actual) is not type(expected) or actual != expected:
             fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
 
-    seeded = (
-        ("", "model", 'gpt-6-astra', "model must be 'gpt-6-astra'"),
-        (
-            "",
-            "model_reasoning_effort",
-            'medium',
-            "model_reasoning_effort must be 'medium'",
-        ),
-    )
-    for section, key, expected, message in seeded:
-        actual = seeds.get((section, key))
-        if type(actual) is not type(expected) or actual != expected:
-            fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
+    for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+        if ("", key) in pins or ("", key) in seeds:
+            fail(f"{CODEX_POLICY}: {key} must remain free to follow Codex defaults")
 
     rows = [*pins, *seeds]
     stale = sorted({key for (section, key) in rows if section.startswith("profiles")})
@@ -1416,6 +1426,12 @@ def verify_codex_config_profiles() -> None:
                 "the managed baseline"
             )
         require_no_hide_spawn_metadata(data, path)
+
+    for profile_name, spec in EXPECTED_LAUNCH_PROFILES.items():
+        path = spec["path"]
+        data = load_toml(path, f"Codex {profile_name} profile")
+        if data != spec["values"]:
+            fail(f"{path}: must be exactly {spec['values']!r}, got {data!r}")
 
 
 def verify_agent_toml() -> None:

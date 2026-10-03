@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' \
+    'Usage: cx {quick|work} [CODEX_ARGS...]' \
+    '       cx {quick|work} resume <same-provider-session-id>' \
+    '' \
+    'quick: clear, bounded, reversible work (GPT-6.1 Sol / low; Plan: medium).' \
+    'work:  uncertain work; use this when in doubt (Astra / high; Plan: xhigh).' \
+    'Project configuration and explicit Codex options retain native precedence.'
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  quick|work) mode=$1; shift ;;
+  *) printf '%s\n' 'cx: expected mode: quick or work' >&2; usage >&2; exit 2 ;;
+esac
+
+if ! codex_bin=$(type -P codex); then
+  printf '%s\n' 'cx: required command not found on PATH: codex' >&2
+  exit 127
+fi
+
+# Codex silently falls back to its defaults when the profile file or one of
+# its keys is missing. Values are checked repo-side by verify_pr_review_bundle.py.
+profile="${CODEX_HOME:-$HOME/.codex}/$mode.config.toml"
+if [[ ! -f $profile ]]; then
+  printf 'cx: profile not found: %s (run chezmoi apply)\n' "$profile" >&2
+  exit 1
+fi
+for key in model model_reasoning_effort plan_mode_reasoning_effort; do
+  if ! grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$profile"; then
+    printf 'cx: profile %s is missing %s (run chezmoi apply)\n' "$profile" "$key" >&2
+    exit 1
+  fi
+done
+
+exec "$codex_bin" --profile "$mode" "$@"
