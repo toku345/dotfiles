@@ -224,6 +224,9 @@ const SPECIALISTS = {
     agentType: 'adversarial-reviewer',
     confidenceScale: 1,
     labelGuidance: "Set the top-level `framing` to 'needs-attention' or 'acceptable', and attach a 0-1 confidence to every finding.",
+    // Removed behavior is invisible to a reader who only checks what the diff
+    // adds; a dropped guard is a typical merge blocker.
+    focus: '## Removed-behavior audit\nFor every line the diff deletes or replaces, name the invariant or behavior it enforced, then check the added code for where that invariant is re-established. If you cannot find it, report a finding: a removed guard, a dropped error path, a narrowed validation, or a deleted test that covered a real case.',
   },
   'pr-test-analyzer': {
     agentType: 'pr-review-toolkit:pr-test-analyzer',
@@ -320,6 +323,7 @@ function specialistPrompt(name, ctx, extra) {
     SPECIALISTS[name].labelGuidance,
     "Every finding must be grounded in the committed diff: name the file (and line where possible), the concrete failure mode and user/operational impact in `why`, and the smallest reasonable fix in `fix`. Include `blocking`, `impact_scope`, `verified_assumptions`, and `unverified_assumptions`. Set `blocking: true` only for clear merge blockers proven by the committed diff; machine-local or ignored state, local-only performance regressions, developer-workflow-only false-greens, advisory observability gaps, and assumption-dependent risks should use `blocking: false`. Do not emit nits, style preferences, or speculative rewrites. Put positive observations in `strengths`, not in findings.",
   ]
+  if (SPECIALISTS[name].focus) lines.push('', SPECIALISTS[name].focus)
   if (extra) lines.push('', extra)
   return lines.join('\n')
 }

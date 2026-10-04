@@ -513,9 +513,16 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   assert(r17s.tally.bySpecialist['code-simplifier'].suggestion === 1, 'S17: Stage 2 code-simplifier is counted when it runs')
 }
 
-// S18: prompt contracts — verifiers are told to cite HEAD lines
+// S18: prompt contracts — the removed-behavior focus reaches only the
+// adversarial reviewer, and verifiers are told to cite HEAD lines
 {
   await run(makeArgs())
+  const stage1 = Object.entries(capturedPrompts).filter(([label]) => label.startsWith('stage1:'))
+  assert(stage1.length === 7, `S18: captured every Stage 1 prompt (${stage1.length})`)
+  for (const [label, prompt] of stage1) {
+    const hasFocus = prompt.includes('## Removed-behavior audit')
+    assert(hasFocus === (label === 'stage1:adversarial-reviewer'), `S18: removed-behavior focus ${hasFocus ? 'present' : 'absent'} in ${label}`)
+  }
   const verify = Object.entries(capturedPrompts).filter(([label]) => label.startsWith('verify:'))
   assert(verify.length > 0, 'S18: captured verifier prompts')
   for (const [label, prompt] of verify) {
