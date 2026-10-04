@@ -129,6 +129,10 @@ Do not change repository or git state to make a failing precondition pass: no `g
    - Read `~/.claude/skills/pr-review/references/severity-rules.json`, parse it as JSON, and verify `sentinel == "PR_REVIEW_SEVERITY_RULES_V1"` and `version == 1`. Keep the parsed object as `severityRules`.
    - If either check fails, abort with:
      > "Shared gate policy missing or stale at ~/.claude/skills/pr-review/references/. Run `chezmoi apply -v` to redeploy, then retry."
+   - Run `python3 ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py --help`. If it does not exit 0, abort with:
+     > "Evidence validator missing or not runnable at ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py (needs python3). Run `chezmoi apply -v` to redeploy, then retry."
+
+     The gate cannot finish without it (see **Validate verifier evidence**), so a missing validator fails here instead of after a full review.
 
 ## Launch the workflow
 
@@ -172,13 +176,35 @@ The workflow runs in the background; wait for its completion notification before
    > "HEAD changed during review: started at `<old>`, now `<new>`. The completed specialist results do not cover the current commit. Re-run the review."
 3. Remove the diff packet temp file (the routing-flags block in Collect step 4 cleans up its own temp files).
 
-## Render the result
+## Result contract
 
-The workflow returns a structured object (`argsContract`, `critical`, `important`/`importantOverflow`/`importantTotal`, `suggestions`/`suggestionsOverflow`/`suggestionsTotal`, `strengths`, `refuted`, `specialists`, `stage2Ran`). Before rendering anything, verify `argsContract` is exactly `PR_REVIEW_ARGS_V2`; if it is missing or different, a stale deployed workflow handled the run and silently ignored the deterministic routing flags — abort with:
+The workflow returns a structured object (`argsContract`, `critical`, `important`/`importantOverflow`/`importantTotal`, `suggestions`/`suggestionsOverflow`/`suggestionsTotal`, `strengths`, `refuted`, `verifications`, `tally`, `specialists`, `stage2Ran`). Before using any of it, verify `argsContract` is exactly `PR_REVIEW_ARGS_V3`; if it is missing or different, a stale deployed workflow handled the run and returned no verifier evidence — abort with:
 
 > "Stale ~/.claude/workflows/pr-review.js deployed (argsContract mismatch). Run `chezmoi apply -v`, then re-run the review."
 
-Otherwise render it as:
+## Validate verifier evidence
+
+A verdict decides whether a finding stays in the fix queue, so every cited line must exist in the reviewed commit. The workflow checks only the shape of each citation; this step checks it against the `$HEAD_REF` tree. Never validate against the worktree.
+
+1. Verify `result.verifications.length` equals `result.tally.critical + result.tally.important + result.tally.refuted` (every verified finding, including refuted and capped-out ones). If it differs, abort with:
+   > "Verifier evidence is incomplete: <length> verifications for <sum> verified findings. Re-run the review."
+2. Create a temp directory outside the worktree: `evidence_dir=$(mktemp -d "${TMPDIR:-/tmp}/pr-review-evidence.XXXXXX")`.
+3. For each entry `v` in `result.verifications`, write the JSON object `{"candidate_id": v.candidateId, "evidence": v.evidence}` to `$evidence_dir/<v.candidateId>.json` with the Write tool. Never pass evidence text through a shell command line.
+4. For each entry, run:
+   ```sh
+   python3 ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py \
+     --repo-root "$(git rev-parse --show-toplevel)" --head-ref "$HEAD_REF" \
+     --result-file "$evidence_dir/<candidateId>.json"
+   ```
+   Require exit 0 and stdout exactly `EVIDENCE_OK finding-verifier <candidateId> <$HEAD_REF> <number of items in v.evidence>`. On any other exit code or output, abort with:
+   > "Verifier evidence for <candidateId> ([<specialist>] <file>, verdict <verdict>) does not resolve at <$HEAD_REF>: <validator stderr or stdout verbatim>. The verdict is unproven, so the gate result is not trustworthy. Re-run the review."
+5. Remove `$evidence_dir`.
+
+Do not drop, edit, or re-verify a failing verdict to make this step pass: a citation that does not resolve means the verdict itself is unproven.
+
+## Render the result
+
+Render the validated result as:
 
 ```
 # PR Review: <branch> vs <base>
@@ -193,6 +219,7 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
   - Verified assumptions: <verified_assumptions>
   - Unverified assumptions: <unverified_assumptions; should be empty for Critical>
   - Verdict: <verdict>(<verdictReasoning>)
+  - Evidence: <path>:<line> — <observation> (one line per evidence item)
   - Suggested fix: <fix>
 
 ## Important Issues (shown X of <importantTotal>, cap 5)
@@ -207,6 +234,7 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
 
 ## Refuted by verification (excluded from the fix queue)
 - [<specialist>] <why> — <verdictReasoning>
+  - Evidence: <path>:<line> — <observation> (one line per evidence item)
 
 ## Strengths
 - [<specialist>] <note>
@@ -222,7 +250,7 @@ Specialists: <result.specialists, comma-separated> | scope `<result.scope>` | pa
 <!-- pr-review-tally: <result.tally as compact JSON> -->
 ```
 
-Emit the trailing tally comment verbatim from `result.tally` — serialize the object as compact JSON, never recompute the counts from the rendered sections, which are capped and would disagree with it. The counts are pre-cap, so `important` there can legitimately exceed the 5 shown above; that gap is the standing measure of how much the caps suppress. A CI step or a later pass can read the line with `grep -o 'pr-review-tally: .*[}]' | cut -d' ' -f2-`.
+Emit the trailing tally comment verbatim from `result.tally` — serialize the object as compact JSON, never recompute the counts from the rendered sections, which are capped and would disagree with it. The counts are pre-cap, so `important` there can legitimately exceed the 5 shown above; that gap is the standing measure of how much the caps suppress. `tally.bySpecialist` breaks the same counts down per specialist, with verifier outcomes, for deciding which specialists earn their cost. A CI step or a later pass can read the line with `grep -o 'pr-review-tally: .*[}]' | cut -d' ' -f2-`.
 
 Omit empty sections (except render `## Critical Issues (0 found)` explicitly — the absence of Criticals is the gate's headline). Findings with `verdict: needs-verification` and non-empty `missingVerification` stay in the fix queue as Important with their missing verification stated; never silently drop them, but do not render them as Critical until the missing proof exists. Other verdicts carrying `missingVerification`, or `needs-verification` without it, are invalid verifier outputs and must fail closed.
 

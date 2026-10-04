@@ -184,6 +184,20 @@ const VERDICT_SCHEMA = {
     verdict: { type: 'string', enum: ['confirmed', 'refuted', 'needs-verification'] },
     reasoning: { type: 'string' },
     missingVerification: { type: 'string', description: "for 'needs-verification': the specific check that is missing" },
+    evidence: {
+      type: 'array',
+      description: "required and non-empty for 'confirmed' and 'refuted': lines of files at HEAD_REF that prove the verdict",
+      items: {
+        type: 'object',
+        required: ['path', 'line', 'observation'],
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', description: 'repository-relative path of a tracked text file at HEAD_REF' },
+          line: { type: 'string', description: "line number in that file at HEAD_REF ('12') or inclusive range ('12-18') — not a position in the diff packet" },
+          observation: { type: 'string', description: 'what those lines show and why it decides the verdict' },
+        },
+      },
+    },
     scope: { type: 'string', description: 'the BASE_COMMIT...HEAD_REF scope you verified against' },
     packetSha: { type: 'string', description: 'the diff-packet SHA-256 you verified yourself before judging' },
   },
@@ -325,7 +339,8 @@ function verifyPrompt(f, ctx) {
     `- unverified_assumptions: ${(f.unverified_assumptions || []).join('; ') || '(none)'}`,
     f.fix ? `- proposed fix: ${f.fix}` : null,
     '',
-    "Verdict rules: return 'refuted' only with concrete evidence that the claim is wrong or not grounded in this diff; 'confirmed' when the failure mode is clearly grounded in the diff; otherwise 'needs-verification' with the specific missing check named in missingVerification. Severe-but-unproven risks are kept visible, never silently dropped.",
+    "Verdict rules: return 'refuted' only when evidence shows one of: the claim misstates what the code does; the failure is impossible by a type, constant, or invariant; a guard in this diff already prevents it; or it has no observable effect. When such evidence exists, refute — do not confirm out of deference to the specialist. Return 'confirmed' when evidence establishes the failure mode. Otherwise return 'needs-verification' with the specific missing check named in missingVerification. Severe-but-unproven risks are kept visible, never silently dropped.",
+    `Evidence: 'confirmed' and 'refuted' require at least one evidence item {path, line, observation}. Cite lines of files as they exist at HEAD ${ctx.headRef} — read them with \`git show ${ctx.headRef}:<path>\` — not positions in the diff packet. 'line' is a line number ('12') or an inclusive range ('12-18'). The main session checks every cited path and line against that commit and fails the gate on a citation that does not resolve.`,
     `Echo coverage: set 'scope' to '${ctx.scope}' and 'packetSha' to the SHA-256 you verified yourself — the workflow rejects your verdict if either does not match what it supplied.`,
   ].filter(Boolean).join('\n')
 }
@@ -341,6 +356,28 @@ function assertCoverage(result, expectedSpecialist) {
     const detail = (result.findings || []).map(f => f.why).join(' | ')
     fail(`coverage gate failed for ${expectedSpecialist}: echoed specialist='${c.specialist}' scope='${c.scope}' packetSha='${c.packetSha}', expected scope='${scope}' packetSha='${a.packetSha}'.${detail ? ` Specialist reported: ${detail}` : ''}`)
   }
+}
+
+// Mirrors the shape rules of the shared validate_finding_evidence.py so a bad
+// citation fails inside the workflow with a precise message. The main session
+// still runs that validator against the HEAD_REF tree, which is the only check
+// that proves the cited path and lines exist.
+const EVIDENCE_LINE_RE = /^([1-9][0-9]*)(?:-([1-9][0-9]*))?$/
+
+function evidenceShapeProblem(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return 'is not an object'
+  const keys = Object.keys(item).sort().join(',')
+  if (keys !== 'line,observation,path') return `has fields '${keys}', expected exactly path, line, observation`
+  const p = item.path
+  if (typeof p !== 'string' || p === '' || p !== p.trim() || p.startsWith('/') || p.includes('\\')
+    || p.split('/').some(part => part === '' || part === '.' || part === '..')
+    || /[\x00-\x1f\x7f]/.test(p))
+    return `path '${p}' is not a safe repository-relative path`
+  const m = typeof item.line === 'string' ? EVIDENCE_LINE_RE.exec(item.line) : null
+  if (!m || (m[2] !== undefined && Number(m[2]) < Number(m[1])))
+    return `line '${item.line}' is not a positive line or ascending range`
+  if (typeof item.observation !== 'string' || item.observation.trim() === '') return 'has an empty observation'
+  return null
 }
 
 function ruleAppliesTo(rule, specialist) {
@@ -549,6 +586,8 @@ if (hasCritical) {
 
 phase('Verify')
 const toVerify = findings.filter(f => f.severity === 'critical' || f.severity === 'important')
+// candidate IDs follow the shared evidence validator's f### pattern
+toVerify.forEach((f, i) => { f.candidateId = `f${String(i + 1).padStart(3, '0')}` })
 log(`Verifying ${toVerify.length} Critical/Important findings (Suggestions are not verified — token gate)`)
 
 // effort high: a verdict can remove a Critical from the fix queue — worth the
@@ -573,8 +612,20 @@ toVerify.forEach((f, i) => {
     fail(`verifier for [${f.specialist}] ${f.file} returned needs-verification without missingVerification — fail closed`)
   if (v.verdict !== 'needs-verification' && missingVerification)
     fail(`verifier for [${f.specialist}] ${f.file} returned ${v.verdict} with missingVerification — fail closed`)
+  // the shared validator requires an array for every verdict, so an omitted
+  // needs-verification evidence list becomes [] rather than undefined
+  const evidence = v.evidence === undefined ? [] : v.evidence
+  if (!Array.isArray(evidence))
+    fail(`verifier for [${f.specialist}] ${f.file} returned non-array evidence — fail closed`)
+  if (v.verdict !== 'needs-verification' && evidence.length === 0)
+    fail(`verifier for [${f.specialist}] ${f.file} returned ${v.verdict} without evidence — fail closed`)
+  evidence.forEach((item, j) => {
+    const problem = evidenceShapeProblem(item)
+    if (problem) fail(`verifier for [${f.specialist}] ${f.file} evidence[${j}] ${problem} — fail closed`)
+  })
   f.verdict = v.verdict
   f.verdictReasoning = v.reasoning
+  f.evidence = evidence
   if (missingVerification) f.missingVerification = missingVerification
   if (f.severity === 'critical' && v.verdict === 'needs-verification') {
     f.severity = 'important'
@@ -597,18 +648,37 @@ if (important.length > caps.important) log(`Important findings capped: showing $
 if (suggestions.length > caps.suggestion) log(`Suggestions capped: showing ${caps.suggestion} of ${suggestions.length} (overflow returned in suggestionsOverflow)`)
 log(`pr-review gate result: ${critical.length} Critical, ${important.length} Important, ${suggestions.length} Suggestions, ${refuted.length} refuted by verification`)
 
+const ranSpecialists = applicable.concat(stage2Ran ? ['code-simplifier'] : [])
+
+// Per-specialist yield, pre-cap: final severity of kept findings plus the
+// verifier outcome of every verified one. This is the data for deciding which
+// specialists earn their cost.
+const bySpecialist = {}
+for (const name of ranSpecialists) {
+  const own = findings.filter(f => f.specialist === name)
+  const ownKept = own.filter(f => f.verdict !== 'refuted')
+  bySpecialist[name] = {
+    critical: ownKept.filter(f => f.severity === 'critical').length,
+    important: ownKept.filter(f => f.severity === 'important').length,
+    suggestion: ownKept.filter(f => f.severity === 'suggestion').length,
+    confirmed: own.filter(f => f.verdict === 'confirmed').length,
+    refuted: own.filter(f => f.verdict === 'refuted').length,
+    needsVerification: own.filter(f => f.verdict === 'needs-verification').length,
+  }
+}
+
 // caps bound the rendered fix queue (review-criteria.md), but the capped-out
 // tail is still returned — content must never be silently unrecoverable
 return {
   scope,
-  // reverse deploy-skew guard: SKILL.md's render step requires this exact value,
-  // so a stale deployed workflow that silently ignored the args-based routing
-  // flags cannot pass its result off as a fresh-contract run
-  argsContract: 'PR_REVIEW_ARGS_V2',
+  // reverse deploy-skew guard: SKILL.md requires this exact value before it
+  // validates evidence or renders, so a stale deployed workflow that returns no
+  // verifier evidence cannot pass its result off as a fresh-contract run
+  argsContract: 'PR_REVIEW_ARGS_V3',
   base: a.base,
   headRef: a.headRef,
   packetSha: a.packetSha,
-  specialists: applicable.concat(stage2Ran ? ['code-simplifier'] : []),
+  specialists: ranSpecialists,
   categories,
   commentChanges,
   typeChanges,
@@ -621,6 +691,15 @@ return {
   suggestionsTotal: suggestions.length,
   strengths,
   refuted,
+  // Every verified finding, including refuted and capped-out ones: SKILL.md
+  // checks each citation against the HEAD_REF tree before rendering.
+  verifications: toVerify.map(f => ({
+    candidateId: f.candidateId,
+    specialist: f.specialist,
+    file: f.file,
+    verdict: f.verdict,
+    evidence: f.evidence,
+  })),
   // Machine-readable severity counts for the render's one-line tally, so a CI
   // step or a later gate pass can read the outcome without parsing prose.
   // Counts are pre-cap on purpose: the gap between `important` here and the
@@ -631,6 +710,7 @@ return {
     important: important.length,
     suggestion: suggestions.length,
     refuted: refuted.length,
+    bySpecialist,
   },
   stage2Ran,
   stopCondition: critical.length === 0 && important.length === 0
