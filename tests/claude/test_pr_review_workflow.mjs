@@ -69,7 +69,7 @@ const STAGE1_FINDINGS = {
 let scenario = {}
 
 // Verifier citations point at EVIDENCE_FILE, which the evidence integration
-// test (S15) commits into a scratch repo so the real validator can resolve them.
+// test (S19) commits into a scratch repo so the real validator can resolve them.
 const EVIDENCE_FILE = 'src/app.js'
 function evidenceAt(line, observation) {
   return [{ path: EVIDENCE_FILE, line, observation }]
@@ -116,7 +116,7 @@ async function agentStub(prompt, opts = {}) {
       ? { scope: SCOPE, packetSha: 'e'.repeat(64) }
       : { scope: SCOPE, packetSha: SHA }
     if (scenario.evidenceFor && prompt.includes('command injection via unsanitized arg')) {
-      return { verdict: scenario.evidenceFor.verdict, reasoning: 'evidence fixture', ...('evidence' in scenario.evidenceFor ? { evidence: scenario.evidenceFor.evidence } : {}), ...echo }
+      return { reasoning: 'evidence fixture', ...scenario.evidenceFor, ...echo }
     }
     if (prompt.includes('path traversal possible')) return { verdict: 'refuted', reasoning: 'path is constant, not user input', evidence: evidenceAt('2', 'path is a literal constant'), ...echo }
     if (scenario.criticalNeedsVerification && prompt.includes('command injection via unsanitized arg')) {
@@ -187,6 +187,15 @@ function assert(cond, msg) {
   if (!cond) { failed = true; console.error('FAIL: ' + msg) } else { console.log('ok: ' + msg) }
 }
 
+// SKILL.md aborts the gate unless every verified finding has a verification
+// entry, so this invariant must hold on every path that changes the counts:
+// caps, verifier downgrades, and Stage 2.
+function assertVerificationsCoverTally(result, name) {
+  const expected = result.tally.critical + result.tally.important + result.tally.refuted
+  assert(result.verifications.length === expected,
+    `${name}: verifications cover critical + important + refuted (${result.verifications.length} vs ${expected})`)
+}
+
 // S1: mixed findings — Critical present, Stage2 skipped, verify prunes one
 const r1 = await run(makeArgs())
 assert(r1.specialists.length === 7 && !r1.specialists.includes('code-simplifier'), 'S1: 7 specialists, no simplifier')
@@ -211,6 +220,7 @@ assert(r2.critical.length === 0 && r2.importantTotal === 0, 'S2: no Critical/Imp
 assert(r2.suggestionsTotal === 2, `S2: stage1 + simplifier suggestions — got ${r2.suggestionsTotal}`)
 assert(r2.stopCondition.includes('Critical 0 / Important 0'), 'S2: suggestions-only result returns stop guidance')
 assert(r2.reviewChurnGuidance.includes('third or later pass'), 'S2: review churn guidance returned')
+assertVerificationsCoverTally(r2, 'S2')
 
 // S3: cross-scale confidence ordering — security 9/10 must outrank code-reviewer 85/100
 {
@@ -239,6 +249,9 @@ assert(r2.reviewChurnGuidance.includes('third or later pass'), 'S2: review churn
   // total precisely where the rendered list stops being able to
   assert(r3.tally.important === r3.importantTotal && r3.important.length === rules.output_caps.important,
     'S3: tally reports the pre-cap Important total while the rendered list stays capped')
+  assertVerificationsCoverTally(r3, 'S3')
+  const verifiedIds = new Set(r3.verifications.map(v => v.candidateId))
+  assert(r3.importantOverflow.every(f => verifiedIds.has(f.candidateId)), 'S3: capped-out Importants are still in verifications')
 }
 
 // S4: coverage gate fails closed on echo mismatch
@@ -315,6 +328,7 @@ assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
   const r7c = await run(makeArgs(), { criticalNeedsVerification: true })
   assert(r7c.critical.length === 3, `S7c: needs-verification Critical downgraded — Critical ${r7c.critical.length}`)
   assert(r7c.important.some(f => f.why.includes('command injection') && f.missingVerification), 'S7c: verifier-downgraded Critical remains visible as Important with missingVerification')
+  assertVerificationsCoverTally(r7c, 'S7c')
 }
 
 // S7d: Critical impact-scope downgrades are table-driven
@@ -473,6 +487,14 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
     ['reversed range', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '9-3', observation: 'x' }] }, /not a positive line or ascending range/],
     ['blank observation', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '3', observation: '  ' }] }, /empty observation/],
     ['extra field', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '3', observation: 'x', note: 'y' }] }, /expected exactly path, line, observation/],
+    ['missing field', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '3' }] }, /expected exactly path, line, observation/],
+    ['null item', { verdict: 'confirmed', evidence: [null] }, /is not an object/],
+    ['backslash path', { verdict: 'confirmed', evidence: [{ path: 'src\\app.js', line: '3', observation: 'x' }] }, /not a safe repository-relative path/],
+    ['padded path', { verdict: 'confirmed', evidence: [{ path: ' src/app.js', line: '3', observation: 'x' }] }, /not a safe repository-relative path/],
+    ['empty path segment', { verdict: 'confirmed', evidence: [{ path: 'src//app.js', line: '3', observation: 'x' }] }, /not a safe repository-relative path/],
+    ['numeric line', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: 3, observation: 'x' }] }, /not a positive line or ascending range/],
+    // present evidence is shape-checked even when the verdict does not require it
+    ['malformed needs-verification evidence', { verdict: 'needs-verification', missingVerification: 'trace caller', evidence: [{ path: '../x.js', line: '1', observation: 'x' }] }, /not a safe repository-relative path/],
   ]
   for (const [name, evidenceFor, pattern] of cases) {
     await expectThrow(makeArgs(), { evidenceFor }, pattern, `S15: ${name} throws`)
@@ -485,12 +507,11 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   assert(range.critical.some(f => f.evidence && f.evidence[0].line === '3-7'), 'S15: an ascending line range is accepted and carried on the finding')
 }
 
-// S16: verifications cover every verified finding, including refuted and
-// capped-out ones, with candidate IDs the shared validator accepts
+// S16: verifications cover every verified finding, with candidate IDs the
+// shared validator accepts (capped-out ones: S3; downgrades: S7c; Stage 2: S2)
 {
   const r16 = await run(makeArgs())
-  const verifiedTotal = r16.tally.critical + r16.tally.important + r16.tally.refuted
-  assert(r16.verifications.length === verifiedTotal, `S16: one verification per verified finding (${r16.verifications.length} vs ${verifiedTotal})`)
+  assertVerificationsCoverTally(r16, 'S16')
   assert(r16.verifications.every(v => /^f[0-9]{3,}$/.test(v.candidateId)), 'S16: candidate IDs match the validator pattern')
   assert(new Set(r16.verifications.map(v => v.candidateId)).size === r16.verifications.length, 'S16: candidate IDs are unique')
   assert(r16.verifications.some(v => v.verdict === 'refuted' && v.evidence.length > 0), 'S16: refuted verdicts carry their evidence')
