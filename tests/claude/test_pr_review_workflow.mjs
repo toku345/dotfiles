@@ -535,7 +535,8 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
 }
 
 // S18: prompt contracts — the removed-behavior focus reaches only the
-// adversarial reviewer, and verifiers are told to cite HEAD lines
+// adversarial reviewer, and verifiers are told to cite HEAD lines and to
+// prove diff independence against BASE_COMMIT before refuting on it
 {
   await run(makeArgs())
   const stage1 = Object.entries(capturedPrompts).filter(([label]) => label.startsWith('stage1:'))
@@ -548,6 +549,9 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   assert(verify.length > 0, 'S18: captured verifier prompts')
   for (const [label, prompt] of verify) {
     assert(prompt.includes(`git show ${HEAD}:<path>`) && prompt.includes('not positions in the diff packet'), `S18: ${label} requires HEAD-line citations`)
+    assert(prompt.includes('the failure does not depend on anything this diff changes'), `S18: ${label} allows refuting diff-independent failures`)
+    assert(prompt.includes(`git show ${BASE}:<path>`) && prompt.includes('An unchanged failing line alone does not prove this'),
+      `S18: ${label} requires a whole-path BASE_COMMIT comparison before that refutation`)
   }
 }
 
