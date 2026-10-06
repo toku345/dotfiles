@@ -263,7 +263,19 @@ cx work resume <known-openai-session-id>
 cx --help
 ```
 
-選択した profile（`${CODEX_HOME:-$HOME/.codex}/<mode>.config.toml`）が無い場合、または 3 key のいずれかが無い場合、`cx` は Codex を起動せず exit 1 で停止する。Codex CLI 0.159.2 は存在しない profile を指定されても警告なしに既定のモデル・effort で起動するため、`chezmoi apply` 前の machine や手編集で欠けた profile で意図しないモデルを使わないようにする。`cx` は key の有無だけを見る。値は repo 側の `verify_pr_review_bundle.py` が完全一致で検査し、Codex CLI 0.160.0 は profile の不正な effort 値を読み込み時に拒否しない。
+選択した profile（`${CODEX_HOME:-$HOME/.codex}/<mode>.config.toml`）が `cx` の期待する管理内容とバイト単位で一致しない場合、Codex を起動せず exit 1 で停止する。先頭の sentinel は `# CX_PROFILE_quick_V1` / `# CX_PROFILE_work_V1`。`V1` は形式の版であり、モデル変更だけでは更新しない。sentinel が一致していても、古いモデル・effort、キー欠落・追加、空白・コメント・改行の変更を拒否する。管理内容は sentinel と3項目を空行なし・LF・末尾改行1つで記載する。
+
+配置ファイルは `grep` と `cmp` に直接渡し、変数への読み込みで末尾改行や NUL を失わないようにする。repo 側の `verify_pr_review_bundle.py` も `read_bytes()` で正規形式を確認し、launcher テストは実際の管理元ファイルで起動スクリプトとの一致を確認する。モデル・effort を見直す場合は profile と `cx` の期待値を同じ変更で更新する。help は同じ期待値定義からモデル ID と effort を表示する。
+
+不一致時の復旧は main への merge 後に、起動スクリプトと両 profile をまとめて適用する。
+
+```bash
+chezmoi apply -v "$HOME/.local/bin/cx" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml"
+```
+
+非標準の `CODEX_HOME` を指定する場合は、そのディレクトリにも適用済みの両 profile を同一内容で配置する。chezmoi の通常の配置先は `~/.codex` なので、`apply` だけでは別ディレクトリの profile は更新されない。profile の手編集による変更は起動前チェックで拒否する。意図的な上書きには project config や `cx quick -c 'model_reasoning_effort="high"'` などの明示引数を使う。
+
+`codex` / `grep` / `cmp` が PATH に無い場合は exit 127。読み取り・比較の失敗も exit 1 として診断し、Codex を起動しない。help はこれらのコマンドや profile の配置を必要としない。
 
 対応対象は対話起動・初期プロンプト・同じ provider の既知のセッションIDによる resume。picker / `--last` は未検証で、provider が同じとは仮定しない。provider 間の履歴移行や自動引き継ぎは行わない。
 

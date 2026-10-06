@@ -388,6 +388,19 @@ jobs:
             tests/bats/test_ghostty_theme.bats \
             tests/bats/test_preview.bats
 
+      - name: Run Codex launcher tests with Bash 5 and system Bash
+        run: |
+          for launcher_bash in "$BASH5_BIN" /bin/bash; do
+            echo "Launcher interpreter: $launcher_bash"
+            "$launcher_bash" --version
+            if [ "$launcher_bash" = /bin/bash ]; then
+              "$launcher_bash" -c '(( BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] == 2 ))'
+            else
+              "$launcher_bash" -c '(( BASH_VERSINFO[0] >= 5 ))'
+            fi
+            CX_TEST_BASH="$launcher_bash" "$BATS_BIN" tests/bats/test_codex_launchers.bats
+          done
+
   protected-outer-loop-history:
     name: Protected Outer Loop History
     runs-on: ubuntu-latest

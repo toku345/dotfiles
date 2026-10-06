@@ -816,6 +816,42 @@ def main() -> None:
             replace_once(repo / rel_path, old, new)
             assert_fails_closed(name, repo, expected)
 
+        for mode in ("quick", "work"):
+            rel_path = pathlib.Path(f"private_dot_codex/private_{mode}.config.toml")
+            data = (REPO_ROOT / rel_path).read_bytes()
+            header, body = data.split(b"\n", 1)
+            byte_mutations = {
+                "missing sentinel": body,
+                "old sentinel": data.replace(b"_V1\n", b"_V0\n", 1),
+                "wrong mode sentinel": data.replace(header, b"# CX_PROFILE_other_V1", 1),
+                "extra comment": data + b"# local edit\n",
+                "whitespace": data.replace(b"model =", b"model  =", 1),
+                "CRLF": data.replace(b"\n", b"\r\n"),
+                "missing final newline": data[:-1],
+                "extra final newline": data + b"\n",
+                "NUL": data + b"\0",
+                "empty": b"",
+                "truncated": header + b"\n" + body.split(b"\n", 1)[0] + b"\n",
+                "extra key": data + b'personality = "pragmatic"\n',
+            }
+            for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+                prefix = key.encode() + b' = "'
+                byte_mutations[f"changed {key}"] = data.replace(prefix, prefix + b"unexpected-", 1)
+                byte_mutations[f"missing {key}"] = b"".join(
+                    line for line in data.splitlines(keepends=True)
+                    if not line.startswith(key.encode() + b" =")
+                )
+            for index, (name, content) in enumerate(byte_mutations.items()):
+                repo = copy_fixture_repo(root / f"profile-{mode}-{index}")
+                (repo / rel_path).write_bytes(content)
+                if name == "NUL":
+                    expected = "invalid TOML"
+                elif name in ("empty", "truncated", "extra key") or name.startswith(("changed ", "missing model", "missing plan_")):
+                    expected = "must be exactly"
+                else:
+                    expected = "must match canonical launch profile bytes"
+                assert_fails_closed(f"{mode} profile {name}", repo, expected)
+
         missing_base_contract_repo = copy_fixture_repo(root / "missing-base-contract")
         (
             missing_base_contract_repo

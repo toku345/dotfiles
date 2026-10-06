@@ -1432,6 +1432,12 @@ def verify_codex_config_profiles() -> None:
         data = load_toml(path, f"Codex {profile_name} profile")
         if data != spec["values"]:
             fail(f"{path}: must be exactly {spec['values']!r}, got {data!r}")
+        canonical = f"# CX_PROFILE_{profile_name}_V1\n" + "".join(
+            f'{key} = "{spec["values"][key]}"\n'
+            for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort")
+        )
+        if path.read_bytes() != canonical.encode("utf-8"):
+            fail(f"{path}: must match canonical launch profile bytes")
 
 
 def verify_agent_toml() -> None:

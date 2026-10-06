@@ -1,3 +1,4 @@
+# CX_PROFILE_quick_V1
 model = "gpt-6.1-sol"
 model_reasoning_effort = "low"
 plan_mode_reasoning_effort = "medium"
