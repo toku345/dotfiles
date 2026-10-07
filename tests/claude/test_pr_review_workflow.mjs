@@ -550,6 +550,8 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   for (const [label, prompt] of verify) {
     assert(prompt.includes(`git show ${HEAD}:<path>`) && prompt.includes('not positions in the diff packet'), `S18: ${label} requires HEAD-line citations`)
     assert(prompt.includes('the failure does not depend on anything this diff changes'), `S18: ${label} allows refuting diff-independent failures`)
+    assert(prompt.includes('Never cite a path that does not exist at HEAD') && prompt.includes("if no such HEAD line exists, return 'needs-verification'"),
+      `S18: ${label} keeps removed-behavior citations resolvable at HEAD`)
     assert(prompt.includes(`git show ${BASE}:<path>`) && prompt.includes('An unchanged failing line alone does not prove this'),
       `S18: ${label} requires a whole-path BASE_COMMIT comparison before that refutation`)
   }
