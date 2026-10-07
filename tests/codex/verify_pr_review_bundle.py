@@ -38,6 +38,7 @@ FINDING_EVIDENCE_VALIDATOR = (
     SKILL_DIR / "scripts" / "validate_finding_evidence.py"
 )
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
+CLAUDE_SCRIPTS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "scripts"
 CLAUDE_SKILL = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md"
 CLAUDE_WORKFLOW = REPO_ROOT / "private_dot_claude" / "workflows" / "pr-review.js"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
@@ -479,6 +480,30 @@ EXPECTED_TMPL_INCLUDES = {
     "review-criteria.md.tmpl": 'include "private_dot_codex/skills/pr-review/references/review-criteria.md"',
     "severity-rules.json.tmpl": 'include "private_dot_codex/skills/pr-review/references/severity-rules.json"',
 }
+
+# The Claude skill runs the same evidence validator as the Codex skill; an
+# inline copy could drift from the canonical and accept citations it rejects.
+EXPECTED_SCRIPT_TMPL_INCLUDES = {
+    "validate_finding_evidence.py.tmpl": 'include "private_dot_codex/skills/pr-review/scripts/validate_finding_evidence.py"',
+}
+
+# The Claude skill steps that bind verifier verdicts to the reviewed commit.
+# The workflow logic tests stub the agents and never execute SKILL.md, so these
+# snippets are the only check that the main-session validation still runs.
+CLAUDE_EVIDENCE_VALIDATION_SNIPPETS = [
+    "Never validate against the worktree.",
+    "result.tally.critical + result.tally.important + result.tally.refuted",
+    "Verifier evidence is incomplete",
+    'evidence_dir=$(mktemp -d "${TMPDIR:-/tmp}/pr-review-evidence.XXXXXX")',
+    '{"candidate_id": v.candidateId, "evidence": v.evidence}',
+    "with the Write tool",
+    "python3 ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py",
+    '--head-ref "$HEAD_REF"',
+    '--result-file "$evidence_dir/<candidateId>.json"',
+    "Require exit 0 and stdout exactly `EVIDENCE_OK finding-verifier <candidateId> <$HEAD_REF> <number of items in v.evidence>`",
+    "does not resolve at",
+    "Do not drop, edit, or re-verify a failing verdict",
+]
 
 EXPECTED_AGENTS = {
     "adversarial-reviewer": {
@@ -1221,8 +1246,9 @@ def verify_finding_verifier_comparison() -> None:
 
 
 def verify_claude_share_templates() -> None:
-    for name, include_line in EXPECTED_TMPL_INCLUDES.items():
-        path = CLAUDE_REFS_DIR / name
+    templates = [(CLAUDE_REFS_DIR / name, line) for name, line in EXPECTED_TMPL_INCLUDES.items()]
+    templates += [(CLAUDE_SCRIPTS_DIR / name, line) for name, line in EXPECTED_SCRIPT_TMPL_INCLUDES.items()]
+    for path, include_line in templates:
         if not path.is_file():
             fail(f"missing Claude-side share template: {path.relative_to(REPO_ROOT)}")
         raw = path.read_text(encoding="utf-8")
@@ -1285,6 +1311,42 @@ def verify_claude_skill_launch_contract() -> None:
             f"{workflow_context}: meta.name {meta.group(1)!r} does not match the name "
             f"{CLAUDE_WORKFLOW_NAME!r} the Claude skill launches"
         )
+
+
+def verify_claude_evidence_validation_contract() -> None:
+    context = str(CLAUDE_SKILL.relative_to(REPO_ROOT))
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    require_ordered_contains(
+        skill,
+        ("## Final guard", "## Result contract", "## Validate verifier evidence", "## Render the result"),
+        f"{context}:evidence-validation-order",
+    )
+    require_contains(
+        skill,
+        "python3 ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py --help",
+        f"{context}:evidence-validator-preflight",
+    )
+    section = section_between(
+        skill, "## Validate verifier evidence", "## Render the result", context
+    )
+    for needle in CLAUDE_EVIDENCE_VALIDATION_SNIPPETS:
+        require_contains(section, needle, f"{context}:evidence-validation")
+
+    # SKILL.md and the workflow must agree on the result contract version, or a
+    # stale workflow without verifier evidence would be rendered as valid.
+    workflow_context = str(CLAUDE_WORKFLOW.relative_to(REPO_ROOT))
+    source = CLAUDE_WORKFLOW.read_text(encoding="utf-8")
+    contract = re.search(r"argsContract: '([A-Z0-9_]+)'", source)
+    if contract is None:
+        fail(f"{workflow_context}: argsContract not found")
+    result_contract = section_between(
+        skill, "## Result contract", "## Validate verifier evidence", context
+    )
+    require_contains(
+        result_contract,
+        f"verify `argsContract` is exactly `{contract.group(1)}`",
+        f"{context}:result-contract",
+    )
 
 
 def verify_claude_skill_shadowing_check_runs() -> None:
@@ -1779,6 +1841,7 @@ def main() -> None:
     verify_finding_verifier_contract()
     verify_claude_share_templates()
     verify_claude_skill_launch_contract()
+    verify_claude_evidence_validation_contract()
     verify_claude_skill_shadowing_check_runs()
     verify_codex_config_profiles()
     verify_agent_toml()

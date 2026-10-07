@@ -32,6 +32,10 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
         repo / "private_dot_claude" / "skills" / "pr-review" / "references",
     )
+    shutil.copytree(
+        REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "scripts",
+        repo / "private_dot_claude" / "skills" / "pr-review" / "scripts",
+    )
     shutil.copy2(
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md",
         repo / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md",
@@ -719,6 +723,62 @@ def main() -> None:
             'if [ -d "$d/.claude" ] && [ ! -x "$d/.claude" ]; then',
             "if false; then",
             "shadowing-guard: missing 'if [ -d",
+        ),
+        (
+            "claude evidence validator template inlined (drift bypass)",
+            "private_dot_claude/skills/pr-review/scripts/validate_finding_evidence.py.tmpl",
+            '{{ include "private_dot_codex/skills/pr-review/scripts/validate_finding_evidence.py" -}}',
+            "import sys",
+            "missing '{{ include \"private_dot_codex/skills/pr-review/scripts/validate_finding_evidence.py\"'",
+        ),
+        (
+            "claude skill evidence validator preflight removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "python3 ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py --help",
+            "python3 --version",
+            "evidence-validator-preflight: missing",
+        ),
+        (
+            "claude skill evidence validator call removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '--result-file "$evidence_dir/<candidateId>.json"',
+            "",
+            "evidence-validation: missing '--result-file",
+        ),
+        (
+            "claude skill evidence validated against the worktree",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '--head-ref "$HEAD_REF"',
+            "--head-ref HEAD",
+            "evidence-validation: missing '--head-ref \"$HEAD_REF\"'",
+        ),
+        (
+            "claude skill evidence count check weakened",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "Require exit 0 and stdout exactly `EVIDENCE_OK",
+            "Require exit 0 and stdout starting with `EVIDENCE_OK",
+            "evidence-validation: missing 'Require exit 0 and stdout exactly",
+        ),
+        (
+            "claude skill evidence completeness check removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "result.tally.critical + result.tally.important + result.tally.refuted",
+            "result.tally.critical + result.tally.important",
+            "evidence-validation: missing 'result.tally.critical + result.tally.important + result.tally.refuted'",
+        ),
+        (
+            "claude skill evidence validation section dropped",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "## Validate verifier evidence\n",
+            "## Optional evidence check\n",
+            "evidence-validation-order: missing or out-of-order command fragment '## Validate verifier evidence'",
+        ),
+        (
+            "claude skill result contract lags the workflow",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "verify `argsContract` is exactly `PR_REVIEW_ARGS_V3`",
+            "verify `argsContract` is exactly `PR_REVIEW_ARGS_V2`",
+            "result-contract: missing",
         ),
         (
             "claude skill shadowing check fixed-string grep removal",
