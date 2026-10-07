@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+set -euo pipefail
+
+profile_values() {
+  case "$1" in
+    quick) model=gpt-6.1-sol; effort=low; plan_effort=medium ;;
+    work) model=gpt-6-astra; effort=high; plan_effort=xhigh ;;
+  esac
+}
+
+usage() {
+  printf '%s\n' \
+    'Usage: cx {quick|work} [CODEX_ARGS...]' \
+    '       cx {quick|work} resume <same-provider-session-id>' \
+    ''
+  profile_values quick
+  printf 'quick: clear, bounded, reversible work (%s / %s; Plan: %s).\n' "$model" "$effort" "$plan_effort"
+  profile_values work
+  printf 'work:  uncertain work; use this when in doubt (%s / %s; Plan: %s).\n' "$model" "$effort" "$plan_effort"
+  printf '%s\n' 'Project configuration and explicit Codex options retain native precedence.'
+}
+
+require_command() {
+  local bin
+  if ! bin=$(type -P "$1"); then
+    printf 'cx: required command not found on PATH: %s\n' "$1" >&2
+    return 127
+  fi
+  printf '%s\n' "$bin"
+}
+
+profile_error() {
+  printf 'cx: %s: %s (run chezmoi apply -v)\n' "$1" "$profile" >&2
+  exit 1
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  quick|work) mode=$1; shift ;;
+  *) printf '%s\n' 'cx: expected mode: quick or work' >&2; usage >&2; exit 2 ;;
+esac
+
+codex_bin=$(require_command codex)
+grep_bin=$(require_command grep)
+cmp_bin=$(require_command cmp)
+
+# The marker identifies the mode and format; byte comparison also detects
+# stale values with a current marker. CI checks the deployed asset contract.
+profile_values "$mode"
+expected_sentinel="# CX_PROFILE_${mode}_V1"
+printf -v expected_profile '%s\nmodel = "%s"\nmodel_reasoning_effort = "%s"\nplan_mode_reasoning_effort = "%s"' \
+  "$expected_sentinel" "$model" "$effort" "$plan_effort"
+profile="${CODEX_HOME:-$HOME/.codex}/$mode.config.toml"
+if [[ ! -f $profile ]]; then
+  profile_error 'profile not found'
+fi
+
+if "$grep_bin" -Fxq "$expected_sentinel" < "$profile"; then
+  :
+else
+  check_status=$?
+  if [[ $check_status == 1 ]]; then
+    profile_error 'profile sentinel mismatch'
+  else
+    profile_error 'could not read profile'
+  fi
+fi
+
+# Read the file directly: command substitution would strip trailing newlines
+# and NUL bytes, making damaged content appear to match.
+if "$cmp_bin" -s - <(printf '%s\n' "$expected_profile") < "$profile"; then
+  :
+else
+  check_status=$?
+  if [[ $check_status == 1 ]]; then
+    profile_error 'profile contents mismatch'
+  else
+    profile_error 'could not compare profile'
+  fi
+fi
+
+exec "$codex_bin" --profile "$mode" "$@"

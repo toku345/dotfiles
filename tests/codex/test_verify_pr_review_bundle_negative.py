@@ -84,6 +84,20 @@ def assert_fails_closed(name: str, repo: pathlib.Path, expected: str) -> None:
 def main() -> None:
     mutations = [
         (
+            f"managed baseline {mode}s {key}",
+            "scripts/codex-config/policy.toml",
+            f"[{mode}]",
+            f'[{mode}]\n{key} = "{value}"',
+            f"{key} must remain free",
+        )
+        for mode in ("pin", "seed")
+        for key, value in (
+            ("model", "gpt-6-astra"),
+            ("model_reasoning_effort", "medium"),
+            ("plan_mode_reasoning_effort", "xhigh"),
+        )
+    ] + [
+        (
             "coverage-sentinel contract removal",
             "private_dot_codex/agents/code-reviewer.toml",
             "COVERAGE_OK code-reviewer $BASE_COMMIT...$HEAD_REF",
@@ -152,6 +166,27 @@ def main() -> None:
             'model = "gpt-5.6-sol"',
             'model = "gpt-5.5"',
             "model must be 'gpt-5.6-sol'",
+        ),
+        (
+            "quick profile key typo",
+            "private_dot_codex/private_quick.config.toml",
+            "plan_mode_reasoning_effort",
+            "plan_mode_reasoning_efort",
+            "must be exactly",
+        ),
+        (
+            "work profile effort change",
+            "private_dot_codex/private_work.config.toml",
+            'plan_mode_reasoning_effort = "xhigh"',
+            'plan_mode_reasoning_effort = "medium"',
+            "must be exactly",
+        ),
+        (
+            "quick profile extra key",
+            "private_dot_codex/private_quick.config.toml",
+            'model = "gpt-6.1-sol"',
+            'model = "gpt-6.1-sol"\nsandbox_mode = "workspace-write"',
+            "must be exactly",
         ),
         (
             "review profile pins legacy V1",
@@ -780,6 +815,42 @@ def main() -> None:
             repo = copy_fixture_repo(root / f"case-{index}")
             replace_once(repo / rel_path, old, new)
             assert_fails_closed(name, repo, expected)
+
+        for mode in ("quick", "work"):
+            rel_path = pathlib.Path(f"private_dot_codex/private_{mode}.config.toml")
+            data = (REPO_ROOT / rel_path).read_bytes()
+            header, body = data.split(b"\n", 1)
+            byte_mutations = {
+                "missing sentinel": body,
+                "old sentinel": data.replace(b"_V1\n", b"_V0\n", 1),
+                "wrong mode sentinel": data.replace(header, b"# CX_PROFILE_other_V1", 1),
+                "extra comment": data + b"# local edit\n",
+                "whitespace": data.replace(b"model =", b"model  =", 1),
+                "CRLF": data.replace(b"\n", b"\r\n"),
+                "missing final newline": data[:-1],
+                "extra final newline": data + b"\n",
+                "NUL": data + b"\0",
+                "empty": b"",
+                "truncated": header + b"\n" + body.split(b"\n", 1)[0] + b"\n",
+                "extra key": data + b'personality = "pragmatic"\n',
+            }
+            for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+                prefix = key.encode() + b' = "'
+                byte_mutations[f"changed {key}"] = data.replace(prefix, prefix + b"unexpected-", 1)
+                byte_mutations[f"missing {key}"] = b"".join(
+                    line for line in data.splitlines(keepends=True)
+                    if not line.startswith(key.encode() + b" =")
+                )
+            for index, (name, content) in enumerate(byte_mutations.items()):
+                repo = copy_fixture_repo(root / f"profile-{mode}-{index}")
+                (repo / rel_path).write_bytes(content)
+                if name == "NUL":
+                    expected = "invalid TOML"
+                elif name in ("empty", "truncated", "extra key") or name.startswith(("changed ", "missing model", "missing plan_")):
+                    expected = "must be exactly"
+                else:
+                    expected = "must match canonical launch profile bytes"
+                assert_fails_closed(f"{mode} profile {name}", repo, expected)
 
         missing_base_contract_repo = copy_fixture_repo(root / "missing-base-contract")
         (
