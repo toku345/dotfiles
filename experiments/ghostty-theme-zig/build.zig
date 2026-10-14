@@ -36,6 +36,25 @@ pub fn build(b: *std.Build) void {
     const unit_tests = b.addTest(.{ .root_module = exe.root_module });
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    const test_step = b.step("test", "Run unit tests");
+    // End-to-end tests that spawn the built binary against stub ghostty/fzf.
+    const e2e_options = b.addOptions();
+    e2e_options.addOptionPath("exe_path", exe.getEmittedBin());
+    e2e_options.addOptionPath("repo_root", b.path("../.."));
+    e2e_options.addOptionPath("experiment_root", b.path("."));
+    const e2e_tests = b.addTest(.{
+        .name = "e2e",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/e2e.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "build_options", .module = e2e_options.createModule() }},
+        }),
+    });
+    const run_e2e_tests = b.addRunArtifact(e2e_tests);
+    // Child processes and temp trees are external state; never cache results.
+    run_e2e_tests.has_side_effects = true;
+
+    const test_step = b.step("test", "Run unit and end-to-end tests");
     test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_e2e_tests.step);
 }

@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# fzf stub for the Zig e2e tests. Unlike tests/bats/bin/fzf it executes the
+# --preview command the way fzf does: `$SHELL -c '<expr>'` with every `{}`
+# replaced by the single-quoted candidate ('\'' for embedded quotes).
+#
+#   FAKE_FZF_SELECT       candidate to preview and print as the selection
+#   FAKE_FZF_EXIT         exit status (default 0)
+#   FAKE_FZF_SIGNAL       kill itself with this signal after reading stdin
+#   FAKE_FZF_STDIN_LOG    copy of the received stdin
+#   FAKE_FZF_ARGS_LOG     received argv, one argument per line
+#   FAKE_FZF_PREVIEW_OUT  preview stdout+stderr; its exit status goes to
+#                         "$FAKE_FZF_PREVIEW_OUT.rc"
+#   FAKE_FZF_ENV_LOG      `env` output as seen by fzf
+set -euo pipefail
+shopt -u patsub_replacement 2>/dev/null || true
+
+if [[ -n "${FAKE_FZF_ARGS_LOG:-}" ]]; then
+  printf '%s\n' "$@" > "$FAKE_FZF_ARGS_LOG"
+fi
+if [[ -n "${FAKE_FZF_ENV_LOG:-}" ]]; then
+  env > "$FAKE_FZF_ENV_LOG"
+fi
+
+preview=""
+while (( $# > 0 )); do
+  case "$1" in
+    --preview)
+      preview="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "${FAKE_FZF_STDIN_LOG:-}" ]]; then
+  cat > "$FAKE_FZF_STDIN_LOG"
+else
+  cat > /dev/null
+fi
+
+if [[ -n "${FAKE_FZF_SIGNAL:-}" ]]; then
+  kill -s "$FAKE_FZF_SIGNAL" $$
+fi
+
+entry="${FAKE_FZF_SELECT-}"
+if [[ -n "$preview" && -n "${FAKE_FZF_PREVIEW_OUT:-}" ]]; then
+  quoted="'${entry//\'/\'\\\'\'}'"
+  cmd="${preview//\{\}/$quoted}"
+  set +e
+  "${SHELL:-sh}" -c "$cmd" > "$FAKE_FZF_PREVIEW_OUT" 2>&1
+  printf '%s\n' "$?" > "$FAKE_FZF_PREVIEW_OUT.rc"
+  set -e
+fi
+
+if [[ -n "${FAKE_FZF_SELECT+x}" ]]; then
+  printf '%s\n' "$FAKE_FZF_SELECT"
+fi
+
+exit "${FAKE_FZF_EXIT:-0}"

@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# Scriptable ghostty stub for the Zig e2e tests. Scenarios not requested via
+# the variables below are delegated unchanged to the repository stub
+# ($GHOSTTY_BASE_STUB = tests/bats/bin/ghostty), so default behavior stays
+# identical to what the existing Bats suite exercises.
+#
+#   GHOSTTY_STUB_LIST_FILE        +list-themes prints this file verbatim
+#   GHOSTTY_STUB_LIST_STDERR      +list-themes prints this to stderr
+#   GHOSTTY_STUB_LIST_EXIT        +list-themes exit status (default 0)
+#   GHOSTTY_STUB_LIST_SIGNAL      +list-themes kills itself with this signal
+#   GHOSTTY_STUB_VALIDATE_LOG     +validate-config appends its argv here (one per line)
+#   GHOSTTY_STUB_VALIDATE_SIGNAL  +validate-config kills itself with this signal
+#   GHOSTTY_STUB_REMOVE_AFTER_VALIDATE  remove config file after successful validation
+#   GHOSTTY_STUB_VALIDATE_EXIT    +validate-config prints interleaved stdout/stderr
+#                                 lines and exits with this status
+set -euo pipefail
+
+: "${GHOSTTY_BASE_STUB:?GHOSTTY_BASE_STUB must be set}"
+
+case "${1:-}" in
+  "+list-themes")
+    if [[ -n "${GHOSTTY_STUB_LIST_SIGNAL:-}" ]]; then
+      kill -s "$GHOSTTY_STUB_LIST_SIGNAL" $$
+    fi
+    if [[ -n "${GHOSTTY_STUB_LIST_FILE:-}" || -n "${GHOSTTY_STUB_LIST_EXIT:-}" ]]; then
+      [[ -n "${GHOSTTY_STUB_LIST_FILE:-}" ]] && cat "$GHOSTTY_STUB_LIST_FILE"
+      [[ -n "${GHOSTTY_STUB_LIST_STDERR:-}" ]] && printf '%s\n' "$GHOSTTY_STUB_LIST_STDERR" >&2
+      exit "${GHOSTTY_STUB_LIST_EXIT:-0}"
+    fi
+    ;;
+  "+validate-config")
+    if [[ -n "${GHOSTTY_STUB_VALIDATE_LOG:-}" ]]; then
+      printf '%s\n' "$@" >> "$GHOSTTY_STUB_VALIDATE_LOG"
+    fi
+    if [[ -n "${GHOSTTY_STUB_VALIDATE_EXIT:-}" ]]; then
+      printf 'out-1\n'
+      printf 'err-2\n' >&2
+      printf 'out-3\n\n'
+      exit "$GHOSTTY_STUB_VALIDATE_EXIT"
+    fi
+    if [[ -n "${GHOSTTY_STUB_VALIDATE_SIGNAL:-}" ]]; then
+      kill -s "$GHOSTTY_STUB_VALIDATE_SIGNAL" $$
+    fi
+    if [[ -n "${GHOSTTY_STUB_REMOVE_AFTER_VALIDATE:-}" ]]; then
+      "$BASH" "$GHOSTTY_BASE_STUB" "$@"
+      rm -- "${2#--config-file=}"
+      exit 0
+    fi
+    ;;
+esac
+
+exec "$BASH" "$GHOSTTY_BASE_STUB" "$@"
