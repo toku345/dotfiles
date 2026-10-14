@@ -57,4 +57,11 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit and end-to-end tests");
     test_step.dependOn(&run_unit_tests.step);
     test_step.dependOn(&run_e2e_tests.step);
+
+    // Optional: run the unchanged existing Bats suite against the Zig binary.
+    const bats_cmd = b.addSystemCommand(&.{"bash"});
+    bats_cmd.addFileArg(b.path("tests/run-existing-bats.sh"));
+    bats_cmd.addArtifactArg(exe);
+    bats_cmd.has_side_effects = true;
+    b.step("bats", "Run tests/bats/test_ghostty_theme.bats against the Zig binary (needs bats, Bash 5)").dependOn(&bats_cmd.step);
 }
