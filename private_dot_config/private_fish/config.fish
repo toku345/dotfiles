@@ -63,9 +63,9 @@ switch (uname)
         fish_add_path "$HOME/.local/share/coursier/bin"
 end
 
-## OCaml
-if test -e $HOME/.opam/opam-init/init.fish
-    source $HOME/.opam/opam-init/init.fish >/dev/null 2>/dev/null; or true
+## OCaml(opam)
+if test -r "$HOME/.opam/opam-init/init.fish"
+    source "$HOME/.opam/opam-init/init.fish" >/dev/null 2>/dev/null; or true
 end
 
 ## Haskell
