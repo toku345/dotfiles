@@ -61,14 +61,17 @@ FINDING_VERIFIER_COMPARISON = (
 EXPECTED_REVIEW_PROFILES = {
     "review": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review.config.toml",
+        "model": "gpt-6.1-sol",
         "model_reasoning_effort": "medium",
     },
     "review_deep": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review_deep.config.toml",
+        "model": "gpt-6-astra",
         "model_reasoning_effort": "high",
     },
     "review_audit": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review_audit.config.toml",
+        "model": "gpt-6-astra",
         "model_reasoning_effort": "xhigh",
     },
 }
@@ -761,9 +764,9 @@ REQUIRED_REVIEW_CRITERIA_SNIPPETS = [
 ]
 
 REQUIRED_CODEX_DOC_SNIPPETS = [
-    '`review.config.toml`: `gpt-5.6-sol` / `medium`',
-    '`review_deep.config.toml`: `gpt-5.6-sol` / `high`',
-    '`review_audit.config.toml`: `gpt-5.6-sol` / `xhigh`',
+    '`review.config.toml`: `gpt-6.1-sol` / `medium`',
+    '`review_deep.config.toml`: `gpt-6-astra` / `high`',
+    '`review_audit.config.toml`: `gpt-6-astra` / `xhigh`',
     "V1/V2",
     "checked-in の legacy V1 profile は置かない",
     "isolated `CODEX_HOME`",
@@ -1460,7 +1463,7 @@ def verify_codex_config_profiles() -> None:
         path = spec["path"]
         data = load_toml(path, f"Codex {profile_name} profile")
         expected_values = {
-            "model": "gpt-5.6-sol",
+            "model": spec["model"],
             "model_reasoning_effort": spec["model_reasoning_effort"],
             "sandbox_mode": "workspace-write",
         }
