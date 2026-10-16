@@ -1860,14 +1860,17 @@ def verify_claude_skill_prompt_free_blocks() -> None:
     # check; either one stops an auto-mode run for a permission prompt (#388).
     context = f"{CLAUDE_SKILL.relative_to(REPO_ROOT)}:prompt-free"
     skill = CLAUDE_SKILL.read_text(encoding="utf-8")
-    blocks = re.findall(r"^ *```sh\n(.*?)^ *```$", skill, re.DOTALL | re.MULTILINE)
+    blocks = re.findall(
+        r"^ *```(?:sh|bash|shell)\n(.*?)^ *```$", skill, re.DOTALL | re.MULTILINE
+    )
     if not blocks:
         fail(f"{context}: no sh blocks found")
     for block in blocks:
         for line in block.splitlines():
             if line.lstrip().startswith("#"):
                 continue
-            if re.search(r"(^|[;&|({])\s*rm\s", line):
+            # Any standalone rm word, so `then rm`, `xargs rm` and `\rm` count too.
+            if re.search(r"(^|[^\w./-])\\?rm(\s|$)", line):
                 fail(f"{context}: rm in a command block: {line.strip()}")
             if re.search(r"[\"']\{[0-9,]+\}", line):
                 fail(f"{context}: quote next to a brace quantifier: {line.strip()}")

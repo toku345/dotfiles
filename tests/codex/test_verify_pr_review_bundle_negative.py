@@ -753,6 +753,13 @@ def main() -> None:
             "prompt-free: rm in a command block",
         ),
         (
+            "claude skill routing flags reintroduce rm after then",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '     echo "ABORT: git diff for routing flags failed" >&2\n',
+            '     echo "ABORT: git diff for routing flags failed" >&2\n     then rm -f "$x"\n',
+            "prompt-free: rm in a command block",
+        ),
+        (
             "claude skill routing flags reintroduce quote brace quantifier",
             "private_dot_claude/skills/pr-review/SKILL.md",
             "--|\\\"\\\"\\\"|''')",
