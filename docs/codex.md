@@ -205,8 +205,17 @@ TOML Kit で構文を解析し、値と型で比較する。出力前に再解�
 
 seed を削除しても live の現在値は残るため、既存環境では一度だけ次の移行が必要。新規環境には不要。Codex が設定を書き戻す可能性があるため、通常版の Codex セッションを閉じて別の端末で行う。
 
-1. 変更を main に merge し、chezmoi の main source directory を更新する。worktree から apply しない。
-2. 現在の設定を権限 0600 の日時付きバックアップに保存する。
+1. 通常の移行では更新済み source directory、マージ前検証では対象 worktree の絶対パスを `validation_source` に設定する。以降のコマンド例は Bash 用。chezmoi を実行する前に、ルート `AGENTS.md` の手順に従って生の Git 差分・関連する設定・テンプレート・modifier・hook を確認し、source の HEAD と内容・種類・権限の manifest を source 外へ記録する。未追跡ファイルも含め、評価に必要な ignore 対象ファイルは明示的に加える。未確認のコードは評価しない。確認後、同じ source と対象で配置先・差分・dry-run を確認する。
+
+   ```bash
+   validation_source="/absolute/path/to/selected-source"
+   validation_targets=("$HOME/.codex/config.toml" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml" "$HOME/.local/bin/cx")
+   chezmoi --source "$validation_source" target-path "$validation_source/private_dot_codex/modify_private_config.toml" "$validation_source/private_dot_codex/private_quick.config.toml" "$validation_source/private_dot_codex/private_work.config.toml" "$validation_source/dot_local/bin/executable_cx"
+   chezmoi --source "$validation_source" diff --exclude=scripts "${validation_targets[@]}"
+   chezmoi --source "$validation_source" apply --dry-run --verbose --exclude=scripts "${validation_targets[@]}"
+   ```
+
+2. 変更対象・差分・復元方法を示して live 編集/apply の明示承認を得る。各対象の内容・権限・symlink・不存在状態をバックアップし、復元可能にする。次は config の保存例。他の対象についても現状を保存する。
 
    ```sh
    config_backup="$HOME/.codex/config.toml.bak.$(date +%Y%m%d-%H%M%S)"
@@ -214,16 +223,16 @@ seed を削除しても live の現在値は残るため、既存環境では一
    chmod 600 "$config_backup"
    ```
 
-3. `~/.codex/config.toml` を編集し、root の `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` の3項目だけを削除する。ほかの設定・コメントを残し、ファイルの権限を 0600 に保つ。
-4. 次の対象だけを反映し、同じ対象の diff / status が空であることを確認する。
+3. source の絶対パス・HEAD・ファイル一覧・manifest を再確認し、承認時と一致していなければ停止して再確認・再承認する。一致を確認してから `~/.codex/config.toml` を編集し、root の `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` の3項目だけを削除する。ほかの設定・コメントを残し、ファイルの権限を 0600 に保つ。
+4. apply 直前にも同じ source の内容を再確認し、変化があれば停止する。以降も最初に設定した `validation_source` と `validation_targets` を使い、適用後に対象の内容を読み返して、同じ source に対する diff / status が空であることを確認する。
 
-   ```sh
-   chezmoi apply -v "$HOME/.codex/config.toml" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml" "$HOME/.local/bin/cx"
-   chezmoi diff "$HOME/.codex/config.toml" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml" "$HOME/.local/bin/cx"
-   chezmoi status "$HOME/.codex/config.toml" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml" "$HOME/.local/bin/cx"
+   ```bash
+   chezmoi --source "$validation_source" apply --verbose --exclude=scripts "${validation_targets[@]}"
+   chezmoi --source "$validation_source" diff --exclude=scripts "${validation_targets[@]}"
+   chezmoi --source "$validation_source" status --exclude=scripts "${validation_targets[@]}"
    ```
 
-5. 新規セッションで `codex` / `cx quick` / `cx work` の通常モードと Plan mode を確認し、通常起動の実効モデル・エフォートを記録する。
+5. 新規セッションで `codex` / `cx quick` / `cx work` の通常モードと Plan mode を確認し、通常起動の実効モデル・エフォートを記録する。検証後の状態を維持したか、バックアップへ復元したかを報告する。マージ前検証の承認に PR のマージ承認は含まれない。
 
 デフォルト追従は明示指定がない場合の動作。TUI で設定を保存した場合や、project config・起動オプションに指定がある場合は、その値が優先される。
 
@@ -414,7 +423,7 @@ codex \
   '$pr-review --base <base>'
 ```
 
-runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は isolated `CODEX_HOME` と `/tmp` の fixture を使い、live config や chezmoi target を変更しない。`chezmoi apply` は変更を main に merge した後だけ実行する。
+runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は原則として isolated `CODEX_HOME` と `/tmp` の fixture を使う。実環境での検証が必要なら、ルート `AGENTS.md` の手順に従い、対象・source・復元方法を示して明示承認を得たうえで、マージ前でも対象限定の `chezmoi apply` を実行できる。apply・動作確認の承認は PR のマージ承認を含まない。
 
 `model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常起動の effort は Codex 側のデフォルトに任せる。review 用途では profile を明示的に切り替える。
 

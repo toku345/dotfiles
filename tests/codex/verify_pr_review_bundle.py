@@ -772,7 +772,8 @@ REQUIRED_CODEX_DOC_SNIPPETS = [
     "Stage 3 `finding-verifier`",
     "`confirmed` / `refuted` / `needs-verification`",
     "partial aggregation せず fail-closed",
-    "`chezmoi apply` は変更を main に merge した後だけ",
+    "対象・source・復元方法を示して明示承認を得たうえで",
+    "apply・動作確認の承認は PR のマージ承認を含まない",
 ]
 
 REQUIRED_DESIGN_DOC_SNIPPETS = [
