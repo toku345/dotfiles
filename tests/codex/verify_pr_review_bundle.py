@@ -1854,6 +1854,33 @@ def verify_skill_contract() -> None:
         require_contains(final_guard, needle, f"{SKILL}:final-worktree-guard")
 
 
+def verify_claude_skill_prompt_free_blocks() -> None:
+    # An `rm` in a command block matches the `Bash(rm:*)` ask rule, and a quote
+    # next to a brace quantifier trips the harness's expansion-obfuscation
+    # check; either one stops an auto-mode run for a permission prompt (#388).
+    context = f"{CLAUDE_SKILL.relative_to(REPO_ROOT)}:prompt-free"
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    blocks = re.findall(r"^ *```sh\n(.*?)^ *```$", skill, re.DOTALL | re.MULTILINE)
+    if not blocks:
+        fail(f"{context}: no sh blocks found")
+    for block in blocks:
+        for line in block.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            if re.search(r"(^|[;&|({])\s*rm\s", line):
+                fail(f"{context}: rm in a command block: {line.strip()}")
+            if re.search(r"[\"']\{[0-9,]+\}", line):
+                fail(f"{context}: quote next to a brace quantifier: {line.strip()}")
+    result_contract = section_between(
+        skill, "## Result contract", "## Validate verifier evidence", context
+    )
+    require_contains(
+        result_contract,
+        "Parse the whole file as JSON and use its `result` field",
+        f"{context}:result-source",
+    )
+
+
 def main() -> None:
     verify_license_files()
     verify_review_criteria()
@@ -1866,6 +1893,7 @@ def main() -> None:
     verify_claude_skill_launch_contract()
     verify_claude_evidence_validation_contract()
     verify_claude_skill_shadowing_check_runs()
+    verify_claude_skill_prompt_free_blocks()
     verify_codex_config_profiles()
     verify_agent_toml()
     verify_skill_contract()

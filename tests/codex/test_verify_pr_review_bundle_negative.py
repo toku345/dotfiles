@@ -746,6 +746,27 @@ def main() -> None:
             "precondition-workaround-ban: missing",
         ),
         (
+            "claude skill routing flags reintroduce rm cleanup",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '   echo "commentChanges=$commentChanges typeChanges=$typeChanges"',
+            '   rm -f "$flags_src"\n   echo "commentChanges=$commentChanges typeChanges=$typeChanges"',
+            "prompt-free: rm in a command block",
+        ),
+        (
+            "claude skill routing flags reintroduce quote brace quantifier",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "--|\\\"\\\"\\\"|''')",
+            "--|\\\"{3}|''')",
+            "prompt-free: quote next to a brace quantifier",
+        ),
+        (
+            "claude skill result source removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "Parse the whole file as JSON and use its `result` field",
+            "Read the result",
+            "prompt-free:result-source: missing",
+        ),
+        (
             "claude skill shadowing guard removal",
             "private_dot_claude/skills/pr-review/SKILL.md",
             "would override the user-scope gate",
