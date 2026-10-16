@@ -205,7 +205,7 @@ TOML Kit で構文を解析し、値と型で比較する。出力前に再解�
 
 seed を削除しても live の現在値は残るため、既存環境では一度だけ次の移行が必要。新規環境には不要。Codex が設定を書き戻す可能性があるため、通常版の Codex セッションを閉じて別の端末で行う。
 
-1. 変更を main に merge し、chezmoi の main source directory を更新する。worktree から apply しない。
+1. 通常の移行では変更を main に merge し、chezmoi の source directory を更新する。マージ前に実環境で検証する場合は、ルート `AGENTS.md` の承認・対象限定・バックアップ手順に従い、worktree を `--source` で明示する。
 2. 現在の設定を権限 0600 の日時付きバックアップに保存する。
 
    ```sh
@@ -414,7 +414,7 @@ codex \
   '$pr-review --base <base>'
 ```
 
-runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は isolated `CODEX_HOME` と `/tmp` の fixture を使い、live config や chezmoi target を変更しない。`chezmoi apply` は変更を main に merge した後だけ実行する。
+runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は原則として isolated `CODEX_HOME` と `/tmp` の fixture を使う。実環境での検証が必要なら、ルート `AGENTS.md` の手順に従い、対象・source・復元方法を示して明示承認を得たうえで、マージ前でも対象限定の `chezmoi apply` を実行できる。apply・動作確認の承認は PR のマージ承認を含まない。
 
 `model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常起動の effort は Codex 側のデフォルトに任せる。review 用途では profile を明示的に切り替える。
 

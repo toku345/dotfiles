@@ -651,11 +651,18 @@ def main() -> None:
             'git log --no-decorate "$BASE_COMMIT..$HEAD_REF"',
         ),
         (
-            "post-merge apply boundary removal",
+            "live validation approval boundary removal",
             "docs/codex.md",
-            "`chezmoi apply` は変更を main に merge した後だけ実行する",
-            "`chezmoi apply` は merge 前に実行する",
-            "merge した後だけ",
+            "対象・source・復元方法を示して明示承認を得たうえで",
+            "追加の承認なしで",
+            "対象・source・復元方法を示して明示承認を得たうえで",
+        ),
+        (
+            "apply approval incorrectly authorizes merge",
+            "docs/codex.md",
+            "apply・動作確認の承認は PR のマージ承認を含まない",
+            "apply・動作確認の承認は PR のマージ承認を含む",
+            "apply・動作確認の承認は PR のマージ承認を含まない",
         ),
         (
             "finding-verifier operations documentation removed",

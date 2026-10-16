@@ -160,11 +160,11 @@ The orchestrator is repo-agnostic. Migrated prompts keep some upstream examples 
 
 **Validation and rollout boundary**:
 
-- Pre-merge runtime validation uses an isolated `CODEX_HOME` and a committed fixture repository under `/tmp`; it may reuse authentication by reference but must not modify the live Codex home, live chezmoi targets, or the main source branch. Auto-PR smoke must run against the still-open current PR before merge; after merge that PR no longer provides a meaningful branch diff.
+- Pre-merge runtime validation uses an isolated `CODEX_HOME` and a committed fixture repository under `/tmp`; it may reuse authentication by reference and does not modify the live Codex home, live chezmoi targets, or the main source branch by default. When live validation is needed, follow the explicitly approved pre-merge apply procedure in the repository-root `AGENTS.md`. Auto-PR smoke must run against the still-open current PR before merge; after merge that PR no longer provides a meaningful branch diff.
 - Manual smoke evidence records only sanitized metadata: CLI version, date, implementation commit, base/head commits, effective model and effort, approval/sandbox/network policy, runtime schema, applicable roles, observed scoped escalation, concurrency/refill, whether Stage 2 ran, session ID, and candidate/config hash. Raw JSONL, prompts, credentials, debug output, and specialist payloads are not retained as design evidence.
 - Historical comparison evidence additionally records one-shot status, normalized counts, verifier verdict counts, aggregate token usage, and whether a predeclared known root appeared. Missing model identity and aborted cases remain explicitly unscored; the fixture must not claim causal quality improvement or regression.
 - CI remains responsible for deterministic static/verifier coverage and sanitized command/control-plane replay; live `codex exec` smoke remains manual because credentials, approval UI, network access, profile layering, and the server-side model catalog are external inputs.
-- `chezmoi apply` is post-merge only. Commit, push, PR publication, and Issue closure are separate operations and are not implied by successful local validation.
+- A validation `chezmoi apply` may run before merge with explicit live-apply approval, a selected source and target scope, and a backup/restore plan; see repository-root `AGENTS.md`. Apply/test approval does not authorize PR merge, and merge approval does not authorize live apply. Commit, push, PR publication, and Issue closure are also separate operations and are not implied by successful local validation.
 
 **Scope alignment** (continuation of Issue #186 fix direction):
 
