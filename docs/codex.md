@@ -81,7 +81,7 @@ Fugu home には user-global の指示とロールが無く、分離直後は `A
 | `~/.codex-fugu/rules/managed.rules` | `../../.codex/rules/managed.rules` |
 
 - コピーを持たないため、片側だけ更新されて drift する事故が起きない。vanilla 側の target は既存の chezmoi source が配置する。
-- `skills/pr-review` は共有しない。skill の互換ドリフト時の逃げ道が `codex exec --profile review`（vanilla の `gpt-5.6-sol` を前提）であり、Fugu home にその profile も model provider も無いため。Fugu で `$pr-review` を有効化する変更は行わない。
+- `skills/pr-review` は共有しない。skill の互換ドリフト時の逃げ道が `codex exec --profile review`（vanilla の review profile を前提）であり、Fugu home にその profile も model provider も無いため。Fugu で `$pr-review` を有効化する変更は行わない。
 - `rules/default.rules`、`skills/.system`、sessions、SQLite、Memory、installer-owned files は非管理のまま。
 - 反映では常に **full `chezmoi apply`** を使う。`~/.codex` 側の target が先に作られるため dangling にならない。target 限定 apply は config だけの適用で symlink を作らないほか、`run_before_` script も実行されないため衝突保護から外れる。gate off の machine では現行の `.chezmoiignore` が一式を除外し、`~/.codex-fugu` も symlink も作らない。
 - 既存の `AGENTS.md` / `agents` / `rules/managed.rules` が real file や directory の場合、`run_before_check-codex-fugu-static-conflicts.sh` が full apply を停止する。内容が必要なら日時付き backup へ退避し、該当 target を削除してから再実行する。
@@ -391,13 +391,13 @@ status line の項目ごとの色表示は `status_line_use_colors = true` で�
 
 ## review profile
 
-通常の Codex session と `$pr-review` は `gpt-5.6-sol` を使う。レビュー用途では、直接 chezmoi 管理する独立 profile で reasoning effort だけを切り替える。
+レビュー用途では、直接 chezmoi 管理する独立 profile でモデルと reasoning effort を選ぶ。通常レビューは GPT-6.1 Sol、複雑なレビューと監査は GPT-6 Astra を使う。この用途分担は品質向上の実証を意味しない。通常 session のモデル選択は変更しない。
 
-- `review.config.toml`: `gpt-5.6-sol` / `medium`
-- `review_deep.config.toml`: `gpt-5.6-sol` / `high`
-- `review_audit.config.toml`: `gpt-5.6-sol` / `xhigh`
+- `review.config.toml`: `gpt-6.1-sol` / `medium`
+- `review_deep.config.toml`: `gpt-6-astra` / `high`
+- `review_audit.config.toml`: `gpt-6-astra` / `xhigh`
 
-これらの profile は `multi_agent` を有効にし、現在の model metadata が選ぶ V2 runtime で動作する。`approval_policy = "on-request"`、`sandbox_mode = "workspace-write"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `scripts/codex-config/policy.toml` が管理する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
+これらの profile は `multi_agent` を有効にする。runtime はモデル名から推測せず、新規プロセスが公開する tool schema で V1/V2 の対応を確認する。`approval_policy = "on-request"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `scripts/codex-config/policy.toml` が管理する。`sandbox_mode` は各 review profile にも同じ値を明示する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
 
 multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。`$pr-review` は実際に公開された tool schema を検査し、V1/V2 のどちらにも対応する。
 
@@ -423,7 +423,7 @@ codex \
   '$pr-review --base <base>'
 ```
 
-runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。merge 前は原則として isolated `CODEX_HOME` と `/tmp` の fixture を使う。実環境での検証が必要なら、ルート `AGENTS.md` の手順に従い、対象・source・復元方法を示して明示承認を得たうえで、マージ前でも対象限定の `chezmoi apply` を実行できる。apply・動作確認の承認は PR のマージ承認を含まない。
+runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。プロファイル名や終了コードだけで成功とせず、親子の実効モデル・effort・sandbox・承認設定と、実際の collaboration 呼び出し・結果受領・終了を確認する。存在しない profile でも既定値で起動する場合があるため、実効設定の不一致は検証失敗として扱う。merge 前は原則として isolated `CODEX_HOME` と `/tmp` の fixture を使う。実環境での検証が必要なら、ルート `AGENTS.md` の手順に従い、対象・source・復元方法を示して明示承認を得たうえで、マージ前でも対象限定の `chezmoi apply` を実行できる。apply・動作確認の承認は PR のマージ承認を含まない。
 
 `model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常起動の effort は Codex 側のデフォルトに任せる。review 用途では profile を明示的に切り替える。
 

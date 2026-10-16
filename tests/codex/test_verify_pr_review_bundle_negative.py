@@ -88,6 +88,36 @@ def assert_fails_closed(name: str, repo: pathlib.Path, expected: str) -> None:
 def main() -> None:
     mutations = [
         (
+            f"{name} {label}",
+            f"private_dot_codex/private_{name}.config.toml",
+            f'model = "{model}"',
+            f'model = "{wrong}"',
+            f"model must be {model!r}",
+        )
+        for name, model in (
+            ("review", "gpt-6.1-sol"),
+            ("review_deep", "gpt-6-astra"),
+            ("review_audit", "gpt-6-astra"),
+        )
+        for label, wrong in (
+            ("old model regression", "gpt-5.6-sol"),
+            ("model routing drift", "gpt-6-astra" if model == "gpt-6.1-sol" else "gpt-6.1-sol"),
+        )
+    ] + [
+        (
+            f"{name} effort drift",
+            f"private_dot_codex/private_{name}.config.toml",
+            f'model_reasoning_effort = "{effort}"',
+            'model_reasoning_effort = "low"',
+            f"model_reasoning_effort must be {effort!r}",
+        )
+        for name, effort in (
+            ("review", "medium"),
+            ("review_deep", "high"),
+            ("review_audit", "xhigh"),
+        )
+    ] + [
+        (
             f"managed baseline {mode}s {key}",
             "scripts/codex-config/policy.toml",
             f"[{mode}]",
@@ -163,13 +193,6 @@ def main() -> None:
             'include "private_dot_codex/skills/pr-review/references/severity-rules.json"',
             'print "inlined-weakened-table"',
             "severity-rules.json.tmpl",
-        ),
-        (
-            "review profile model downgrade",
-            "private_dot_codex/private_review.config.toml",
-            'model = "gpt-5.6-sol"',
-            'model = "gpt-5.5"',
-            "model must be 'gpt-5.6-sol'",
         ),
         (
             "quick profile key typo",
