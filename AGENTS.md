@@ -7,6 +7,10 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 - `AGENTS.md` is the canonical file.
 - Root `CLAUDE.md` is a symlink to this file for backward compatibility.
 
+## Repository Language
+
+- Write Git commit messages, Pull Request titles and descriptions, and Issue titles and descriptions in English.
+
 ## Common Commands
 
 ### Chezmoi Operations
