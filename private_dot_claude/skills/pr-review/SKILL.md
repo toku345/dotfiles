@@ -105,20 +105,22 @@ Do not change repository or git state to make a failing precondition pass: no `g
    flags_src=$(printf '%s\n' "$flags_raw" | LC_ALL=C grep -E '^[+-]' \
      | LC_ALL=C grep -vE '^(\+\+\+|---) (a/|b/|/dev/null)' || true)
 
+   # The greps read their whole input (`>/dev/null`, not `-q`): an early exit
+   # would SIGPIPE the printf and, under `pipefail`, drop a true match.
    # Triple quotes are spelled out instead of a quote plus a {3} quantifier:
    # the harness reads a brace next to a quote as possible expansion
    # obfuscation and prompts for the whole block.
    commentChanges=false
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -qE "^[+-][[:space:]]*(#|//|/\*|\*|<!--|;|--|\"\"\"|''')" && commentChanges=true
+   printf '%s\n' "$flags_src" | LC_ALL=C grep -E "^[+-][[:space:]]*(#|//|/\*|\*|<!--|;|--|\"\"\"|''')" >/dev/null && commentChanges=true
 
    typeChanges=false
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -qE '^[+-][[:space:]]*(export[[:space:]]+)?(pub(\([^)]*\))?[[:space:]]+)?((abstract|final|data|sealed)[[:space:]]+)?(class|interface|struct|enum|trait)[[:space:]]+[A-Za-z_]' && typeChanges=true
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -qE '(^|[^[:alnum:]_])type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(=|struct([^[:alnum:]_]|$)|interface([^[:alnum:]_]|$))' && typeChanges=true
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -q '@dataclass' && typeChanges=true
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -qiE '(^|[^[:alnum:]_])(create|alter)[[:space:]]+(table|schema)([^[:alnum:]_]|$)' && typeChanges=true
+   printf '%s\n' "$flags_src" | LC_ALL=C grep -E '^[+-][[:space:]]*(export[[:space:]]+)?(pub(\([^)]*\))?[[:space:]]+)?((abstract|final|data|sealed)[[:space:]]+)?(class|interface|struct|enum|trait)[[:space:]]+[A-Za-z_]' >/dev/null && typeChanges=true
+   printf '%s\n' "$flags_src" | LC_ALL=C grep -E '(^|[^[:alnum:]_])type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(=|struct([^[:alnum:]_]|$)|interface([^[:alnum:]_]|$))' >/dev/null && typeChanges=true
+   printf '%s\n' "$flags_src" | LC_ALL=C grep '@dataclass' >/dev/null && typeChanges=true
+   printf '%s\n' "$flags_src" | LC_ALL=C grep -iE '(^|[^[:alnum:]_])(create|alter)[[:space:]]+(table|schema)([^[:alnum:]_]|$)' >/dev/null && typeChanges=true
 
    # The readout doubles as the block's exit status: without it, a benign
-   # no-match on the trailing `grep -q ... && ...` chains exits 1, and the
+   # no-match on the trailing `grep ... && ...` chains exits 1, and the
    # variables are shell-local — unobservable after the Bash call returns.
    echo "commentChanges=$commentChanges typeChanges=$typeChanges"
    ```
