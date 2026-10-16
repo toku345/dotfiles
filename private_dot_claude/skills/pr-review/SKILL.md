@@ -175,11 +175,12 @@ The workflow runs in the background; wait for its completion notification before
    > "Review subagents or concurrent tooling changed the worktree: <list>. These changes were not part of the reviewed committed diff. Revert, commit, or stash them, then retry."
 2. Re-run `git rev-parse HEAD` and compare with the recorded `$HEAD_REF`. If it differs, abort with:
    > "HEAD changed during review: started at `<old>`, now `<new>`. The completed specialist results do not cover the current commit. Re-run the review."
-3. Leave the diff packet in place. Do not delete it or any other temp file this skill creates under `$TMPDIR`: an `rm` matches the `Bash(rm:*)` ask rule and stops the run for a permission prompt, while `$TMPDIR` is a per-user temp directory that the OS cleans up.
+3. Leave the diff packet in place. Do not delete it or any other temp file this skill creates under `${TMPDIR:-/tmp}`: an `rm` matches the `Bash(rm:*)` ask rule and stops the run for a permission prompt. The files are created with `mktemp` (owner-only), and the OS cleans up the temp directory; inside the Claude Code sandbox `$TMPDIR` is a per-user directory.
 
 ## Result contract
 
-Read the result from the task output file named in the workflow's completion notification (`<output-file>`). Parse the whole file as JSON and use its `result` field: the file wraps the workflow's return value with run metadata (`summary`, `logs`, `agentCount`, `totalTokens`, `totalToolCalls`, `workflowProgress`). Never parse the notification's inline `<result>`, which can be truncated.
+Read the result from the task output file named in the workflow's completion notification (`<output-file>`). Parse the whole file as JSON and use its `result` field: the file wraps the workflow's return value with run metadata (`summary`, `logs`, `agentCount`, `totalTokens`, `totalToolCalls`, `workflowProgress`). Never parse the notification's inline `<result>`, which can be truncated. If the file cannot be read, is not valid JSON, or has no `result` object, abort with:
+> "pr-review workflow result is unreadable at <output-file>: <error verbatim>. The run's outcome is unknown; re-run the review."
 
 The workflow returns a structured object (`argsContract`, `critical`, `important`/`importantOverflow`/`importantTotal`, `suggestions`/`suggestionsOverflow`/`suggestionsTotal`, `strengths`, `refuted`, `verifications`, `tally`, `specialists`, `stage2Ran`). Before using any of it, verify `argsContract` is exactly `PR_REVIEW_ARGS_V3`; if it is missing or different, a stale deployed workflow handled the run and returned no verifier evidence — abort with:
 

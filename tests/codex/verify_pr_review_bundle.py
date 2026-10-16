@@ -1879,6 +1879,13 @@ def verify_claude_skill_prompt_free_blocks() -> None:
         "Parse the whole file as JSON and use its `result` field",
         f"{context}:result-source",
     )
+    # The cleanup steps are prose, not sh blocks, so pin their replacements.
+    final_guard = section_between(skill, "## Final guard", "## Result contract", context)
+    require_contains(final_guard, "Leave the diff packet in place", f"{context}:final-guard")
+    evidence = section_between(
+        skill, "## Validate verifier evidence", "## Render the result", context
+    )
+    require_contains(evidence, "Leave `$evidence_dir` in place", f"{context}:evidence")
 
 
 def main() -> None:

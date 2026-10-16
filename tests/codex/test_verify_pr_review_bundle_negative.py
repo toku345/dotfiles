@@ -760,6 +760,20 @@ def main() -> None:
             "prompt-free: quote next to a brace quantifier",
         ),
         (
+            "claude skill final guard restores packet removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "3. Leave the diff packet in place.",
+            "3. Remove the diff packet temp file.",
+            "prompt-free:final-guard: missing",
+        ),
+        (
+            "claude skill evidence step restores dir removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "5. Leave `$evidence_dir` in place (see Final guard step 3).",
+            "5. Remove `$evidence_dir`.",
+            "prompt-free:evidence: missing",
+        ),
+        (
             "claude skill result source removal",
             "private_dot_claude/skills/pr-review/SKILL.md",
             "Parse the whole file as JSON and use its `result` field",
