@@ -35,6 +35,11 @@ fi
 export BUN_INSTALL="$HOME/.bun"
 [[ -d "$BUN_INSTALL/bin" ]] && PATH="$BUN_INSTALL/bin:$PATH"
 
+# OCaml(opam)
+if [[ -r "$HOME/.opam/opam-init/init.sh" ]]; then
+    source "$HOME/.opam/opam-init/init.sh" >/dev/null 2>&1 || true
+fi
+
 # Starship prompt
 command -v starship &>/dev/null && eval "$(starship init bash)"
 

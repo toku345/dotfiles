@@ -10,6 +10,21 @@
 # keep Plan mode broken.
 plan_mode_reasoning_effort = "xhigh"
 
+# The launcher owns Fugu config/CLI updates (it runs the bundle's installer),
+# so only Codex's own self-update prompt is suppressed: a CLI that drifts away
+# from the bundle's verified version is exactly what produced the earlier
+# 0.154.0/0.155.1 mismatch.
+check_for_update_on_startup = false
+
+# Approvals go to the human in this home. The vanilla policy keeps the
+# guardian subagent, so these two keys are Fugu-specific launch defaults.
+approval_policy = "on-request"
+approvals_reviewer = "user"
+
+[pin.features]
+# Fast/priority tier is not used in the isolated home.
+fast_mode = false
+
 [seed]
 # No seeds: the installer-owned bundle profile (fugu.config.toml) owns the
 # model defaults for this home.

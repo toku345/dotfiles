@@ -37,7 +37,6 @@ status_line = [
 status_line_use_colors = true
 
 [seed]
-model = "gpt-6-astra"
-model_reasoning_effort = "medium"
-plan_mode_reasoning_effort = "xhigh"
+# Model and effort are free: absent values follow Codex's defaults.
+# quick/work profiles explicitly select their model and both mode efforts.
 personality = "pragmatic"

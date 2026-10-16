@@ -27,6 +27,7 @@ setup() {
 approval_policy = "never"
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
+plan_mode_reasoning_effort = "low"
 sandbox_mode = "danger-full-access"
 
 service_tier = "fast"
@@ -87,7 +88,12 @@ toml_valid() {
   printf '' | merge
   grep -qxF 'sandbox_mode = "workspace-write"' "$OUT"
   grep -qxF 'approval_policy = "on-request"' "$OUT"
-  grep -qxF 'plan_mode_reasoning_effort = "xhigh"' "$OUT"
+  "$CODEX_CONFIG_TEST_PYTHON" -c '
+import sys, tomllib
+with open(sys.argv[1], "rb") as stream:
+    data = tomllib.load(stream)
+assert not {"model", "model_reasoning_effort", "plan_mode_reasoning_effort"}.intersection(data)
+' "$OUT"
   grep -qxF 'multi_agent = true' "$OUT"
   grep -qxF 'network_access = false' "$OUT"
   toml_valid "$OUT"
@@ -118,17 +124,22 @@ toml_valid() {
   grep -qxF '  "task-progress",' "$OUT"
 }
 
-@test "keeps a live seed value and reports the divergence on stderr" {
+@test "keeps a live model and both efforts without warnings" {
   merge <"$FIXTURE"
   grep -qxF 'model = "gpt-5.6-sol"' "$OUT"
   grep -qxF 'model_reasoning_effort = "high"' "$OUT"
-  grep -q 'seed model differs from the declared value' "$ERR"
-  grep -q 'seed model_reasoning_effort differs from the declared value' "$ERR"
+  grep -qxF 'plan_mode_reasoning_effort = "low"' "$OUT"
+  [ ! -s "$ERR" ]
+}
+
+@test "keeps a live personality seed and reports the divergence on stderr" {
+  printf 'personality = "friendly"\n' | merge
+  grep -qxF 'personality = "friendly"' "$OUT"
+  grep -qxF 'codex-config: seed personality differs from the declared value; keeping live value' "$ERR"
 }
 
 @test "inserts missing seeds and pins into their sections" {
   merge <"$FIXTURE"
-  grep -qxF 'plan_mode_reasoning_effort = "xhigh"' "$OUT"
   grep -qxF 'personality = "pragmatic"' "$OUT"
   grep -qxF 'approvals_reviewer = "guardian_subagent"' "$OUT"
   grep -qxF 'mentions_v2 = true' "$OUT"
