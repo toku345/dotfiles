@@ -9,6 +9,9 @@ docs
 tests
 scripts
 
+# Python bytecode caches are generated locally, not deployed.
+**/__pycache__
+
 # Fugu: opt-in per machine (enable the codexFugu data key)
 {{ if not (index . "codexFugu") }}
 .codex-fugu
