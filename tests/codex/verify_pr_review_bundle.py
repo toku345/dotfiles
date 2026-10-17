@@ -38,6 +38,7 @@ FINDING_EVIDENCE_VALIDATOR = (
     SKILL_DIR / "scripts" / "validate_finding_evidence.py"
 )
 CLAUDE_REFS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references"
+CLAUDE_SCRIPTS_DIR = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "scripts"
 CLAUDE_SKILL = REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md"
 CLAUDE_WORKFLOW = REPO_ROOT / "private_dot_claude" / "workflows" / "pr-review.js"
 CODEX_DOC = REPO_ROOT / "docs" / "codex.md"
@@ -60,15 +61,38 @@ FINDING_VERIFIER_COMPARISON = (
 EXPECTED_REVIEW_PROFILES = {
     "review": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review.config.toml",
+        "model": "gpt-6.1-sol",
         "model_reasoning_effort": "medium",
     },
     "review_deep": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review_deep.config.toml",
+        "model": "gpt-6-astra",
         "model_reasoning_effort": "high",
     },
     "review_audit": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review_audit.config.toml",
+        "model": "gpt-6-astra",
         "model_reasoning_effort": "xhigh",
+    },
+}
+
+# cx launch profiles (ADR 0040): exactly these keys and values, nothing else.
+EXPECTED_LAUNCH_PROFILES = {
+    "quick": {
+        "path": REPO_ROOT / "private_dot_codex" / "private_quick.config.toml",
+        "values": {
+            "model": "gpt-6.1-sol",
+            "model_reasoning_effort": "low",
+            "plan_mode_reasoning_effort": "medium",
+        },
+    },
+    "work": {
+        "path": REPO_ROOT / "private_dot_codex" / "private_work.config.toml",
+        "values": {
+            "model": "gpt-6-astra",
+            "model_reasoning_effort": "high",
+            "plan_mode_reasoning_effort": "xhigh",
+        },
     },
 }
 
@@ -480,6 +504,30 @@ EXPECTED_TMPL_INCLUDES = {
     "severity-rules.json.tmpl": 'include "private_dot_codex/skills/pr-review/references/severity-rules.json"',
 }
 
+# The Claude skill runs the same evidence validator as the Codex skill; an
+# inline copy could drift from the canonical and accept citations it rejects.
+EXPECTED_SCRIPT_TMPL_INCLUDES = {
+    "validate_finding_evidence.py.tmpl": 'include "private_dot_codex/skills/pr-review/scripts/validate_finding_evidence.py"',
+}
+
+# The Claude skill steps that bind verifier verdicts to the reviewed commit.
+# The workflow logic tests stub the agents and never execute SKILL.md, so these
+# snippets are the only check that the main-session validation still runs.
+CLAUDE_EVIDENCE_VALIDATION_SNIPPETS = [
+    "Never validate against the worktree.",
+    "result.tally.critical + result.tally.important + result.tally.refuted",
+    "Verifier evidence is incomplete",
+    'evidence_dir=$(mktemp -d "${TMPDIR:-/tmp}/pr-review-evidence.XXXXXX")',
+    '{"candidate_id": v.candidateId, "evidence": v.evidence}',
+    "with the Write tool",
+    "python3 ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py",
+    '--head-ref "$HEAD_REF"',
+    '--result-file "$evidence_dir/<candidateId>.json"',
+    "Require exit 0 and stdout exactly `EVIDENCE_OK finding-verifier <candidateId> <$HEAD_REF> <number of items in v.evidence>`",
+    "does not resolve at",
+    "Do not drop, edit, or re-verify a failing verdict",
+]
+
 EXPECTED_AGENTS = {
     "adversarial-reviewer": {
         "file": "adversarial-reviewer.toml",
@@ -716,9 +764,9 @@ REQUIRED_REVIEW_CRITERIA_SNIPPETS = [
 ]
 
 REQUIRED_CODEX_DOC_SNIPPETS = [
-    '`review.config.toml`: `gpt-5.6-sol` / `medium`',
-    '`review_deep.config.toml`: `gpt-5.6-sol` / `high`',
-    '`review_audit.config.toml`: `gpt-5.6-sol` / `xhigh`',
+    '`review.config.toml`: `gpt-6.1-sol` / `medium`',
+    '`review_deep.config.toml`: `gpt-6-astra` / `high`',
+    '`review_audit.config.toml`: `gpt-6-astra` / `xhigh`',
     "V1/V2",
     "checked-in の legacy V1 profile は置かない",
     "isolated `CODEX_HOME`",
@@ -727,7 +775,8 @@ REQUIRED_CODEX_DOC_SNIPPETS = [
     "Stage 3 `finding-verifier`",
     "`confirmed` / `refuted` / `needs-verification`",
     "partial aggregation せず fail-closed",
-    "`chezmoi apply` は変更を main に merge した後だけ",
+    "対象・source・復元方法を示して明示承認を得たうえで",
+    "apply・動作確認の承認は PR のマージ承認を含まない",
 ]
 
 REQUIRED_DESIGN_DOC_SNIPPETS = [
@@ -1221,8 +1270,9 @@ def verify_finding_verifier_comparison() -> None:
 
 
 def verify_claude_share_templates() -> None:
-    for name, include_line in EXPECTED_TMPL_INCLUDES.items():
-        path = CLAUDE_REFS_DIR / name
+    templates = [(CLAUDE_REFS_DIR / name, line) for name, line in EXPECTED_TMPL_INCLUDES.items()]
+    templates += [(CLAUDE_SCRIPTS_DIR / name, line) for name, line in EXPECTED_SCRIPT_TMPL_INCLUDES.items()]
+    for path, include_line in templates:
         if not path.is_file():
             fail(f"missing Claude-side share template: {path.relative_to(REPO_ROOT)}")
         raw = path.read_text(encoding="utf-8")
@@ -1285,6 +1335,42 @@ def verify_claude_skill_launch_contract() -> None:
             f"{workflow_context}: meta.name {meta.group(1)!r} does not match the name "
             f"{CLAUDE_WORKFLOW_NAME!r} the Claude skill launches"
         )
+
+
+def verify_claude_evidence_validation_contract() -> None:
+    context = str(CLAUDE_SKILL.relative_to(REPO_ROOT))
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    require_ordered_contains(
+        skill,
+        ("## Final guard", "## Result contract", "## Validate verifier evidence", "## Render the result"),
+        f"{context}:evidence-validation-order",
+    )
+    require_contains(
+        skill,
+        "python3 ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py --help",
+        f"{context}:evidence-validator-preflight",
+    )
+    section = section_between(
+        skill, "## Validate verifier evidence", "## Render the result", context
+    )
+    for needle in CLAUDE_EVIDENCE_VALIDATION_SNIPPETS:
+        require_contains(section, needle, f"{context}:evidence-validation")
+
+    # SKILL.md and the workflow must agree on the result contract version, or a
+    # stale workflow without verifier evidence would be rendered as valid.
+    workflow_context = str(CLAUDE_WORKFLOW.relative_to(REPO_ROOT))
+    source = CLAUDE_WORKFLOW.read_text(encoding="utf-8")
+    contract = re.search(r"argsContract: '([A-Z0-9_]+)'", source)
+    if contract is None:
+        fail(f"{workflow_context}: argsContract not found")
+    result_contract = section_between(
+        skill, "## Result contract", "## Validate verifier evidence", context
+    )
+    require_contains(
+        result_contract,
+        f"verify `argsContract` is exactly `{contract.group(1)}`",
+        f"{context}:result-contract",
+    )
 
 
 def verify_claude_skill_shadowing_check_runs() -> None:
@@ -1355,19 +1441,9 @@ def verify_codex_config_profiles() -> None:
         if type(actual) is not type(expected) or actual != expected:
             fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
 
-    seeded = (
-        ("", "model", 'gpt-6-astra', "model must be 'gpt-6-astra'"),
-        (
-            "",
-            "model_reasoning_effort",
-            'medium',
-            "model_reasoning_effort must be 'medium'",
-        ),
-    )
-    for section, key, expected, message in seeded:
-        actual = seeds.get((section, key))
-        if type(actual) is not type(expected) or actual != expected:
-            fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
+    for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+        if ("", key) in pins or ("", key) in seeds:
+            fail(f"{CODEX_POLICY}: {key} must remain free to follow Codex defaults")
 
     rows = [*pins, *seeds]
     stale = sorted({key for (section, key) in rows if section.startswith("profiles")})
@@ -1387,7 +1463,7 @@ def verify_codex_config_profiles() -> None:
         path = spec["path"]
         data = load_toml(path, f"Codex {profile_name} profile")
         expected_values = {
-            "model": "gpt-5.6-sol",
+            "model": spec["model"],
             "model_reasoning_effort": spec["model_reasoning_effort"],
             "sandbox_mode": "workspace-write",
         }
@@ -1416,6 +1492,18 @@ def verify_codex_config_profiles() -> None:
                 "the managed baseline"
             )
         require_no_hide_spawn_metadata(data, path)
+
+    for profile_name, spec in EXPECTED_LAUNCH_PROFILES.items():
+        path = spec["path"]
+        data = load_toml(path, f"Codex {profile_name} profile")
+        if data != spec["values"]:
+            fail(f"{path}: must be exactly {spec['values']!r}, got {data!r}")
+        canonical = f"# CX_PROFILE_{profile_name}_V1\n" + "".join(
+            f'{key} = "{spec["values"][key]}"\n'
+            for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort")
+        )
+        if path.read_bytes() != canonical.encode("utf-8"):
+            fail(f"{path}: must match canonical launch profile bytes")
 
 
 def verify_agent_toml() -> None:
@@ -1769,6 +1857,43 @@ def verify_skill_contract() -> None:
         require_contains(final_guard, needle, f"{SKILL}:final-worktree-guard")
 
 
+def verify_claude_skill_prompt_free_blocks() -> None:
+    # An `rm` in a command block matches the `Bash(rm:*)` ask rule, and a quote
+    # next to a brace quantifier trips the harness's expansion-obfuscation
+    # check; either one stops an auto-mode run for a permission prompt (#388).
+    context = f"{CLAUDE_SKILL.relative_to(REPO_ROOT)}:prompt-free"
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    blocks = re.findall(
+        r"^ *```(?:sh|bash|shell)\n(.*?)^ *```$", skill, re.DOTALL | re.MULTILINE
+    )
+    if not blocks:
+        fail(f"{context}: no sh blocks found")
+    for block in blocks:
+        for line in block.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            # Any standalone rm word, so `then rm`, `xargs rm` and `\rm` count too.
+            if re.search(r"(^|[^\w./-])\\?rm(\s|$)", line):
+                fail(f"{context}: rm in a command block: {line.strip()}")
+            if re.search(r"[\"']\{[0-9,]+\}", line):
+                fail(f"{context}: quote next to a brace quantifier: {line.strip()}")
+    result_contract = section_between(
+        skill, "## Result contract", "## Validate verifier evidence", context
+    )
+    require_contains(
+        result_contract,
+        "Parse the whole file as JSON and use its `result` field",
+        f"{context}:result-source",
+    )
+    # The cleanup steps are prose, not sh blocks, so pin their replacements.
+    final_guard = section_between(skill, "## Final guard", "## Result contract", context)
+    require_contains(final_guard, "Leave the diff packet in place", f"{context}:final-guard")
+    evidence = section_between(
+        skill, "## Validate verifier evidence", "## Render the result", context
+    )
+    require_contains(evidence, "Leave `$evidence_dir` in place", f"{context}:evidence")
+
+
 def main() -> None:
     verify_license_files()
     verify_review_criteria()
@@ -1779,7 +1904,9 @@ def main() -> None:
     verify_finding_verifier_contract()
     verify_claude_share_templates()
     verify_claude_skill_launch_contract()
+    verify_claude_evidence_validation_contract()
     verify_claude_skill_shadowing_check_runs()
+    verify_claude_skill_prompt_free_blocks()
     verify_codex_config_profiles()
     verify_agent_toml()
     verify_skill_contract()

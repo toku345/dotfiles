@@ -32,6 +32,10 @@ def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "references",
         repo / "private_dot_claude" / "skills" / "pr-review" / "references",
     )
+    shutil.copytree(
+        REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "scripts",
+        repo / "private_dot_claude" / "skills" / "pr-review" / "scripts",
+    )
     shutil.copy2(
         REPO_ROOT / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md",
         repo / "private_dot_claude" / "skills" / "pr-review" / "SKILL.md",
@@ -83,6 +87,50 @@ def assert_fails_closed(name: str, repo: pathlib.Path, expected: str) -> None:
 
 def main() -> None:
     mutations = [
+        (
+            f"{name} {label}",
+            f"private_dot_codex/private_{name}.config.toml",
+            f'model = "{model}"',
+            f'model = "{wrong}"',
+            f"model must be {model!r}",
+        )
+        for name, model in (
+            ("review", "gpt-6.1-sol"),
+            ("review_deep", "gpt-6-astra"),
+            ("review_audit", "gpt-6-astra"),
+        )
+        for label, wrong in (
+            ("old model regression", "gpt-5.6-sol"),
+            ("model routing drift", "gpt-6-astra" if model == "gpt-6.1-sol" else "gpt-6.1-sol"),
+        )
+    ] + [
+        (
+            f"{name} effort drift",
+            f"private_dot_codex/private_{name}.config.toml",
+            f'model_reasoning_effort = "{effort}"',
+            'model_reasoning_effort = "low"',
+            f"model_reasoning_effort must be {effort!r}",
+        )
+        for name, effort in (
+            ("review", "medium"),
+            ("review_deep", "high"),
+            ("review_audit", "xhigh"),
+        )
+    ] + [
+        (
+            f"managed baseline {mode}s {key}",
+            "scripts/codex-config/policy.toml",
+            f"[{mode}]",
+            f'[{mode}]\n{key} = "{value}"',
+            f"{key} must remain free",
+        )
+        for mode in ("pin", "seed")
+        for key, value in (
+            ("model", "gpt-6-astra"),
+            ("model_reasoning_effort", "medium"),
+            ("plan_mode_reasoning_effort", "xhigh"),
+        )
+    ] + [
         (
             "coverage-sentinel contract removal",
             "private_dot_codex/agents/code-reviewer.toml",
@@ -147,11 +195,25 @@ def main() -> None:
             "severity-rules.json.tmpl",
         ),
         (
-            "review profile model downgrade",
-            "private_dot_codex/private_review.config.toml",
-            'model = "gpt-5.6-sol"',
-            'model = "gpt-5.5"',
-            "model must be 'gpt-5.6-sol'",
+            "quick profile key typo",
+            "private_dot_codex/private_quick.config.toml",
+            "plan_mode_reasoning_effort",
+            "plan_mode_reasoning_efort",
+            "must be exactly",
+        ),
+        (
+            "work profile effort change",
+            "private_dot_codex/private_work.config.toml",
+            'plan_mode_reasoning_effort = "xhigh"',
+            'plan_mode_reasoning_effort = "medium"',
+            "must be exactly",
+        ),
+        (
+            "quick profile extra key",
+            "private_dot_codex/private_quick.config.toml",
+            'model = "gpt-6.1-sol"',
+            'model = "gpt-6.1-sol"\nsandbox_mode = "workspace-write"',
+            "must be exactly",
         ),
         (
             "review profile pins legacy V1",
@@ -616,11 +678,18 @@ def main() -> None:
             'git log --no-decorate "$BASE_COMMIT..$HEAD_REF"',
         ),
         (
-            "post-merge apply boundary removal",
+            "live validation approval boundary removal",
             "docs/codex.md",
-            "`chezmoi apply` は変更を main に merge した後だけ実行する",
-            "`chezmoi apply` は merge 前に実行する",
-            "merge した後だけ",
+            "対象・source・復元方法を示して明示承認を得たうえで",
+            "追加の承認なしで",
+            "対象・source・復元方法を示して明示承認を得たうえで",
+        ),
+        (
+            "apply approval incorrectly authorizes merge",
+            "docs/codex.md",
+            "apply・動作確認の承認は PR のマージ承認を含まない",
+            "apply・動作確認の承認は PR のマージ承認を含む",
+            "apply・動作確認の承認は PR のマージ承認を含まない",
         ),
         (
             "finding-verifier operations documentation removed",
@@ -700,6 +769,48 @@ def main() -> None:
             "precondition-workaround-ban: missing",
         ),
         (
+            "claude skill routing flags reintroduce rm cleanup",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '   echo "commentChanges=$commentChanges typeChanges=$typeChanges"',
+            '   rm -f "$flags_src"\n   echo "commentChanges=$commentChanges typeChanges=$typeChanges"',
+            "prompt-free: rm in a command block",
+        ),
+        (
+            "claude skill routing flags reintroduce rm after then",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '     echo "ABORT: git diff for routing flags failed" >&2\n',
+            '     echo "ABORT: git diff for routing flags failed" >&2\n     then rm -f "$x"\n',
+            "prompt-free: rm in a command block",
+        ),
+        (
+            "claude skill routing flags reintroduce quote brace quantifier",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "--|\\\"\\\"\\\"|''')",
+            "--|\\\"{3}|''')",
+            "prompt-free: quote next to a brace quantifier",
+        ),
+        (
+            "claude skill final guard restores packet removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "3. Leave the diff packet in place.",
+            "3. Remove the diff packet temp file.",
+            "prompt-free:final-guard: missing",
+        ),
+        (
+            "claude skill evidence step restores dir removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "5. Leave `$evidence_dir` in place (see Final guard step 3).",
+            "5. Remove `$evidence_dir`.",
+            "prompt-free:evidence: missing",
+        ),
+        (
+            "claude skill result source removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "Parse the whole file as JSON and use its `result` field",
+            "Read the result",
+            "prompt-free:result-source: missing",
+        ),
+        (
             "claude skill shadowing guard removal",
             "private_dot_claude/skills/pr-review/SKILL.md",
             "would override the user-scope gate",
@@ -719,6 +830,62 @@ def main() -> None:
             'if [ -d "$d/.claude" ] && [ ! -x "$d/.claude" ]; then',
             "if false; then",
             "shadowing-guard: missing 'if [ -d",
+        ),
+        (
+            "claude evidence validator template inlined (drift bypass)",
+            "private_dot_claude/skills/pr-review/scripts/validate_finding_evidence.py.tmpl",
+            '{{ include "private_dot_codex/skills/pr-review/scripts/validate_finding_evidence.py" -}}',
+            "import sys",
+            "missing '{{ include \"private_dot_codex/skills/pr-review/scripts/validate_finding_evidence.py\"'",
+        ),
+        (
+            "claude skill evidence validator preflight removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "python3 ~/.claude/skills/pr-review/scripts/validate_finding_evidence.py --help",
+            "python3 --version",
+            "evidence-validator-preflight: missing",
+        ),
+        (
+            "claude skill evidence validator call removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '--result-file "$evidence_dir/<candidateId>.json"',
+            "",
+            "evidence-validation: missing '--result-file",
+        ),
+        (
+            "claude skill evidence validated against the worktree",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            '--head-ref "$HEAD_REF"',
+            "--head-ref HEAD",
+            "evidence-validation: missing '--head-ref \"$HEAD_REF\"'",
+        ),
+        (
+            "claude skill evidence count check weakened",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "Require exit 0 and stdout exactly `EVIDENCE_OK",
+            "Require exit 0 and stdout starting with `EVIDENCE_OK",
+            "evidence-validation: missing 'Require exit 0 and stdout exactly",
+        ),
+        (
+            "claude skill evidence completeness check removal",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "result.tally.critical + result.tally.important + result.tally.refuted",
+            "result.tally.critical + result.tally.important",
+            "evidence-validation: missing 'result.tally.critical + result.tally.important + result.tally.refuted'",
+        ),
+        (
+            "claude skill evidence validation section dropped",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "## Validate verifier evidence\n",
+            "## Optional evidence check\n",
+            "evidence-validation-order: missing or out-of-order command fragment '## Validate verifier evidence'",
+        ),
+        (
+            "claude skill result contract lags the workflow",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "verify `argsContract` is exactly `PR_REVIEW_ARGS_V3`",
+            "verify `argsContract` is exactly `PR_REVIEW_ARGS_V2`",
+            "result-contract: missing",
         ),
         (
             "claude skill shadowing check fixed-string grep removal",
@@ -780,6 +947,42 @@ def main() -> None:
             repo = copy_fixture_repo(root / f"case-{index}")
             replace_once(repo / rel_path, old, new)
             assert_fails_closed(name, repo, expected)
+
+        for mode in ("quick", "work"):
+            rel_path = pathlib.Path(f"private_dot_codex/private_{mode}.config.toml")
+            data = (REPO_ROOT / rel_path).read_bytes()
+            header, body = data.split(b"\n", 1)
+            byte_mutations = {
+                "missing sentinel": body,
+                "old sentinel": data.replace(b"_V1\n", b"_V0\n", 1),
+                "wrong mode sentinel": data.replace(header, b"# CX_PROFILE_other_V1", 1),
+                "extra comment": data + b"# local edit\n",
+                "whitespace": data.replace(b"model =", b"model  =", 1),
+                "CRLF": data.replace(b"\n", b"\r\n"),
+                "missing final newline": data[:-1],
+                "extra final newline": data + b"\n",
+                "NUL": data + b"\0",
+                "empty": b"",
+                "truncated": header + b"\n" + body.split(b"\n", 1)[0] + b"\n",
+                "extra key": data + b'personality = "pragmatic"\n',
+            }
+            for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
+                prefix = key.encode() + b' = "'
+                byte_mutations[f"changed {key}"] = data.replace(prefix, prefix + b"unexpected-", 1)
+                byte_mutations[f"missing {key}"] = b"".join(
+                    line for line in data.splitlines(keepends=True)
+                    if not line.startswith(key.encode() + b" =")
+                )
+            for index, (name, content) in enumerate(byte_mutations.items()):
+                repo = copy_fixture_repo(root / f"profile-{mode}-{index}")
+                (repo / rel_path).write_bytes(content)
+                if name == "NUL":
+                    expected = "invalid TOML"
+                elif name in ("empty", "truncated", "extra key") or name.startswith(("changed ", "missing model", "missing plan_")):
+                    expected = "must be exactly"
+                else:
+                    expected = "must match canonical launch profile bytes"
+                assert_fails_closed(f"{mode} profile {name}", repo, expected)
 
         missing_base_contract_repo = copy_fixture_repo(root / "missing-base-contract")
         (

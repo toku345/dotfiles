@@ -8,7 +8,9 @@
 // validation, severity-rule interpretation, coverage gate, caps aggregation)
 // is exercised against the real canonical severity-rules.json with no LLM.
 
-import { readFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -66,8 +68,19 @@ const STAGE1_FINDINGS = {
 // scenario knobs consumed by the agent stub
 let scenario = {}
 
+// Verifier citations point at EVIDENCE_FILE, which the evidence integration
+// test (S19) commits into a scratch repo so the real validator can resolve them.
+const EVIDENCE_FILE = 'src/app.js'
+function evidenceAt(line, observation) {
+  return [{ path: EVIDENCE_FILE, line, observation }]
+}
+
+// prompts by agent label from the most recent run, for prompt-contract checks
+let capturedPrompts = {}
+
 async function agentStub(prompt, opts = {}) {
   const label = opts.label || ''
+  capturedPrompts[label] = prompt
   if (label === 'categorize') {
     return {
       packetShaObserved: scenario.badPacket ? 'f'.repeat(64) : SHA,
@@ -102,24 +115,27 @@ async function agentStub(prompt, opts = {}) {
     const echo = scenario.badVerdictEcho
       ? { scope: SCOPE, packetSha: 'e'.repeat(64) }
       : { scope: SCOPE, packetSha: SHA }
-    if (prompt.includes('path traversal possible')) return { verdict: 'refuted', reasoning: 'path is constant, not user input', ...echo }
+    if (scenario.evidenceFor && prompt.includes('command injection via unsanitized arg')) {
+      return { reasoning: 'evidence fixture', ...scenario.evidenceFor, ...echo }
+    }
+    if (prompt.includes('path traversal possible')) return { verdict: 'refuted', reasoning: 'path is constant, not user input', evidence: evidenceAt('2', 'path is a literal constant'), ...echo }
     if (scenario.criticalNeedsVerification && prompt.includes('command injection via unsanitized arg')) {
       return { verdict: 'needs-verification', reasoning: 'exploitability depends on runtime argument source', missingVerification: 'trace runtime argument source', ...echo }
     }
     if (scenario.confirmedWithMissingVerification && prompt.includes('command injection via unsanitized arg')) {
-      return { verdict: 'confirmed', reasoning: 'confirmed blocker but stale missing proof leaked through', missingVerification: 'trace runtime argument source', ...echo }
+      return { verdict: 'confirmed', reasoning: 'confirmed blocker but stale missing proof leaked through', missingVerification: 'trace runtime argument source', evidence: evidenceAt('1', 'fixture'), ...echo }
     }
     if (scenario.needsVerificationWithoutMissing && prompt.includes('command injection via unsanitized arg')) {
       return { verdict: 'needs-verification', reasoning: 'exploitability depends on runtime argument source', ...echo }
     }
     if (scenario.refutedWithMissingVerification && prompt.includes('command injection via unsanitized arg')) {
-      return { verdict: 'refuted', reasoning: 'not exploitable, but stale missing proof leaked through', missingVerification: 'trace runtime argument source', ...echo }
+      return { verdict: 'refuted', reasoning: 'not exploitable, but stale missing proof leaked through', missingVerification: 'trace runtime argument source', evidence: evidenceAt('1', 'fixture'), ...echo }
     }
     if (scenario.needsVerificationBlankMissing && prompt.includes('command injection via unsanitized arg')) {
       return { verdict: 'needs-verification', reasoning: 'exploitability depends on runtime argument source', missingVerification: '   ', ...echo }
     }
     if (prompt.includes('rollback leaves partial state')) return { verdict: 'needs-verification', reasoning: 'cannot reproduce locally', missingVerification: 'run migration rollback in staging', ...echo }
-    return { verdict: 'confirmed', reasoning: 'grounded in diff', ...echo }
+    return { verdict: 'confirmed', reasoning: 'grounded in diff', evidence: evidenceAt('1', 'the cited line shows the failure mode'), ...echo }
   }
   throw new Error('unexpected agent label: ' + label)
 }
@@ -152,6 +168,7 @@ function makeArgs(overrides = {}) {
 
 async function run(args, sc = {}) {
   scenario = sc
+  capturedPrompts = {}
   return runWorkflow(args, stubs.agent, stubs.parallel, stubs.pipeline, stubs.log, stubs.phase, stubs.budget)
 }
 
@@ -170,6 +187,15 @@ function assert(cond, msg) {
   if (!cond) { failed = true; console.error('FAIL: ' + msg) } else { console.log('ok: ' + msg) }
 }
 
+// SKILL.md aborts the gate unless every verified finding has a verification
+// entry, so this invariant must hold on every path that changes the counts:
+// caps, verifier downgrades, and Stage 2.
+function assertVerificationsCoverTally(result, name) {
+  const expected = result.tally.critical + result.tally.important + result.tally.refuted
+  assert(result.verifications.length === expected,
+    `${name}: verifications cover critical + important + refuted (${result.verifications.length} vs ${expected})`)
+}
+
 // S1: mixed findings — Critical present, Stage2 skipped, verify prunes one
 const r1 = await run(makeArgs())
 assert(r1.specialists.length === 7 && !r1.specialists.includes('code-simplifier'), 'S1: 7 specialists, no simplifier')
@@ -184,7 +210,7 @@ assert(r1.important.some(f => (f.label || '').toLowerCase() === 'critical gap'),
 assert(r1.importantOverflow.length === 0 && r1.suggestionsOverflow.length === 0, 'S1: no overflow under caps')
 assert(r1.suggestionsTotal === 1, `S1: Nit excluded from fix queue (only the code-reviewer Suggestion remains) — got ${r1.suggestionsTotal}`)
 assert(r1.stopCondition.includes('Re-run only after addressing Critical/Important'), 'S1: active blockers return re-run guidance')
-assert(r1.argsContract === 'PR_REVIEW_ARGS_V2', 'S1: argsContract sentinel returned for the render-side skew guard')
+assert(r1.argsContract === 'PR_REVIEW_ARGS_V3', 'S1: argsContract sentinel returned for the render-side skew guard')
 assert(r1.typeChanges === true && r1.commentChanges === false, 'S1: effective flags are the OR of args floor and categorizer judgment')
 
 // S2: suggestions only — Stage2 runs and contributes
@@ -194,6 +220,7 @@ assert(r2.critical.length === 0 && r2.importantTotal === 0, 'S2: no Critical/Imp
 assert(r2.suggestionsTotal === 2, `S2: stage1 + simplifier suggestions — got ${r2.suggestionsTotal}`)
 assert(r2.stopCondition.includes('Critical 0 / Important 0'), 'S2: suggestions-only result returns stop guidance')
 assert(r2.reviewChurnGuidance.includes('third or later pass'), 'S2: review churn guidance returned')
+assertVerificationsCoverTally(r2, 'S2')
 
 // S3: cross-scale confidence ordering — security 9/10 must outrank code-reviewer 85/100
 {
@@ -222,6 +249,9 @@ assert(r2.reviewChurnGuidance.includes('third or later pass'), 'S2: review churn
   // total precisely where the rendered list stops being able to
   assert(r3.tally.important === r3.importantTotal && r3.important.length === rules.output_caps.important,
     'S3: tally reports the pre-cap Important total while the rendered list stays capped')
+  assertVerificationsCoverTally(r3, 'S3')
+  const verifiedIds = new Set(r3.verifications.map(v => v.candidateId))
+  assert(r3.importantOverflow.every(f => verifiedIds.has(f.candidateId)), 'S3: capped-out Importants are still in verifications')
 }
 
 // S4: coverage gate fails closed on echo mismatch
@@ -298,6 +328,7 @@ assert(r7.critical.length === 4, 'S7: JSON-string args accepted and parsed')
   const r7c = await run(makeArgs(), { criticalNeedsVerification: true })
   assert(r7c.critical.length === 3, `S7c: needs-verification Critical downgraded — Critical ${r7c.critical.length}`)
   assert(r7c.important.some(f => f.why.includes('command injection') && f.missingVerification), 'S7c: verifier-downgraded Critical remains visible as Important with missingVerification')
+  assertVerificationsCoverTally(r7c, 'S7c')
 }
 
 // S7d: Critical impact-scope downgrades are table-driven
@@ -427,9 +458,9 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   // boundary: exactly at each limit must still review — a guard that shrinks
   // the window it protects is its own regression
   const atByteLimit = await run(makeArgs({ packetBytes: 1048576 }))
-  assert(atByteLimit.argsContract === 'PR_REVIEW_ARGS_V2', 'S13: packet exactly at the byte limit still reviews')
+  assert(atByteLimit.argsContract === 'PR_REVIEW_ARGS_V3', 'S13: packet exactly at the byte limit still reviews')
   const atFileLimit = await run(makeArgs({ changedFiles: Array.from({ length: 500 }, (_, i) => `src/f${i}.js`) }))
-  assert(atFileLimit.argsContract === 'PR_REVIEW_ARGS_V2', 'S13: exactly 500 changed files still reviews')
+  assert(atFileLimit.argsContract === 'PR_REVIEW_ARGS_V3', 'S13: exactly 500 changed files still reviews')
 }
 
 // S14: the tally the render emits verbatim must agree with the structured
@@ -440,7 +471,138 @@ await expectThrow(makeArgs(), { nullSpecialist: 'adversarial-reviewer' }, /adver
   assert(r14.tally.important === r14.importantTotal, 'S14: tally.important is the pre-cap Important total')
   assert(r14.tally.suggestion === r14.suggestionsTotal, 'S14: tally.suggestion is the pre-cap Suggestion total')
   assert(r14.tally.refuted === r14.refuted.length, 'S14: tally.refuted matches the refuted list')
-  assert(Object.values(r14.tally).every(n => Number.isInteger(n) && n >= 0), 'S14: tally values are non-negative integers')
+  assert(['critical', 'important', 'suggestion', 'refuted'].map(k => r14.tally[k]).every(n => Number.isInteger(n) && n >= 0), 'S14: tally values are non-negative integers')
+}
+
+// S15: verifier evidence contract — confirmed/refuted need well-formed
+// citations; needs-verification may omit them and is normalized to []
+{
+  const cases = [
+    ['confirmed without evidence', { verdict: 'confirmed' }, /returned confirmed without evidence/],
+    ['refuted with empty evidence', { verdict: 'refuted', evidence: [] }, /returned refuted without evidence/],
+    ['non-array evidence', { verdict: 'confirmed', evidence: 'src/app.js:1' }, /non-array evidence/],
+    ['absolute path', { verdict: 'confirmed', evidence: [{ path: '/etc/passwd', line: '1', observation: 'x' }] }, /not a safe repository-relative path/],
+    ['parent traversal', { verdict: 'confirmed', evidence: [{ path: 'src/../x.js', line: '1', observation: 'x' }] }, /not a safe repository-relative path/],
+    ['zero line', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '0', observation: 'x' }] }, /not a positive line or ascending range/],
+    ['reversed range', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '9-3', observation: 'x' }] }, /not a positive line or ascending range/],
+    ['blank observation', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '3', observation: '  ' }] }, /empty observation/],
+    ['extra field', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '3', observation: 'x', note: 'y' }] }, /expected exactly path, line, observation/],
+    ['missing field', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '3' }] }, /expected exactly path, line, observation/],
+    ['null item', { verdict: 'confirmed', evidence: [null] }, /is not an object/],
+    ['backslash path', { verdict: 'confirmed', evidence: [{ path: 'src\\app.js', line: '3', observation: 'x' }] }, /not a safe repository-relative path/],
+    ['padded path', { verdict: 'confirmed', evidence: [{ path: ' src/app.js', line: '3', observation: 'x' }] }, /not a safe repository-relative path/],
+    ['empty path segment', { verdict: 'confirmed', evidence: [{ path: 'src//app.js', line: '3', observation: 'x' }] }, /not a safe repository-relative path/],
+    ['numeric line', { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: 3, observation: 'x' }] }, /not a positive line or ascending range/],
+    // present evidence is shape-checked even when the verdict does not require it
+    ['malformed needs-verification evidence', { verdict: 'needs-verification', missingVerification: 'trace caller', evidence: [{ path: '../x.js', line: '1', observation: 'x' }] }, /not a safe repository-relative path/],
+  ]
+  for (const [name, evidenceFor, pattern] of cases) {
+    await expectThrow(makeArgs(), { evidenceFor }, pattern, `S15: ${name} throws`)
+  }
+
+  const r15 = await run(makeArgs(), { criticalNeedsVerification: true })
+  const nv = r15.verifications.find(v => v.verdict === 'needs-verification')
+  assert(nv && Array.isArray(nv.evidence) && nv.evidence.length === 0, 'S15: omitted needs-verification evidence is normalized to []')
+  const range = await run(makeArgs(), { evidenceFor: { verdict: 'confirmed', evidence: [{ path: 'src/app.js', line: '3-7', observation: 'range' }] } })
+  assert(range.critical.some(f => f.evidence && f.evidence[0].line === '3-7'), 'S15: an ascending line range is accepted and carried on the finding')
+}
+
+// S16: verifications cover every verified finding, with candidate IDs the
+// shared validator accepts (capped-out ones: S3; downgrades: S7c; Stage 2: S2)
+{
+  const r16 = await run(makeArgs())
+  assertVerificationsCoverTally(r16, 'S16')
+  assert(r16.verifications.every(v => /^f[0-9]{3,}$/.test(v.candidateId)), 'S16: candidate IDs match the validator pattern')
+  assert(new Set(r16.verifications.map(v => v.candidateId)).size === r16.verifications.length, 'S16: candidate IDs are unique')
+  assert(r16.verifications.some(v => v.verdict === 'refuted' && v.evidence.length > 0), 'S16: refuted verdicts carry their evidence')
+  assert(r16.refuted.every(f => Array.isArray(f.evidence) && f.evidence.length > 0), 'S16: refuted findings expose evidence for the render')
+}
+
+// S17: per-specialist tally agrees with the aggregate tally
+{
+  const r17 = await run(makeArgs())
+  const by = r17.tally.bySpecialist
+  assert(Object.keys(by).sort().join() === r17.specialists.slice().sort().join(), 'S17: bySpecialist has exactly the specialists that ran')
+  for (const key of ['critical', 'important', 'suggestion', 'refuted']) {
+    const sum = Object.values(by).reduce((n, s) => n + s[key], 0)
+    assert(sum === r17.tally[key], `S17: bySpecialist ${key} sums to tally.${key} (${sum})`)
+  }
+  const verdictSum = Object.values(by).reduce((n, s) => n + s.confirmed + s.refuted + s.needsVerification, 0)
+  assert(verdictSum === r17.verifications.length, 'S17: bySpecialist verdict counts cover every verification')
+  assert(by['security-reviewer'].refuted === 1 && by['security-reviewer'].confirmed === 1, 'S17: security-reviewer split into 1 confirmed / 1 refuted')
+  const r17s = await run(makeArgs(), { suggestionsOnly: true })
+  assert(r17s.tally.bySpecialist['code-simplifier'].suggestion === 1, 'S17: Stage 2 code-simplifier is counted when it runs')
+}
+
+// S18: prompt contracts — the removed-behavior focus reaches only the
+// adversarial reviewer, and verifiers are told to cite HEAD lines and to
+// prove diff independence against BASE_COMMIT before refuting on it
+{
+  await run(makeArgs())
+  const stage1 = Object.entries(capturedPrompts).filter(([label]) => label.startsWith('stage1:'))
+  assert(stage1.length === 7, `S18: captured every Stage 1 prompt (${stage1.length})`)
+  for (const [label, prompt] of stage1) {
+    const hasFocus = prompt.includes('## Removed-behavior audit')
+    assert(hasFocus === (label === 'stage1:adversarial-reviewer'), `S18: removed-behavior focus ${hasFocus ? 'present' : 'absent'} in ${label}`)
+  }
+  const verify = Object.entries(capturedPrompts).filter(([label]) => label.startsWith('verify:'))
+  assert(verify.length > 0, 'S18: captured verifier prompts')
+  for (const [label, prompt] of verify) {
+    assert(prompt.includes(`git show ${HEAD}:<path>`) && prompt.includes('not positions in the diff packet'), `S18: ${label} requires HEAD-line citations`)
+    assert(prompt.includes('the failure does not depend on anything this diff changes'), `S18: ${label} allows refuting diff-independent failures`)
+    assert(prompt.includes('Never cite a path that does not exist at HEAD') && prompt.includes("if no such HEAD line exists, return 'needs-verification'"),
+      `S18: ${label} keeps removed-behavior citations resolvable at HEAD`)
+    assert(prompt.includes(`git show ${BASE}:<path>`) && prompt.includes('An unchanged failing line alone does not prove this'),
+      `S18: ${label} requires a whole-path BASE_COMMIT comparison before that refutation`)
+  }
+}
+
+// S19: the workflow's verifications feed the shared validator unchanged. The
+// SKILL.md step writes {candidate_id, evidence} per verification and requires
+// `EVIDENCE_OK ... <count>`; this runs that exact hand-off against a real commit.
+{
+  const VALIDATOR = join(REPO_ROOT, 'private_dot_codex', 'skills', 'pr-review', 'scripts', 'validate_finding_evidence.py')
+  const dir = mkdtempSync(join(tmpdir(), 'pr-review-evidence-'))
+  try {
+    const repo = join(dir, 'repo')
+    mkdirSync(join(repo, 'src'), { recursive: true })
+    writeFileSync(join(repo, EVIDENCE_FILE), Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join('\n') + '\n')
+    const git = (...gitArgs) => execFileSync('git', ['-C', repo, '-c', 'core.hooksPath=/dev/null', '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...gitArgs], { encoding: 'utf8' })
+    git('init', '--quiet')
+    git('add', '--all')
+    git('commit', '--quiet', '-m', 'fixture')
+    const headRef = git('rev-parse', 'HEAD').trim()
+
+    const validate = (verification, name) => {
+      const resultFile = join(dir, `${name}.json`)
+      writeFileSync(resultFile, JSON.stringify({ candidate_id: verification.candidateId, evidence: verification.evidence }))
+      return spawnSync('python3', [VALIDATOR, '--repo-root', repo, '--head-ref', headRef, '--result-file', resultFile], { encoding: 'utf8' })
+    }
+
+    const r19 = await run(makeArgs(), { criticalNeedsVerification: true })
+    assert(r19.verifications.some(v => v.verdict === 'needs-verification'), 'S19: fixture includes a needs-verification verdict')
+    for (const v of r19.verifications) {
+      const out = validate(v, v.candidateId)
+      const expected = `EVIDENCE_OK finding-verifier ${v.candidateId} ${headRef} ${v.evidence.length}`
+      assert(out.status === 0 && out.stdout.trim() === expected, `S19: ${v.candidateId} (${v.verdict}) passes the shared validator — got rc=${out.status} ${out.stdout.trim()}${out.stderr.trim()}`)
+    }
+
+    // shape-valid citations the workflow cannot disprove; only the validator can
+    const rejected = [
+      ['line past end of file', [{ path: EVIDENCE_FILE, line: '81', observation: 'x' }]],
+      ['path absent from HEAD', [{ path: 'src/missing.js', line: '1', observation: 'x' }]],
+    ]
+    for (const [name, evidence] of rejected) {
+      const r = await run(makeArgs(), { evidenceFor: { verdict: 'confirmed', evidence } })
+      const v = r.verifications.find(x => x.evidence[0].path === evidence[0].path && x.evidence[0].line === evidence[0].line)
+      const out = validate(v, `bad-${v.candidateId}`)
+      assert(out.status !== 0 && out.stdout.trim() === '', `S19: ${name} passes the workflow but the validator rejects it (rc=${out.status})`)
+    }
+    const badId = validate({ candidateId: 'x1', evidence: evidenceAt('1', 'x') }, 'bad-id')
+    assert(badId.status !== 0, 'S19: a malformed candidate ID is rejected by the validator')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 if (failed) {

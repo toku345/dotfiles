@@ -7,11 +7,23 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 - `AGENTS.md` is the canonical file.
 - Root `CLAUDE.md` is a symlink to this file for backward compatibility.
 
+## Repository Language
+
+- Write Git commit messages, Pull Request titles and descriptions, and Issue titles and descriptions in English.
+
 ## Common Commands
 
 ### Chezmoi Operations
 
-**Worktree gotcha**: `chezmoi diff` / `chezmoi apply` always reads from the main source directory (`~/.local/share/chezmoi/`), not the current git worktree. Do not run `chezmoi apply` from a worktree — changes must be merged to main first.
+**Source-directory gotcha**: Without `--source`, `chezmoi diff` / `chezmoi apply` uses the configured source directory (normally `~/.local/share/chezmoi/`), not the current git worktree. For worktree validation, explicitly pass `chezmoi --source <worktree-path>` to target-path resolution, diff, dry-run, apply, and read-back checks.
+
+**Review before evaluation**: Before any chezmoi command, inspect the raw Git diff (including relevant untracked files) and the configuration, templates, modifiers, and hooks used by the selected targets. `--exclude=scripts` does not prevent template command evaluation or modifier execution. Stop before evaluating any unreviewed executable content; use isolation when its trust or effects cannot be established.
+
+**Approved source contents**: Record the absolute source path and HEAD, plus a manifest of Git-tracked and non-ignored untracked files. For each path record its type, permission bits, and SHA-256 of regular-file contents; record symlink destinations and missing tracked files explicitly. Add any ignored files needed for evaluation to the manifest after reviewing them. Keep the manifest outside the source tree. Uncommitted changes are allowed. Immediately before live edits/apply, regenerate and compare the path set, HEAD, and manifest; any addition, deletion, content, type, permission, or HEAD change requires stopping, reviewing the new diff, and obtaining approval again. Do not use HEAD or `git status` alone as a content check.
+
+**Validation before merge**: A merge is not a prerequisite for a validation apply. Before applying unmerged changes, identify the source branch/worktree and exact target paths, inspect the target-scoped diff and dry-run, and explain the backup/restore plan. Obtain explicit approval for the live apply; preserve the current target contents, permissions, and symlink state so local drift can be restored. Exclude scripts with `--exclude=scripts` unless script execution is separately approved. After applying, read back the targets, check their diff against the selected source, and report whether the validation state remains active or was restored. Prefer an isolated destination when live validation is unnecessary.
+
+**Separate approvals**: Approval to apply or test does not authorize PR merge. Approval to merge does not authorize live apply. State each requested operation explicitly; do not merge merely to enable validation.
 
 **Source-path gotcha**: `chezmoi apply <source-path>` errors with `not managed`. chezmoi accepts only target paths (e.g. `~/.config/...`) as arguments. Run `chezmoi apply` without args to apply all managed files, or resolve with `chezmoi target-path <source-file>` first.
 

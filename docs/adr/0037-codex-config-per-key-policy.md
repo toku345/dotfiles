@@ -4,6 +4,8 @@
 
 Accepted (2026-09-23). Supersedes [ADR 0024](0024-codex-baseline-hash-state.md).
 
+Amended (2026-10-01): model と effort は free とし、用途別の明示設定を [ADR 0040](0040-codex-launch-entry-points.md) の profile へ移す。
+
 ## Context
 
 ADR 0024 は `~/.codex/config.toml` を chezmoi の所有物にせず、baseline `config.chezmoi.toml` を配置して hash gate で drift を検出し、operator が live へ手動 merge + ACK する設計だった。運用の結果、次の問題が確定した。
@@ -21,8 +23,8 @@ ADR 0024 は `~/.codex/config.toml` を chezmoi の所有物にせず、baseline
 ポリシーは `scripts/codex-config/policy.toml` の `[pin]` / `[seed]` に集約し、3 種類に分ける。
 
 - **pin**: `chezmoi apply` ごとに再適用する (`sandbox_mode` / `approval_policy` / `approvals_reviewer` / `sandbox_workspace_write.network_access` / 宣言済み `features.*` / `features.context_management` / `tui.status_line*`)
-- **seed**: キーが存在しないときだけ投入する (`model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` / `personality`)。live の値が宣言値と違うときは stderr に警告し、live を保持する
-- **free**: 一切触らない (`plugins` / `mcp_servers` / `projects` / `notice` / `hooks.state` / `notify` / `service_tier` / `sandbox_workspace_write.writable_roots`)
+- **seed**: キーが存在しないときだけ投入する (`personality`)。live の値が宣言値と違うときは stderr に警告し、live を保持する
+- **free**: 一切触らない (`model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` / `plugins` / `mcp_servers` / `projects` / `notice` / `hooks.state` / `notify` / `service_tier` / `sandbox_workspace_write.writable_roots`)
 
 値の比較は TOML の構造を解析した後、型と値で行う。独自の行解析はコメント内の括弧で free キーを削除したり、コメント付き見出しで重複テーブルを生成したため廃止する。pin 以外の値・既存 seed と installer ブロックの保持を出力前に検証し、失敗時は非ゼロ終了・stdout 空とする。変更が不要な入力はそのまま返す。
 
@@ -44,6 +46,6 @@ hash gate は廃止する。pin は無条件に再適用され、seed の乖離�
 ### Negative
 
 - `~/.codex/config.toml` が chezmoi の `diff` / `status` に出る target になった（内容は script の計算結果として表示される）。
-- pin は TUI での変更を打ち消す。日常的に切り替える値は seed に分類する必要がある。
+- pin は TUI での変更を打ち消す。日常的に切り替える値は free とし、初回だけ供給したい値は seed に分類する。
 - uv の導入と setup による Python・TOML Kit の準備が初回 status/diff/apply 前に必要となる。依存不足を黙って無視しない。
 - TOML Kit は一部の array-of-tables の配置を正規化する。値の保持は検証するが、変更時のファイル全体のバイト一致は保証しない。
