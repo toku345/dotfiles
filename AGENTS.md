@@ -78,12 +78,14 @@ Ghostty 設定の gotchas（config 直接編集・ホットリロード挙動）
 
 グローバル DoD に加え、このリポジトリでは変更種別に応じて以下を確認する。
 
+chezmoi を評価する検証は [Chezmoi Operations](#chezmoi-operations) に従う。worktree 検証では全コマンドで source を明示し、live apply は別途明示承認された場合に限る。文書のみの変更は差分・参照・方針の整合確認で検証し、chezmoi の評価や live apply を完了条件にしない。
+
 ### 設定ファイル変更時
 
-- **構文チェック通過**: Fish shell は `chezmoi cat <file> | fish -n`（.tmpl でも安全）、その他は `chezmoi apply --dry-run` でエラーなし
-- **Fish function testing**: After `chezmoi apply`, run `fish -c "cd /path/to/repo; func_name args"` for non-interactive execution. For functions using fzf or other interactive input, simulate the logic path directly
+- **構文チェック通過**: Fish shell は `chezmoi cat <file> | fish -n`、その他は `chezmoi apply --dry-run` でエラーなし。template の評価前にも上記の review を行う
+- **Fish function testing**: Use an isolated fixture or, after an explicitly approved live apply, run `fish -c "cd /path/to/repo; func_name args"` for non-interactive execution. For functions using fzf or other interactive input, simulate the logic path directly
 - **chezmoi diff 確認**: `chezmoi diff` で意図した差分のみが出力される
-- **chezmoi apply 成功**: `chezmoi apply -v` がエラーなく完了する
+- **live apply を承認された場合**: `chezmoi apply -v` がエラーなく完了し、上記 policy の read-back と検証状態の維持・復元の報告まで行う
 
 ### セキュリティ関連変更時
 
@@ -107,7 +109,7 @@ Fish / シェル設定固有の罠（`$pipestatus`・`ls` 関数・`fish_add_pat
 
 ## Go Template Usage Policy
 
-Go Template の使用範囲（`.chezmoi.toml.tmpl` のみ）、CI での template 検証、chezmoi 自動提供環境変数は path-scoped rule [.claude/rules/go-templates.md](.claude/rules/go-templates.md) に移設（`*.tmpl` / `.chezmoiscripts/` 編集時に自動ロード）。
+Go Template は生成時の環境差分や正本共有など必要な用途に使用する。使用方針の正本、CI での template 検証、chezmoi 自動提供環境変数は path-scoped rule [.claude/rules/go-templates.md](.claude/rules/go-templates.md) を参照（`*.tmpl` / `.chezmoiscripts/` 編集時に自動ロード）。
 
 ## Bats Testing (tests/bats/)
 

@@ -38,8 +38,15 @@ installs the remaining packages, deploys the dotfiles, applies the
 `~/.local/bin/codex-fugu` (it exits with an error until the isolated home of
 step 5 exists).
 
-Run `chezmoi apply` from the source checked out on `main`, never from a linked
-worktree. After `.chezmoi.toml.tmpl` changes, `chezmoi init` must be re-run to
+For validation from a linked or unmerged worktree, explicitly select that
+source with `chezmoi --source <worktree-path>` for target-path resolution,
+diff, dry-run, apply, and read-back checks. Follow the canonical
+[Chezmoi Operations policy](AGENTS.md#chezmoi-operations), including review
+before evaluation and source-manifest verification. Live apply requires
+explicit approval, backup/restore planning, script exclusion unless
+separately approved, and read-back verification. Merge and live-apply
+approvals are separate; merging is not a prerequisite for validation.
+After `.chezmoi.toml.tmpl` changes, `chezmoi init` must be re-run to
 regenerate the config file.
 
 ### 3. Answer the per-machine prompts
