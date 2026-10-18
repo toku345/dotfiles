@@ -312,4 +312,3 @@ exec '$real_mv' "\$@"
 STUB
   chmod +x "$stub_dir/mv"
 }
-
