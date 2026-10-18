@@ -239,7 +239,7 @@ The GitHub Actions workflow (`.github/workflows/security-checks.yml`) performs:
 
 The workflow uses:
 - **gitleaks** - Secret scanning across full git history (version-pinned + checksum-verified)
-- **zizmor** - GitHub Actions workflow hardening lint (in `ci.yml`)
+- **zizmor** - GitHub Actions workflow hardening lint (via the reusable workflow called by Security Checks)
 - **Python** - Static checks for JSON policy invariants
 - **Shell scripts** - Lightweight checks without external dependencies
 - **No password required** - CI cannot decrypt files (password not stored)
