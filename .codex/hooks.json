@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/fish-syntax-check.sh\"",
+            "command": "PATH=\"/opt/homebrew/opt/bash/bin:/usr/local/opt/bash/bin:/home/linuxbrew/.linuxbrew/opt/bash/bin:$PATH\" bash \"$(git rev-parse --show-toplevel)/.codex/hooks/fish-syntax-check.sh\"",
             "timeout": 15,
             "statusMessage": "fish -n syntax check"
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/verify-on-stop.sh\"",
+            "command": "PATH=\"/opt/homebrew/opt/bash/bin:/usr/local/opt/bash/bin:/home/linuxbrew/.linuxbrew/opt/bash/bin:$PATH\" bash \"$(git rev-parse --show-toplevel)/.codex/hooks/verify-on-stop.sh\"",
             "timeout": 300,
             "statusMessage": "Verifying changed shell/bats/fish files"
           }

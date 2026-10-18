@@ -19,21 +19,29 @@ paths:
 
 ## Docker での Ubuntu CI parity 検証
 
-push 前に CI (ubuntu-latest + `apt-get install bats fish`) と同等環境で実走:
+push 前に CI (ubuntu-latest + Homebrew Bash 5+) と同等環境で実走:
 
 ```bash
 docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
+  set -eu
   apt-get update -qq >/dev/null
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    bats git procps fish jq shellcheck python3 python3-venv ca-certificates >/dev/null
+    bats git procps fish jq shellcheck python3 python3-venv ca-certificates sudo curl file build-essential >/dev/null
+  useradd -m -s /bin/bash linuxbrew
+  echo "linuxbrew ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/linuxbrew
+  curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o /tmp/install-homebrew.sh
+  su linuxbrew -c "NONINTERACTIVE=1 /bin/bash /tmp/install-homebrew.sh"
+  su linuxbrew -c "/home/linuxbrew/.linuxbrew/bin/brew install bash chezmoi"
+  export BASH5_BIN=/home/linuxbrew/.linuxbrew/opt/bash/bin/bash
+  export PATH="${BASH5_BIN%/*}:/home/linuxbrew/.linuxbrew/bin:$PATH"
   python3 -m venv /tmp/uv-bootstrap
   /tmp/uv-bootstrap/bin/pip install --only-binary=:all: uv
   export PATH="/tmp/uv-bootstrap/bin:$PATH"
   export XDG_DATA_HOME=/tmp/policy-test/data UV_CACHE_DIR=/tmp/policy-test/cache
   sh scripts/codex-config/setup.sh
   export CODEX_CONFIG_TEST_PYTHON="$XDG_DATA_HOME/codex-config-policy/venv/bin/python"
-  bats tests/bats/
+  "$BASH5_BIN" /usr/bin/bats tests/bats/
 '
 ```
 
-`fish jq shellcheck` は省略不可: GitHub Actions の Bats job は `bats fish` を apt で入れ、`ubuntu-latest` runner 側の `jq` / `shellcheck` に暗黙依存している。素の `ubuntu:24.04` コンテナで欠けると hook 系テストが silent skip して parity gap を隠す (2026-06-11 実測)。新しい Bats テストが実行時依存を増やした場合は、この recipe と `private_dot_claude/agents/bats-docker-parity-runner.md` の baseline の両方を更新すること。
+`fish jq shellcheck` は省略不可: GitHub Actions の Bats job も `bats fish jq shellcheck` を明示的に導入する。素の `ubuntu:24.04` コンテナで欠けると hook 系テストが silent skip して parity gap を隠す (2026-06-11 実測)。新しい Bats テストが実行時依存を増やした場合は、この recipe と `private_dot_claude/agents/bats-docker-parity-runner.md` の baseline の両方を更新すること。

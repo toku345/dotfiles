@@ -271,10 +271,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install bats-core and fish
+      - name: Install Bats and validation dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats fish
+          sudo apt-get install -y bats fish jq shellcheck
           bats --version
           fish --version
 
@@ -282,7 +282,11 @@ jobs:
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           echo "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
-          brew install herdr
+          brew install bash chezmoi herdr
+          bash5_bin="$(brew --prefix bash)/bin/bash"
+          "$bash5_bin" -c 'printf "Bats interpreter: %s %s\n" "$BASH" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 5 ))'
+          echo "BASH5_BIN=$bash5_bin" >> "$GITHUB_ENV"
+          echo "${bash5_bin%/*}" >> "$GITHUB_PATH"
           herdr --version
 
       - name: Validate managed Herdr configuration
@@ -300,7 +304,9 @@ jobs:
           echo "CODEX_CONFIG_TEST_PYTHON=$policy_test_root/data/codex-config-policy/venv/bin/python" >> "$GITHUB_ENV"
 
       - name: Run bats test suite
-        run: bats tests/bats/
+        run: |
+          export PATH="${BASH5_BIN%/*}:$PATH"
+          "$BASH5_BIN" "$(command -v bats)" tests/bats/
 
   codex-config-policy:
     name: Codex Config Policy (${{ matrix.os }}, Python ${{ matrix.python }})
@@ -361,7 +367,7 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install bash bats-core
+          brew install bash bats-core fish jq shellcheck chezmoi
           bash5_bin="$(brew --prefix bash)/bin/bash"
           bats_bin="$(brew --prefix bats-core)/bin/bats"
           test -x "$bash5_bin"
@@ -379,8 +385,13 @@ jobs:
       - name: Run Bash 5 runtime tests
         run: |
           export PATH="${BASH5_BIN%/*}:$PATH"
-          "$BATS_BIN" \
+          "$BASH5_BIN" "$BATS_BIN" \
             tests/bats/test_bash5_runtime.bats \
+            tests/bats/test_bash_entrypoints.bats \
+            tests/bats/test_hooks.bats \
+            tests/bats/test_codex_hooks.bats \
+            tests/bats/test_hw.bats \
+            tests/bats/test_secret_scanning_baseline.bats \
             tests/bats/test_codex_fugu.bats \
             tests/bats/test_reviewed_upgrade_common.bats \
             tests/bats/test_brew_reviewed_cask_upgrade.bats \
@@ -388,18 +399,11 @@ jobs:
             tests/bats/test_ghostty_theme.bats \
             tests/bats/test_preview.bats
 
-      - name: Run Codex launcher tests with Bash 5 and system Bash
+      - name: Run Codex launcher tests with Homebrew Bash
         run: |
-          for launcher_bash in "$BASH5_BIN" /bin/bash; do
-            echo "Launcher interpreter: $launcher_bash"
-            "$launcher_bash" --version
-            if [ "$launcher_bash" = /bin/bash ]; then
-              "$launcher_bash" -c '(( BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] == 2 ))'
-            else
-              "$launcher_bash" -c '(( BASH_VERSINFO[0] >= 5 ))'
-            fi
-            CX_TEST_BASH="$launcher_bash" "$BATS_BIN" tests/bats/test_codex_launchers.bats
-          done
+          export PATH="${BASH5_BIN%/*}:$PATH"
+          "$BASH5_BIN" -c 'printf "Launcher interpreter: %s %s\n" "$BASH" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 5 ))'
+          "$BASH5_BIN" "$BATS_BIN" tests/bats/test_codex_launchers.bats
 
   protected-outer-loop-history:
     name: Protected Outer Loop History

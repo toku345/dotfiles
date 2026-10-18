@@ -3,18 +3,23 @@
 
 resolve_bash5() {
   local candidate="${BASH5_BIN:-}"
-  local major
+  local major homebrew_bash
+
+  homebrew_bash="$(brew --prefix)/opt/bash/bin/bash" || return 1
 
   if [[ -z "$candidate" ]]; then
-    candidate="$(type -P bash)" || {
-      printf 'Bash 5 test prerequisite failed: bash was not found on PATH.\n' >&2
-      return 1
-    }
+    candidate="$homebrew_bash"
   fi
 
   if [[ "$candidate" != /* || ! -x "$candidate" ]]; then
     printf 'Bash 5 test prerequisite failed: BASH5_BIN must be an executable absolute path: %s\n' \
       "$candidate" >&2
+    return 1
+  fi
+
+  if [[ ! "$candidate" -ef "$homebrew_bash" ]]; then
+    printf 'Bash 5 test prerequisite failed: %s is not Homebrew Bash (%s).\n' \
+      "$candidate" "$homebrew_bash" >&2
     return 1
   fi
 

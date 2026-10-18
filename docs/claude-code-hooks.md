@@ -40,7 +40,7 @@ PostToolUse `Edit|Write` hook。編集対象が `*.fish` の時だけ `fish -n` 
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/verify-on-stop.sh",
+            "command": "PATH=\"/opt/homebrew/opt/bash/bin:/usr/local/opt/bash/bin:/home/linuxbrew/.linuxbrew/opt/bash/bin:$PATH\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/verify-on-stop.sh",
             "timeout": 300
           }
         ]
@@ -52,7 +52,7 @@ PostToolUse `Edit|Write` hook。編集対象が `*.fish` の時だけ `fish -n` 
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/fish-syntax-check.sh",
+            "command": "PATH=\"/opt/homebrew/opt/bash/bin:/usr/local/opt/bash/bin:/home/linuxbrew/.linuxbrew/opt/bash/bin:$PATH\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/fish-syntax-check.sh",
             "timeout": 15
           }
         ]

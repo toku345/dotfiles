@@ -2,8 +2,10 @@
 # shellcheck shell=bash
 
 bats_require_minimum_version 1.5.0
+load test_helper_bash5
 
 setup() {
+  resolve_bash5
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   HW_SOURCE="$REPO_ROOT/dot_local/bin/executable_hw"
   REAL_GIT="$(type -P git)"
@@ -17,7 +19,7 @@ setup() {
 
   cat > "$TEST_BIN/hw" <<'EOF'
 #!/usr/bin/env bash
-exec bash "$HW_SOURCE" "$@"
+exec "$BASH5_BIN" "$HW_SOURCE" "$@"
 EOF
   cat > "$TEST_BIN/herdr" <<'EOF'
 #!/usr/bin/env bash
@@ -37,6 +39,7 @@ EOF
   ln -s "$REAL_GIT" "$TEST_BIN/git"
   ln -s "$REAL_CKSUM" "$TEST_BIN/cksum"
   ln -s "$REAL_TR" "$TEST_BIN/tr"
+  ln -s "$BASH5_BIN" "$TEST_BIN/bash"
   export PATH="$TEST_BIN:/usr/bin:/bin"
 }
 
@@ -321,7 +324,7 @@ expected_checksum() {
   ln -s "$REAL_TR" "$no_herdr_bin/tr"
 
   cd "$repo"
-  PATH="$no_herdr_bin:/usr/bin:/bin" run -127 --separate-stderr bash "$HW_SOURCE"
+  PATH="$no_herdr_bin:/usr/bin:/bin" run -127 --separate-stderr "$BASH5_BIN" "$HW_SOURCE"
 
   [ "$status" -eq 127 ]
   [[ "$stderr" == *"required command not found on PATH: herdr"* ]]

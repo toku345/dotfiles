@@ -48,9 +48,8 @@ mirrors the GitHub Actions environment:
 - **Image**: `ubuntu:24.04` (close enough to `ubuntu-latest` for
   parity work; adjust only if the real CI runner image changes).
 - **Packages**: for a full `tests/bats/` run the baseline is `bats git
-  procps fish jq shellcheck python3 python3-venv ca-certificates` — the GitHub Actions Bats job installs
-  `bats fish` and implicitly relies on the `ubuntu-latest` runner's
-  `jq` / `shellcheck`. A bare container without those runner-provided
+  procps fish jq shellcheck python3 python3-venv ca-certificates` — the GitHub Actions Bats job explicitly installs
+  `bats fish jq shellcheck`. A bare container without those runner-provided
   tools can silently `skip` hook tests, hiding the parity gap you were
   looking for. Trim the list only when running a subset of `.bats`
   files that does not need a package — verify by running that subset
@@ -61,6 +60,11 @@ mirrors the GitHub Actions environment:
   package baseline; tests that exercise those tools should keep explicit
   `command -v` skip guards, and this runner should report those skips as
   expected rather than as an Ubuntu parity gap.
+- **Bash runtime**: install Homebrew Bash and chezmoi as a non-root container user before
+  running tests, following `.claude/rules/bats-testing.md`. Set `BASH5_BIN` to
+  `/home/linuxbrew/.linuxbrew/opt/bash/bin/bash`, prepend its directory to PATH,
+  and invoke Bats through that interpreter. Record executable and version;
+  Ubuntu system Bash 5 is not a substitute. Bootstrap may use `/bin/bash`.
 - **Scope**: mount the repo at the container's working directory and
   run the bats suite for the full `tests/bats/` tree (or the specific
   `.bats` files the user requested).
