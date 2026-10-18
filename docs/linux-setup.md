@@ -28,7 +28,7 @@ sudo apt-get install -y build-essential curl file git procps
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 ```
 
-### Step 3: Bootstrap ツール (chezmoi, age, uv) を導入
+### Step 3: Bootstrap ツール (chezmoi, age, Bash, uv) を導入
 
 ```bash
 export HOMEBREW_NO_AUTO_UPDATE=1
@@ -36,7 +36,7 @@ export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_CASK_OPTS=--require-sha
 export HOMEBREW_UPDATE_TO_TAG=1
-brew install chezmoi age uv
+brew install chezmoi age bash uv
 ```
 
 次の setup が uv で専用 Python と依存を準備します。asdf の Python 設定やビルド依存は不要です。詳細は [Codex 設定の準備手順](codex.md#初回準備依存更新)を参照してください。
@@ -68,6 +68,34 @@ chsh -s /bin/bash
 ```
 
 SSH 接続時には login shell として `~/.bash_profile` 経由で `~/.bashrc` が source されます。
+
+## Managed Bash runtime
+
+管理対象の Bash script は macOS/Linux とも Homebrew Bash 5+ を使用します。
+POSIX sh、Homebrew 導入前の installer、OS のログインシェル変更はこの方針の対象外です。
+上の optional なログインシェル設定を変更する必要はありません。
+
+既存環境では run-once のパッケージ導入が再実行されないため、`brew install bash` を明示します。
+通常のレビュー手順で設定を更新した後、Linux は `source ~/.bashrc`、macOS は新しい Fish session を開き、
+Claude/Codex も再起動してください。Claude の machine-local hook 配線は
+[設定例](claude-code-hooks.md#配線方法)に従って既存の他 hook を保持したまま更新します。
+statusline と hook は非対話起動でも Homebrew Bash を選べる PATH を明示しています。
+
+実際に選ばれる executable と version を確認します（Fish では `type -p bash` を使用）:
+
+```sh
+command -v bash
+bash -c 'printf "executable=%s version=%s\n" "$BASH" "$BASH_VERSION"; test "${BASH_VERSINFO[0]}" -ge 5'
+brew --prefix
+```
+
+`bash` が `$(brew --prefix)/opt/bash/bin/bash` と同じ実体であることを確認してください。
+version が 5 でも Linux の `/bin/bash` はこの実行方針の確認にはなりません。
+独自 PATH や machine-local override を使う場合も Bash の優先順位を維持してください。
+
+既存 repository の Git hook は template 更新で上書きされません。
+古い hook は内容を確認し、独自処理を保持して手動で移行してください。
+OS のログインシェルと Homebrew 導入前の `/bin/bash` installer は変更しません。
 
 ## Post-setup (optional)
 
@@ -116,7 +144,7 @@ docker run --rm -it ubuntu:24.04 bash -c '
         export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
         export HOMEBREW_CASK_OPTS=--require-sha
         export HOMEBREW_UPDATE_TO_TAG=1
-        brew install chezmoi age uv
+        brew install chezmoi age bash uv
         chezmoi init toku345 --verbose
         cd ~/.local/share/chezmoi
         sh scripts/codex-config/setup.sh

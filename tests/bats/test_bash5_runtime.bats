@@ -39,7 +39,7 @@ setup() {
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
 
-  run grep -Fxc 'brew install chezmoi age uv' "$BACKUP_RESTORE_FILE"
+  run grep -Fxc 'brew install chezmoi age bash uv' "$BACKUP_RESTORE_FILE"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
 }
@@ -60,7 +60,7 @@ setup() {
   local tool_name
 
   [[ "$(uname -s)" == Darwin ]] || \
-    skip "macOS production fallback uses /bin/bash 3.2; Linux system Bash is supported"
+    skip "unsupported-version rejection exercises macOS system Bash 3.2"
 
   system_major="$(/bin/bash -c 'printf "%s\n" "${BASH_VERSINFO[0]}"')"
   (( system_major < 5 )) || skip "this macOS image no longer provides an old system Bash"
