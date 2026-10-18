@@ -20,6 +20,8 @@ printf '%s\t%s\t%s\t%s\n' "$0" "$BASHPID" "$BASH" "$BASH_VERSION" >> "$BASH_RUNT
 PROBE
   cp "$REPO_ROOT"/.codex/hooks/*.sh "$CLAUDE_PROJECT_DIR/.codex/hooks/"
   cp "$REPO_ROOT"/.claude/hooks/*.sh "$CLAUDE_PROJECT_DIR/.claude/hooks/"
+  mkdir -p "$CLAUDE_PROJECT_DIR/scripts/hooks"
+  cp "$REPO_ROOT/scripts/hooks/verify-on-stop-common.sh" "$CLAUDE_PROJECT_DIR/scripts/hooks/"
   chmod +x "$CLAUDE_PROJECT_DIR"/.claude/hooks/*.sh
   CLAUDE_PROJECT_DIR="$(cd "$CLAUDE_PROJECT_DIR" && pwd -P)"
   git -c init.templateDir= init -q "$CLAUDE_PROJECT_DIR"
