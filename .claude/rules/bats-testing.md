@@ -31,7 +31,7 @@ docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
   echo "linuxbrew ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/linuxbrew
   curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o /tmp/install-homebrew.sh
   su linuxbrew -c "NONINTERACTIVE=1 /bin/bash /tmp/install-homebrew.sh"
-  su linuxbrew -c "/home/linuxbrew/.linuxbrew/bin/brew install bash"
+  su linuxbrew -c "/home/linuxbrew/.linuxbrew/bin/brew install bash chezmoi"
   export BASH5_BIN=/home/linuxbrew/.linuxbrew/opt/bash/bin/bash
   export PATH="${BASH5_BIN%/*}:/home/linuxbrew/.linuxbrew/bin:$PATH"
   python3 -m venv /tmp/uv-bootstrap

@@ -53,7 +53,7 @@ chezmoi apply
 `chezmoi apply` が以下を自動で行います:
 
 1. `key.txt.age` を 1Password のパスワードで復号 (`run_once_before_decrypt-private-key.sh`)
-2. apt と Linuxbrew で CLI アプリ群をインストール (`run_once_before_install-minimum-packages.sh` の Linux 分岐)
+2. Homebrew Bash を専用 step で導入し、apt と Linuxbrew で CLI アプリ群をインストール (`run_once_before_install-bash.sh` と `run_once_before_install-minimum-packages.sh`)
 3. macOS 専用設定を [`.chezmoiignore`](../.chezmoiignore) の OS 分岐でスキップ（除外対象の正確な一覧は同ファイルを参照）
 4. `~/.bashrc`, `~/.bash_profile`, `~/.config/starship.toml` などを配置
 
@@ -75,7 +75,10 @@ SSH 接続時には login shell として `~/.bash_profile` 経由で `~/.bashrc
 POSIX sh、Homebrew 導入前の installer、OS のログインシェル変更はこの方針の対象外です。
 上の optional なログインシェル設定を変更する必要はありません。
 
-既存環境では run-once のパッケージ導入が再実行されないため、`brew install bash` を明示します。
+`run_once_` は内容の hash ごとに実行されます。既存の minimum-package installer は内容を維持し、
+新しい `run_once_before_install-bash.sh` で Bash だけを導入します。既存 installer が実行済みなら、
+次回 apply では Bash 専用 step のみ追加実行されます。apply 前に準備する場合は
+`brew install bash` を明示してください。
 通常のレビュー手順で設定を更新した後、Linux は `source ~/.bashrc`、macOS は新しい Fish session を開き、
 Claude/Codex も再起動してください。Claude の machine-local hook 配線は
 [設定例](claude-code-hooks.md#配線方法)に従って既存の他 hook を保持したまま更新します。

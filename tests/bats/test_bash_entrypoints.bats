@@ -6,7 +6,7 @@ load test_helper_bash5
 setup() {
   resolve_bash5
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-  for tool in jq fish shellcheck git; do
+  for tool in jq fish shellcheck git chezmoi; do
     command -v "$tool" >/dev/null || { printf 'Required entrypoint test dependency missing: %s\n' "$tool" >&2; return 1; }
   done
   export HOME="$BATS_TEST_TMPDIR/home"
@@ -119,18 +119,22 @@ assert_target_runtime() {
   [[ "$output" == *'is not Homebrew Bash'* ]]
 }
 
-@test "minimum package setup installs Bash in the native platform branch" {
-  local setup="$REPO_ROOT/.chezmoiscripts/run_once_before_install-minimum-packages.sh"
-  local log="$BATS_TEST_TMPDIR/brew.log" platform
-  case "$(uname -s)" in Darwin) platform=darwin ;; Linux) platform=linux ;; esac
-  # Source the unchanged POSIX script with package-manager functions only.
-  # Linux's absolute brew shellenv is read-only; install/update are intercepted.
-  run -0 env CHEZMOI_OS="$platform" BREW_TEST_LOG="$log" /bin/sh -c '
-    brew() { printf "%s\n" "$*" >> "$BREW_TEST_LOG"; }
-    sudo() { :; }
-    . "$1"
-  ' -- "$setup"
-  grep -Eq '^install bash( |$)' "$log"
+@test "Bash-only setup installs only Bash on both supported platforms" {
+  local setup="$REPO_ROOT/.chezmoiscripts/run_once_before_install-bash.sh"
+  local platform log
+  for platform in darwin linux; do
+    log="$BATS_TEST_TMPDIR/brew-$platform.log"
+    run -0 env CHEZMOI_OS="$platform" BREW_TEST_LOG="$log" /bin/sh -c '
+      brew() {
+        test "$HOMEBREW_NO_AUTO_UPDATE" = 1
+        test "$HOMEBREW_NO_VERIFY_ATTESTATIONS" = 1
+        printf "%s\n" "$*" >> "$BREW_TEST_LOG"
+      }
+      sudo() { return 99; }
+      . "$1"
+    ' -- "$setup"
+    [[ "$(cat "$log")" == 'install bash' ]]
+  done
 }
 
 @test "Linux bashrc selects Homebrew Bash after shell initialization" {
@@ -162,4 +166,57 @@ assert_target_runtime() {
   [[ "$BASH" -ef "$BASH5_BIN" ]]
   (( BASH_VERSINFO[0] >= 5 ))
   printf 'Bats runtime: executable=%s version=%s\n' "$BASH" "$BASH_VERSION" >&3
+}
+
+
+isolated_chezmoi() {
+  env XDG_CONFIG_HOME="$CM_ROOT/config" XDG_DATA_HOME="$CM_ROOT/data" \
+    XDG_CACHE_HOME="$CM_ROOT/cache" \
+    "$CHEZMOI_BIN" --source "$CM_ROOT/source" --destination "$HOME" \
+    --config "$CM_ROOT/config.toml" --persistent-state "$CM_ROOT/state.boltdb" "$@"
+}
+
+@test "existing installer state is preserved and only Bash setup runs once" {
+  local old="$REPO_ROOT/.chezmoiscripts/run_once_before_install-minimum-packages.sh"
+  local old_hash=84b06eba03998bcc27aaeaa2e586a4a8de2fafabec56c80e2286321d778ea279
+  # This content hash is the pre-#401 installer. Changing it requires an
+  # explicit replay/migration decision, not a silent package-list edit.
+  [[ "$(shasum -a 256 "$old" | cut -d ' ' -f 1)" == "$old_hash" ]]
+  CM_ROOT="$BATS_TEST_TMPDIR/cm"
+  CHEZMOI_BIN="$(type -P chezmoi)"
+  local scripts="$CM_ROOT/source/.chezmoiscripts" seed_hash seed_state
+  mkdir -p "$scripts" "$CM_ROOT/bin"
+  : > "$CM_ROOT/config.toml"
+  printf '#!/bin/sh\n:\n' > "$scripts/run_once_before_seed.sh"
+  seed_hash=$(shasum -a 256 "$scripts/run_once_before_seed.sh" | cut -d ' ' -f 1)
+  isolated_chezmoi apply
+  seed_state=$(isolated_chezmoi state get --bucket=scriptState --key="$seed_hash")
+  [[ -n "$seed_state" ]]
+  # Model an existing machine using a genuine successful script-state value.
+  isolated_chezmoi state set --bucket=scriptState --key="$old_hash" --value="$seed_state"
+  rm "$scripts/run_once_before_seed.sh"
+  cp "$old" "$scripts/"
+  cp "$REPO_ROOT/.chezmoiscripts/run_once_before_install-bash.sh" "$scripts/"
+  cat > "$CM_ROOT/bin/brew" <<'BREW'
+#!/bin/sh
+printf '%s\n' "$*" >> "$BREW_TEST_LOG"
+BREW
+  chmod +x "$CM_ROOT/bin/brew"
+  export BREW_TEST_LOG="$CM_ROOT/brew.log"
+  export PATH="$CM_ROOT/bin:$PATH"
+
+  # Check the plan before execution: the full installer must not be selected.
+  run -0 isolated_chezmoi apply --dry-run --verbose
+  [[ "$output" == *'brew install bash'* ]]
+  [[ "$output" != *'Minimum package installation'* ]]
+  run -0 isolated_chezmoi apply
+  [[ "$(cat "$BREW_TEST_LOG")" == 'install bash' ]]
+  run -0 isolated_chezmoi apply
+  [[ "$(cat "$BREW_TEST_LOG")" == 'install bash' ]]
+
+  # Prove a content change would select the old installer again, without
+  # executing package operations or touching real chezmoi state.
+  printf '\n# changed fixture content\n' >> "$scripts/${old##*/}"
+  run -0 isolated_chezmoi apply --dry-run --verbose
+  [[ "$output" == *'Minimum package installation'* ]]
 }

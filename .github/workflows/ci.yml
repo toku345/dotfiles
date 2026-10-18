@@ -282,7 +282,7 @@ jobs:
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           echo "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
-          brew install bash herdr
+          brew install bash chezmoi herdr
           bash5_bin="$(brew --prefix bash)/bin/bash"
           "$bash5_bin" -c 'printf "Bats interpreter: %s %s\n" "$BASH" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 5 ))'
           echo "BASH5_BIN=$bash5_bin" >> "$GITHUB_ENV"
@@ -367,7 +367,7 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install bash bats-core fish jq shellcheck
+          brew install bash bats-core fish jq shellcheck chezmoi
           bash5_bin="$(brew --prefix bash)/bin/bash"
           bats_bin="$(brew --prefix bats-core)/bin/bats"
           test -x "$bash5_bin"

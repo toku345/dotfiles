@@ -60,7 +60,7 @@ mirrors the GitHub Actions environment:
   package baseline; tests that exercise those tools should keep explicit
   `command -v` skip guards, and this runner should report those skips as
   expected rather than as an Ubuntu parity gap.
-- **Bash runtime**: install Homebrew Bash as a non-root container user before
+- **Bash runtime**: install Homebrew Bash and chezmoi as a non-root container user before
   running tests, following `.claude/rules/bats-testing.md`. Set `BASH5_BIN` to
   `/home/linuxbrew/.linuxbrew/opt/bash/bin/bash`, prepend its directory to PATH,
   and invoke Bats through that interpreter. Record executable and version;

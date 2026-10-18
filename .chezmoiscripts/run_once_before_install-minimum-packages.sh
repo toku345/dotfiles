@@ -16,7 +16,7 @@ export HOMEBREW_NO_VERIFY_ATTESTATIONS=1
 if [ "$CHEZMOI_OS" = "darwin" ]; then
     # ==== macOS: Homebrew ====
     brew update
-    brew install bash coreutils git gitleaks git-delta starship fzf eza bat fd ripgrep
+    brew install coreutils git gitleaks git-delta starship fzf eza bat fd ripgrep
     brew install tmux direnv shadowenv asdf age fish nano aspell gh herdr
     brew install coderabbitai/tap/git-gtr
     brew install --cask karabiner-elements
@@ -35,7 +35,7 @@ elif [ "$CHEZMOI_OS" = "linux" ]; then
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
     brew update
-    brew install bash gh tmux starship fzf eza bat fd ripgrep \
+    brew install gh tmux starship fzf eza bat fd ripgrep \
                  git-delta direnv nano aspell gitleaks asdf herdr
     brew install coderabbitai/tap/git-gtr
 
