@@ -137,29 +137,67 @@ assert_target_runtime() {
   done
 }
 
-@test "Linux bashrc selects Homebrew Bash after shell initialization" {
-  [[ "$(uname -s)" == Linux ]] || skip 'bashrc is deployed only on Linux'
-  run -0 "$BASH5_BIN" --noprofile --norc -c '
-    asdf() { :; }; starship() { :; }; direnv() { :; }
-    source "$1"
-    selected=$(type -P bash)
-    [[ "$selected" -ef "$BASH5_BIN" ]]
-    bash -c '\''printf "Shell PATH runtime: %s %s\n" "$BASH" "$BASH_VERSION"; [[ "$BASH" -ef "$BASH5_BIN" ]] && (( BASH_VERSINFO[0] >= 5 ))'\''
-  ' -- "$REPO_ROOT/dot_bashrc"
-  [[ "$output" == *'Shell PATH runtime:'* ]]
+competing_bash() {
+  mkdir -p "$HOME/.cargo/bin"
+  cat > "$HOME/.cargo/bin/bash" <<'COMPETITOR'
+#!/bin/sh
+printf 'Competing Bash selected\n' >&2
+exit 97
+COMPETITOR
+  chmod +x "$HOME/.cargo/bin/bash"
 }
 
-@test "macOS Fish config selects Homebrew Bash after shell initialization" {
-  [[ "$(uname -s)" == Darwin ]] || skip 'Fish config is deployed only on macOS'
-  run -0 env XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" fish --no-config -c '
+run_bash_startup() {
+  run env PATH="/usr/bin:/bin:$PATH" "$BASH5_BIN" --noprofile --norc -c '
+    asdf() { :; }; starship() { :; }; direnv() { :; }
+    source "$1"
+    bash -c '\''printf "Shell PATH runtime: %s %s\n" "$BASH" "$BASH_VERSION"; [[ "$BASH" -ef "$BASH5_BIN" ]] && (( BASH_VERSINFO[0] >= 5 ))'\''
+  ' -- "$1"
+}
+
+run_fish_startup() {
+  # Keep normal Fish PATH handlers; isolate config/universal state per run.
+  local config_home
+  config_home="$BATS_TEST_TMPDIR/fish-config-$(basename "$1")"
+  run env PATH="/usr/bin:/bin:$PATH" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
     function fish_config; end
     function starship; end
     function direnv; end
     function shadowenv; end
     source $argv[1]
     bash -c '\''printf "Shell PATH runtime: %s %s\n" "$BASH" "$BASH_VERSION"; [[ "$BASH" -ef "$BASH5_BIN" ]] && (( BASH_VERSINFO[0] >= 5 ))'\''
-  ' "$REPO_ROOT/private_dot_config/private_fish/config.fish"
+  ' "$1"
+}
+
+@test "Linux bashrc selects Homebrew Bash over prepended user binaries" {
+  [[ "$(uname -s)" == Linux ]] || skip 'bashrc is deployed only on Linux'
+  competing_bash
+  run_bash_startup "$REPO_ROOT/dot_bashrc"
+  [[ "$status" -eq 0 ]]
   [[ "$output" == *'Shell PATH runtime:'* ]]
+  [[ "$output" != *'Competing Bash selected'* ]]
+
+  # Prove the fixture reaches this selection block, not inherited CI PATH.
+  local mutant="$BATS_TEST_TMPDIR/bashrc-without-bash-priority"
+  sed '/^# Managed Bash scripts/,/^fi$/d' "$REPO_ROOT/dot_bashrc" > "$mutant"
+  run_bash_startup "$mutant"
+  [[ "$status" -eq 97 ]]
+  [[ "$output" == *'Competing Bash selected'* ]]
+}
+
+@test "macOS Fish config selects Homebrew Bash over prepended user binaries" {
+  [[ "$(uname -s)" == Darwin ]] || skip 'Fish config is deployed only on macOS'
+  competing_bash
+  run_fish_startup "$REPO_ROOT/private_dot_config/private_fish/config.fish"
+  [[ "$status" -eq 0 ]]
+  [[ "$output" == *'Shell PATH runtime:'* ]]
+  [[ "$output" != *'Competing Bash selected'* ]]
+
+  local mutant="$BATS_TEST_TMPDIR/fish-without-bash-priority"
+  sed '/^## Managed Bash scripts/,/^end$/d' "$REPO_ROOT/private_dot_config/private_fish/config.fish" > "$mutant"
+  run_fish_startup "$mutant"
+  [[ "$status" -eq 97 ]]
+  [[ "$output" == *'Competing Bash selected'* ]]
 }
 
 @test "Bats itself runs under Homebrew Bash" {
