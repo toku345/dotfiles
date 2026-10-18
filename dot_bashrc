@@ -77,5 +77,10 @@ if [[ -S "$_ssh_agent_sock" ]]; then
 fi
 unset _ssh_agent_sock
 
+# Managed Bash scripts use Homebrew Bash; this does not change the login shell.
+if [[ -n "${HOMEBREW_PREFIX:-}" && -x "$HOMEBREW_PREFIX/opt/bash/bin/bash" ]]; then
+    export PATH="$HOMEBREW_PREFIX/opt/bash/bin:$PATH"
+fi
+
 # Machine-specific overrides
 [[ -f "$HOME/.bashrc.local" ]] && source "$HOME/.bashrc.local"

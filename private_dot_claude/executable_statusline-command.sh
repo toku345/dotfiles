@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# shellcheck shell=bash
 
 # jq is required for JSON parsing
 if ! command -v jq &>/dev/null; then

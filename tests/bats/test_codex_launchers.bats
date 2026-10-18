@@ -8,11 +8,13 @@
 # shellcheck disable=SC2030,SC2031
 
 bats_require_minimum_version 1.5.0
+load test_helper_bash5
 
 setup() {
+  resolve_bash5
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   CX_SOURCE="$REPO_ROOT/dot_local/bin/executable_cx"
-  TEST_BASH="${CX_TEST_BASH:-$(type -P bash)}"
+  TEST_BASH="$BASH5_BIN"
   [[ "$TEST_BASH" == /* && -x "$TEST_BASH" ]]
   TEST_PYTHON="$(type -P python3)"
   TEST_GREP="$(type -P grep)"
@@ -36,6 +38,7 @@ printf '%s\0' "$@" > "$ARGV_LOG"
 exit "${STUB_EXIT:-0}"
 EOF
   chmod +x "$TEST_BIN/codex"
+  ln -s "$BASH5_BIN" "$TEST_BIN/bash"
   export PATH="$TEST_BIN:/usr/bin:/bin"
 }
 

@@ -5,8 +5,10 @@
 # editor writes, so silent failures here defeat the verification loop.
 
 bats_require_minimum_version 1.5.0
+load test_helper_bash5
 
 setup() {
+  resolve_bash5
   # bats preprocesses .bats files into /tmp; BASH_SOURCE[0] at the test scope
   # points there, so resolve the repo via BATS_TEST_FILENAME (the original
   # path) instead of BASH_SOURCE.
@@ -451,8 +453,8 @@ exit 0
 STUB
   chmod +x "$stub_dir/bats"
 
-  # A plain *.bats file matches only the broad `tests/bats/*` case, so the
-  # shellcheck and fish gates stay quiet, nothing lands in errors[], and this
+  # A plain *.bats file matches only the broad `tests/bats/*` case. The
+  # shell validation gates stay quiet, nothing lands in errors[], and this
   # reminder is the sole notices[] entry.
   init_repo_with_relevant_file "tests/bats/dummy.bats" \
 '@test "noop" { true; }
@@ -487,7 +489,11 @@ STUB
   local tool resolved
   mkdir -p "$shim"
   for tool in bash git cksum awk sort cat rm mkdir mv head dirname; do
-    resolved=$(command -v "$tool" 2>/dev/null) || skip "$tool not resolvable"
+    if [[ "$tool" == bash ]]; then
+      resolved="$BASH5_BIN"
+    else
+      resolved=$(command -v "$tool" 2>/dev/null) || skip "$tool not resolvable"
+    fi
     ln -sf "$resolved" "$shim/$tool"
   done
   [ ! -e "$shim/bats" ] || skip "bats leaked into the shim PATH"

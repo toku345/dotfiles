@@ -2,13 +2,16 @@
 # shellcheck shell=bash
 
 bats_require_minimum_version 1.5.0
+load test_helper_bash5
 
 setup() {
+  resolve_bash5
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   PRE_COMMIT_HOOK="$REPO_ROOT/dot_git-template/hooks/executable_pre-commit"
   REPO_AUDIT="$REPO_ROOT/dot_local/bin/executable_repo-security-audit"
   STUB_DIR="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUB_DIR"
+  ln -s "$BASH5_BIN" "$STUB_DIR/bash"
   export REPO_ROOT PRE_COMMIT_HOOK REPO_AUDIT STUB_DIR
 }
 
@@ -121,7 +124,7 @@ STUB
 }
 
 @test "pre-commit hook warns and exits 0 when gitleaks is missing" {
-  run --separate-stderr env PATH="/usr/bin:/bin" /bin/bash "$PRE_COMMIT_HOOK"
+  run --separate-stderr env PATH="/usr/bin:/bin" "$BASH5_BIN" "$PRE_COMMIT_HOOK"
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"gitleaks not on PATH; skipping local secret scan"* ]]
   [[ "$stderr" == *"Ensure this repo has CI or push protection configured separately"* ]]
@@ -134,7 +137,7 @@ STUB
   run env \
     PATH="$STUB_DIR:/usr/bin:/bin" \
     GITLEAKS_STUB_LOG="$log" \
-    /bin/bash "$PRE_COMMIT_HOOK"
+    "$BASH5_BIN" "$PRE_COMMIT_HOOK"
 
   [ "$status" -eq 0 ]
   [ "$(cat "$log")" = "protect --staged --redact --no-banner" ]
@@ -158,7 +161,7 @@ STUB
     REPO_AUDIT_OWNER=toku \
     GH_STUB_CLONE_FAIL_REPO=toku/fail \
     GITLEAKS_STUB_LOG="$log" \
-    /bin/bash "$REPO_AUDIT" --history-sweep
+    "$BASH5_BIN" "$REPO_AUDIT" --history-sweep
 
   [ "$status" -eq 2 ]
   [[ "$output" == *"ok   toku/ok"* ]]
@@ -177,7 +180,7 @@ STUB
     REPO_AUDIT_OWNER=toku \
     GITLEAKS_STUB_LOG="$log" \
     GITLEAKS_STUB_STATUS=42 \
-    /bin/bash "$REPO_AUDIT" --history-sweep
+    "$BASH5_BIN" "$REPO_AUDIT" --history-sweep
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"LEAK toku/ok"* ]]
@@ -194,7 +197,7 @@ STUB
     PATH="$STUB_DIR:/usr/bin:/bin" \
     REPO_AUDIT_OWNER=toku \
     GH_STUB_LOG="$log" \
-    /bin/bash "$REPO_AUDIT"
+    "$BASH5_BIN" "$REPO_AUDIT"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"toku/ok"* ]]
@@ -211,7 +214,7 @@ STUB
     PATH="$STUB_DIR:/usr/bin:/bin" \
     REPO_AUDIT_OWNER=toku \
     GH_STUB_REPO_LIST_COUNT=500 \
-    /bin/bash "$REPO_AUDIT"
+    "$BASH5_BIN" "$REPO_AUDIT"
 
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"Repository listing reached the 500-repository cap"* ]]
@@ -261,7 +264,7 @@ STUB
     PATH="$STUB_DIR:/usr/bin:/bin" \
     REPO_AUDIT_OWNER=toku \
     GH_STUB_POSTURE_FAIL=1 \
-    /bin/bash "$REPO_AUDIT"
+    "$BASH5_BIN" "$REPO_AUDIT"
 
   [ "$status" -eq 2 ]
   [[ "$output" == *"ERROR"* ]]

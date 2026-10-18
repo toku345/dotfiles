@@ -283,5 +283,10 @@ function gbd --description 'delete merged git branches'
     end
 end
 
+## Managed Bash scripts use Homebrew Bash; the login shell is unchanged.
+if set -q HOMEBREW_PREFIX; and test -x "$HOMEBREW_PREFIX/opt/bash/bin/bash"
+    fish_add_path -m "$HOMEBREW_PREFIX/opt/bash/bin"
+end
+
 ## Local configuration (machine-specific)
 test -e $HOME/.config/fish/config.fish.local; and source $HOME/.config/fish/config.fish.local
