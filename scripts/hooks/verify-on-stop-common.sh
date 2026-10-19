@@ -80,7 +80,7 @@ persist_block_count() {
 }
 
 verify_changed_files_on_stop() {
-  local state_file="$1" nag_state_file="$2"
+  local state_file="$1"
   # git failures here mean the repo is broken; surface them rather than
   # swallowing. Process substitution would hide the producer's exit status
   # (pipefail does not cross `< <(...)`), so capture via command substitution
@@ -104,9 +104,9 @@ verify_changed_files_on_stop() {
   shell_changed=()
   fish_changed=()
   # Classification is content-agnostic: a deletion under tests/bats/ should
-  # still trigger the bats gate (a removed test_helper.bash can break other
+  # still trigger the bats advisory (a removed test_helper.bash can break other
   # tests via coupling). The existence guard is applied per-operation —
-  # only shellcheck and `fish -n` need a readable file; the bats gate only
+  # only shellcheck and `fish -n` need a readable file; the bats advisory only
   # needs to know that the tree changed.
   for f in "${changed[@]}"; do
     case "$f" in
@@ -120,7 +120,7 @@ verify_changed_files_on_stop() {
         ;;
       # Catch every other file under tests/bats/ — including fixtures,
       # snapshots, and *.bats — since any of them can change a test
-      # outcome and so must trigger the bats gate.
+      # outcome and so must trigger the bats advisory.
       tests/bats/*)
         bats_changed+=("$f")
         ;;
@@ -137,26 +137,19 @@ verify_changed_files_on_stop() {
      && [ ${#shell_changed[@]} -eq 0 ] \
      && [ ${#fish_changed[@]} -eq 0 ]; then
     remove_state_file "$state_file"
-    remove_state_file "$nag_state_file"
     exit 0
   fi
 
   count=$(read_block_count "$state_file")
-  nag_count=$(read_block_count "$nag_state_file")
   if [ "$count" -ge "$MAX_BLOCKS" ]; then
     remove_state_file "$state_file"
-    # nag_state_file is deliberately left alone: clearing it here would re-arm
-    # the reminder for a tests/bats/ change that is still dirty, restarting its
-    # budget on the next stop. It is cleared where the reminder genuinely stops
-    # applying — the clean-tree early exit and the notices-empty branch.
     echo "verify-on-stop: blocked $count times consecutively, allowing stop." >&2
     exit 0
   fi
 
-  # errors[]: an executing gate actually failed. notices[]: nothing ran, we are
-  # only telling the agent to run something. They block through separate budgets.
+  # Only executing checks can block. The advisory has no persistent state.
   errors=()
-  notices=()
+  bats_advisory=0
 
   if [ ${#bats_changed[@]} -gt 0 ]; then
     if command -v bats >/dev/null 2>&1; then
@@ -165,17 +158,13 @@ verify_changed_files_on_stop() {
       # that Bash tool calls run under, and `bats tests/bats/` executes every
       # discovered .bats test plus the shell helpers those tests load or source.
       # Running it here would turn any write under tests/bats/ — routinely
-      # auto-approved — into unprompted command execution. Block instead, so the
-      # suite runs through the normal permission-gated path where that decision
-      # is made.
-      bats_msg="bats gate requires a gated run (files under tests/bats/ changed):"
-      bats_msg+=$'\n''Run `bats tests/bats/` as a normal command, so the run goes through the permission/sandbox path this hook bypasses, then fix any failures.'
-      bats_msg+=$'\n'"This hook cannot observe tool calls, so it reminds on each stop until its own $MAX_BLOCKS-reminder auto-allow, then stops blocking and repeating this instruction for the rest of this change."
-      notices+=("$bats_msg")
+      # auto-approved — into unprompted command execution. Verification belongs
+      # in ordinary tool calls; this user-facing advisory cannot determine its
+      # result or require another agent turn.
+      bats_advisory=1
     else
-      # The reminder needs no binary, but with bats absent the suite cannot be
-      # run at all: blocking the turn with an instruction nobody can follow would
-      # only burn the reminder budget. Skip, and leave verification to CI.
+      # Preserve the missing-tool diagnostic without suggesting a local run
+      # that this environment cannot perform.
       echo "verify-on-stop: bats not installed; skipping bats gate." >&2
     fi
   fi
@@ -226,81 +215,30 @@ verify_changed_files_on_stop() {
     fi
   fi
 
-  blocking=()
-  bump_errors=0
-  bump_nag=0
-
-  if [ ${#errors[@]} -gt 0 ]; then
-    bump_errors=1
-  else
+  if [ ${#errors[@]} -eq 0 ]; then
     remove_state_file "$state_file"
-  fi
-
-  if [ ${#notices[@]} -gt 0 ]; then
-    if [ "$nag_count" -ge "$MAX_BLOCKS" ]; then
-      # Leave the counter at MAX_BLOCKS as a sentinel rather than deleting it.
-      # Deleting would make the next stop read 0 and re-arm the reminder, so a
-      # dirty tests/bats/ tree would loop 3-blocked-then-1-allowed forever with
-      # nothing the agent could do to satisfy it. The counter is cleared where
-      # the reminder stops applying: the clean-tree early exit and the
-      # notices-empty branch below.
-      echo "verify-on-stop: bats reminder issued $nag_count times consecutively, allowing stop." >&2
-    else
-      bump_nag=1
+    if [ "$bats_advisory" -eq 1 ]; then
+      # Static JSON needs no encoder dependency. Do not add runtime values here
+      # without JSON escaping, or control fields that resume/stop the agent.
+      printf '%s\n' '{"systemMessage":"Bats changes detected. Run `bats tests/bats/` through normal tool permissions and report results or unrun checks. This hook does not verify test status."}'
     fi
-  else
-    remove_state_file "$nag_state_file"
-  fi
-
-  if [ "$bump_errors" -eq 0 ] && [ "$bump_nag" -eq 0 ]; then
     exit 0
   fi
 
-  # Persist the executing-gate counter first. If it cannot advance, fail loud and
+  # Persist the executing-gate counter. If it cannot advance, fail loud and
   # open: blocking without a working MAX_BLOCKS guard could trap the turn.
-  if [ "$bump_errors" -eq 1 ]; then
-    if ! persist_block_count "$state_file" $((count + 1)); then
-      {
-        echo "verify-on-stop: cannot persist loop-guard state ($state_file); allowing stop."
-        echo "verify-on-stop: verification failures were not enforced:"
-        printf '%s\n\n' "${errors[@]}"
-        if [ "$bump_nag" -eq 1 ]; then
-          echo "verify-on-stop: pending bats reminder was not enforced:"
-          printf '%s\n\n' "${notices[@]}"
-        fi
-      } >&2
-      exit 0
-    fi
-    blocking+=("${errors[@]}")
+  if ! persist_block_count "$state_file" $((count + 1)); then
+    {
+      echo "verify-on-stop: cannot persist loop-guard state ($state_file); allowing stop."
+      echo "verify-on-stop: verification failures were not enforced:"
+      printf '%s\n\n' "${errors[@]}"
+    } >&2
+    exit 0
   fi
 
-  # The reminder has an independent budget. If only its counter fails, do not
-  # discard an executing gate whose counter was already persisted successfully.
-  if [ "$bump_nag" -eq 1 ]; then
-    if ! persist_block_count "$nag_state_file" $((nag_count + 1)); then
-      {
-        echo "verify-on-stop: cannot persist bats reminder state ($nag_state_file); reminder not enforced."
-        printf '%s\n\n' "${notices[@]}"
-        if [ "$bump_errors" -eq 0 ]; then
-          echo "verify-on-stop: allowing stop to avoid an unbounded reminder loop."
-        fi
-      } >&2
-      if [ "$bump_errors" -eq 0 ]; then
-        exit 0
-      fi
-    else
-      blocking+=("${notices[@]}")
-    fi
-  fi
-
-  if [ "$bump_errors" -eq 1 ]; then
-    header="verify-on-stop blocked stop ($((count + 1))/$MAX_BLOCKS):"
-  else
-    header="verify-on-stop blocked stop (bats reminder $((nag_count + 1))/$MAX_BLOCKS):"
-  fi
   {
-    echo "$header"
-    printf '%s\n\n' "${blocking[@]}"
+    echo "verify-on-stop blocked stop ($((count + 1))/$MAX_BLOCKS):"
+    printf '%s\n\n' "${errors[@]}"
     echo "Fix issues before stopping. After $MAX_BLOCKS consecutive blocks the hook auto-allows."
   } >&2
   exit 2

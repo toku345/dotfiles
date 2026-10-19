@@ -11,9 +11,8 @@ if ! cd "${CLAUDE_PROJECT_DIR:-$PWD}"; then
 fi
 
 STATE_FILE=$(state_path_for_project claude block-count)
-NAG_STATE_FILE=$(state_path_for_project claude bats-reminder-count)
-readonly STATE_FILE NAG_STATE_FILE
+readonly STATE_FILE
 
 # Drain the runtime payload; Stop validation does not use its contents.
 cat >/dev/null
-verify_changed_files_on_stop "$STATE_FILE" "$NAG_STATE_FILE"
+verify_changed_files_on_stop "$STATE_FILE"
