@@ -17,9 +17,10 @@ and per machine.
    ```
 
    Managed tools such as `brew-reviewed-upgrade` and `ghostty-theme` require
-   Bash 5 or newer. macOS system Bash 3.2 remains available only for shell
-   configuration that intentionally supports it. Linux uses apt and Linuxbrew
-   instead; see [docs/linux-setup.md](docs/linux-setup.md).
+   Homebrew Bash 5 or newer on both macOS and Linux. POSIX sh, pre-Homebrew
+   bootstrap commands, and the OS login shell are outside this runtime policy.
+   Linux uses apt and Linuxbrew; see [docs/linux-setup.md](docs/linux-setup.md).
+   For existing machines, see [Bash runtime migration](docs/linux-setup.md#managed-bash-runtime).
 
 ### 2. Bootstrap the dotfiles
 

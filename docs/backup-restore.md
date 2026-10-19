@@ -202,13 +202,13 @@ sudo apt-get install -y build-essential curl file git procps
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
-# Step 3: chezmoi + age + uv
+# Step 3: chezmoi + age + Homebrew Bash + uv
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_UPGRADE=1
 export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 export HOMEBREW_CASK_OPTS=--require-sha
 export HOMEBREW_UPDATE_TO_TAG=1
-brew install chezmoi age uv
+brew install chezmoi age bash uv
 
 # Step 4: source + uv-managed Python/dependencies + apply
 chezmoi init toku345
@@ -218,6 +218,10 @@ chezmoi apply
 ```
 
 macOS 専用設定は [`.chezmoiignore`](../.chezmoiignore) の OS 分岐により Linux では自動的にスキップされます（除外対象の正確な一覧は同ファイルを参照）。
+
+復旧後は [Managed Bash runtime](linux-setup.md#managed-bash-runtime) の手順で
+Homebrew Bash の実体と version、Claude の machine-local hook 配線を確認してください。
+この確認は macOS/Linux 共通で、ログインシェルの変更は不要です。
 
 ### age鍵を紛失した場合の対処法
 

@@ -1,22 +1,16 @@
 #!/usr/bin/env bats
 # shellcheck shell=bash
 # shellcheck disable=SC2030,SC2031
-# Tests for .codex/hooks/* — the Codex twins of the .claude Stop / PostToolUse
-# hooks. test_hooks.bats covers the shared logic via the .claude copies; this
-# file locks the .codex-SPECIFIC divergences that no other committed test
-# exercises:
-#   1. repo_root is derived from `git rev-parse --show-toplevel` (the .claude
-#      copy uses ${CLAUDE_PROJECT_DIR:-$PWD}), so the hook must operate on the
-#      git toplevel of the cwd.
-#   2. the loop-guard state file lives outside the worktree.
-#   3. .codex/hooks/*.sh is a gate-relevant path in both the enumeration loop
-#      and the shellcheck always-include bypass.
-# A regression in any of these would silently break the Codex stop-gate while
-# the .claude twin's tests stayed green.
+# Codex adapter regressions plus shared Stop assertions from test_helper_hooks.
+# Root resolution, Bash invocation, state namespace, wiring and JSON remain
+# runtime-specific tests here.
 
 bats_require_minimum_version 1.5.0
+load test_helper_bash5
+load test_helper_hooks
 
 setup() {
+  resolve_bash5
   # bats preprocesses .bats files into /tmp; resolve the repo via
   # BATS_TEST_FILENAME (the original path) rather than BASH_SOURCE.
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
@@ -44,21 +38,6 @@ codex_state_file() {
     "$CODEX_STATE_HOME" "$repo_key"
 }
 
-install_bats_reminder_mv_failure_stub() {
-  local stub_dir="$1"
-  local real_mv
-  real_mv=$(type -P mv)
-  [ -n "$real_mv" ] || return 1
-
-  cat > "$stub_dir/mv" <<STUB
-#!/usr/bin/env bash
-case "\${2:-}" in
-  *stop-hook-bats-reminder-count.*) exit 1 ;;
-esac
-exec '$real_mv' "\$@"
-STUB
-  chmod +x "$stub_dir/mv"
-}
 
 # init_codex_repo <path> [<content>]
 # Creates a git repo at $PROJECT_DIR with one commit, stages an extra file at
@@ -447,46 +426,41 @@ some_unused_var=42
   [ ! -e "$state_file" ]
 }
 
-# -----------------------------------------------------------------------------
-# The Codex Stop hook must never execute the test tree either: it fires
-# automatically at turn end, outside the permission system and outside the
-# sandbox tool-issued commands get, and `bats tests/bats/` executes discovered
-# .bats tests plus the shell helpers they load or source. The gate must block
-# and require the suite to be run through the gated path instead.
-# -----------------------------------------------------------------------------
-
-@test "codex: bats gate blocks with instructions instead of executing the test tree" {
-  # The stub makes `command -v bats` succeed (tool-installed path, not the
-  # not-installed skip); the absent marker proves no repo test code ran.
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  local marker="$BATS_TEST_TMPDIR/bats-was-invoked"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<STUB
-#!/usr/bin/env bash
-touch '$marker'
-exit 0
-STUB
-  chmod +x "$stub_dir/bats"
-
-  # A plain *.bats file matches only the broad `tests/bats/*` case, so the
-  # shellcheck and fish gates stay quiet, nothing lands in errors[], and this
-  # reminder is the sole notices[] entry.
-  init_codex_repo "tests/bats/dummy.bats" \
-'@test "noop" { true; }
-'
-
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 2 ]
-  [[ "$stderr" == *"bats gate requires a gated run"* ]]
-  # Assert the rendered MAX_BLOCKS, not just the static first line: if the
-  # variable is renamed or scoped away the instruction degrades silently.
-  [[ "$stderr" == *"its own 3-reminder auto-allow"* ]]
-  [ ! -e "$marker" ]
+# Bats verification remains a normal tool call. The Stop advisory only
+# reports the changed test tree; it must never execute or block on tests.
+@test "codex: bats advisory: repeated Stops emit JSON without state or test execution" {
+  assert_bats_advisory_is_stateless_and_never_executes_tests
 }
 
-# The reminder needs no binary, but with bats absent the suite cannot be run at
-# all, so blocking would only burn the reminder budget with an instruction
-# nobody can follow. Skipping is deliberate; pin it so the choice cannot drift.
+@test "codex: bats advisory: tracked, deleted and untracked fixtures trigger; clean tree stays silent" {
+  assert_bats_advisory_detects_changes_and_stays_silent_when_clean
+}
+
+@test "codex: bats advisory: obsolete counters are ignored, including on a clean tree" {
+  assert_bats_advisory_ignores_legacy_state
+}
+
+@test "codex: bats advisory: no writable state home is required" {
+  assert_bats_advisory_needs_no_writable_state_home
+}
+
+@test "codex: bats advisory: shellcheck failures retain their full block budget" {
+  assert_bats_advisory_preserves_executing_gate_budget shellcheck
+}
+
+@test "codex: bats advisory: fish failures retain their full block budget" {
+  assert_bats_advisory_preserves_executing_gate_budget fish
+}
+
+@test "codex: bats advisory: executing-counter persistence failure retains its diagnostic" {
+  assert_executing_counter_failure_takes_precedence_over_advisory
+}
+
+@test "codex: bats advisory: untracked enumeration failure blocks without a notification" {
+  assert_git_untracked_enumeration_failure_blocks_before_advisory
+}
+
+# Preserve the existing no-Bats diagnostic without emitting an advisory.
 @test "codex: bats gate not installed -> skip note and exit 0, no reminder" {
   init_codex_repo "tests/bats/dummy.bats" \
 '@test "noop" { true; }
@@ -496,7 +470,11 @@ STUB
   local tool resolved
   mkdir -p "$shim"
   for tool in bash git cksum awk sort cat rm mkdir mv head dirname; do
-    resolved=$(command -v "$tool" 2>/dev/null) || skip "$tool not resolvable"
+    if [[ "$tool" == bash ]]; then
+      resolved="$BASH5_BIN"
+    else
+      resolved=$(command -v "$tool" 2>/dev/null) || skip "$tool not resolvable"
+    fi
     ln -sf "$resolved" "$shim/$tool"
   done
   [ ! -e "$shim/bats" ] || skip "bats leaked into the shim PATH"
@@ -511,252 +489,8 @@ STUB
     bash -c "cd '$PROJECT_DIR' && exec bash '$HOOK_VERIFY'" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"bats not installed; skipping bats gate"* ]]
-  [[ "$stderr" != *"bats gate requires a gated run"* ]]
-}
-
-# The reminder fires on every stop while tests/bats/ is dirty, whether or not
-# anything is wrong. Sharing the executing gates' counter would burn their
-# budget and auto-allow a genuine shellcheck failure early.
-@test "codex: bats reminder does not consume the executing gates' block budget" {
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-  chmod +x "$stub_dir/bats"
-
-  init_codex_repo "tests/bats/dummy.bats" \
-'@test "noop" { true; }
-'
-
-  local state_file nag_file
-  state_file="$(codex_state_file)"
-  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
-
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 2 ]
-  [ ! -e "$state_file" ]
-  [ -f "$nag_file" ]
-  [ "$(cat "$nag_file")" = "1" ]
-}
-
-@test "codex: bats reminder and executing gate persist independent counters" {
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-  cat > "$stub_dir/shellcheck" <<'STUB'
-#!/usr/bin/env bash
-exit 1
-STUB
-  chmod +x "$stub_dir/bats" "$stub_dir/shellcheck"
-
-  init_codex_repo "tests/bats/utils.bash" \
-'some_unused_var=42
-'
-
-  local state_file nag_file
-  state_file="$(codex_state_file)"
-  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
-
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 2 ]
-  [ "$(cat "$state_file")" = "1" ]
-  [ "$(cat "$nag_file")" = "1" ]
-  [[ "$stderr" == *"shellcheck failed"* ]]
-  [[ "$stderr" == *"bats gate requires a gated run"* ]]
-}
-
-@test "codex: bats reminder persistence failure does not release an executing gate" {
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-  cat > "$stub_dir/shellcheck" <<'STUB'
-#!/usr/bin/env bash
-exit 1
-STUB
-  chmod +x "$stub_dir/bats" "$stub_dir/shellcheck"
-  install_bats_reminder_mv_failure_stub "$stub_dir"
-
-  init_codex_repo "tests/bats/utils.bash" \
-'some_unused_var=42
-'
-
-  local state_file nag_file
-  state_file="$(codex_state_file)"
-  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
-
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 2 ]
-  [ "$(cat "$state_file")" = "1" ]
-  [ ! -e "$nag_file" ]
-  [[ "$stderr" == *"cannot persist bats reminder state"* ]]
-  [[ "$stderr" == *"reminder not enforced"* ]]
-  [[ "$stderr" == *"shellcheck failed"* ]]
-  [[ "$stderr" == *"blocked stop (1/3)"* ]]
-  [[ "$stderr" != *"allowing stop to avoid an unbounded reminder loop"* ]]
-}
-
-@test "codex: bats reminder persistence failure alone fails open" {
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-  chmod +x "$stub_dir/bats"
-  install_bats_reminder_mv_failure_stub "$stub_dir"
-
-  init_codex_repo "tests/bats/dummy.bats" \
-'@test "noop" { true; }
-'
-
-  local state_file nag_file
-  state_file="$(codex_state_file)"
-  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
-
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 0 ]
-  [ ! -e "$state_file" ]
-  [ ! -e "$nag_file" ]
-  [[ "$stderr" == *"cannot persist bats reminder state"* ]]
-  [[ "$stderr" == *"reminder not enforced"* ]]
-  [[ "$stderr" == *"allowing stop to avoid an unbounded reminder loop"* ]]
-  [[ "$stderr" != *"blocked stop"* ]]
-}
-
-@test "codex: directory at bats reminder counter path fails open instead of looping" {
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-  chmod +x "$stub_dir/bats"
-
-  init_codex_repo "tests/bats/dummy.bats" \
-'@test "noop" { true; }
-'
-
-  local state_file nag_file
-  state_file="$(codex_state_file)"
-  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
-  mkdir -p "$nag_file"
-
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 0 ]
-  [ -d "$nag_file" ]
-  [[ "$stderr" == *"cannot persist bats reminder state"* ]]
-  [[ "$stderr" == *"reminder not enforced"* ]]
-  [[ "$stderr" == *"allowing stop to avoid an unbounded reminder loop"* ]]
-  [[ "$stderr" != *"blocked stop"* ]]
-}
-
-@test "codex: executing counter directory failure also reports pending bats reminder" {
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-  cat > "$stub_dir/shellcheck" <<'STUB'
-#!/usr/bin/env bash
-exit 1
-STUB
-  chmod +x "$stub_dir/bats" "$stub_dir/shellcheck"
-
-  init_codex_repo "tests/bats/utils.bash" \
-'some_unused_var=42
-'
-
-  local state_file nag_file
-  state_file="$(codex_state_file)"
-  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
-  mkdir -p "$state_file"
-
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 0 ]
-  [ -d "$state_file" ]
-  [ ! -e "$nag_file" ]
-  [[ "$stderr" == *"cannot persist loop-guard state"* ]]
-  [[ "$stderr" == *"verification failures were not enforced"* ]]
-  [[ "$stderr" == *"shellcheck failed"* ]]
-  [[ "$stderr" == *"pending bats reminder was not enforced"* ]]
-  [[ "$stderr" == *"bats gate requires a gated run"* ]]
-  [[ "$stderr" != *"blocked stop"* ]]
-}
-
-# Twin parity: the Codex hook carries the identical reminder auto-allow, which
-# is the only bound preventing a dirty tests/bats/ tree from trapping the turn.
-# The auto-allow must leave the counter at MAX_BLOCKS rather than deleting it —
-# deleting would re-arm the reminder on the next stop, looping forever.
-@test "codex: bats reminder stops blocking at MAX_BLOCKS but keeps its diagnostic" {
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-  cat > "$stub_dir/shellcheck" <<'STUB'
-#!/usr/bin/env bash
-exit 1
-STUB
-  chmod +x "$stub_dir/bats" "$stub_dir/shellcheck"
-
-  init_codex_repo "tests/bats/dummy.bats" \
-'@test "noop" { true; }
-'
-
-  local state_file nag_file
-  state_file="$(codex_state_file)"
-  nag_file="${state_file/stop-hook-block-count./stop-hook-bats-reminder-count.}"
-
-  local expected
-  for expected in 1 2 3; do
-    PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-    [ "$status" -eq 2 ]
-    [ "$(cat "$nag_file")" = "$expected" ]
-    [[ "$stderr" == *"bats gate requires a gated run"* ]]
-  done
-
-  # The sentinel keeps the hook non-blocking and suppresses the instruction,
-  # while the auto-allow diagnostic remains visible on later stops.
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 0 ]
-  [ "$(cat "$nag_file")" = "3" ]
-  [[ "$stderr" == *"bats reminder issued 3 times consecutively"* ]]
-  [[ "$stderr" != *"bats gate requires a gated run"* ]]
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 0 ]
-  [ "$(cat "$nag_file")" = "3" ]
-  [[ "$stderr" == *"bats reminder issued 3 times consecutively"* ]]
-  [[ "$stderr" != *"bats gate requires a gated run"* ]]
-
-  # A saturated reminder must not suppress a newly failing executing gate.
-  printf 'some_unused_var=42\n' > "$PROJECT_DIR/tests/bats/utils.bash"
-  git -C "$PROJECT_DIR" add tests/bats/utils.bash
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 2 ]
-  [ "$(cat "$state_file")" = "1" ]
-  [ "$(cat "$nag_file")" = "3" ]
-  [[ "$stderr" == *"shellcheck failed"* ]]
-  [[ "$stderr" == *"blocked stop (1/3)"* ]]
-  [[ "$stderr" != *"bats gate requires a gated run"* ]]
-
-  git -C "$PROJECT_DIR" rm -q --cached \
-    "tests/bats/dummy.bats" "tests/bats/utils.bash"
-  rm -f "$PROJECT_DIR/tests/bats/dummy.bats" \
-    "$PROJECT_DIR/tests/bats/utils.bash"
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 0 ]
-  [ ! -e "$state_file" ]
-  [ ! -e "$nag_file" ]
+  [ -z "$output" ]
+  [ ! -e "$(legacy_reminder_file)" ]
 }
 
 # -----------------------------------------------------------------------------
@@ -827,4 +561,21 @@ assert_execpolicy_decision() {
   [ "$decision" = "block" ]
   hook_event=$(jq -r '.hookSpecificOutput.hookEventName' <<<"$output")
   [ "$hook_event" = "PostToolUse" ]
+}
+
+# Runtime-specific fixture and invocation for shared regression assertions.
+init_hook_repo() { init_codex_repo "$@"; }
+hook_state_file() { codex_state_file; }
+run_stop_hook() { run --separate-stderr "$BASH5_BIN" "$HOOK_VERIFY"; }
+
+@test "Stop inventory: both hooks, common helpers and test helpers reach lint without execution" {
+  assert_changed_shell_inventory
+}
+
+@test "Stop inventory: unchanged shell files and non-shell executables are not linted" {
+  assert_stop_checks_changes_only
+}
+
+@test "Stop adapter: nested cwd preserves runtime root and state isolation" {
+  assert_runtime_root_and_state_isolation
 }

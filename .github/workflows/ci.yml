@@ -21,60 +21,7 @@ jobs:
           persist-credentials: false
 
       - name: Run ShellCheck on shell scripts
-        run: |
-          echo "=== ShellCheck Analysis ==="
-
-          FAILED=0
-          FOUND=0
-
-          # Use process substitution to avoid word splitting on filenames
-          while IFS= read -r script; do
-            [ -z "$script" ] && continue
-
-            if echo "$script" | grep -q '\.tmpl$'; then
-              FOUND=1
-              echo ""
-              echo "Checking: $script"
-              # Strip Go template syntax before checking
-              # Replace {{ ... }} with PLACEHOLDER to avoid parse errors
-              sed 's/{{[^}]*}}/PLACEHOLDER/g' "$script" | \
-                shellcheck --severity=warning - || FAILED=1
-              continue
-            fi
-
-            # The chezmoi `executable_` prefix sets mode 0755 on deploy
-            # but does not imply a shell interpreter — executables may be
-            # Node, Python, etc.
-            # Filter by shebang so non-shell executables don't fail with
-            # SC1127 / SC1011 / SC1083 noise. The regex covers bash/sh/
-            # dash/ksh/zsh either as a direct interpreter (#!/bin/bash)
-            # or via env (#!/usr/bin/env bash), with or without args.
-            shebang=$(head -n1 "$script" 2>/dev/null || true)
-            if ! [[ "$shebang" =~ ^#!.*[[:space:]/](bash|sh|dash|ksh|zsh)([[:space:]]|$) ]]; then
-              echo "Skipping non-shell script: $script"
-              continue
-            fi
-
-            FOUND=1
-            echo ""
-            echo "Checking: $script"
-            shellcheck --severity=warning "$script" || FAILED=1
-          done < <(find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks tests/bats/bin .claude/hooks private_dot_codex private_dot_codex-fugu scripts/codex-config \
-              -type f \( -name "*.sh" -o -name "*.sh.tmpl" -o -name "executable_*" -o -name "fzf" -o -name "ghostty" -o -name "gh" -o -name "modify_*" \) \
-              2>/dev/null)
-
-          if [ $FOUND -eq 0 ]; then
-            echo "No shell scripts found"
-            exit 0
-          fi
-
-          echo ""
-          if [ $FAILED -eq 1 ]; then
-            echo "ERROR: ShellCheck found issues in one or more scripts"
-            exit 1
-          fi
-
-          echo "OK: All scripts passed ShellCheck"
+        run: bash scripts/hooks/lint-shell-all.sh
 
   chezmoi-validate:
     name: Chezmoi Validation
@@ -271,10 +218,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install bats-core and fish
+      - name: Install Bats and validation dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats fish
+          sudo apt-get install -y bats fish jq shellcheck
           bats --version
           fish --version
 
@@ -282,7 +229,11 @@ jobs:
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           echo "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
-          brew install herdr
+          brew install bash chezmoi herdr
+          bash5_bin="$(brew --prefix bash)/bin/bash"
+          "$bash5_bin" -c 'printf "Bats interpreter: %s %s\n" "$BASH" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 5 ))'
+          echo "BASH5_BIN=$bash5_bin" >> "$GITHUB_ENV"
+          echo "${bash5_bin%/*}" >> "$GITHUB_PATH"
           herdr --version
 
       - name: Validate managed Herdr configuration
@@ -300,7 +251,9 @@ jobs:
           echo "CODEX_CONFIG_TEST_PYTHON=$policy_test_root/data/codex-config-policy/venv/bin/python" >> "$GITHUB_ENV"
 
       - name: Run bats test suite
-        run: bats tests/bats/
+        run: |
+          export PATH="${BASH5_BIN%/*}:$PATH"
+          "$BASH5_BIN" "$(command -v bats)" tests/bats/
 
   codex-config-policy:
     name: Codex Config Policy (${{ matrix.os }}, Python ${{ matrix.python }})
@@ -361,7 +314,7 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install bash bats-core
+          brew install bash bats-core fish jq shellcheck chezmoi
           bash5_bin="$(brew --prefix bash)/bin/bash"
           bats_bin="$(brew --prefix bats-core)/bin/bats"
           test -x "$bash5_bin"
@@ -379,8 +332,14 @@ jobs:
       - name: Run Bash 5 runtime tests
         run: |
           export PATH="${BASH5_BIN%/*}:$PATH"
-          "$BATS_BIN" \
+          "$BASH5_BIN" "$BATS_BIN" \
             tests/bats/test_bash5_runtime.bats \
+            tests/bats/test_bash_entrypoints.bats \
+            tests/bats/test_hooks.bats \
+            tests/bats/test_codex_hooks.bats \
+            tests/bats/test_hook_lint.bats \
+            tests/bats/test_hw.bats \
+            tests/bats/test_secret_scanning_baseline.bats \
             tests/bats/test_codex_fugu.bats \
             tests/bats/test_reviewed_upgrade_common.bats \
             tests/bats/test_brew_reviewed_cask_upgrade.bats \
@@ -388,18 +347,11 @@ jobs:
             tests/bats/test_ghostty_theme.bats \
             tests/bats/test_preview.bats
 
-      - name: Run Codex launcher tests with Bash 5 and system Bash
+      - name: Run Codex launcher tests with Homebrew Bash
         run: |
-          for launcher_bash in "$BASH5_BIN" /bin/bash; do
-            echo "Launcher interpreter: $launcher_bash"
-            "$launcher_bash" --version
-            if [ "$launcher_bash" = /bin/bash ]; then
-              "$launcher_bash" -c '(( BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] == 2 ))'
-            else
-              "$launcher_bash" -c '(( BASH_VERSINFO[0] >= 5 ))'
-            fi
-            CX_TEST_BASH="$launcher_bash" "$BATS_BIN" tests/bats/test_codex_launchers.bats
-          done
+          export PATH="${BASH5_BIN%/*}:$PATH"
+          "$BASH5_BIN" -c 'printf "Launcher interpreter: %s %s\n" "$BASH" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 5 ))'
+          "$BASH5_BIN" "$BATS_BIN" tests/bats/test_codex_launchers.bats
 
   protected-outer-loop-history:
     name: Protected Outer Loop History
@@ -429,9 +381,3 @@ jobs:
         run: |
           test -z "$(find tests/outer_loop_history -type d -name __pycache__ -print)"
           test -z "$(find tests/outer_loop_history -type f -name '*.pyc' -print)"
-
-  reusable-secret-scan:
-    name: Reusable Secret Scan
-    uses: ./.github/workflows/secret-scan.reusable.yml
-    permissions:
-      contents: read

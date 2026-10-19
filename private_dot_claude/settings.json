@@ -105,7 +105,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "$HOME/.claude/statusline-command.sh"
+    "command": "PATH=\"/opt/homebrew/opt/bash/bin:/usr/local/opt/bash/bin:/home/linuxbrew/.linuxbrew/opt/bash/bin:$PATH\" \"$HOME/.claude/statusline-command.sh\""
   },
   "enabledPlugins": {
     "pr-review-toolkit@claude-plugins-official": true,
