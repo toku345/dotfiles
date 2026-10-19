@@ -144,15 +144,17 @@ Codex project-local hooks are checked in under `.codex/hooks/` and wired by `.co
 
 提供 Codex hook:
 
-- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`.claude/hooks/*.sh`・`.codex/hooks/*.sh`・`scripts/hooks/*.sh`・`dot_local/lib/**/*.sh`・`*.fish` 変更時のみ shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-block-count.<repo-key>`) で自動許可。**bats suite は hook 内で実行しない** (Stop hook は permission system も sandbox も経由せず、`bats tests/bats/` は検出した `.bats` と、それらが load / source する shell helper を実行するため)。`tests/bats/` 変更時は「`bats tests/bats/` を通常のコマンドとして自分で実行せよ」という指示付きで block する (Claude 側の hook も同じ契約)。この bats reminder は実行を伴わず dirty な間ずっと発火するため **別 counter** (`stop-hook-bats-reminder-count.<repo-key>`) で独立に 3 回まで — budget を共有すると本物の shellcheck 失敗が reminder に巻き込まれて早期に自動許可される。reminder の auto-allow は counter を削除せず sentinel として残す (削除すると再武装して「3 回ブロック → 1 回許可」の無限ループになる)。上限後は block と実行指示の再掲を止めるが、auto-allow diagnostic は出力する。`bats` 未インストール時は reminder を出さず skip
+- **`verify-on-stop.sh`** — Stop event。`tests/bats/`・`dot_local/bin/executable_*`・`.chezmoiscripts/*.sh`・`.claude/hooks/*.sh`・`.codex/hooks/*.sh`・`scripts/hooks/*.sh`・`dot_local/lib/**/*.sh`・`*.fish` 変更時のみ shellcheck / `fish -n` を gate。失敗時 exit 2 で stop をブロック、連続 3 回 (`${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-block-count.<repo-key>`) で自動許可。**Bats とその補助スクリプトは hook 内で実行しない**。`tests/bats/` 変更時は通常の終了許可経路で stdout の JSON `systemMessage` に非ブロッキング通知を出す (Claude 側も同じ契約)。通知は追加ターンを要求せず、テスト成否を判定しない。条件を満たす Stop ごとに通知するが、receipt・通知 counter は保存しない。既存の検査失敗・早期終了経路を優先する。`bats` 未インストール時は従来の skip 診断のみを出す
 - **`fish-syntax-check.sh`** — PostToolUse `Edit|Write`。`*.fish` 編集時に `fish -n` で構文チェック、エラー時 `decision: block` JSON
+
+`tests/bats/` を変更した場合は、最終報告の前に `bats tests/bats/` を通常のツール呼び出し (permission / sandbox を経由するコマンド) として実行する。最終報告には変更内容、検証コマンド・範囲・結果、skip / 未実行の理由、commit / push 状態、残作業を記載する。Stop 通知に検証の実行や報告の修正を委ねず、hook の exit 0 をテスト成功の根拠にしない。
 
 Claude Code の machine-local hook 配線は `.claude/settings.local.json` 側で扱う。詳細は [docs/claude-code-hooks.md](docs/claude-code-hooks.md)。
 
 一行 gotcha:
 
 - macOS で pass / Ubuntu CI で fail する場合は `bats-docker-parity-runner` subagent で Docker Ubuntu 24.04 再走
-- Stop hook 無限ループ時は該当 runtime の counter file を削除する (block-count と bats-reminder-count の 2 種)。repo root で `repo_key=$(printf '%s' "$(pwd -P)" | cksum | awk '{print $1}')` 後、Codex は `rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/codex/project-hooks/stop-hook-"*".$repo_key"`、Claude は `rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/claude/project-hooks/stop-hook-"*".$repo_key"`
+- Stop hook の検査 counter を手動リセットする場合は [トラブルシューティング](docs/claude-code-hooks.md#トラブルシューティング) を参照。旧 `stop-hook-bats-reminder-count.<repo-key>` は読み書き・自動削除しない。旧 reminder の任意清掃で検査側の `stop-hook-block-count.<repo-key>` を削除しない
 
 ## Claude Code Configuration Quirks
 

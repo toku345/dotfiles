@@ -426,46 +426,41 @@ some_unused_var=42
   [ ! -e "$state_file" ]
 }
 
-# -----------------------------------------------------------------------------
-# The Codex Stop hook must never execute the test tree either: it fires
-# automatically at turn end, outside the permission system and outside the
-# sandbox tool-issued commands get, and `bats tests/bats/` executes discovered
-# .bats tests plus the shell helpers they load or source. The gate must block
-# and require the suite to be run through the gated path instead.
-# -----------------------------------------------------------------------------
-
-@test "codex: bats gate blocks with instructions instead of executing the test tree" {
-  # The stub makes `command -v bats` succeed (tool-installed path, not the
-  # not-installed skip); the absent marker proves no repo test code ran.
-  local stub_dir="$BATS_TEST_TMPDIR/stub-bin"
-  local marker="$BATS_TEST_TMPDIR/bats-was-invoked"
-  mkdir -p "$stub_dir"
-  cat > "$stub_dir/bats" <<STUB
-#!/usr/bin/env bash
-touch '$marker'
-exit 0
-STUB
-  chmod +x "$stub_dir/bats"
-
-  # A plain *.bats file matches only the broad `tests/bats/*` case. The
-  # shell validation gates stay quiet, nothing lands in errors[], and this
-  # reminder is the sole notices[] entry.
-  init_codex_repo "tests/bats/dummy.bats" \
-'@test "noop" { true; }
-'
-
-  PATH="$stub_dir:$PATH" run --separate-stderr bash "$HOOK_VERIFY" <<<'{}'
-  [ "$status" -eq 2 ]
-  [[ "$stderr" == *"bats gate requires a gated run"* ]]
-  # Assert the rendered MAX_BLOCKS, not just the static first line: if the
-  # variable is renamed or scoped away the instruction degrades silently.
-  [[ "$stderr" == *"its own 3-reminder auto-allow"* ]]
-  [ ! -e "$marker" ]
+# Bats verification remains a normal tool call. The Stop advisory only
+# reports the changed test tree; it must never execute or block on tests.
+@test "codex: bats advisory: repeated Stops emit JSON without state or test execution" {
+  assert_bats_advisory_is_stateless_and_never_executes_tests
 }
 
-# The reminder needs no binary, but with bats absent the suite cannot be run at
-# all, so blocking would only burn the reminder budget with an instruction
-# nobody can follow. Skipping is deliberate; pin it so the choice cannot drift.
+@test "codex: bats advisory: tracked, deleted and untracked fixtures trigger; clean tree stays silent" {
+  assert_bats_advisory_detects_changes_and_stays_silent_when_clean
+}
+
+@test "codex: bats advisory: obsolete counters are ignored, including on a clean tree" {
+  assert_bats_advisory_ignores_legacy_state
+}
+
+@test "codex: bats advisory: no writable state home is required" {
+  assert_bats_advisory_needs_no_writable_state_home
+}
+
+@test "codex: bats advisory: shellcheck failures retain their full block budget" {
+  assert_bats_advisory_preserves_executing_gate_budget shellcheck
+}
+
+@test "codex: bats advisory: fish failures retain their full block budget" {
+  assert_bats_advisory_preserves_executing_gate_budget fish
+}
+
+@test "codex: bats advisory: executing-counter persistence failure retains its diagnostic" {
+  assert_executing_counter_failure_takes_precedence_over_advisory
+}
+
+@test "codex: bats advisory: untracked enumeration failure blocks without a notification" {
+  assert_git_untracked_enumeration_failure_blocks_before_advisory
+}
+
+# Preserve the existing no-Bats diagnostic without emitting an advisory.
 @test "codex: bats gate not installed -> skip note and exit 0, no reminder" {
   init_codex_repo "tests/bats/dummy.bats" \
 '@test "noop" { true; }
@@ -494,42 +489,8 @@ STUB
     bash -c "cd '$PROJECT_DIR' && exec bash '$HOOK_VERIFY'" <<<'{}'
   [ "$status" -eq 0 ]
   [[ "$stderr" == *"bats not installed; skipping bats gate"* ]]
-  [[ "$stderr" != *"bats gate requires a gated run"* ]]
-}
-
-# The reminder fires on every stop while tests/bats/ is dirty, whether or not
-# anything is wrong. Sharing the executing gates' counter would burn their
-# budget and auto-allow a genuine shellcheck failure early.
-@test "codex: bats reminder does not consume the executing gates' block budget" {
-  assert_bats_reminder_does_not_consume_the_executing_gates_block_budget
-}
-
-@test "codex: bats reminder and executing gate persist independent counters" {
-  assert_bats_reminder_and_executing_gate_persist_independent_counters
-}
-
-@test "codex: bats reminder persistence failure does not release an executing gate" {
-  assert_bats_reminder_persistence_failure_does_not_release_an_executing_gate
-}
-
-@test "codex: bats reminder persistence failure alone fails open" {
-  assert_bats_reminder_persistence_failure_alone_fails_open
-}
-
-@test "codex: directory at bats reminder counter path fails open instead of looping" {
-  assert_directory_at_bats_reminder_counter_path_fails_open_instead_of_looping
-}
-
-@test "codex: executing counter directory failure also reports pending bats reminder" {
-  assert_executing_counter_directory_failure_also_reports_pending_bats_reminder
-}
-
-# Twin parity: the Codex hook carries the identical reminder auto-allow, which
-# is the only bound preventing a dirty tests/bats/ tree from trapping the turn.
-# The auto-allow must leave the counter at MAX_BLOCKS rather than deleting it —
-# deleting would re-arm the reminder on the next stop, looping forever.
-@test "codex: bats reminder stops blocking at MAX_BLOCKS but keeps its diagnostic" {
-  assert_bats_reminder_stops_blocking_at_max_blocks_but_keeps_its_diagnostic
+  [ -z "$output" ]
+  [ ! -e "$(legacy_reminder_file)" ]
 }
 
 # -----------------------------------------------------------------------------
