@@ -86,6 +86,7 @@ def assert_fails_closed(name: str, repo: pathlib.Path, expected: str) -> None:
 
 
 def main() -> None:
+    policy_text = (REPO_ROOT / "scripts/codex-config/policy.toml").read_text()
     mutations = [
         (
             f"{name} {label}",
@@ -118,17 +119,22 @@ def main() -> None:
         )
     ] + [
         (
-            f"managed baseline {mode}s {key}",
+            f"managed baseline {key}: {label}",
             "scripts/codex-config/policy.toml",
-            f"[{mode}]",
-            f'[{mode}]\n{key} = "{value}"',
-            f"{key} must remain free",
+            policy_text,
+            replacement,
+            f"{key} must be pinned to {value!r}",
         )
-        for mode in ("pin", "seed")
-        for key, value in (
-            ("model", "gpt-6-astra"),
-            ("model_reasoning_effort", "medium"),
-            ("plan_mode_reasoning_effort", "xhigh"),
+        for key, value, wrong in (
+            ("model", "gpt-6.1-sol", "gpt-6-astra"),
+            ("model_reasoning_effort", "medium", "low"),
+            ("plan_mode_reasoning_effort", "xhigh", "medium"),
+        )
+        for label, replacement in (
+            ("missing pin", policy_text.replace(f'{key} = "{value}"\n', "", 1)),
+            ("wrong value", policy_text.replace(f'{key} = "{value}"', f'{key} = "{wrong}"', 1)),
+            ("moved to seed", policy_text.replace(f'{key} = "{value}"\n', "", 1).replace(
+                "[seed]", f'[seed]\n{key} = "{value}"', 1)),
         )
     ] + [
         (

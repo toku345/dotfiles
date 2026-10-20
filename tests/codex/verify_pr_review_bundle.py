@@ -1425,9 +1425,13 @@ def verify_codex_config_profiles() -> None:
         if type(actual) is not type(expected) or actual != expected:
             fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
 
-    for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
-        if ("", key) in pins or ("", key) in seeds:
-            fail(f"{CODEX_POLICY}: {key} must remain free to follow Codex defaults")
+    for key, expected in (
+        ("model", "gpt-6.1-sol"),
+        ("model_reasoning_effort", "medium"),
+        ("plan_mode_reasoning_effort", "xhigh"),
+    ):
+        if pins.get(("", key)) != expected:
+            fail(f"{CODEX_POLICY}: {key} must be pinned to {expected!r}")
 
     rows = [*pins, *seeds]
     stale = sorted({key for (section, key) in rows if section.startswith("profiles")})

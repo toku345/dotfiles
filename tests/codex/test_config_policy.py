@@ -81,7 +81,7 @@ writable_roots = ["/important"]
                 if "free =" in source:
                     self.assertEqual(data["free"], "keep")
                 if "'model'" in source:
-                    self.assertEqual(data["model"], "custom")
+                    self.assertEqual(data["model"], "gpt-6.1-sol")
 
     def test_free_values_comments_and_installer_block(self):
         block = '''# >>> fugu:model_providers.sakana >>>
@@ -105,22 +105,24 @@ custom = { nested = [1, true, "value"] }
         self.assertIn(block, output)
         self.assertIn("# free values include multiline strings and inline tables", output)
 
-    def test_missing_model_and_efforts_follow_codex_defaults(self):
+    def test_missing_model_and_efforts_receive_pins(self):
         output, data, warnings = self.update("")
-        for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
-            self.assertNotIn(key, data)
+        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model_reasoning_effort"], "medium")
+        self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         self.assertFalse(warnings)
         self.assertEqual(self.update(output)[0], output)
 
-    def test_existing_model_and_efforts_are_free(self):
-        source = '''model = "private-provider-value" # preserve local choice
+    def test_existing_model_and_efforts_are_replaced_by_pins(self):
+        source = '''model = "private-provider-value" # local choice overridden on apply
 model_reasoning_effort = "high"
 plan_mode_reasoning_effort = "low"
 '''
         output, data, warnings = self.update(source)
-        for key, value in tomllib.loads(source).items():
-            self.assertEqual(data[key], value)
-        self.assertIn(source, output)
+        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model_reasoning_effort"], "medium")
+        self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
+        self.assertIn("# local choice overridden on apply", output)
         self.assertFalse(warnings)
         self.assertEqual(self.update(output)[0], output)
 
@@ -635,8 +637,10 @@ class CommandTests(unittest.TestCase):
         live = self.home / ".codex" / "config.toml"
         self.assertEqual(live.stat().st_mode & 0o777, 0o600)
         first = live.read_bytes()
-        for key in ("model", "model_reasoning_effort", "plan_mode_reasoning_effort"):
-            self.assertNotIn(key, tomllib.loads(first.decode()))
+        data = tomllib.loads(first.decode())
+        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model_reasoning_effort"], "medium")
+        self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         result = call("diff")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
@@ -644,14 +648,15 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(live.read_bytes(), first)
         self.assertFalse((self.home / "scripts").exists())
 
-        # Old seeds become free values; apply/status must not warn or erase them.
-        existing = ('model = "custom-provider"\nmodel_reasoning_effort = "high"\n'
-                    'plan_mode_reasoning_effort = "low"\n').encode() + first
+        # Apply restores changed pins without introducing duplicate TOML keys.
+        existing = first.replace(b'model = "gpt-6.1-sol"', b'model = "custom-provider"')
+        existing = existing.replace(b'model_reasoning_effort = "medium"', b'model_reasoning_effort = "high"')
+        existing = existing.replace(b'plan_mode_reasoning_effort = "xhigh"', b'plan_mode_reasoning_effort = "low"')
         live.write_bytes(existing)
         result = call("apply")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
-        self.assertEqual(live.read_bytes(), existing)
+        self.assertEqual(live.read_bytes(), first)
         for command in ("diff", "status"):
             result = call(command)
             self.assertEqual(result.returncode, 0, result.stderr)
