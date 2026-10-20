@@ -92,7 +92,9 @@ toml_valid() {
 import sys, tomllib
 with open(sys.argv[1], "rb") as stream:
     data = tomllib.load(stream)
-assert not {"model", "model_reasoning_effort", "plan_mode_reasoning_effort"}.intersection(data)
+assert data["model"] == "gpt-6.1-sol"
+assert data["model_reasoning_effort"] == "medium"
+assert data["plan_mode_reasoning_effort"] == "xhigh"
 ' "$OUT"
   grep -qxF 'multi_agent = true' "$OUT"
   grep -qxF 'network_access = false' "$OUT"
@@ -124,11 +126,11 @@ assert not {"model", "model_reasoning_effort", "plan_mode_reasoning_effort"}.int
   grep -qxF '  "task-progress",' "$OUT"
 }
 
-@test "keeps a live model and both efforts without warnings" {
+@test "restores a live model and both efforts to their pins without warnings" {
   merge <"$FIXTURE"
-  grep -qxF 'model = "gpt-5.6-sol"' "$OUT"
-  grep -qxF 'model_reasoning_effort = "high"' "$OUT"
-  grep -qxF 'plan_mode_reasoning_effort = "low"' "$OUT"
+  grep -qxF 'model = "gpt-6.1-sol"' "$OUT"
+  grep -qxF 'model_reasoning_effort = "medium"' "$OUT"
+  grep -qxF 'plan_mode_reasoning_effort = "xhigh"' "$OUT"
   [ ! -s "$ERR" ]
 }
 

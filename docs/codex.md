@@ -195,46 +195,38 @@ setup 同士の二重実行は `setup.lock` ディレクトリで拒否する。
 
 - 編集先は `scripts/codex-config/policy.toml`（通常版 `~/.codex/config.toml`）。分離した Fugu home 用は `scripts/codex-config/policy-fugu.toml`（前述の「base config の管理」）。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないすべてのキーは free。
 - seed の現在値が宣言と異なる場合は保持し、stderr にキー名だけ警告する。宣言値が現在値とは限らない。
-- 通常版の `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` は free。未設定なら Codex 側のデフォルトを使い、明示した現在値は警告なく保持する。固定した用途別設定は `quick` / `work` profile に置く。
-- main への merge 後、`chezmoi diff ~/.codex/config.toml` で確認し、`chezmoi apply ~/.codex/config.toml` で反映する。hash gate・ACK・手動 merge は不要。
+- 通常版は `model = "gpt-6.1-sol"` / `model_reasoning_effort = "medium"` / `plan_mode_reasoning_effort = "xhigh"` を pin とする。起動設定を端末間で揃え、計画時の検討を重視するため、Codex 側のデフォルト追従から明示設定へ変更した。TUI で保存した異なる値も次回 apply で戻る。
+- 反映は次節の対象限定 diff / dry-run・承認・apply の手順に従う。マージ前の worktree でも検証できる。hash gate・ACK・手動 merge は不要。
 - 旧 baseline / hash state が残る場合は、内容を確認して `rm -f ~/.codex/config.chezmoi.toml ~/.codex/.baseline-hash` で削除する。
 
 TOML Kit で構文を解析し、値と型で比較する。出力前に再解析し、pin の値、既存 seed と全 free キーの保持、installer のマーカーブロック不変性を確認する。構文不正・ポリシー衝突・構造衝突は非ゼロ終了し、stdout に部分的な設定を出さない。変更不要なら入力をそのまま返す。未設定の root キーはファイル先頭に追加し、installer が所有するブロックの内側へは入れない。コメントと配列の書式は保持するが、TOML Kit が一部の array-of-tables の配置を正規化するため、変更時のファイル全体のバイト一致は保証しない。
 
-### 既存環境でデフォルト追従へ切り替える
+### 通常起動の設定を適用する
 
-seed を削除しても live の現在値は残るため、既存環境では一度だけ次の移行が必要。新規環境には不要。Codex が設定を書き戻す可能性があるため、通常版の Codex セッションを閉じて別の端末で行う。
+2026-10-01 の「root の3項目を削除してデフォルト追従へ切り替える」手順は旧方針。現在は手動削除せず、modifier で3項目を追加・置換する。Codex が設定を書き戻す可能性があるため、live apply は通常版の Codex セッションを閉じて別の端末で行う。
 
-1. 通常の移行では更新済み source directory、マージ前検証では対象 worktree の絶対パスを `validation_source` に設定する。以降のコマンド例は Bash 用。chezmoi を実行する前に、ルート `AGENTS.md` の手順に従って生の Git 差分・関連する設定・テンプレート・modifier・hook を確認し、source の HEAD と内容・種類・権限の manifest を source 外へ記録する。未追跡ファイルも含め、評価に必要な ignore 対象ファイルは明示的に加える。未確認のコードは評価しない。確認後、同じ source と対象で配置先・差分・dry-run を確認する。
+1. 使用する source directory または worktree の絶対パスを決める。chezmoi 評価前に、ルート `AGENTS.md` に従って生の Git 差分・関連する設定・テンプレート・modifier・hook をレビューし、source の絶対パス・HEAD・ファイルの内容と種類と権限の manifest を source 外へ記録する。未追跡ファイルと評価に必要な ignore 対象も含め、未確認のコードは評価しない。
+2. 同じ source と対象で配置先・差分・dry-run を確認する。以下は Bash 用。
 
    ```bash
    validation_source="/absolute/path/to/selected-source"
-   validation_targets=("$HOME/.codex/config.toml" "$HOME/.codex/quick.config.toml" "$HOME/.codex/work.config.toml" "$HOME/.local/bin/cx")
-   chezmoi --source "$validation_source" target-path "$validation_source/private_dot_codex/modify_private_config.toml" "$validation_source/private_dot_codex/private_quick.config.toml" "$validation_source/private_dot_codex/private_work.config.toml" "$validation_source/dot_local/bin/executable_cx"
-   chezmoi --source "$validation_source" diff --exclude=scripts "${validation_targets[@]}"
-   chezmoi --source "$validation_source" apply --dry-run --verbose --exclude=scripts "${validation_targets[@]}"
+   validation_target="$HOME/.codex/config.toml"
+   chezmoi --source "$validation_source" target-path "$validation_source/private_dot_codex/modify_private_config.toml"
+   chezmoi --source "$validation_source" diff --exclude=scripts "$validation_target"
+   chezmoi --source "$validation_source" apply --dry-run --verbose --exclude=scripts "$validation_target"
    ```
 
-2. 変更対象・差分・復元方法を示して live 編集/apply の明示承認を得る。各対象の内容・権限・symlink・不存在状態をバックアップし、復元可能にする。次は config の保存例。他の対象についても現状を保存する。
-
-   ```sh
-   config_backup="$HOME/.codex/config.toml.bak.$(date +%Y%m%d-%H%M%S)"
-   cp -p "$HOME/.codex/config.toml" "$config_backup"
-   chmod 600 "$config_backup"
-   ```
-
-3. source の絶対パス・HEAD・ファイル一覧・manifest を再確認し、承認時と一致していなければ停止して再確認・再承認する。一致を確認してから `~/.codex/config.toml` を編集し、root の `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` の3項目だけを削除する。ほかの設定・コメントを残し、ファイルの権限を 0600 に保つ。
-4. apply 直前にも同じ source の内容を再確認し、変化があれば停止する。以降も最初に設定した `validation_source` と `validation_targets` を使い、適用後に対象の内容を読み返して、同じ source に対する diff / status が空であることを確認する。
+3. 対象・差分・復元方法を示して live apply の明示承認を得る。対象の内容・権限・symlink・不存在状態を保存する。バックアップは機密設定を含むためアクセスを制限する。失敗時や検証状態を戻す場合は、保存した内容と権限・symlink 状態（元が不存在なら不存在）へ復元する。
+4. apply 直前に source の絶対パス・HEAD・ファイル一覧・manifest を再照合する。変化があれば停止し、レビューと承認をやり直す。一致を確認してから適用し、設定を読み返して対象限定 diff が空であることを確認する。
 
    ```bash
-   chezmoi --source "$validation_source" apply --verbose --exclude=scripts "${validation_targets[@]}"
-   chezmoi --source "$validation_source" diff --exclude=scripts "${validation_targets[@]}"
-   chezmoi --source "$validation_source" status --exclude=scripts "${validation_targets[@]}"
+   chezmoi --source "$validation_source" apply --verbose --exclude=scripts "$validation_target"
+   chezmoi --source "$validation_source" diff --exclude=scripts "$validation_target"
    ```
 
-5. 新規セッションで `codex` / `cx quick` / `cx work` の通常モードと Plan mode を確認し、通常起動の実効モデル・エフォートを記録する。検証後の状態を維持したか、バックアップへ復元したかを報告する。マージ前検証の承認に PR のマージ承認は含まれない。
+5. 明示上書きのない新規セッションで通常・Plan 各1ターンを実行し、セッション記録の実効設定がそれぞれ `gpt-6.1-sol` / `medium`、`gpt-6.1-sol` / `xhigh` であることを確認する。自動テスト・live 適用・実行確認の結果は分けて報告し、検証状態を維持したか復元したかも記載する。apply の承認に PR のマージ承認は含まれない。
 
-デフォルト追従は明示指定がない場合の動作。TUI で設定を保存した場合や、project config・起動オプションに指定がある場合は、その値が優先される。
+pin は apply 時の再設定であり、起動時の強制ではない。profile・trusted project config・CLI 引数による明示上書きは引き続き利用できる。
 
 ### 隔離した検証
 
@@ -259,11 +251,11 @@ Python テストには `chezmoi` が必要。Bats は依存未準備を skip せ
 
 | 入口 | 選び方 | モデル | 通常モードの effort | Plan mode の effort |
 | --- | --- | --- | --- | --- |
-| `codex` | Codex 側のデフォルトを使う | Codex 側のデフォルト | Codex 側のデフォルト | Codex 側のデフォルト |
+| `codex` | 通常の作業 | `gpt-6.1-sol` | `medium` | `xhigh` |
 | `cx quick` | 方針・範囲・検証方法が明確で、やり直しやすい作業 | `gpt-6.1-sol` | `low` | `medium` |
 | `cx work` | 不確実な作業、迷う場合 | `gpt-6-astra` | `high` | `xhigh` |
 
-quick は変更行数の少なさや Fast モードを意味しない。Plan mode でも選択したモデルを使い、effort は profile の `plan_mode_reasoning_effort` から選ぶ。通常起動ではこれを未設定にして、Plan mode の組み込み既定に任せる。Codex CLI 0.159.2 の隔離した preset 確認では `medium` だったが、この値は固定しない。profile 選択は Plan への切替ではない。`deep`、自動選択、自動昇格、独自の選択メニューは提供しない。
+quick は変更行数の少なさや Fast モードを意味しない。Plan mode でも選択したモデルを使い、effort は profile の `plan_mode_reasoning_effort` から選ぶ。通常起動の Plan effort は共通設定で `xhigh` に固定する。profile 選択は Plan への切替ではない。`deep`、自動選択、自動昇格、独自の選択メニューは提供しない。
 
 ```bash
 cx quick '確認済みの方針で修正して'
@@ -425,7 +417,7 @@ codex \
 
 runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。プロファイル名や終了コードだけで成功とせず、親子の実効モデル・effort・sandbox・承認設定と、実際の collaboration 呼び出し・結果受領・終了を確認する。存在しない profile でも既定値で起動する場合があるため、実効設定の不一致は検証失敗として扱う。merge 前は原則として isolated `CODEX_HOME` と `/tmp` の fixture を使う。実環境での検証が必要なら、ルート `AGENTS.md` の手順に従い、対象・source・復元方法を示して明示承認を得たうえで、マージ前でも対象限定の `chezmoi apply` を実行できる。apply・動作確認の承認は PR のマージ承認を含まない。
 
-`model_reasoning_effort = "xhigh"` は監査には有用だが、通常の反復レビューでは過剰になりやすい。通常起動の effort は Codex 側のデフォルトに任せる。review 用途では profile を明示的に切り替える。
+通常起動の effort は `medium`、Plan mode は `xhigh` とする。review profile は Plan effort を指定していないため、Plan mode に切り替えると共通設定の `xhigh` を継承する。通常モードのレビューでは各 profile の model / effort を使用する。専用 profile の置き換え検討は [Issue #420](https://github.com/toku345/dotfiles/issues/420) で扱う。
 
 - `review`: 通常レビュー・dogfood iteration 用
 - `review_deep`: 複雑な PR や main pre-merge review 用
