@@ -943,6 +943,45 @@ def main() -> None:
                 f"stderr:\n{baseline.stderr}"
             )
 
+        section_mutations = (
+            (
+                "dispatch concurrency",
+                "- **The V2 adapter** derives",
+                "3. **Await all Stage 1 specialists**",
+                "maximum of 3",
+                "V2-dispatch",
+                "V2-dispatch",
+            ),
+            (
+                "await cleanup monotonicity",
+                "- **The V2 adapter** follows this state machine",
+                "4. **Scan Stage 1 output",
+                "cleanup start is monotonic fatal",
+                "V2-await",
+                "SKILL.md consistency",
+            ),
+        )
+        for name, start_marker, end_marker, needle, section_context, deletion_context in section_mutations:
+            for misplaced in (False, True):
+                variant = "misplaced" if misplaced else "deleted"
+                repo = copy_fixture_repo(root / f"section-{name}-{variant}")
+                skill = repo / "private_dot_codex/skills/pr-review/SKILL.md"
+                raw = skill.read_text(encoding="utf-8")
+                start = raw.index(start_marker)
+                end = raw.index(end_marker, start)
+                section = raw[start:end]
+                if section.count(needle) != 1:
+                    raise AssertionError(f"{name}: expected exactly one section occurrence")
+                changed = raw[:start] + section.replace(needle, "", 1) + raw[end:]
+                if misplaced:
+                    # Preserve whole-file matches outside the owning section.
+                    changed += f"\n{needle}\n"
+                skill.write_text(changed, encoding="utf-8")
+                context = section_context if misplaced else deletion_context
+                assert_fails_closed(
+                    f"{name} {variant}", repo, f"{context}: missing {needle!r}"
+                )
+
         for index, (name, rel_path, old, new, expected) in enumerate(mutations):
             repo = copy_fixture_repo(root / f"case-{index}")
             replace_once(repo / rel_path, old, new)
