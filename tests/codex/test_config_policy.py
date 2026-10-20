@@ -230,7 +230,7 @@ class FuguPolicyTests(unittest.TestCase):
             'plan_mode_reasoning_effort = "xhigh"\n'
             'check_for_update_on_startup = false\n'
             'approval_policy = "on-request"\n'
-            'approvals_reviewer = "user"\n'
+            'approvals_reviewer = "auto_review"\n'
             "\n[features]\nfast_mode = false\n",
         )
         self.assertEqual(
@@ -239,7 +239,7 @@ class FuguPolicyTests(unittest.TestCase):
                 "plan_mode_reasoning_effort": "xhigh",
                 "check_for_update_on_startup": False,
                 "approval_policy": "on-request",
-                "approvals_reviewer": "user",
+                "approvals_reviewer": "auto_review",
                 "features": {"fast_mode": False},
             },
         )
@@ -271,14 +271,14 @@ class FuguPolicyTests(unittest.TestCase):
             'plan_mode_reasoning_effort = "medium"\n'
             "check_for_update_on_startup = true\n"
             'approval_policy = "never"\n'
-            'approvals_reviewer = "guardian_subagent"\n'
+            'approvals_reviewer = "user"\n'
             "\n[features]\nfast_mode = true\n"
             "\n[tui]\nstatus_line_use_colors = true\n"
         )
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         self.assertIs(data["check_for_update_on_startup"], False)
         self.assertEqual(data["approval_policy"], "on-request")
-        self.assertEqual(data["approvals_reviewer"], "user")
+        self.assertEqual(data["approvals_reviewer"], "auto_review")
         self.assertIs(data["features"]["fast_mode"], False)
         self.assertIs(data["tui"]["status_line_use_colors"], True)
         # Pins re-assert silently; only seed divergence is reported.
@@ -498,7 +498,7 @@ class CommandTests(unittest.TestCase):
                 "plan_mode_reasoning_effort": "xhigh",
                 "check_for_update_on_startup": False,
                 "approval_policy": "on-request",
-                "approvals_reviewer": "user",
+                "approvals_reviewer": "auto_review",
                 "features": {"fast_mode": False},
             },
         )

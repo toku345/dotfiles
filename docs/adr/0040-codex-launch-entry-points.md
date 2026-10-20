@@ -6,6 +6,8 @@ Accepted (2026-09-29). Extends [ADR 0038](0038-fugu-home-config-policy.md).
 
 Amended (2026-10-01): 通常起動は Codex 側のデフォルトに任せ、quick / work はモデルと通常・Plan 両モードの effort を明示する。
 
+Amended (2026-10-20): Fugu home の承認レビュアー既定を `user` から `auto_review`（Approve for me）へ変更した。
+
 ## Context
 
 PR #365 は通常版 Codex の起動入口 `cx`（Astra low / high を profile で選ぶ）と、Fugu 用の `cf`（更新チェック抑止・Fast 無効・承認を人間へ・不一致警告）を提案していた。`cf` の中身を現行 main（ADR 0038 の分離、管理ラッパー、config policy）と突き合わせると、次の問題があった。
@@ -21,7 +23,7 @@ PR #365 は通常版 Codex の起動入口 `cx`（Astra low / high を profile �
 2. `cf` は作らない。Fugu の起動時既定はすべて `scripts/codex-config/policy-fugu.toml` の pin に置き、どの起動経路でも常時適用する:
    - `plan_mode_reasoning_effort = "xhigh"`（ADR 0038 から継続）
    - `check_for_update_on_startup = false`（Codex 自身の自己更新プロンプトのみ抑止）
-   - `approval_policy = "on-request"` / `approvals_reviewer = "user"`（承認を人間へ。vanilla は `guardian_subagent` のまま）
+   - `approval_policy = "on-request"` / `approvals_reviewer = "auto_review"`（Approve for me を既定化。TUI の権限コントロールまたは 1 回限りの `-c approvals_reviewer="user"` で人間承認へ戻せる。vanilla は `guardian_subagent` のまま）
    - `[pin.features] fast_mode = false`
 3. ランチャーと管理ラッパーは変更しない。`--no-update` を注入せず、Fugu の config / CLI 更新は公式ランチャー（bundle の `install.sh` 経由）に一本化する。不一致の扱いもランチャーの TTY 経路に任せる。
 4. ADR 0038 の「vanilla の sandbox / features / tui pin を Fugu home へ持ち込まない」原則は維持する。承認と `fast_mode` は Fugu 専用の起動時既定として明示的に追加する。

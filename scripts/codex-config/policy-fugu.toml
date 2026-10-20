@@ -16,10 +16,13 @@ plan_mode_reasoning_effort = "xhigh"
 # 0.154.0/0.155.1 mismatch.
 check_for_update_on_startup = false
 
-# Approvals go to the human in this home. The vanilla policy keeps the
-# guardian subagent, so these two keys are Fugu-specific launch defaults.
+# Approve for me: eligible approval requests route to the auto-review
+# reviewer agent by default. The per-chat permissions control (or a
+# one-shot `-c approvals_reviewer="user"`) can still hand approvals back
+# to the human. The vanilla policy keeps the guardian subagent, so these
+# two keys are Fugu-specific launch defaults.
 approval_policy = "on-request"
-approvals_reviewer = "user"
+approvals_reviewer = "auto_review"
 
 [pin.features]
 # Fast/priority tier is not used in the isolated home.

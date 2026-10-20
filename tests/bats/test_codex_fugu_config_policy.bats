@@ -55,7 +55,7 @@ toml_valid() {
   grep -qxF 'plan_mode_reasoning_effort = "xhigh"' "$OUT"
   grep -qxF 'check_for_update_on_startup = false' "$OUT"
   grep -qxF 'approval_policy = "on-request"' "$OUT"
-  grep -qxF 'approvals_reviewer = "user"' "$OUT"
+  grep -qxF 'approvals_reviewer = "auto_review"' "$OUT"
   grep -qxF 'fast_mode = false' "$OUT"
   [ "$(grep -n 'plan_mode_reasoning_effort' "$OUT" | cut -d: -f1)" -lt \
     "$(grep -n '# >>> fugu:model_providers.sakana >>>' "$OUT" | cut -d: -f1)" ]
@@ -76,11 +76,11 @@ toml_valid() {
 }
 
 @test "re-asserts stored pinned values" {
-  printf 'plan_mode_reasoning_effort = "medium"\ncheck_for_update_on_startup = true\napproval_policy = "never"\napprovals_reviewer = "guardian_subagent"\n\n[features]\nfast_mode = true\n\n[tui]\nstatus_line_use_colors = true\n' | merge
+  printf 'plan_mode_reasoning_effort = "medium"\ncheck_for_update_on_startup = true\napproval_policy = "never"\napprovals_reviewer = "user"\n\n[features]\nfast_mode = true\n\n[tui]\nstatus_line_use_colors = true\n' | merge
   grep -qxF 'plan_mode_reasoning_effort = "xhigh"' "$OUT"
   grep -qxF 'check_for_update_on_startup = false' "$OUT"
   grep -qxF 'approval_policy = "on-request"' "$OUT"
-  grep -qxF 'approvals_reviewer = "user"' "$OUT"
+  grep -qxF 'approvals_reviewer = "auto_review"' "$OUT"
   [ "$(grep -c '^approval_policy = ' "$OUT")" -eq 1 ]
   grep -qxF 'fast_mode = false' "$OUT"
   [ "$(grep -c '^\[features\]$' "$OUT")" -eq 1 ]
@@ -113,7 +113,7 @@ assert data["features"] == {"fast_mode": False}, data["features"]
 plan_mode_reasoning_effort = "xhigh"
 check_for_update_on_startup = false
 approval_policy = "on-request"
-approvals_reviewer = "user"
+approvals_reviewer = "auto_review"
 
 [features]
 fast_mode = false
