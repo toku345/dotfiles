@@ -1,6 +1,6 @@
 ---
 name: codex-usage
-description: Codex (codex exec / `/codex:adversarial-review` / `/codex:rescue`) の使い分け・自動レビュー条件・`codex exec` / `codex exec resume --last` の構文を提供する。実装プラン完成時に Codex 自動レビューを実施するか判断するとき、長時間調査・別案試行・バックグラウンド実行を検討するときに参照する。
+description: Codex CLI による実装計画レビューの条件と手順、および `/codex:adversarial-review` / `/codex:rescue` の使い分け。厚い変更の計画完成時や、調査委譲・別案試行・バックグラウンド実行を検討するときに参照する。
 ---
 
 # codex-usage
@@ -23,11 +23,7 @@ Codex は実装プランの第二意見・adversarial レビュー・長時間�
 
 ### 実施条件
 
-`codex` 利用可能で、かつ CLAUDE.md「重要度の線引き」の **厚く理解する対象** に該当する変更のときのみ実施する。具体例:
-
-- 複数ファイルにまたがる変更
-- アーキテクチャに影響する設計判断
-- 既存の振る舞いを変更するリファクタリング
+`codex` 利用可能で、かつ CLAUDE.md「重要度の線引き」の **厚く理解する対象** に該当する変更のときのみ実施する。
 
 軽く扱ってよい対象 (typo / 単純な横展開 / 設定値変更 / 純粋なドキュメント (`docs/**`, `README.md` 等)) には **適用しない**。
 
@@ -35,21 +31,10 @@ Codex は実装プランの第二意見・adversarial レビュー・長時間�
 
 ### 実行手順
 
-1. プラン完成後、初回レビュー依頼:
-
-   ```bash
-   codex exec "...プランレビュー...$(cat <plan>)"
-   ```
-
-2. 指摘があれば反映後、再レビュー:
-
-   ```bash
-   codex exec resume --last "..."
-   ```
-
-3. 再レビューは「新しいレビュー」ではなく、前回の高優先度 (Critical / Important 相当) 指摘の検収として扱う。新規指摘は明確な merge blocker に限り、nit / style / optional refactor suggestion を増やして反復ループを伸ばさない。
-
-4. 自動反復は原則 1 回まで。追加反復が必要な場合は、残っている blocker と未検証事項を ユーザー に提示し、続行判断を仰ぐ。
+1. プラン完成後、当該タスク専用の新規 `codex exec --sandbox read-only -C <repo>` に、元の要求・制約・計画・関連コードや検証の根拠を stdin で渡す（下記の例を参照）。secret・credential・不要な個人情報は渡さない。
+2. 依頼文でレビュー専任とし、必要な調査（公式資料・コード・Skill）は許可する。対象の編集・実装・共有リソースの変更・再委譲は禁止し、結果を返して終了させる。調査用ツール・Skill は一律無効化せず、変更・再委譲を伴う Skill は本文参照に留め、既存の権限・承認を維持する。
+3. 作成元が指摘の根拠と採否を判断して反映する。必要なら元の要求・制約、修正後の計画、前回指摘と対応を渡した新規プロセスで修正確認する。高優先度の指摘の解消を優先し、nit 等で反復を伸ばさない。
+4. 外部レビューは初回と必要な修正確認1回まで。追加確認が必要な重要事項はユーザーに提示する。利用不能・失敗時は外部レビュー未実施を明記してセルフレビューを行う。
 
 ### agmsg handoff が使える場合
 
@@ -57,14 +42,12 @@ Codex は実装プランの第二意見・adversarial レビュー・長時間�
 
 依頼文には「1 回実行して結果を artifact に保存する」を含める。返信の送信もユーザーの明示依頼時だけ行い、自動往復ループを作らない。agmsg が未導入、未 join、または受信側が不明な場合は送受信を止め、不足情報をユーザーに確認する。通常の `codex exec` / `/codex:*` の起動条件は上記のままとし、独立した別セッションへの依頼を標準通信で自動的に代替しない。
 
-### Gotcha: background + 長い HEREDOC は stdin redirect で渡す
+### Gotcha: 長い依頼はパイプや既存ファイルから stdin に渡す
 
-`run_in_background: true` で `codex exec "$(cat <<'PROMPT' ... PROMPT)"` のように argv 経由で長い prompt を渡すと、prompt 引数が認識されず `Reading additional input from stdin...` で blocking → 終了する。HEREDOC は **直接 stdin に redirect** すれば確実:
+`run_in_background: true` で `codex exec "$(cat <<'PROMPT' ... PROMPT)"` のように argv 経由で長い prompt を渡すと、prompt 引数が認識されず `Reading additional input from stdin...` で blocking → 終了する。パイプや既存ファイルから stdin に渡す。呼び出し元が読み取り専用環境では HEREDOC の一時ファイル作成も失敗しうる:
 
 ```bash
-codex exec --sandbox read-only -C <dir> <<'PROMPT'
-<task>...</task>
-PROMPT
+codex exec --sandbox read-only -C /path/to/repo - < /path/to/request.md
 ```
 
 ## sandbox 注意
