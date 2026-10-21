@@ -9,6 +9,8 @@ Codex は実装プランの第二意見・adversarial レビュー・長時間�
 
 別 Codex セッションへの peer handoff はユーザーの明示依頼時だけ行う。agmsg は配信モード `off` で手動利用する transport であり、レビュー gate の base pinning / fail-closed aggregation は既存の `$pr-review` / `/pr-review` が担う。
 
+ユーザーが依頼文と結果を編集できる手動の計画レビュー往復を選んだ場合は、skill `plan-review-handoff` の共通手順を使う。
+
 ## 用途と起動者
 
 | 用途 | 手段 | 起動者 |

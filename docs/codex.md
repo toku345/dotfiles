@@ -110,6 +110,7 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 
 ## 管理するもの
 
+- `dot_agents/skills/plan-review-handoff/` -> `~/.agents/skills/plan-review-handoff/`（[人が編集する計画レビュー](plan-review-handoff.md)の共通入口と手順）
 - `private_dot_codex/AGENTS.md` -> `~/.codex/AGENTS.md`
 - `private_dot_codex/modify_private_config.toml` -> `~/.codex/config.toml` の per-key 更新（chezmoi の `modify_` target）
 - `private_dot_codex/private_review.config.toml` -> `~/.codex/review.config.toml`
@@ -319,6 +320,12 @@ experimental_mode = true
 新規タスク開始時に設定読み込みエラーがないことを確認する。エラーがないだけでは当該設定の受理や機能動作を確認したことにはせず、確認できなかった部分は未検証として記録する。
 
 無効化: live の同じキーを `false` にして新規タスクを開始する（[公式設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)）。これは一時的な無効化で、次回 `chezmoi apply` で pin の `true` に戻る。全端末向けに取り消す場合は `pin` の値を `false` に変更し、`chezmoi apply` で反映する。
+
+## 人が編集する計画レビュー
+
+`$plan-review-handoff` に `prepare` / `review` / `assess` と対象を添えると、相手向け依頼文の準備、受け取った計画のレビュー、元の作成元での指摘の採否判断を行う。[共通手順と依頼文](plan-review-handoff.md)を参照。
+
+Codex の入口は `~/.agents/skills/plan-review-handoff/` に配置する。Claude Code の入口と手順は同じ正本から生成する。対象環境・実際に確認した読み込み・未検証範囲は [#418 の試行記録](issues/418-handoff-trial.md)に分けて記録する。既存の `~/.codex/skills/` は移行せず、Fugu での利用は未検証とする。
 
 ## agmsg writable roots
 

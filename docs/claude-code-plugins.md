@@ -4,6 +4,12 @@
 
 `chezmoi apply` 実行時にプラグインが未インストールの場合、注意メッセージが表示されます。
 
+## 人が編集する計画レビュー
+
+`/plan-review-handoff` に `prepare` / `review` / `assess` と対象を添え、依頼文の準備・受け取った計画のレビュー・元の作成元での採否判断を行う。[共通手順と依頼文](plan-review-handoff.md)は Codex と共有し、`~/.claude/skills/plan-review-handoff/` へ生成する。
+
+依頼文と結果はユーザーが編集可能な状態で手動転送する。この Skill は相手を自動起動せず、通常の自動計画レビューや pre-PR gate も置き換えない。agmsg は転送手段の選択肢であり、この手順の前提ではない。
+
 ## agmsg
 
 Claude Code / Codex / 別セッション間の handoff transport。
