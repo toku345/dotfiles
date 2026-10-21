@@ -34,7 +34,8 @@
 - 通常はセルフレビュー、厚い変更の実装計画は相手 CLI が利用可能なら当該タスク専用の新規プロセスに依頼する。通常の会話・進捗報告は対象外とする。
 
 厚い変更は、重要な設計、複数ファイル・責務、安全性・認可・課金・個人情報、障害対応、共通パターン、ポートフォリオ等で説明が重要な変更を指す。agent 指示・Skill・output-style・共有設定・ADR の変更も含む。
-Claude への依頼は `claude -p --permission-mode plan` を基本とし、元の要求・制約・計画・関連根拠をパイプや既存ファイルから stdin に渡す。secret・credential・不要な個人情報は渡さない。依頼文で必要な調査（公式資料・コード・Skill）は許可し、計画ファイル作成を含む編集・実装・共有リソース変更・再委譲を禁止して、結果を本文で返して終了させる。調査用ツール・Skill は一律無効化せず、変更・再委譲を伴う Skill は本文参照に留め、既存の権限・承認を維持する。
+Claude への依頼は `env CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 claude -p --permission-mode plan` を基本とし、元の要求・制約・計画・関連根拠をパイプや既存ファイルから stdin に渡す。read-only の呼び出し元では一時ファイルを作れない場合があるため、依頼文の転送に heredoc を使わない。環境変数はレビュー専用プロセスだけに付け、通常の `advisorModel` 設定は変更しない。secret・credential・不要な個人情報は渡さない。依頼文で必要な調査（公式資料・コード・Skill）は許可し、計画ファイル作成を含む編集・実装・共有リソース変更・再委譲を禁止して、結果を本文で返して終了させる。調査用ツール・Skill は一律無効化せず、変更・再委譲を伴う Skill は本文参照に留め、既存の権限・承認を維持する。
+sandbox 内で Claude が通常の認証を利用できない場合は、Claude の起動コマンドだけを環境の通常の承認経路で sandbox 外へ出す（Codex の `exec_command` では `sandbox_permissions=require_escalated`）。呼び出し元の sandbox 制限と、Claude 自身の plan 権限・sandbox は維持する。承認を求められない設定（`approval_policy=never` 等）や承認不能・拒否の場合は、権限を変更せず未実施として扱う。`danger-full-access`・bypass フラグ・恒久 allowlist で迂回しない。
 作成元が指摘の採否を判断し、必要なら元の要求・制約、修正後の計画、前回指摘と対応を渡した新規プロセスで1回確認する。利用不能・失敗時は外部レビュー未実施を明記してセルフレビューを行う。計画レビューは既存の pre-PR gate を置き換えない。
 
 ## Git / PR / Issue の言語
