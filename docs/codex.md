@@ -325,7 +325,7 @@ experimental_mode = true
 
 `$plan-review-handoff` に `prepare` / `review` / `assess` と対象を添えると、相手向け依頼文の準備、受け取った計画のレビュー、元の作成元での指摘の採否判断を行う。[共通手順と依頼文](plan-review-handoff.md)を参照。
 
-Codex の入口は `~/.agents/skills/plan-review-handoff/` に配置する。Claude Code の入口と手順は同じ正本から生成する。対象環境・実際に確認した読み込み・未検証範囲は [#418 の試行記録](issues/418-handoff-trial.md)に分けて記録する。既存の `~/.codex/skills/` は移行せず、Fugu での利用は未検証とする。
+Codex の入口は `~/.agents/skills/plan-review-handoff/` に配置する。Claude Code の入口と手順は同じ正本から生成する。対象環境・実際に確認した読み込み・未検証範囲は [Issue #418](https://github.com/toku345/dotfiles/issues/418)に分けて記録する。既存の `~/.codex/skills/` は移行せず、Fugu での利用は未検証とする。
 
 ## agmsg writable roots
 
