@@ -124,7 +124,7 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 - `private_dot_codex-fugu/symlink_AGENTS.md` / `symlink_agents` / `rules/symlink_managed.rules` -> `~/.codex` への symlink 共有（opt-in）
 - `.chezmoiscripts/run_before_check-codex-fugu-static-conflicts.sh` -> 既存 real target の置換防止（opt-in）
 - `.chezmoiscripts/run_after_setup-agmsg.sh`
-- `.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh`
+- `.chezmoiscripts/run_after_setup-cc-session-finder.sh`
 
 ## 管理しないもの
 
@@ -345,19 +345,50 @@ mode は `off` で使うが、agmsg runtime state の書き込み先として同
 `~/.codex/config.toml` diff を確認し、この3ディレクトリの writable roots 追加
 以外の変更が入った場合は fail loud する。
 
-## cc-session-finder MCP
+## cc-session-finder CLI
 
-`.chezmoiscripts/run_after_setup-cc-session-finder-mcp.sh` は `cc-session-finder` を pinned revision で install し、Claude Code と Codex の両方に user-local MCP server として登録する。Codex 側は `~/.codex/config.toml` の `[mcp_servers.cc-session-finder]` に以下を保持する:
+`.chezmoiscripts/run_after_setup-cc-session-finder.sh` は `cc-session-finder` CLI を pinned revision で導入する。Claude Code / Codex の MCP 登録は取得・追加・削除しない。共通の agent 指示や Skill は追加せず、必要なときに利用者が「cc-session-finder の CLI で過去の判断を調べて」と明示する運用とする。shell を実行できる環境が必要で、通常の承認手順に従う。
 
-```toml
-[mcp_servers.cc-session-finder]
-command = "/absolute/path/to/cc-session-finder"
-args = ["mcp"]
+managed binary は `${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-session-finder`。これがなければ PATH 上の binary を再利用する。どちらもなく Cargo があれば固定 SHA から導入し、Cargo もなければ警告して setup を skip する。通常の apply は既存 binary の revision を検証・更新しない。明示的な `CC_SESSION_FINDER_REINSTALL=1` のときだけ managed path へ強制再導入する。更新と apply の承認・source 確認は [定期更新チェックリスト](claude-code-plugins.md#cc-session-finder) と [AGENTS.md](../AGENTS.md#chezmoi-operations) に従う。
+
+### 明示依頼での検索
+
+実行する binary の絶対 path を確認する。managed path がなければ `command -v cc-session-finder` で PATH 上の実体を確認する。以下は既定 root の例で、custom root の場合は読み替える。
+
+```sh
+finder="${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-session-finder"
+"$finder" sessions search '検索語' --limit 5
+"$finder" sessions overview '検索結果のid'
+"$finder" sessions messages '検索結果のid' --limit 5
+"$finder" sessions search-messages '検索結果のid' '確認したい語句' --limit 5
 ```
 
-この section は `free` キーとして installer-managed local entry のまま live config に保持する。ポリシー変更時も残る。
+検索はタイトル・本文等から候補を返す。overview は first/latest message 等の概要であり、会話全体の要約ではない。`messages --after <message_index>` で続きを参照でき、`search` の `next_cursor` は `sessions search --cursor <cursor>` に渡せる。必要なら `--cwd <absolute-path> --cwd-only` や `--since` / `--until` で絞る。
 
-managed install は `${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-session-finder` (CARGO_INSTALL_ROOT → CARGO_HOME → `~/.cargo` の順で解決) を優先する。通常の `chezmoi apply` は既存 binary の revision を判定せず、`CC_SESSION_FINDER_REINSTALL=1 chezmoi apply -v` のときだけ pinned revision を managed path へ強制再インストールする。`CC_SESSION_FINDER_REF` の reviewed bump 手順は [docs/claude-code-plugins.md の定期更新チェックリスト](claude-code-plugins.md#定期更新チェックリスト) を参照。
+`sessions` は upstream では MCP-shaped query の **debug harness** と位置づけられている。pin を更新するときは search / overview / messages / search-messages を再確認する。検索時の索引更新に失敗しても、stderr に警告を出して古い索引を検索し、終了コード 0 を返す場合がある。終了コード 0 や検索 0 件だけでは、最新ログを検索できた証拠にしない。`--no-update` は索引コピー等の意図的な読み取りに限って使う。
+
+対象はその端末の `~/.claude/projects` と `~/.codex` にあるログ・state DB、および既存のローカル索引であり、端末間同期は行わない。現在の pin は tool process の HOME を基準にこれらを解決するため、custom agent home / Fugu が自動的に対象になるとは扱わない。元ログが消えて索引だけに残る archive もある。`prune` / `--reset` はその内容を失い得るため、通常の検索・移行・復旧の第一手には使わない。会話本文や索引は公開 Issue / PR に転載しない。
+
+### 既存端末の MCP 登録を移行する
+
+source の変更だけでは既存登録は消えない。Codex の `mcp_servers` は引き続き config policy の `free` キーなので、今回も自動削除されない。CLI、元ログ、索引は保持する。live apply と登録解除は別途承認を得て行い、単に検証するために merge を必須としない。
+
+端末ごとに次のチェックリストを使う。文書やコードの完成を、全端末の移行完了と混同しない。
+
+- [ ] 選択した source / HEAD を確認し、旧 setup script がなく CLI-only 版が使われることを確認する。worktree では `chezmoi --source <worktree-path>` を明示し、AGENTS.md の diff / manifest / dry-run / 退避手順を経て承認された範囲を適用する。旧 source を使うと再登録されるので、解除より先に source を切り替える。
+- [ ] 実行 binary の path と各 client の home / scope / command / args / env 等を確認する。既定以外の project / custom home / Fugu の登録を推測しない。不明な登録は解除せず確認待ちにする。
+- [ ] 対象設定を permission / symlink 状態ごと私的に退避し、復元に必要な entry を記録する。credential を含む設定や backup をコミット・公開しない。
+- [ ] 現行 CLI の help を確認して、対象 entry だけを解除する。既定 home / Claude user scope の例は次のとおり。project / custom home にそのまま適用しない。
+
+  ```sh
+  claude mcp remove cc-session-finder -s user
+  codex mcp remove cc-session-finder
+  ```
+
+- [ ] 設定を読み返し、対象 entry の不在と無関係な設定の保持を確認する。client session を再起動し、明示依頼による CLI 検索を確認する。CLI-only setup の反復実行でも登録が復活しないことを確認する。
+- [ ] 対象端末について完了 / 未実施 / 未確認を記録する。実ログ、index/cache、binary は削除しない。
+
+rollback は、記録した元の home / scope に対象 entry だけを戻す。既定 user scope で `args = ["mcp"]` だった場合の例は `claude mcp add --scope user cc-session-finder -- /recorded/absolute/path mcp` / `codex mcp add cc-session-finder -- /recorded/absolute/path mcp`。追加の args / env があった場合も元の値を復元する。設定全体を戻して無関係な変更を上書きせず、permission / symlink 状態を含めて読み返す。client を再起動する。再導入や索引 reset は不要。
 
 ## rules
 
