@@ -123,7 +123,7 @@ agmsg は automatic latest 追従しない。更新時は
 
 ## 定期更新チェックリスト
 
-agmsg / cc-session-finder / Claude Code plugins は自動更新しない
+agmsg / Claude Code plugins は自動更新しない
 (`DISABLE_AUTOUPDATER=1` と marketplace の `autoUpdate=false` は維持)。
 四半期に 1 回を下限として、同じレビュー窓で更新有無を確認する。変更と
 rollback を分離するため、実際の bump はコンポーネントごとに reviewed PR を
@@ -137,77 +137,6 @@ rollback を分離するため、実際の bump はコンポーネントごと�
 までの upstream diff レビュー → `AGMSG_REF` bump → `chezmoi apply -v` →
 Claude Code は `/agmsg version`、Codex は
 `~/.agents/skills/agmsg/scripts/version.sh` で同じタグが返ることを確認)。
-
-### cc-session-finder
-
-1. candidate の full commit SHA を先に確定し、現行 pin との差分をレビュー:
-   `https://github.com/jugyo/cc-session-finder/compare/<現行 SHA>...<candidate SHA>`
-2. `.chezmoiscripts/run_after_setup-cc-session-finder.sh` の
-   `CC_SESSION_FINDER_REF` を、レビューした同じ candidate SHA に bump する
-3. merge 前に、一時 install root で candidate が実際に build・起動できることを
-   確認する (`<candidate SHA>` は手順 1 と同じ値):
-
-   ```sh
-   candidate=FULL_40_CHARACTER_SHA
-   tmpdir=$(mktemp -d)
-   trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
-   cargo install --git https://github.com/jugyo/cc-session-finder.git \
-     --rev "$candidate" --locked --root "$tmpdir" --bin cc-session-finder
-   "$tmpdir/bin/cc-session-finder" --version
-   binary="$tmpdir/bin/cc-session-finder"
-   ```
-
-   この一時 root を保持したまま、merge 前に手順 7 の匿名 fixture 検索も実施する。version と取得結果の両方が確認できるまで merge しない。
-
-4. PR をレビュー・merge した後、main source directory を merged main へ同期する。
-   `<candidate SHA>` を手順 1 と同じ値にして、local source の pin も確認する:
-
-   ```sh
-   cd ~/.local/share/chezmoi
-   git switch main
-   git pull --ff-only
-   candidate=FULL_40_CHARACTER_SHA
-   actual=$(sed -n 's/^CC_SESSION_FINDER_REF="\([^"]*\)"/\1/p' \
-     .chezmoiscripts/run_after_setup-cc-session-finder.sh)
-   test "$actual" = "$candidate"
-   ```
-
-5. main source directory で明示的に再導入する:
-   `CC_SESSION_FINDER_REINSTALL=1 chezmoi apply -v`。このときだけ managed binary
-   (`${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-session-finder`)
-   へ `cargo install --force --locked --rev <REF>` する。通常の
-   `chezmoi apply` は既存 binary の revision を判定せず、自動更新しない
-6. install 成功ログを確認し、実際に使う managed binary を smoke test する:
-
-   ```sh
-   managed_binary="${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/cc-session-finder"
-   "$managed_binary" --version
-   binary="$managed_binary"
-   ```
-
-   version 出力は semver のみで commit SHA を証明しない
-7. candidate / managed binary で、匿名 fixture を使った CLI smoke test を行う。upstream が debug harness とする `sessions` の互換性も確認する。merge 前は手順 3 の candidate binary、承認された更新後は手順 6 の managed binary を同じ fixture に対して使う。通常の認証 HOME はコピーせず、tool process の HOME と XDG 保存先だけを一時ディレクトリ配下へ向ける。Claude JSONL と Codex state DB / transcript の両形式を用意し、既知の語句・期待する回答が取得できることを確認する:
-
-   ```sh
-   # binary は確認する candidate または managed binary の絶対 path。
-   # fixture_home は実ログや credential を含まない一時 HOME。
-   # 各保存先を fixture_home 配下へ閉じ込める (Linux の XDG 優先にも対応)。
-   (
-     export HOME="$fixture_home"
-     export XDG_CACHE_HOME="$fixture_home/.cache"
-     export XDG_CONFIG_HOME="$fixture_home/.config"
-     export XDG_DATA_HOME="$fixture_home/.local/share"
-     export XDG_STATE_HOME="$fixture_home/.local/state"
-     "$binary" sessions search 'fixtureの既知の語句' --limit 5
-     "$binary" sessions overview '検索結果のid'
-     "$binary" sessions messages '検索結果のid' --limit 2
-     "$binary" sessions search-messages '検索結果のid' 'fixtureの既知の語句' --limit 2
-   )
-   ```
-
-   JSON の agent / id / message 内容を期待値と照合し、stderr に索引更新の警告がないことを確認する。終了コードだけで合格にしない。fixture は再利用できる状態で保持し、実索引で `prune` / `--reset` は実行しない。MCP の登録確認や常駐 server の再起動は CLI の bump 条件から外す。
-
-セットアップ・CLI 利用・既存端末の登録解除と rollback は [docs/codex.md の cc-session-finder CLI](codex.md#cc-session-finder-cli) を参照。登録解除は通常 apply では行わず、対象ごとの明示操作とする。
 
 ### Claude Code plugins
 
@@ -225,12 +154,7 @@ policy と詳細 runbook は [docs/security.md の Claude Code and Codex
 ### bump PR の検証
 
 - `sh -n` + `shellcheck` (変更した `.chezmoiscripts/*.sh`)
-- `bats tests/bats/test_agmsg_setup.bats tests/bats/test_cc_session_finder_setup.bats`
-- cc-session-finder bump の merge 前は、一時 install root で candidate SHA の
-  `cargo install --locked` と managed binary の smoke test が成功する
-- cc-session-finder bump の merge 後は
-  `CC_SESSION_FINDER_REINSTALL=1 chezmoi apply -v` がエラーなく完了する
-- cc-session-finder の `sessions search` / `overview` / `messages` / `search-messages` を匿名 fixture で実行し、期待する取得結果と stderr を確認する (上記手順 7)
+- `bats tests/bats/test_agmsg_setup.bats`
 
 ## codex-plugin-cc
 
