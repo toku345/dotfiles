@@ -1,0 +1,2 @@
+{{- /* Shared workflow; only invocation policy differs in Claude Code. */ -}}
+{{ include "dot_agents/skills/co-dev/SKILL.md" | replace "name: co-dev\n" "name: co-dev\ndisable-model-invocation: true\n" -}}
