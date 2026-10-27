@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded (2026-10-27). The Decision below rested on the conclusion that `excludedCommands` cannot bypass the `trustd` Mach service restriction. That conclusion was drawn from tests in which the exclusion never matched: `sandbox.excludedCommands` uses the same matching as Bash permission rules, so the bare entry `gh` matches only `gh` with no arguments, and every `gh <args>` invocation ran inside the sandbox. With the wildcard entry `gh *`, a standalone `gh` call runs outside the sandbox and TLS to `api.github.com` succeeds without `dangerouslyDisableSandbox`. The current configuration is recorded in [Re-investigation 2026-10-27](#re-investigation-2026-10-27). The investigation results below remain accurate for `gh` running *inside* the sandbox.
 
 ## Context
 
@@ -41,12 +41,42 @@ Tracked upstream: [#34876](https://github.com/anthropics/claude-code/issues/3487
 
 ### `excludedCommands` does not bypass Mach service restrictions
 
+> Superseded: the tests below used the bare entry `gh`, which never matched `gh <args>`. See [Re-investigation 2026-10-27](#re-investigation-2026-10-27).
+
 Testing confirmed that `excludedCommands` does not bypass Seatbelt Mach service restrictions. `gh` in `excludedCommands` still fails with the same TLS error. The only working method is `dangerouslyDisableSandbox: true` on each Bash invocation. `gh` remains in `excludedCommands` to relax filesystem restrictions, but TLS requires per-call sandbox bypass.
 
 ## Consequences
 
 - `gh` remains in `excludedCommands`, relaxing filesystem restrictions but not Mach service restrictions
 - TLS-dependent `gh` operations require `dangerouslyDisableSandbox: true` per invocation
+
+## Re-investigation 2026-10-27
+
+Verified with Claude Code 2.1.310 on macOS.
+
+### Findings
+
+- **Matching semantics**: `sandbox.excludedCommands` entries are matched like Bash permission rules; without a wildcard the match is exact. The [sandboxing docs](https://code.claude.com/docs/en/sandboxing) state: "`docker` matches only `docker` with no arguments. `docker *` matches `docker` with or without arguments". Empirically, with a bare `ruby` entry excluded, `ruby -e` writing to `$HOME` fails with `EPERM`, i.e. it ran sandboxed. The previous `["docker", "gh", "codex"]` therefore had no effect on any invocation with arguments.
+- **Compound commands are not excluded unless every part matches** (docs: "Every command in the call has to match"). Under `claude -p --settings '{"sandbox":{"excludedCommands":["gh *"]}}'`, `gh pr list -L 1 --json number` succeeded (including TLS to `api.github.com`), while the same command piped into `jq` ran sandboxed and failed reading `~/.config/gh/hosts.yml`.
+- **Behavior inside the sandbox**: `gh` cannot read `~/.config/gh/hosts.yml` and fails at startup; `docker` socket operations (`docker ps`) succeed via `allowAllUnixSockets`, but `~/.docker/config.json` (registry credentials) is unreadable; `codex` cannot write `~/.codex`.
+- **Codex plugin**: `codex@openai-codex` launches through `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" ...`, so a `codex *` exclusion would not apply to plugin calls.
+
+### Decision
+
+Set `sandbox.excludedCommands` to `["gh *"]` and remove `docker` and `codex`.
+
+- Standalone `gh` calls run outside the sandbox without a per-call `dangerouslyDisableSandbox` retry. Use `gh --jq` instead of piping to `jq`; a piped form is sandboxed and fails.
+- `docker` stays sandboxed: socket operations already work inside the sandbox, so excluding it would only add access to registry credentials, which we prefer to keep unreadable.
+- `codex` stays sandboxed: excluding `codex *` would not cover the plugin path, and direct `codex` CLI calls keep using `dangerouslyDisableSandbox` as needed.
+
+### Accepted trade-offs
+
+- Every standalone `gh` invocation, including `gh` extensions, runs outside the sandbox. Previously the same calls also ended up outside the sandbox through a per-call retry, so the effective exposure is unchanged; the retry prompt is removed.
+- `gh ... | jq` fails inside the sandbox; callers must use `--jq`.
+
+### Not adopted
+
+- **`allowUnsandboxedCommands: false`**: some paths may still rely on the unsandboxed retry (e.g. scripts that enumerate processes with `pgrep`). Re-evaluate after operating with `gh *` for a while.
 
 ## TODO
 

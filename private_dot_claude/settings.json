@@ -159,9 +159,7 @@
     },
     "enableWeakerNestedSandbox": true,
     "excludedCommands": [
-      "docker",
-      "gh",
-      "codex"
+      "gh *"
     ]
   },
   "alwaysThinkingEnabled": true,
