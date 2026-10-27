@@ -214,6 +214,22 @@ def validate_permission_gates(data: object) -> list[str]:
     if permissions.get("defaultMode") == "bypassPermissions":
         failures.append('permissions.defaultMode must not be "bypassPermissions"')
 
+    # excludedCommands matches like Bash permission rules: an entry without a
+    # wildcard matches only the bare command with no arguments, so "gh" looks
+    # like an exclusion while every "gh <args>" call stays sandboxed (ADR 0002).
+    sandbox = data.get("sandbox", {})
+    excluded = sandbox.get("excludedCommands", []) if isinstance(sandbox, dict) else None
+    if not isinstance(excluded, list):
+        failures.append("sandbox.excludedCommands must be an array")
+    else:
+        for entry in excluded:
+            if not isinstance(entry, str) or "*" not in entry:
+                failures.append(
+                    f"sandbox.excludedCommands entry {entry!r} must contain a "
+                    'wildcard (e.g. "gh *"): a bare name matches only the '
+                    "command with no arguments"
+                )
+
     return failures
 
 

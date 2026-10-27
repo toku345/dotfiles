@@ -232,6 +232,22 @@ def main() -> None:
         )
     )
 
+    # A bare excludedCommands entry is a silent no-op for calls with arguments
+    # (ADR 0002): reverting to the pre-2026-10-27 form must fail, not pass.
+    for entries in (["gh"], ["gh *", "docker"]):
+        data = copy.deepcopy(baseline)
+        data["sandbox"]["excludedCommands"] = entries
+        bare = entries[-1]
+        mutations.append(
+            (
+                f"bare excludedCommands entry: {bare}",
+                data,
+                f"sandbox.excludedCommands entry {bare!r} must contain a "
+                'wildcard (e.g. "gh *"): a bare name matches only the '
+                "command with no arguments",
+            )
+        )
+
     # Structural deny invariants (Issue #303). Each case appends a rule that
     # looks like protection and is not: a bare name only guards the cwd (and
     # breaks chezmoi apply / git status via the sandbox merge, Issue #212), a
