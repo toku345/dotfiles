@@ -537,7 +537,45 @@ assert_execpolicy_decision() {
   assert_execpolicy_decision prompt gh api graphql
   assert_execpolicy_decision prompt git add AGENTS.md
   assert_execpolicy_decision prompt git commit --amend
+  assert_execpolicy_decision prompt git push origin feature
+  assert_execpolicy_decision prompt chezmoi apply
+  assert_execpolicy_decision prompt gh api repos/example/repo
+  assert_execpolicy_decision prompt gh api --method POST repos/example/repo/issues
+  local verb
+  for verb in create edit merge close reopen comment review ready lock unlock; do
+    assert_execpolicy_decision prompt gh pr "$verb" 1
+  done
+  for verb in create edit close reopen comment delete lock unlock; do
+    assert_execpolicy_decision prompt gh issue "$verb" 1
+  done
   assert_execpolicy_decision none git status
+  assert_execpolicy_decision none git log -1
+  assert_execpolicy_decision none gh pr view 1
+  assert_execpolicy_decision none gh pr list
+  assert_execpolicy_decision none gh pr diff 1
+  assert_execpolicy_decision none gh issue view 1
+  assert_execpolicy_decision none gh issue list
+  assert_execpolicy_decision none chezmoi diff
+}
+
+@test "codex managed prompts override overlapping user-local allows" {
+  if ! command -v codex >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    skip "codex/jq not installed"
+  fi
+  local local_rules="$BATS_TEST_TMPDIR/default.rules"
+  printf '%s\n' \
+    'prefix_rule(pattern=["git"], decision="allow")' \
+    'prefix_rule(pattern=["gh"], decision="allow")' \
+    'prefix_rule(pattern=["chezmoi"], decision="allow")' > "$local_rules"
+  local invocation
+  for invocation in 'git push' 'gh pr merge' 'gh api' 'chezmoi apply'; do
+    local -a args
+    read -r -a args <<< "$invocation"
+    run --separate-stderr codex execpolicy check \
+      --rules "$RULES_FILE" --rules "$local_rules" -- "${args[@]}"
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '.decision' <<<"$output")" = prompt ]
+  done
 }
 
 # -----------------------------------------------------------------------------

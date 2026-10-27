@@ -32,6 +32,25 @@ EXPECTED_ASK_ENTRIES = {
     "Bash(git clean:*)",
     "Bash(rm:*)",
     "Bash(chezmoi apply:*)",
+    "Bash(gh api:*)",
+    "Bash(gh pr create:*)",
+    "Bash(gh pr edit:*)",
+    "Bash(gh pr merge:*)",
+    "Bash(gh pr close:*)",
+    "Bash(gh pr reopen:*)",
+    "Bash(gh pr comment:*)",
+    "Bash(gh pr review:*)",
+    "Bash(gh pr ready:*)",
+    "Bash(gh pr lock:*)",
+    "Bash(gh pr unlock:*)",
+    "Bash(gh issue create:*)",
+    "Bash(gh issue edit:*)",
+    "Bash(gh issue close:*)",
+    "Bash(gh issue reopen:*)",
+    "Bash(gh issue comment:*)",
+    "Bash(gh issue delete:*)",
+    "Bash(gh issue lock:*)",
+    "Bash(gh issue unlock:*)",
 }
 
 EXPECTED_DENY_ENTRIES = {
@@ -46,7 +65,15 @@ EXPECTED_DENY_ENTRIES = {
     "Read(~/.terraform.d/**)",
 }
 
-EXPECTED_FORBIDDEN_ALLOW_ENTRIES = {"Bash(codex exec:*)"}
+EXPECTED_FORBIDDEN_ALLOW_ENTRIES = {
+    "Bash(codex exec:*)",
+    "Bash(npm run:*)",
+    "Bash(npm run *)",
+    "Bash(yarn run:*)",
+    "Bash(yarn run *)",
+    "Bash(cargo run:*)",
+    "Bash(cargo run *)",
+}
 
 
 def load_verifier() -> ModuleType:
@@ -212,15 +239,16 @@ def main() -> None:
     data["permissions"].pop("deny")
     mutations.append(("deny rules removed", data, "permissions.deny must be an array"))
 
-    data = copy.deepcopy(baseline)
-    data["permissions"]["allow"].append("Bash(codex exec:*)")
-    mutations.append(
-        (
-            "narrow codex exec allow rule reintroduced",
-            data,
-            'permissions.allow must not contain "Bash(codex exec:*)"',
+    for entry in verifier.FORBIDDEN_ALLOW_ENTRIES:
+        data = copy.deepcopy(baseline)
+        data["permissions"]["allow"].append(entry)
+        mutations.append(
+            (
+                f"classifier-skipping allow rule reintroduced: {entry}",
+                data,
+                f'permissions.allow must not contain "{entry}"',
+            )
         )
-    )
 
     data = copy.deepcopy(baseline)
     data["permissions"]["defaultMode"] = "bypassPermissions"

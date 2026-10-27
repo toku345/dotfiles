@@ -32,6 +32,25 @@ REQUIRED_ASK_ENTRIES = (
     "Bash(git clean:*)",
     "Bash(rm:*)",
     "Bash(chezmoi apply:*)",
+    "Bash(gh api:*)",
+    "Bash(gh pr create:*)",
+    "Bash(gh pr edit:*)",
+    "Bash(gh pr merge:*)",
+    "Bash(gh pr close:*)",
+    "Bash(gh pr reopen:*)",
+    "Bash(gh pr comment:*)",
+    "Bash(gh pr review:*)",
+    "Bash(gh pr ready:*)",
+    "Bash(gh pr lock:*)",
+    "Bash(gh pr unlock:*)",
+    "Bash(gh issue create:*)",
+    "Bash(gh issue edit:*)",
+    "Bash(gh issue close:*)",
+    "Bash(gh issue reopen:*)",
+    "Bash(gh issue comment:*)",
+    "Bash(gh issue delete:*)",
+    "Bash(gh issue lock:*)",
+    "Bash(gh issue unlock:*)",
 )
 
 # Read deny rules block Claude's built-in file tools and the Bash file commands
@@ -56,7 +75,17 @@ REQUIRED_DENY_ENTRIES = (
 # ADR 0036 removed this narrow allow rule so the full command, including its
 # --sandbox options, reaches the auto-mode classifier instead of resolving
 # ahead of it. Re-adding it needs a deliberate decision, not an "always allow".
-FORBIDDEN_ALLOW_ENTRIES = ("Bash(codex exec:*)",)
+# Generic run permissions also skip classifier review on unsandboxed retries.
+# Keep both equivalent trailing-wildcard spellings out of the global allow list.
+FORBIDDEN_ALLOW_ENTRIES = (
+    "Bash(codex exec:*)",
+    "Bash(npm run:*)",
+    "Bash(npm run *)",
+    "Bash(yarn run:*)",
+    "Bash(yarn run *)",
+    "Bash(cargo run:*)",
+    "Bash(cargo run *)",
+)
 
 # Structural invariants for path rules in permissions.deny (Issue #303).
 #
@@ -206,9 +235,9 @@ def validate_permission_gates(data: object) -> list[str]:
             if entry in allow:
                 failures.append(f'permissions.allow must not contain "{entry}"')
 
-    # A bypassPermissions default makes every pinned ask entry inert: the
-    # entries are still present, but no prompt is ever raised. Absent or any
-    # other mode passes. This does not cover the --dangerously-skip-permissions
+    # Keep bypassPermissions out of the baseline: it skips normal permission
+    # checks even though some explicit prompts can survive in current versions.
+    # Absent or any other mode passes. This does not cover --dangerously-skip-permissions
     # CLI flag, which only `disableBypassPermissionsMode` would block; that key
     # is deliberately not set here.
     if permissions.get("defaultMode") == "bypassPermissions":
