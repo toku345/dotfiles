@@ -48,7 +48,6 @@
       "WebFetch(domain:developer.mozilla.org)",
       "Bash(gh search:*)",
       "WebFetch(domain:docs.github.com)",
-      "Skill(commit-commands:commit-push-pr)",
       "Bash(chezmoi cat:*)",
       "Bash(fish -n)"
     ],
@@ -99,7 +98,10 @@
       "Bash(rm:*)",
       "Bash(wget:*)",
       "Bash(chezmoi apply:*)",
-      "WebSearch"
+      "WebSearch",
+      "mcp__claude_ai_Atlassian_Rovo__create*",
+      "mcp__claude_ai_Atlassian_Rovo__transition*",
+      "mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue"
     ],
     "defaultMode": "auto"
   },
