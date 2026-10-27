@@ -345,7 +345,8 @@ jobs:
             tests/bats/test_brew_reviewed_cask_upgrade.bats \
             tests/bats/test_brew_reviewed_upgrade.bats \
             tests/bats/test_ghostty_theme.bats \
-            tests/bats/test_preview.bats
+            tests/bats/test_preview.bats \
+            tests/bats/test_pr_review_routing_flags.bats
 
       - name: Run Codex launcher tests with Homebrew Bash
         run: |

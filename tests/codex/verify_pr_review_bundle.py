@@ -1357,6 +1357,28 @@ def verify_claude_evidence_validation_contract() -> None:
     )
 
 
+CLAUDE_ROUTING_FLAGS_SCRIPT = CLAUDE_SCRIPTS_DIR / "routing-flags.sh"
+
+
+def verify_claude_routing_flags_contract() -> None:
+    # The grep patterns are tested in tests/bats/test_pr_review_routing_flags.bats;
+    # these pins keep SKILL.md calling that script instead of an inline copy the
+    # agent could paraphrase, and keep the readout check that catches a missing
+    # script or a changed output format (not a deployed copy with older patterns).
+    context = f"{CLAUDE_SKILL.relative_to(REPO_ROOT)}:routing-flags"
+    if not CLAUDE_ROUTING_FLAGS_SCRIPT.is_file():
+        fail(f"{context}: missing script {CLAUDE_ROUTING_FLAGS_SCRIPT.relative_to(REPO_ROOT)}")
+    skill = CLAUDE_SKILL.read_text(encoding="utf-8")
+    collect = section_between(skill, "## Collect (main session)", "## Launch the workflow", context)
+    for needle in (
+        'sh ~/.claude/skills/pr-review/scripts/routing-flags.sh "$BASE_COMMIT" "$HEAD_REF"',
+        "Require exit 0 and stdout exactly one line matching `commentChanges=(true|false) typeChanges=(true|false)`",
+        "Do not compute or guess the flags any other way.",
+    ):
+        require_contains(collect, needle, context)
+    require_not_contains(skill, "flags_src", context)
+
+
 def verify_claude_skill_shadowing_check_runs() -> None:
     # String pins cannot tell a live guard from a commented-out one, so run the
     # verbatim block: from a subdirectory it must report the same-name project
@@ -1893,6 +1915,7 @@ def main() -> None:
     verify_claude_share_templates()
     verify_claude_skill_launch_contract()
     verify_claude_evidence_validation_contract()
+    verify_claude_routing_flags_contract()
     verify_claude_skill_shadowing_check_runs()
     verify_claude_skill_prompt_free_blocks()
     verify_codex_config_profiles()
