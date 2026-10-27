@@ -25,7 +25,12 @@ DEFAULT_SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 # depends on. "Bash(git clean:*)" closes the rm / reset / clean line of the
 # pre-flight list, the last of those three that had steering but no ask rule
 # (Issue #343). Required subset, not an exact list: adding entries is fine.
+# Atlassian entries pin the intended policy; these source checks do not prove
+# connector name resolution or a live approval UI. See docs/agent-permissions.md.
 REQUIRED_ASK_ENTRIES = (
+    "mcp__claude_ai_Atlassian_Rovo__create*",
+    "mcp__claude_ai_Atlassian_Rovo__transition*",
+    "mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue",
     "Bash(git push:*)",
     "Bash(git commit:*)",
     "Bash(git reset:*)",
@@ -77,7 +82,9 @@ REQUIRED_DENY_ENTRIES = (
 # ahead of it. Re-adding it needs a deliberate decision, not an "always allow".
 # Generic run permissions also skip classifier review on unsandboxed retries.
 # Keep both equivalent trailing-wildcard spellings out of the global allow list.
+# The commit-commands plugin is disabled; retain no stale Skill permission.
 FORBIDDEN_ALLOW_ENTRIES = (
+    "Skill(commit-commands:commit-push-pr)",
     "Bash(codex exec:*)",
     "Bash(npm run:*)",
     "Bash(npm run *)",
@@ -242,6 +249,16 @@ def validate_permission_gates(data: object) -> list[str]:
     # is deliberately not set here.
     if permissions.get("defaultMode") == "bypassPermissions":
         failures.append('permissions.defaultMode must not be "bypassPermissions"')
+
+    # No permanent sandbox exclusions are approved in the integrated policy.
+    # Bare names do not cover arguments (verified upstream on 2.1.310), while
+    # wildcard exclusions remove filesystem/network containment. Pin [] rather
+    # than suggest that adding a wildcard makes an exclusion safe (ADR 0002).
+    sandbox = data.get("sandbox")
+    if not isinstance(sandbox, dict):
+        failures.append("sandbox must be an object")
+    elif sandbox.get("excludedCommands") != []:
+        failures.append("sandbox.excludedCommands must be an empty array")
 
     return failures
 

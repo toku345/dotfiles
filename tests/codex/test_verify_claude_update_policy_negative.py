@@ -26,6 +26,9 @@ SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 # and this list removes an entry. It makes the removal a deliberate two-file
 # edit rather than something a reformat or a merge resolution does silently.
 EXPECTED_ASK_ENTRIES = {
+    "mcp__claude_ai_Atlassian_Rovo__create*",
+    "mcp__claude_ai_Atlassian_Rovo__transition*",
+    "mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue",
     "Bash(git push:*)",
     "Bash(git commit:*)",
     "Bash(git reset:*)",
@@ -66,6 +69,7 @@ EXPECTED_DENY_ENTRIES = {
 }
 
 EXPECTED_FORBIDDEN_ALLOW_ENTRIES = {
+    "Skill(commit-commands:commit-push-pr)",
     "Bash(codex exec:*)",
     "Bash(npm run:*)",
     "Bash(npm run *)",
@@ -260,6 +264,33 @@ def main() -> None:
         )
     )
 
+    # Pin the conservative policy, not merely wildcard syntax: neither old
+    # ineffective bare entries nor blanket/narrow unverified escapes may return.
+    for excluded in (
+        ["gh"], ["gh *"], ["gh:*"], ["gh pr view *"],
+        ["docker"], ["codex"], ["gh *", "docker"],
+        ["*"], [1], "gh *", None,
+    ):
+        data = copy.deepcopy(baseline)
+        data["sandbox"]["excludedCommands"] = excluded
+        mutations.append(
+            (f"unapproved sandbox exclusions: {excluded!r}", data,
+             "sandbox.excludedCommands must be an empty array")
+        )
+    data = copy.deepcopy(baseline)
+    data["sandbox"].pop("excludedCommands")
+    mutations.append(
+        ("exclusion policy removed", data,
+         "sandbox.excludedCommands must be an empty array")
+    )
+    for sandbox in (None, [], "sandbox"):
+        data = copy.deepcopy(baseline)
+        data["sandbox"] = sandbox
+        mutations.append(("invalid sandbox block", data, "sandbox must be an object"))
+    data = copy.deepcopy(baseline)
+    data.pop("sandbox")
+    mutations.append(("sandbox block removed", data, "sandbox must be an object"))
+
     # Structural deny invariants (Issue #303). Each case appends a rule that
     # looks like protection and is not: a bare name only guards the cwd (and
     # breaks chezmoi apply / git status via the sandbox merge, Issue #212), a
@@ -362,6 +393,21 @@ def main() -> None:
             )
         if 'ERROR: permissions.ask must contain "Bash(git push:*)"' not in result.stderr:
             raise AssertionError(f"CLI permission gate test: unexpected stderr {result.stderr!r}")
+
+        data = copy.deepcopy(baseline)
+        data["sandbox"]["excludedCommands"] = ["gh *"]
+        settings.write_text(json.dumps(data), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(VERIFY_SCRIPT), "--settings", str(settings)],
+            text=True, capture_output=True, check=False,
+        )
+        if result.returncode != 1 or (
+            "ERROR: sandbox.excludedCommands must be an empty array" not in result.stderr
+        ):
+            raise AssertionError(
+                f"CLI sandbox policy test: exit={result.returncode}; "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
 
         missing_settings = pathlib.Path(tmpdir) / "missing-settings.json"
         result = subprocess.run(

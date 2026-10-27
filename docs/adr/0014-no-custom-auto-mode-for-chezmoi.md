@@ -8,6 +8,8 @@ Accepted (2026-04-28). 部分的に refined / superseded:
 - Follow-on changes 内の「初回指示の受領フォーマット への auto-mode active 時 適用除外」bullet は [ADR 0018](0018-restrict-auto-mode-override-to-non-interactive.md) で refined (対話 auto-mode への carve-out を撤回し、非対話コンテキストのみに限定)
 - Follow-on changes 内の「`着手前ゲート` セクション置換」bullet は維持
 
+**Amendment 2026-10-27**: `autoMode` を読むのは `~/.claude/settings.json`・managed settings・`--settings` のみで、project の `.claude/settings.json` / `.claude/settings.local.json` は読まれない ([auto-mode-config](https://code.claude.com/docs/en/auto-mode-config))。Risks 節の waiver 置き場の記述をこれに合わせて訂正した。[PR #438](https://github.com/toku345/dotfiles/pull/438) では同日 `autoMode.environment` の追加を検討したが見送った: 同 PR の調査報告では過去 60 日の transcript と `/permissions` の Recently denied に分類器がブロックした実例がなく、追加しても当日問題になっていた確認 (sandbox 再実行の承認) は減らないため。分類器のブロック実例が出た時点で再検討する。
+
 ## Context
 
 ### 1. 背景: chezmoi 運用と classifier 評価の二層構造
@@ -175,7 +177,7 @@ dotfiles 運用ではクロス repo push は稀であり、たまに confirmatio
 
 ### Risks
 
-- **将来 Anthropic が default を tighten する**: chezmoi 操作で friction が頻発する場合、`.claude/settings.local.json` (per-project, classifier 読込確認済み 2026-04-27) に最小 waiver を追加する選択肢を再検討する
+- **将来 Anthropic が default を tighten する**: chezmoi 操作で friction が頻発する場合、最小 waiver の追加を再検討する。置き場は実質 `~/.claude/settings.json` の `autoMode` に限られ (project の `.claude/settings*.json` は分類器に読まれない、Amendment 2026-10-27)、user-global に効く点を含めて評価する
 - **chezmoi 自体の運用変更**: 例えば pre-commit hook で自動 apply する運用に変更した場合、本 ADR の前提 (運用層 gate = 手動 apply) が崩れるため再評価が必要
 
 ### Out of scope

@@ -4,6 +4,8 @@
 
 Rejected
 
+**Amendment 2026-10-27**: The Docker exclusion and `excludedCommands` Mach-service assumptions below are corrected using the version-scoped findings in [ADR 0002](0002-claude-code-sandbox-gh-investigation.md#re-investigation-2026-10-27). The SSH/HTTPS decision remains unchanged; socket hardening is still follow-up work, not a claim of full isolation.
+
 ## Context
 
 [ADR 0001](0001-claude-code-sandbox-git-least-privilege.md) moved `git` to a least-privilege sandbox model but required `allowAllUnixSockets: true` for SSH agent access. This permission allows all sandboxed commands to connect to any Unix socket, including Docker and OrbStack daemons — broader than ideal.
@@ -44,7 +46,7 @@ Adding `~/.config/gh/hosts.yml` to `sandbox.filesystem.allowRead` was evaluated 
 | Attack surface breadth | Broad (all Unix sockets) | Narrow (one file) |
 | Secret exposure | **Indirect** — SSH agent mediates; private key never exposed | **Direct** — bearer token readable as plaintext |
 | Exfiltration risk | Agent signing only; key cannot be extracted | Token can be exfiltrated and reused independently |
-| Docker socket | Accessible, but `docker` already in `excludedCommands` | Not accessible |
+| Docker socket | Accessible via `allowAllUnixSockets`; the former bare `docker` exclusion did not match calls with arguments under the verified 2.1.310 semantics and is now removed | Not accessible under the proposed narrowed socket policy |
 
 The SSH agent model provides stronger secret protection: the private key is never directly exposed, and access is mediated through the agent. A plaintext bearer token in `hosts.yml` is a strictly weaker security model despite the narrower attack surface.
 
@@ -63,5 +65,5 @@ No credential helper works reliably in the Claude Code sandbox without either:
 ### Re-evaluate when
 
 - Claude Code adds `allowUnixSockets` glob/env-var support (narrowing to `$SSH_AUTH_SOCK` only) — tracked in ADR 0001
-- Claude Code resolves Mach service restrictions for `excludedCommands` ([#26466](https://github.com/anthropics/claude-code/issues/26466))
+- Authenticated HTTPS operations become possible inside the retained sandbox boundary without exposing token files. The former prerequisite of fixing Mach-service restrictions for `excludedCommands` is withdrawn: a matching exclusion can bypass that boundary, but blanket exclusions are not the selected policy (ADR 0002)
 - macOS Keychain access works within Seatbelt sandbox profiles

@@ -56,6 +56,6 @@ codex exec --sandbox read-only -C /path/to/repo - < /path/to/request.md
 
 `codex exec` / `codex login` は macOS / Linux いずれの sandbox 下でも失敗することがある (macOS: `system-configuration` アクセス制限、Linux: `Read-only file system`)。AI が `dangerouslyDisableSandbox: true` の必要性を判定し Bash 呼び出しに含めるが、最終的な実行は Claude Code の permission prompt 経由で ユーザー が承認する。事前の手動 disable は通常不要。
 
-Linux 側の観測 (2026-09-07、codex-cli 0.153.4 / Claude Code 2.1.263): `dangerouslyDisableSandbox` 未指定・コマンド文字列が `codex --version` のみ、という最小形で `could not create PATH aliases: Read-only file system (os error 30)` が出る (path はメッセージに含まれない)。別途 `~/.codex` は sandbox 内で書き込み不可 (`touch` 失敗、`sandbox.filesystem.allowWrite` に不在)。`codex` は `sandbox.excludedCommands` に入っているが、**除外設定の存在だけを根拠に filesystem 制限を受けないとは判断できない** — 内部の除外判定はセッションからは観測できないため、必要なら実際に probe する。
+Linux 側の観測 (2026-09-07、codex-cli 0.153.4 / Claude Code 2.1.263): `dangerouslyDisableSandbox` 未指定・コマンド文字列が `codex --version` のみ、という最小形で `could not create PATH aliases: Read-only file system (os error 30)` が出る (path はメッセージに含まれない)。別途 `~/.codex` は sandbox 内で書き込み不可 (`touch` 失敗、`sandbox.filesystem.allowWrite` に不在)。`codex` は `sandbox.excludedCommands` に入っていない (2026-10-27 に除外を外した。plugin は `node .../codex-companion.mjs` 経由で起動するため `codex *` を除外しても効かない)。管理 baseline では sandbox 内で開始し、sandbox 起因の失敗が確認された場合は通常の承認経路で `dangerouslyDisableSandbox` による再実行を検討する。除外や retry は通常の permission 判定を省略しない。
 
 なお `Bash(codex exec:*)` は user-global の `permissions.allow` から外してある。narrow allow rule は auto-mode 分類器より先に解決してしまい、起動オプション (`--sandbox` の有無等) が評価されないため。実行時に承認プロンプトが挟まることがあるが想定内。
