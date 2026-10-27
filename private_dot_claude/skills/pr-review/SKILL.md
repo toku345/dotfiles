@@ -83,49 +83,14 @@ Do not change repository or git state to make a failing precondition pass: no `g
 1. `HEAD_REF=$(git rev-parse HEAD)` — record it.
 2. **Empty diff check + changed files**: run `git diff --name-only "$BASE_COMMIT...$HEAD_REF"` and record the output as `changedFiles` (one path per array element — this main-session list is the authoritative specialist-routing input; the workflow refuses to re-derive it from an agent echo). If empty, run the Final guard below, then report `No committed changes relative to <base>; nothing to review.` and stop.
 3. **Diff packet**: `diff_packet=$(mktemp "${TMPDIR:-/tmp}/pr-review-diff.XXXXXX")` (suffix-free template — suffixed templates collide on BSD mktemp), then `git diff "$BASE_COMMIT...$HEAD_REF" > "$diff_packet"`. Record byte count (`wc -c`) and SHA-256 (`sha256sum` / `shasum -a 256`). Abort if any step fails. The packet is authoritative for all specialists.
-4. **Deterministic routing flags** (grep floor — the workflow OR-composes these with the categorizer agent's semantic judgment, so an agent false negative can never narrow the specialist fan-out; grep false positives only widen it, which is the safe direction):
+4. **Deterministic routing flags** (grep floor — the workflow OR-composes these with the categorizer agent's semantic judgment, so an agent false negative can never narrow the specialist fan-out; grep false positives only widen it, which is the safe direction). The patterns live in a deployed script so they run identically every time and are covered by `tests/bats/test_pr_review_routing_flags.bats`:
 
    ```sh
-   # The diff itself fails loud (abort-on-failure, same as steps 2-3); only the
-   # grep filters get `|| true`, whose exit 1 legitimately means "no matching
-   # lines". A combined pipeline would let a git failure (bad ref, transient FS
-   # error) silently yield an empty flags_src — false/false flags identical to
-   # a genuine no-match, eroding the deterministic floor exactly when the
-   # environment misbehaves.
-   # The diff stays in shell variables rather than temp files, so the block
-   # needs no `rm`, which the `Bash(rm:*)` ask rule turns into a prompt.
-   # .md/.mdx excluded: prose uses 'type'/'class'/'schema' constantly and would
-   # over-trigger the keyword patterns below. The strict 'a/', 'b/', '/dev/null'
-   # header forms keep removed SQL/Lua comment lines ('-- x' rendered as '--- x')
-   # from being eaten by a bare ^--- exclusion.
-   if ! flags_raw=$(git diff "$BASE_COMMIT...$HEAD_REF" -- ':(exclude)*.md' ':(exclude)*.mdx'); then
-     echo "ABORT: git diff for routing flags failed" >&2
-     exit 1
-   fi
-   flags_src=$(printf '%s\n' "$flags_raw" | LC_ALL=C grep -E '^[+-]' \
-     | LC_ALL=C grep -vE '^(\+\+\+|---) (a/|b/|/dev/null)' || true)
-
-   # The greps read their whole input (`>/dev/null`, not `-q`): an early exit
-   # would SIGPIPE the printf and, under `pipefail`, drop a true match.
-   # Triple quotes are spelled out instead of a quote plus a {3} quantifier:
-   # the harness reads a brace next to a quote as possible expansion
-   # obfuscation and prompts for the whole block.
-   commentChanges=false
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -E "^[+-][[:space:]]*(#|//|/\*|\*|<!--|;|--|\"\"\"|''')" >/dev/null && commentChanges=true
-
-   typeChanges=false
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -E '^[+-][[:space:]]*(export[[:space:]]+)?(pub(\([^)]*\))?[[:space:]]+)?((abstract|final|data|sealed)[[:space:]]+)?(class|interface|struct|enum|trait)[[:space:]]+[A-Za-z_]' >/dev/null && typeChanges=true
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -E '(^|[^[:alnum:]_])type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(=|struct([^[:alnum:]_]|$)|interface([^[:alnum:]_]|$))' >/dev/null && typeChanges=true
-   printf '%s\n' "$flags_src" | LC_ALL=C grep '@dataclass' >/dev/null && typeChanges=true
-   printf '%s\n' "$flags_src" | LC_ALL=C grep -iE '(^|[^[:alnum:]_])(create|alter)[[:space:]]+(table|schema)([^[:alnum:]_]|$)' >/dev/null && typeChanges=true
-
-   # The readout doubles as the block's exit status: without it, a benign
-   # no-match on the trailing `grep ... && ...` chains exits 1, and the
-   # variables are shell-local — unobservable after the Bash call returns.
-   echo "commentChanges=$commentChanges typeChanges=$typeChanges"
+   sh ~/.claude/skills/pr-review/scripts/routing-flags.sh "$BASE_COMMIT" "$HEAD_REF"
    ```
 
-   Run the block verbatim (LC_ALL=C and POSIX classes keep BSD/GNU grep deterministic) and record both booleans from the echoed line. Bare `type`/`schema` keywords are deliberately NOT matched — JS/JSON diffs contain `type: 'string'` everywhere and the flag would be always-true; definition-anchored false negatives are rescued by the categorizer agent's OR inside the workflow.
+   Require exit 0 and stdout exactly one line matching `commentChanges=(true|false) typeChanges=(true|false)`; record both booleans from it. Do not compute or guess the flags any other way. On any other outcome, abort with:
+   > "Routing-flag script failed at ~/.claude/skills/pr-review/scripts/routing-flags.sh: <exit code, stdout, stderr verbatim>. If the file is missing or its output format differs, run `chezmoi apply -v`, then retry."
 
 5. **Shared references** (deploy-skew defense — file existence alone is not enough):
    - Read `~/.claude/skills/pr-review/references/review-criteria.md` and verify it contains the sentinel `PR_REVIEW_CRITERIA_SHARED_V1`. Keep the full contents as `criteria`.

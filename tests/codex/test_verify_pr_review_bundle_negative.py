@@ -16,6 +16,10 @@ import tempfile
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 VERIFY_SCRIPT = pathlib.Path("tests/codex/verify_pr_review_bundle.py")
+# The only command block in Collect step 4; prompt-free mutations append to it.
+ROUTING_FLAGS_CALL = (
+    '   sh ~/.claude/skills/pr-review/scripts/routing-flags.sh "$BASE_COMMIT" "$HEAD_REF"\n'
+)
 
 
 def copy_fixture_repo(tmpdir: pathlib.Path) -> pathlib.Path:
@@ -775,25 +779,46 @@ def main() -> None:
             "precondition-workaround-ban: missing",
         ),
         (
-            "claude skill routing flags reintroduce rm cleanup",
+            "claude skill command block reintroduces rm cleanup",
             "private_dot_claude/skills/pr-review/SKILL.md",
-            '   echo "commentChanges=$commentChanges typeChanges=$typeChanges"',
-            '   rm -f "$flags_src"\n   echo "commentChanges=$commentChanges typeChanges=$typeChanges"',
+            ROUTING_FLAGS_CALL,
+            ROUTING_FLAGS_CALL + '   rm -f "$x"\n',
             "prompt-free: rm in a command block",
         ),
         (
-            "claude skill routing flags reintroduce rm after then",
+            "claude skill command block reintroduces rm after then",
             "private_dot_claude/skills/pr-review/SKILL.md",
-            '     echo "ABORT: git diff for routing flags failed" >&2\n',
-            '     echo "ABORT: git diff for routing flags failed" >&2\n     then rm -f "$x"\n',
+            ROUTING_FLAGS_CALL,
+            ROUTING_FLAGS_CALL + '   then rm -f "$x"\n',
             "prompt-free: rm in a command block",
         ),
         (
-            "claude skill routing flags reintroduce quote brace quantifier",
+            "claude skill command block reintroduces quote brace quantifier",
             "private_dot_claude/skills/pr-review/SKILL.md",
-            "--|\\\"\\\"\\\"|''')",
-            "--|\\\"{3}|''')",
+            ROUTING_FLAGS_CALL,
+            ROUTING_FLAGS_CALL + "   grep -E '\"{3}' \"$x\"\n",
             "prompt-free: quote next to a brace quantifier",
+        ),
+        (
+            "claude skill routing flags script call removed",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            ROUTING_FLAGS_CALL,
+            '   echo "commentChanges=true typeChanges=true"\n',
+            "routing-flags: missing",
+        ),
+        (
+            "claude skill routing flags readout check removed",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            "Require exit 0 and stdout exactly one line matching",
+            "Record the booleans printed by",
+            "routing-flags: missing",
+        ),
+        (
+            "claude skill routing flags inline block restored",
+            "private_dot_claude/skills/pr-review/SKILL.md",
+            ROUTING_FLAGS_CALL,
+            ROUTING_FLAGS_CALL + "   flags_src=$(git diff)\n",
+            "routing-flags: forbidden stale text",
         ),
         (
             "claude skill final guard restores packet removal",
@@ -1038,6 +1063,16 @@ def main() -> None:
             "missing base-resolution contract",
             missing_base_contract_repo,
             "missing base-resolution runtime contract",
+        )
+
+        missing_routing_repo = copy_fixture_repo(root / "missing-routing-flags-script")
+        (
+            missing_routing_repo / "private_dot_claude/skills/pr-review/scripts/routing-flags.sh"
+        ).unlink()
+        assert_fails_closed(
+            "missing routing-flags script",
+            missing_routing_repo,
+            "routing-flags: missing script",
         )
 
         missing_profile_repo = copy_fixture_repo(root / "missing-review-profile")

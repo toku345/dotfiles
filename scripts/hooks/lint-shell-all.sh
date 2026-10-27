@@ -8,7 +8,7 @@ trap 'rm -f "$inventory"' EXIT
 # Capture discovery before looping so a missing directory or find failure cannot
 # silently turn the lint job green through a process substitution.
 find .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks \
-  tests/bats .claude/hooks .codex/hooks private_dot_codex private_dot_codex-fugu \
+  tests/bats .claude/hooks .codex/hooks private_dot_claude/skills private_dot_codex private_dot_codex-fugu \
   scripts/codex-config scripts/hooks \
   -type f \( -name '*.sh' -o -name '*.bash' -o -name '*.sh.tmpl' \
   -o -name 'executable_*' -o -path 'tests/bats/bin/*' \

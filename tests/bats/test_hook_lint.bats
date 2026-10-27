@@ -9,7 +9,7 @@ setup() {
   LINT="$REPO_ROOT/scripts/hooks/lint-shell-all.sh"
   cd "$BATS_TEST_TMPDIR" || return 1
   mkdir -p .chezmoiscripts dot_local/bin dot_local/lib dot_git-template/hooks \
-    tests/bats/bin .claude/hooks .codex/hooks private_dot_codex \
+    tests/bats/bin .claude/hooks .codex/hooks private_dot_claude/skills private_dot_codex \
     private_dot_codex-fugu scripts/codex-config scripts/hooks
 }
 
