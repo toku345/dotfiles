@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded (2026-10-27). The Decision below rested on the conclusion that `excludedCommands` cannot bypass the `trustd` Mach service restriction. That conclusion was drawn from tests in which the exclusion never matched: `sandbox.excludedCommands` uses the same matching as Bash permission rules, so the bare entry `gh` matches only `gh` with no arguments, and every `gh <args>` invocation ran inside the sandbox. With the wildcard entry `gh *`, a standalone `gh` call runs outside the sandbox and TLS to `api.github.com` succeeds without `dangerouslyDisableSandbox`. The current configuration is recorded in [Re-investigation 2026-10-27](#re-investigation-2026-10-27). The investigation results below remain accurate for `gh` running *inside* the sandbox.
+Superseded (2026-10-27). The Decision below rested on the conclusion that `excludedCommands` cannot bypass the `trustd` Mach service restriction. That conclusion most likely came from tests in which the exclusion never matched: `sandbox.excludedCommands` uses the same matching as Bash permission rules (verified on 2.1.310; not re-checked on the older versions the original tests used), so the bare entry `gh` matches only `gh` with no arguments, and every `gh <args>` invocation ran inside the sandbox. With the wildcard entry `gh *`, a standalone `gh` call runs outside the sandbox and TLS to `api.github.com` succeeds without `dangerouslyDisableSandbox`. The current configuration is recorded in [Re-investigation 2026-10-27](#re-investigation-2026-10-27). The investigation results below remain accurate for `gh` running *inside* the sandbox.
 
 ## Context
 
@@ -41,11 +41,13 @@ Tracked upstream: [#34876](https://github.com/anthropics/claude-code/issues/3487
 
 ### `excludedCommands` does not bypass Mach service restrictions
 
-> Superseded: the tests below used the bare entry `gh`, which never matched `gh <args>`. See [Re-investigation 2026-10-27](#re-investigation-2026-10-27).
+> Superseded: the tests below used the bare entry `gh`, which under the matching verified on 2.1.310 does not match `gh <args>`. See [Re-investigation 2026-10-27](#re-investigation-2026-10-27).
 
 Testing confirmed that `excludedCommands` does not bypass Seatbelt Mach service restrictions. `gh` in `excludedCommands` still fails with the same TLS error. The only working method is `dangerouslyDisableSandbox: true` on each Bash invocation. `gh` remains in `excludedCommands` to relax filesystem restrictions, but TLS requires per-call sandbox bypass.
 
 ## Consequences
+
+> Superseded: see [Re-investigation 2026-10-27](#re-investigation-2026-10-27).
 
 - `gh` remains in `excludedCommands`, relaxing filesystem restrictions but not Mach service restrictions
 - TLS-dependent `gh` operations require `dangerouslyDisableSandbox: true` per invocation
