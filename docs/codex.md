@@ -112,6 +112,8 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 
 ## 管理するもの
 
+- `dot_agents/skills/teach/` -> `~/.agents/skills/teach/`（明示的な `$teach` で実装の仕組みと設計背景を調べる。Claude Code の `~/.claude/skills/teach/` は同じ正本から生成し、`/teach` で使う。参照元・著作者・改変内容は [source.md](../dot_agents/skills/teach/references/source.md)、MIT 全文は [LICENSE](../dot_agents/skills/teach/LICENSE)）
+
 - `dot_agents/skills/plan-review-handoff/` -> `~/.agents/skills/plan-review-handoff/`（[人が編集する計画レビュー](plan-review-handoff.md)の共通入口と手順）
 - `private_dot_codex/AGENTS.md` -> `~/.codex/AGENTS.md`
 - `private_dot_codex/modify_private_config.toml` -> `~/.codex/config.toml` の per-key 更新（chezmoi の `modify_` target）
