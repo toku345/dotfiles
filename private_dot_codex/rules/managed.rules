@@ -1,23 +1,27 @@
-# Managed Codex safety prompts for this machine.
+# Managed Codex approval-review requests (also shared with Fugu).
 #
 # Codex may append broad allow rules to ~/.codex/rules/default.rules from the
-# approval UI. Keep this file more restrictive for commands whose risk depends
-# on arguments that a simple prefix allow cannot inspect.
+# approval UI. Matching prompt rules take precedence over matching allow rules.
+# With automatic review enabled, prompt routes to the reviewer, not necessarily
+# to a human. The conversation checkpoint in AGENTS.md remains separate.
+# Prefixes do not cover every invocation form (git -C, scripts, MCP, etc.).
 
 prefix_rule(
-    pattern = ["gh", "api", "graphql"],
+    pattern = ["gh", "api"],
     decision = "prompt",
-    justification = "GraphQL can run mutations as well as read-only queries; require per-call approval.",
+    justification = "API requests can mutate shared state; request approval review, including GETs, without guessing from the HTTP method or payload.",
     match = [
+        "gh api repos/example/repo",
         "gh api graphql -f query='query { viewer { login } }'",
         "gh api graphql -f query='mutation { addComment(input: {}) { clientMutationId } }'",
     ],
+    not_match = ["gh pr view 1"],
 )
 
 prefix_rule(
     pattern = ["git", "add"],
     decision = "prompt",
-    justification = "Staging controls what enters history; require approval so secrets or unrelated files are not staged silently.",
+    justification = "Staging controls what enters history; request approval review of the selected files.",
     match = [
         "git add AGENTS.md",
         "git add key.txt.age",
@@ -27,9 +31,41 @@ prefix_rule(
 prefix_rule(
     pattern = ["git", "commit"],
     decision = "prompt",
-    justification = "Committing creates history and may bypass required message trailers; prompt on every git commit prefix form (-m, -F, --amend, editor). Note: prefix matching cannot catch forms where flags precede the subcommand, e.g. git -C <path> commit.",
+    justification = "Committing creates history; request approval review in addition to the user's conversation agreement. Prefix matching does not cover git -C <path> commit.",
     match = [
         "git commit -m update-docs",
         "git commit --amend",
     ],
+)
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Pushing changes a shared remote; request approval review in addition to the user's conversation agreement.",
+    match = ["git push origin feature", "git push --force-with-lease"],
+    not_match = ["git status", "git log -1"],
+)
+
+prefix_rule(
+    pattern = ["chezmoi", "apply"],
+    decision = "prompt",
+    justification = "Applying changes deployed files and may execute scripts; request approval review and retain the explicit deployment agreement.",
+    match = ["chezmoi apply", "chezmoi apply --dry-run"],
+    not_match = ["chezmoi diff", "chezmoi status"],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", ["create", "edit", "merge", "close", "reopen", "comment", "review", "ready", "lock", "unlock"]],
+    decision = "prompt",
+    justification = "Pull request updates change shared state; request approval review in addition to the user's conversation agreement.",
+    match = ["gh pr create --draft", "gh pr merge 1 --squash", "gh pr comment 1 --body example"],
+    not_match = ["gh pr view 1", "gh pr list", "gh pr diff 1"],
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", ["create", "edit", "close", "reopen", "comment", "delete", "lock", "unlock"]],
+    decision = "prompt",
+    justification = "Issue updates change shared state; request approval review in addition to the user's conversation agreement.",
+    match = ["gh issue create --title example", "gh issue edit 1 --title example", "gh issue close 1"],
+    not_match = ["gh issue view 1", "gh issue list"],
 )

@@ -25,13 +25,37 @@ DEFAULT_SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 # depends on. "Bash(git clean:*)" closes the rm / reset / clean line of the
 # pre-flight list, the last of those three that had steering but no ask rule
 # (Issue #343). Required subset, not an exact list: adding entries is fine.
+# Atlassian entries pin the intended policy; these source checks do not prove
+# connector name resolution or a live approval UI. See docs/agent-permissions.md.
 REQUIRED_ASK_ENTRIES = (
+    "mcp__claude_ai_Atlassian_Rovo__create*",
+    "mcp__claude_ai_Atlassian_Rovo__transition*",
+    "mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue",
     "Bash(git push:*)",
     "Bash(git commit:*)",
     "Bash(git reset:*)",
     "Bash(git clean:*)",
     "Bash(rm:*)",
     "Bash(chezmoi apply:*)",
+    "Bash(gh api:*)",
+    "Bash(gh pr create:*)",
+    "Bash(gh pr edit:*)",
+    "Bash(gh pr merge:*)",
+    "Bash(gh pr close:*)",
+    "Bash(gh pr reopen:*)",
+    "Bash(gh pr comment:*)",
+    "Bash(gh pr review:*)",
+    "Bash(gh pr ready:*)",
+    "Bash(gh pr lock:*)",
+    "Bash(gh pr unlock:*)",
+    "Bash(gh issue create:*)",
+    "Bash(gh issue edit:*)",
+    "Bash(gh issue close:*)",
+    "Bash(gh issue reopen:*)",
+    "Bash(gh issue comment:*)",
+    "Bash(gh issue delete:*)",
+    "Bash(gh issue lock:*)",
+    "Bash(gh issue unlock:*)",
 )
 
 # Read deny rules block Claude's built-in file tools and the Bash file commands
@@ -56,7 +80,19 @@ REQUIRED_DENY_ENTRIES = (
 # ADR 0036 removed this narrow allow rule so the full command, including its
 # --sandbox options, reaches the auto-mode classifier instead of resolving
 # ahead of it. Re-adding it needs a deliberate decision, not an "always allow".
-FORBIDDEN_ALLOW_ENTRIES = ("Bash(codex exec:*)",)
+# Generic run permissions also skip classifier review on unsandboxed retries.
+# Keep both equivalent trailing-wildcard spellings out of the global allow list.
+# The commit-commands plugin is disabled; retain no stale Skill permission.
+FORBIDDEN_ALLOW_ENTRIES = (
+    "Skill(commit-commands:commit-push-pr)",
+    "Bash(codex exec:*)",
+    "Bash(npm run:*)",
+    "Bash(npm run *)",
+    "Bash(yarn run:*)",
+    "Bash(yarn run *)",
+    "Bash(cargo run:*)",
+    "Bash(cargo run *)",
+)
 
 # Structural invariants for path rules in permissions.deny (Issue #303).
 #
@@ -206,13 +242,23 @@ def validate_permission_gates(data: object) -> list[str]:
             if entry in allow:
                 failures.append(f'permissions.allow must not contain "{entry}"')
 
-    # A bypassPermissions default makes every pinned ask entry inert: the
-    # entries are still present, but no prompt is ever raised. Absent or any
-    # other mode passes. This does not cover the --dangerously-skip-permissions
+    # Keep bypassPermissions out of the baseline: it skips normal permission
+    # checks even though some explicit prompts can survive in current versions.
+    # Absent or any other mode passes. This does not cover --dangerously-skip-permissions
     # CLI flag, which only `disableBypassPermissionsMode` would block; that key
     # is deliberately not set here.
     if permissions.get("defaultMode") == "bypassPermissions":
         failures.append('permissions.defaultMode must not be "bypassPermissions"')
+
+    # No permanent sandbox exclusions are approved in the integrated policy.
+    # Bare names do not cover arguments (verified upstream on 2.1.310), while
+    # wildcard exclusions remove filesystem/network containment. Pin [] rather
+    # than suggest that adding a wildcard makes an exclusion safe (ADR 0002).
+    sandbox = data.get("sandbox")
+    if not isinstance(sandbox, dict):
+        failures.append("sandbox must be an object")
+    elif sandbox.get("excludedCommands") != []:
+        failures.append("sandbox.excludedCommands must be an empty array")
 
     return failures
 

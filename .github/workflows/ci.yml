@@ -212,6 +212,9 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      CODEX_CLI_VERSION: "0.162.0"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -249,6 +252,30 @@ jobs:
           policy_test_root=$(mktemp -d)
           XDG_DATA_HOME="$policy_test_root/data" UV_CACHE_DIR="$policy_test_root/cache" sh scripts/codex-config/setup.sh
           echo "CODEX_CONFIG_TEST_PYTHON=$policy_test_root/data/codex-config-policy/venv/bin/python" >> "$GITHUB_ENV"
+
+      - name: Setup Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Install pinned Codex CLI
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex-cli" --ignore-scripts --no-audit --no-fund "@openai/codex@$CODEX_CLI_VERSION"
+          echo "$RUNNER_TEMP/codex-cli/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Require Codex execpolicy tests without skips
+        run: |
+          export PATH="${BASH5_BIN%/*}:$PATH"
+          command -v codex
+          command -v jq
+          test "$(codex --version)" = "codex-cli $CODEX_CLI_VERSION"
+          tap="$RUNNER_TEMP/codex-execpolicy.tap"
+          "$BASH5_BIN" "$(command -v bats)" --formatter tap \
+            --filter '^(codex managed\.rules prompts only the managed command prefixes|codex managed prompts override overlapping user-local allows)$' \
+            tests/bats/test_codex_hooks.bats | tee "$tap"
+          grep -Fxq '1..2' "$tap"
+          test "$(grep -Ec '^ok [12] ' "$tap")" -eq 2
+          ! grep -Eq '^ok .*# skip' "$tap"
 
       - name: Run bats test suite
         run: |

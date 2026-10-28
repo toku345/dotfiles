@@ -2,6 +2,8 @@
 
 このリポジトリでは `~/.codex` を丸ごと管理しない。
 
+Codex / Claude Code の共通の停止点、自動審査と人の合意の違い、sandbox 例外の棚卸し、管理外ルールの清掃案は [permission 方針](agent-permissions.md) を参照。
+
 設計判断 (per-key pin/seed/free と `modify_` script) の詳細は [ADR 0037](adr/0037-codex-config-per-key-policy.md) を参照。ADR 0024 の 3-file 構成と hash gate は ADR 0037 が置き換えた。
 
 ## Fugu と通常版 CLI の分離

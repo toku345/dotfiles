@@ -26,12 +26,34 @@ SETTINGS = REPO_ROOT / "private_dot_claude" / "settings.json"
 # and this list removes an entry. It makes the removal a deliberate two-file
 # edit rather than something a reformat or a merge resolution does silently.
 EXPECTED_ASK_ENTRIES = {
+    "mcp__claude_ai_Atlassian_Rovo__create*",
+    "mcp__claude_ai_Atlassian_Rovo__transition*",
+    "mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue",
     "Bash(git push:*)",
     "Bash(git commit:*)",
     "Bash(git reset:*)",
     "Bash(git clean:*)",
     "Bash(rm:*)",
     "Bash(chezmoi apply:*)",
+    "Bash(gh api:*)",
+    "Bash(gh pr create:*)",
+    "Bash(gh pr edit:*)",
+    "Bash(gh pr merge:*)",
+    "Bash(gh pr close:*)",
+    "Bash(gh pr reopen:*)",
+    "Bash(gh pr comment:*)",
+    "Bash(gh pr review:*)",
+    "Bash(gh pr ready:*)",
+    "Bash(gh pr lock:*)",
+    "Bash(gh pr unlock:*)",
+    "Bash(gh issue create:*)",
+    "Bash(gh issue edit:*)",
+    "Bash(gh issue close:*)",
+    "Bash(gh issue reopen:*)",
+    "Bash(gh issue comment:*)",
+    "Bash(gh issue delete:*)",
+    "Bash(gh issue lock:*)",
+    "Bash(gh issue unlock:*)",
 }
 
 EXPECTED_DENY_ENTRIES = {
@@ -46,7 +68,16 @@ EXPECTED_DENY_ENTRIES = {
     "Read(~/.terraform.d/**)",
 }
 
-EXPECTED_FORBIDDEN_ALLOW_ENTRIES = {"Bash(codex exec:*)"}
+EXPECTED_FORBIDDEN_ALLOW_ENTRIES = {
+    "Skill(commit-commands:commit-push-pr)",
+    "Bash(codex exec:*)",
+    "Bash(npm run:*)",
+    "Bash(npm run *)",
+    "Bash(yarn run:*)",
+    "Bash(yarn run *)",
+    "Bash(cargo run:*)",
+    "Bash(cargo run *)",
+}
 
 
 def load_verifier() -> ModuleType:
@@ -212,15 +243,16 @@ def main() -> None:
     data["permissions"].pop("deny")
     mutations.append(("deny rules removed", data, "permissions.deny must be an array"))
 
-    data = copy.deepcopy(baseline)
-    data["permissions"]["allow"].append("Bash(codex exec:*)")
-    mutations.append(
-        (
-            "narrow codex exec allow rule reintroduced",
-            data,
-            'permissions.allow must not contain "Bash(codex exec:*)"',
+    for entry in verifier.FORBIDDEN_ALLOW_ENTRIES:
+        data = copy.deepcopy(baseline)
+        data["permissions"]["allow"].append(entry)
+        mutations.append(
+            (
+                f"classifier-skipping allow rule reintroduced: {entry}",
+                data,
+                f'permissions.allow must not contain "{entry}"',
+            )
         )
-    )
 
     data = copy.deepcopy(baseline)
     data["permissions"]["defaultMode"] = "bypassPermissions"
@@ -231,6 +263,33 @@ def main() -> None:
             'permissions.defaultMode must not be "bypassPermissions"',
         )
     )
+
+    # Pin the conservative policy, not merely wildcard syntax: neither old
+    # ineffective bare entries nor blanket/narrow unverified escapes may return.
+    for excluded in (
+        ["gh"], ["gh *"], ["gh:*"], ["gh pr view *"],
+        ["docker"], ["codex"], ["gh *", "docker"],
+        ["*"], [1], "gh *", None,
+    ):
+        data = copy.deepcopy(baseline)
+        data["sandbox"]["excludedCommands"] = excluded
+        mutations.append(
+            (f"unapproved sandbox exclusions: {excluded!r}", data,
+             "sandbox.excludedCommands must be an empty array")
+        )
+    data = copy.deepcopy(baseline)
+    data["sandbox"].pop("excludedCommands")
+    mutations.append(
+        ("exclusion policy removed", data,
+         "sandbox.excludedCommands must be an empty array")
+    )
+    for sandbox in (None, [], "sandbox"):
+        data = copy.deepcopy(baseline)
+        data["sandbox"] = sandbox
+        mutations.append(("invalid sandbox block", data, "sandbox must be an object"))
+    data = copy.deepcopy(baseline)
+    data.pop("sandbox")
+    mutations.append(("sandbox block removed", data, "sandbox must be an object"))
 
     # Structural deny invariants (Issue #303). Each case appends a rule that
     # looks like protection and is not: a bare name only guards the cwd (and
@@ -334,6 +393,21 @@ def main() -> None:
             )
         if 'ERROR: permissions.ask must contain "Bash(git push:*)"' not in result.stderr:
             raise AssertionError(f"CLI permission gate test: unexpected stderr {result.stderr!r}")
+
+        data = copy.deepcopy(baseline)
+        data["sandbox"]["excludedCommands"] = ["gh *"]
+        settings.write_text(json.dumps(data), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(VERIFY_SCRIPT), "--settings", str(settings)],
+            text=True, capture_output=True, check=False,
+        )
+        if result.returncode != 1 or (
+            "ERROR: sandbox.excludedCommands must be an empty array" not in result.stderr
+        ):
+            raise AssertionError(
+                f"CLI sandbox policy test: exit={result.returncode}; "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
 
         missing_settings = pathlib.Path(tmpdir) / "missing-settings.json"
         result = subprocess.run(

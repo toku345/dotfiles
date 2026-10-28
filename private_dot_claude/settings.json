@@ -19,15 +19,12 @@
       "Bash(git status:*)",
       "Bash(git show:*)",
       "Bash(git blame:*)",
-      "Bash(npm run:*)",
       "Bash(npm test:*)",
       "Bash(npm list:*)",
-      "Bash(yarn run:*)",
       "Bash(yarn test:*)",
       "Bash(cargo build:*)",
       "Bash(cargo test:*)",
       "Bash(cargo check:*)",
-      "Bash(cargo run:*)",
       "Bash(jq:*)",
       "Bash(chezmoi diff:*)",
       "Bash(chezmoi status:*)",
@@ -48,7 +45,6 @@
       "WebFetch(domain:developer.mozilla.org)",
       "Bash(gh search:*)",
       "WebFetch(domain:docs.github.com)",
-      "Skill(commit-commands:commit-push-pr)",
       "Bash(chezmoi cat:*)",
       "Bash(fish -n)"
     ],
@@ -80,7 +76,23 @@
       "Bash(curl:*)",
       "Bash(gh api:*)",
       "Bash(gh pr create:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr close:*)",
+      "Bash(gh pr reopen:*)",
+      "Bash(gh pr comment:*)",
+      "Bash(gh pr review:*)",
+      "Bash(gh pr ready:*)",
+      "Bash(gh pr lock:*)",
+      "Bash(gh pr unlock:*)",
       "Bash(gh issue create:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(gh issue close:*)",
+      "Bash(gh issue reopen:*)",
+      "Bash(gh issue comment:*)",
+      "Bash(gh issue delete:*)",
+      "Bash(gh issue lock:*)",
+      "Bash(gh issue unlock:*)",
       "Bash(git branch -d:*)",
       "Bash(git branch -D:*)",
       "Bash(git branch -m:*)",
@@ -99,7 +111,10 @@
       "Bash(rm:*)",
       "Bash(wget:*)",
       "Bash(chezmoi apply:*)",
-      "WebSearch"
+      "WebSearch",
+      "mcp__claude_ai_Atlassian_Rovo__create*",
+      "mcp__claude_ai_Atlassian_Rovo__transition*",
+      "mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue"
     ],
     "defaultMode": "auto"
   },
@@ -158,11 +173,7 @@
       ]
     },
     "enableWeakerNestedSandbox": true,
-    "excludedCommands": [
-      "docker",
-      "gh",
-      "codex"
-    ]
+    "excludedCommands": []
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
