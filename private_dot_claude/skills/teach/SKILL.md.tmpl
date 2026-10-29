@@ -1,2 +1,2 @@
-{{- /* canonical: dot_agents/skills/teach/SKILL.md — edit there */ -}}
-{{ include "dot_agents/skills/teach/SKILL.md" -}}
+{{- /* canonical: dot_agents/skills/teach/SKILL.md — edit there; only invocation policy differs in Claude Code. */ -}}
+{{ include "dot_agents/skills/teach/SKILL.md" | replace "name: teach\n" "name: teach\ndisable-model-invocation: true\n" -}}
