@@ -29,7 +29,7 @@ Sources inspected at revision `c742dd61706fbacc1b95f1a20b7b988cf096ce6c`:
 - Preserve progressive explanation without mandatory repeated diagrams or generated images.
 - Clarify the local co-dev boundary: teach handles explanation; explicitly active co-dev retains its single pre-implementation mini-quiz and separate development agreements. This exception is a local adaptation, not an upstream pstack rule.
 - Preserve the separation of behavior, documented rationale, inference, competing hypotheses, and unknowns.
-- Store the canonical files under `dot_agents/skills/teach/`. Generate Claude Code's entry point, references, and license through thin chezmoi include wrappers.
-- Keep teaching opt-in as upstream does with `disable-model-invocation: true`, but keep the canonical frontmatter within the Agent Skills spec fields. Codex disables implicit invocation in `agents/openai.yaml`; the Claude Code wrapper injects `disable-model-invocation: true` into its generated copy.
+- Store the canonical files in the toku345/dotfiles repository under `dot_agents/skills/teach/`. Generate Claude Code's entry point, references, and license through thin chezmoi include wrappers.
+- Keep teaching opt-in as upstream does with `disable-model-invocation: true`, but keep the canonical frontmatter within the Agent Skills spec fields. Codex disables implicit invocation in `agents/openai.yaml` (Codex install only); the Claude Code wrapper injects `disable-model-invocation: true` into its generated copy.
 
-The adaptation is maintained in this repository. It does not claim upstream endorsement or automatic updates. No pinned model, runtime script, network endpoint, or external skill is required by the package itself; evidence access depends on the tools available in the invoking session.
+The adaptation is maintained in the toku345/dotfiles repository. It does not claim upstream endorsement or automatic updates. No pinned model, runtime script, network endpoint, or external skill is required by the package itself; evidence access depends on the tools available in the invoking session.

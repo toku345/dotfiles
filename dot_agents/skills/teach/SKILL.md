@@ -7,8 +7,6 @@ description: Explain code, changes, and subsystems by investigating how they wor
 Adapted from pstack teach/how/why by Lauren Tan (@poteto).
 Copyright (c) 2026 Lauren Tan. MIT License; see LICENSE.
 Sources, pinned upstream revision, and adaptation notes: references/source.md.
-Local adaptation: bundle how/why, remove Cursor/model/unslop dependencies,
-use the user's language, and scope research and diagrams to the question.
 -->
 
 # Teach
