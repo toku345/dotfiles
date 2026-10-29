@@ -28,8 +28,14 @@ This is a self-contained adaptation of pstack's teach/how/why workflow, not an o
 
 - Start with a plain definition and connect it to the concrete case. Give the smallest complete answer in one or two sentences, then let the person respond. For a one-shot task or an explicit request for detail, provide the requested depth without artificial pauses.
 - Explain the problem being solved and walk through one concrete operation. Follow runtime events when helpful. Avoid a tour of function names and constants.
-- Deepen through follow-up questions. Keep it conversational. Do not quiz, ask the user to repeat the answer, or announce theatrical pauses. Do not assume an explanation proves understanding.
+- Deepen through the user's follow-up questions. Keep it conversational. Do not quiz, ask the user to repeat the answer, or announce theatrical pauses. Do not assume an explanation proves understanding.
 - Use concise diagrams, diffs, or examples when they clarify the mechanism. Introduce complex flows a small part at a time across the conversation. Do not force diagrams for simple points or repeat nearly identical diagrams in a short response.
 - Use edge cases or counterexamples when they test the explanation. Separate historical motivation from your assessment of whether the current design is appropriate. Do not assume every detail was intentional or optimal.
 - Cite original code, PRs, or documents near material claims. Mention unavailable sources when they materially limit the conclusion. Keep research notes internal unless requested.
 - Write natural, direct prose. Avoid stock framing labels, excessive headings, and walls of text. Return the explanation itself, not an activity report. Follow the person's lead about deepening or moving on.
+
+## Working with co-dev
+
+- Use teach alone for explanation without code changes, quizzes, or implementation approval requests. Invoking teach does not activate co-dev; do not require co-dev to answer a question.
+- When co-dev is explicitly active, use teach for investigation and explanation; co-dev owns the development checkpoints. Its single pre-implementation mini-quiz is the only exception to teach's no-quiz rule. Keep it at the transition into implementation, not inside the explanation or after every follow-up.
+- Treat questions as requests for explanation, quiz answers as evidence to discuss, and approval as a separate decision. Neither a correct answer nor an explanation authorizes implementation. Follow co-dev's start/resume and handoff agreement rules; returning to teach within an agreed scope does not reset those checkpoints.

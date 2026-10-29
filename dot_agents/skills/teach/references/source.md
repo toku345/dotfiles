@@ -27,6 +27,7 @@ Sources inspected at revision `c742dd61706fbacc1b95f1a20b7b988cf096ce6c`:
 - Use the user's language, including Japanese, and remove the separate unslop dependency.
 - Keep research proportional to the question; do not require a full evidence sweep for every question.
 - Preserve progressive explanation without mandatory repeated diagrams or generated images.
+- Clarify the local co-dev boundary: teach handles explanation; explicitly active co-dev retains its single pre-implementation mini-quiz and separate development agreements. This exception is a local adaptation, not an upstream pstack rule.
 - Preserve the separation of behavior, documented rationale, inference, competing hypotheses, and unknowns.
 - Store the canonical files under `dot_agents/skills/teach/`. Generate Claude Code's entry point, references, and license through thin chezmoi include wrappers.
 - Disable implicit Codex invocation in `agents/openai.yaml` so teaching is opt-in. This does not claim equivalent Claude Code trigger enforcement.
