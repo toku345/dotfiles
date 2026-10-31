@@ -1,0 +1,6 @@
+interface:
+  display_name: "Teach"
+  short_description: "コードの仕組みと設計背景を根拠から調べ、対話で理解を深める"
+  default_prompt: "$teach を使って、この実装の仕組みと設計背景を教えてください。"
+policy:
+  allow_implicit_invocation: false

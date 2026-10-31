@@ -112,6 +112,8 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 
 ## 管理するもの
 
+- `dot_agents/skills/teach/` -> `~/.agents/skills/teach/`（明示的な `$teach` で実装の仕組みと設計背景を調べる。Claude Code の `~/.claude/skills/teach/` は同じ正本から生成し、`/teach` で使う。参照元・著作者・改変内容は [source.md](../dot_agents/skills/teach/references/source.md)、MIT 全文は [LICENSE](../dot_agents/skills/teach/LICENSE)）
+
 - `dot_agents/skills/plan-review-handoff/` -> `~/.agents/skills/plan-review-handoff/`（[人が編集する計画レビュー](plan-review-handoff.md)の共通入口と手順）
 - `private_dot_codex/AGENTS.md` -> `~/.codex/AGENTS.md`
 - `private_dot_codex/modify_private_config.toml` -> `~/.codex/config.toml` の per-key 更新（chezmoi の `modify_` target）
@@ -327,6 +329,17 @@ experimental_mode = true
 `$plan-review-handoff` に `prepare` / `review` / `assess` と対象を添えると、相手向け依頼文の準備、受け取った計画のレビュー、元の作成元での指摘の採否判断を行う。[共通手順と依頼文](plan-review-handoff.md)を参照。
 
 Codex の入口は `~/.agents/skills/plan-review-handoff/` に配置する。Claude Code の入口と手順は同じ正本から生成する。対象環境・実際に確認した読み込み・未検証範囲は [Issue #418](https://github.com/toku345/dotfiles/issues/418)に分けて記録する。既存の `~/.codex/skills/` は移行せず、Fugu での利用は未検証とする。
+
+## teachとco-devの使い分け
+
+振る舞いの正本は [teach](../dot_agents/skills/teach/SKILL.md) の「Working with co-dev」と [co-dev](../dot_agents/skills/co-dev/SKILL.md) の「teachとの併用」に置く。co-devの停止点は会話上の手順であり、権限や承認UIを追加する機能ではない。通常の操作権限・承認要件は引き続き適用する。
+
+CIのtemplate検証はincludeの解決・構文、Bats（`tests/bats/test_claude_skill_wrappers.bats`）はClaude Code用wrapperの網羅性と`disable-model-invocation`の注入、Security Checksはsecretや設定の静的検査を確認する。クイズのタイミングや承認との区別など、モデルの対話上の遵守は保証しない。実環境では、対象sourceと配置内容を確認してから、Codex・Claude Codeそれぞれの新規セッションで次を確認する（live applyは[AGENTS.md](../AGENTS.md#chezmoi-operations)の別途承認手順に従う）。
+
+- teach単独：コード説明と追加質問に応じ、クイズ・コード変更・開発承認要求がない。
+- co-dev単独：実装前の1問と補足後に着手合意を扱い、回答だけで着手しない。
+- 併用：説明中の質問にクイズを追加せず、実装直前だけ1問を出す。正解だけで着手せず、承認後の同じ範囲の追加説明では停止点を繰り返さない。重要な方針変更では再合意し、引き渡し前にはクイズを出さない。
+- Codexの明示起動設定とClaude Codeの呼び出し・配置を別々に確認する。片方の成功をもう片方の動作保証にしない。
 
 ## agmsg writable roots
 
