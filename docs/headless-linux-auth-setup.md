@@ -86,7 +86,7 @@ printf '%s\n' \
   'Type=simple' \
   'Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket' \
   'ExecStartPre=/usr/bin/rm -f %t/ssh-agent.socket' \
-  'ExecStart=/usr/bin/ssh-agent -D -a $SSH_AUTH_SOCK' \
+  'ExecStart=/usr/bin/ssh-agent -D -t 28800 -a $SSH_AUTH_SOCK' \
   '' \
   '[Install]' \
   'WantedBy=default.target' \
@@ -97,6 +97,21 @@ systemctl --user enable --now ssh-agent.service
 ```
 
 `%t` resolves to `$XDG_RUNTIME_DIR` (e.g. `/run/user/1000`). Linger is intentionally left **disabled** — the agent stops when all your sessions close, so the decrypted key never outlives your presence. (A long-lived tmux/cmux session keeps it alive across SSH reconnects.)
+
+`-t 28800` sets the agent's **default** maximum identity lifetime to 8h (`man ssh-agent`: "Without this option the default maximum lifetime is forever"). It bounds every add path that does not specify its own lifetime — a bare `ssh-add <key>`, and `ssh`'s automatic add via the chezmoi-managed `Host *` `AddKeysToAgent yes`, which `man ssh_config` describes as adding the key "with the default lifetime". It is a default, not a cap: an explicit `ssh-add -t <life>` (step 7) overrides it in either direction. Without this flag the 8h window ADR 0027 relies on holds only when every load remembers `-t`, so any forgotten or automatic add leaves the GitHub key signable for the agent's whole life.
+
+**This runbook is not chezmoi-managed, so this edit only changes what a *future* setup produces — an already-running box keeps its current unit until you update it by hand:**
+
+```bash
+# on an existing box: add -t 28800 to the ExecStart line already on disk
+sed -i 's|^ExecStart=/usr/bin/ssh-agent -D -a |ExecStart=/usr/bin/ssh-agent -D -t 28800 -a |' \
+  ~/.config/systemd/user/ssh-agent.service
+grep ExecStart ~/.config/systemd/user/ssh-agent.service   # confirm -t 28800 is there
+systemctl --user daemon-reload
+systemctl --user restart ssh-agent.service
+```
+
+The restart empties the agent (loaded keys are lost), so re-run step 7 afterwards. The socket path (`%t/ssh-agent.socket`) is unchanged, so existing shells keep pointing at the right place.
 
 ## 6. Point the shell at the agent (bash)
 
@@ -123,7 +138,7 @@ ssh-add -t 28800 ~/.ssh/id_ed25519_github   # 8h timeout; enter the passphrase o
 ssh-add -l                                    # confirm only the github-only key is loaded
 ```
 
-Never load with no `-t` (indefinite signing oracle) and never wire up auto-decryption of the passphrase.
+Always pass `-t` explicitly: it is the tighter contract, and on a box whose agent still runs without the step-5 `-t 28800` default a load with no `-t` is an indefinite signing oracle. Never wire up auto-decryption of the passphrase.
 
 ## Verification
 
