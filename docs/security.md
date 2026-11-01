@@ -244,6 +244,22 @@ The workflow uses:
 - **Shell scripts** - Lightweight checks without external dependencies
 - **No password required** - CI cannot decrypt files (password not stored)
 
+### Limitations
+
+- Cannot verify decryption (no password in CI)
+- gitleaks detects structured secrets, not unstructured PII (names, card numbers)
+- A local pre-commit hook is bypassable with `--no-verify`; required CI is the fail-closed merge gate, and GitHub push protection adds server-side prevention subject to repository bypass policy
+- Manual review still important for sensitive changes
+
+### If CI Fails
+
+1. **Review the error message** - Identifies which check failed
+2. **Remove sensitive data** if detected
+3. **Fix corrupted .age files** if encryption check failed
+4. **Verify you didn't commit `~/key.txt`** (plaintext key)
+
+If you believe a gitleaks result is a false positive, prefer removing or rewriting the fixture. If an allowlist is genuinely required, add the narrowest scoped entry to `.gitleaks.toml`. For pull requests, the scan uses the protected base branch's config, so an allowlist added in the same PR will not affect that PR until the trusted base config is updated by a separate reviewed change or maintainer-approved process.
+
 ### Workflow dependency lockfile
 
 All four workflows, including the reusable secret scanner and the lockfile verifier itself, are onboarded to `.github/workflows/actions.lock`. Existing full commit SHA references remain unchanged. The lockfile also records source repository identities and can cover transitive action calls; the four current actions are Node actions with no nested action calls.
@@ -268,22 +284,6 @@ The lockfile covers action code, not runner images, tool versions, or downloads 
 To roll back the trial, remove `actions.lock`, `verify-actions-lock.yml`, and this documentation section. Existing SHA pins remain in place. No Require lockfile policy or branch protection changes are part of this rollout.
 
 References: [GitHub lockfile guide](https://docs.github.com/en/actions/how-tos/secure-your-work/lock-workflow-dependencies), [official verifier example](https://github.com/github/gh-actions-lock/blob/main/.github/workflows/verify-lockfile.yml).
-
-### Limitations
-
-- Cannot verify decryption (no password in CI)
-- gitleaks detects structured secrets, not unstructured PII (names, card numbers)
-- A local pre-commit hook is bypassable with `--no-verify`; required CI is the fail-closed merge gate, and GitHub push protection adds server-side prevention subject to repository bypass policy
-- Manual review still important for sensitive changes
-
-### If CI Fails
-
-1. **Review the error message** - Identifies which check failed
-2. **Remove sensitive data** if detected
-3. **Fix corrupted .age files** if encryption check failed
-4. **Verify you didn't commit `~/key.txt`** (plaintext key)
-
-If you believe a gitleaks result is a false positive, prefer removing or rewriting the fixture. If an allowlist is genuinely required, add the narrowest scoped entry to `.gitleaks.toml`. For pull requests, the scan uses the protected base branch's config, so an allowlist added in the same PR will not affect that PR until the trusted base config is updated by a separate reviewed change or maintainer-approved process.
 
 ### Secret-scanning layers (and other repos)
 
