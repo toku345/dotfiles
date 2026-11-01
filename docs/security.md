@@ -244,6 +244,31 @@ The workflow uses:
 - **Shell scripts** - Lightweight checks without external dependencies
 - **No password required** - CI cannot decrypt files (password not stored)
 
+### Workflow dependency lockfile
+
+All four workflows, including the reusable secret scanner and the lockfile verifier itself, are onboarded to `.github/workflows/actions.lock`. Existing full commit SHA references remain unchanged. The lockfile also records source repository identities and can cover transitive action calls; the four current actions are Node actions with no nested action calls.
+
+Use `gh-actions-lock` v0.2.0 to regenerate and verify the lockfile from the repository root:
+
+```sh
+gh extension install github/gh-actions-lock --pin v0.2.0
+gh actions-lock --no-narrow
+gh actions-lock --verify-local --no-narrow
+gh actions-lock --verify --no-narrow
+```
+
+`--no-narrow` preserves the existing SHA references instead of converting them to tags. The offline check only checks coverage; the online check also verifies upstream provenance. SHA-reference warnings are expected under this policy and do not replace error checks. Re-run generation whenever workflows or action dependencies change; never edit the lockfile by hand. Review changed commit SHAs and investigate changes to `owner_id` or `repo_id` before merging.
+
+The **Actions Lockfile** workflow performs online verification on pull requests and pushes to main/master, using read-only permissions and no automatic commits. Its CLI is pinned to a release tag, not independently checksum-verified, and is itself outside the action lockfile's coverage. For a temporary local installation, set `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` to directories under a private temporary directory for every `gh` command above; leave the authentication configuration unchanged.
+
+Dependabot retains its weekly schedule and seven-day cooldown. GitHub documents that updates to onboarded actions also update the lockfile in the same PR. This repository's first such update still needs observation. If an update leaves the lockfile out of sync, regenerate it on that PR's branch and review the additional diff before merging.
+
+The lockfile covers action code, not runner images, tool versions, or downloads made by `run:` steps (`curl`, Homebrew, npm, or pip). Reusable workflow calls remain unchanged: their action dependencies use the lockfile in the defining repository at the referenced revision. External callers adopting a new revision can therefore be affected; execution from other repositories has not been validated as part of this trial.
+
+To roll back the trial, remove `actions.lock`, `verify-actions-lock.yml`, and this documentation section. Existing SHA pins remain in place. No Require lockfile policy or branch protection changes are part of this rollout.
+
+References: [GitHub lockfile guide](https://docs.github.com/en/actions/how-tos/secure-your-work/lock-workflow-dependencies), [official verifier example](https://github.com/github/gh-actions-lock/blob/main/.github/workflows/verify-lockfile.yml).
+
 ### Limitations
 
 - Cannot verify decryption (no password in CI)
