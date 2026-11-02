@@ -75,13 +75,39 @@ Set `sandbox.excludedCommands` to `[]`: remove the ineffective bare `docker`, `g
 
 ### Accepted trade-offs and boundaries
 
-- Read-only `gh` calls may still require a per-call retry. We accept that friction rather than automatically widening sandbox access.
+- Read-only `gh` calls may still require a per-call retry. We accept that friction rather than automatically widening sandbox access. (Refined by [Follow-up 2026-11-02](#follow-up-2026-11-02-443): the retry of an allow-listed read runs without a prompt.)
 - Exclusion bypasses OS filesystem/network isolation, not ordinary permission checks. Explicit asks remain; read-only or allow-rule decisions may bypass the classifier, while other commands can reach it. Conversation agreement is separate: commit, push, apply, and shared writes still need explicit agreement within task scope ([permission policy](../agent-permissions.md)).
 - The matching findings above are version-specific evidence, not a promise of universal technical enforcement.
 
 ### Not adopted
 
 - **`allowUnsandboxedCommands: false`**: some paths may still rely on the unsandboxed retry (e.g. scripts that enumerate processes with `pgrep`). Escape-path and socket hardening remain separately scoped follow-ups, not changes in this integration.
+
+## Follow-up 2026-11-02 (#443)
+
+[Issue #443](https://github.com/toku345/dotfiles/issues/443) reported an approval prompt on every unsandboxed retry of read-only `gh` calls.
+
+### Findings
+
+Measured with headless `claude -p --permission-mode manual --permission-prompts none` (no auto-mode classifier; anything that would prompt is denied automatically) on Claude Code 2.1.310 / Linux (bubblewrap) and 2.1.316 / macOS (Seatbelt), against the live user settings. Both platforms gave the same results:
+
+- The sandboxed attempt of any `gh` call fails reading `~/.config/gh/hosts.yml`.
+- When the agent retries with `dangerouslyDisableSandbox: true`, a call matching a `permissions.allow` entry (`gh pr view`, also piped into `jq`) runs without a prompt. A read without an allow entry (`gh pr checks`) needs approval. A write in `permissions.ask` (`gh issue comment`) is denied on the first attempt.
+- A narrow `excludedCommands: ["gh pr view *"]` overlay made `gh pr view` succeed on the first attempt and did not affect `gh pr checks`. This was measured with the allow entry present, so it does not show that an exclusion alone removes the prompt.
+
+After adding the new entries (Linux, overlaid with `--settings`), retries of `gh pr checks`, `gh pr status`, `gh repo view`, and `gh run list` ran without a prompt, while `gh run view` and `gh issue comment` were still denied.
+
+The prompts in the Issue most likely came from reads without an allow entry.
+
+### Decision
+
+Add `gh pr checks`, `gh pr status`, `gh repo view` and `gh run list` to `permissions.allow`. Keep `sandbox.excludedCommands` at `[]`.
+
+- An exclusion would only save the failing first attempt, and would require the exclusion policy and its test to change.
+- `gh run view` is not added: `--log` writes a local log cache, and unsandboxed writes need explicit approval under the user-global CLAUDE.md.
+- Allowing `hosts.yml` reads inside the sandbox stays rejected: it exposes the token to every sandboxed command.
+
+Accepted trade-off: each allow-listed read still makes one failing sandboxed attempt before the retry.
 
 ## TODO
 
