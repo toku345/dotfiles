@@ -33,7 +33,7 @@ Claude の `npm run` / `yarn run` / `cargo run` の広い `allow` は削除す�
 
 ## command 除外の整理
 
-`excludedCommands` は `[]` にする。PR #438 が 2.1.310 で確認した照合規則では裸名は完全一致で、従来の3件は引数付き実行に効かなかった。過去版やこの統合作業環境での再実測とは区別する。`gh *` は write / extension まで sandbox 外へ広げるため採用しない。狭い閲覧系 prefix も安全な適用範囲の実測・negative tests がないため今回は追加せず、必要時の通常の承認付き retry を維持する。除外が一致した場合に外れるのは OS の filesystem / network sandbox であり、通常の permission flow ではない。明示的な ask は残り、read-only 判定や allow rule で許可される場合を除いて分類器が評価するため、全 call が分類器に回る保証でもない。詳細は [ADR 0002](adr/0002-claude-code-sandbox-gh-investigation.md)。
+`excludedCommands` は `[]` にする。PR #438 が 2.1.310 で確認した照合規則では裸名は完全一致で、従来の3件は引数付き実行に効かなかった。過去版やこの統合作業環境での再実測とは区別する。`gh *` は write / extension まで sandbox 外へ広げるため採用しない。狭い閲覧系 prefix も安全な適用範囲の実測・negative tests がないため今回は追加せず、必要時の通常の retry を維持する。2026-11-02 の実測 (#443、2.1.310 Linux / 2.1.316 macOS) では、`permissions.allow` に一致する呼び出しは sandbox 外の retry でも承認なしで実行され、一致しない読み取りは承認を求めた。このため読み取り系 `gh` は除外ではなく allow で扱う。除外が一致した場合に外れるのは OS の filesystem / network sandbox であり、通常の permission flow ではない。明示的な ask は残り、read-only 判定や allow rule で許可される場合を除いて分類器が評価するため、全 call が分類器に回る保証でもない。詳細は [ADR 0002](adr/0002-claude-code-sandbox-gh-investigation.md)。
 
 ## 例外の棚卸し
 
@@ -44,7 +44,7 @@ Claude の `npm run` / `yarn run` / `cargo run` の広い `allow` は削除す�
 | Claude `allowAllUnixSockets: true` | SSH agent 等との接続。Docker daemon に到達できても完全な隔離ではない。全 socket を許可する必要があるか、限定できるかは未検証 |
 | Claude `allowLocalBinding: true` | ローカル開発サーバー。必要な実行経路と OS 差は未検証 |
 | Claude `enableWeakerNestedSandbox: true` | nested sandbox の互換性。必要な環境と保護への影響は未検証 |
-| Claude `allowUnsandboxedCommands: true` | sandbox で動かないツールの retry。許可ルールが retry にも適用される点を含め、必要性を再確認する |
+| Claude `allowUnsandboxedCommands: true` | sandbox で動かないツールの retry。allow に一致する retry は承認なしで実行される (#443 で実測)。読み取り系 `gh` の allow はこの retry に依存する |
 | Claude の追加 write 領域 | `/tmp`、Codex plugin data、agmsg の db / teams / run、SSH known_hosts。各用途と最小範囲を再確認する |
 | Claude の追加 read 領域 | SSH config / config.local / known_hosts、OrbStack SSH config。秘密鍵の許可とは区別し、deny と併せて必要性を確認する |
 | Codex の追加 `writable_roots` | machine-local の free 設定。調査端末は agmsg の db / teams / run。端末ごとに再確認する |
