@@ -189,6 +189,10 @@ abbr -a gst git status
 alias bru 'brew-reviewed-upgrade'
 alias brcu 'brew-reviewed-cask-upgrade'
 
+if test "$TERM_PROGRAM" = ghostty; and command -sq ghostty
+    alias ssh 'ghostty +ssh --'
+end
+
 function l --description 'eza -ahl --git'
     eza -ahl --git $argv
 end
