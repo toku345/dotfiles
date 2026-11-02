@@ -95,6 +95,8 @@ Measured with headless `claude -p --permission-mode manual --permission-prompts 
 - When the agent retries with `dangerouslyDisableSandbox: true`, a call matching a `permissions.allow` entry (`gh pr view`, also piped into `jq`) runs without a prompt. A read without an allow entry (`gh pr checks`) needs approval. A write in `permissions.ask` (`gh issue comment`) is denied on the first attempt.
 - A narrow `excludedCommands: ["gh pr view *"]` overlay made `gh pr view` succeed on the first attempt and did not affect `gh pr checks`. This was measured with the allow entry present, so it does not show that an exclusion alone removes the prompt.
 
+After adding the new entries (Linux, overlaid with `--settings`), retries of `gh pr checks`, `gh pr status`, `gh repo view`, and `gh run list` ran without a prompt, while `gh run view` and `gh issue comment` were still denied.
+
 The prompts in the Issue most likely came from reads without an allow entry.
 
 ### Decision
