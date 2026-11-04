@@ -10,6 +10,14 @@ if [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]]; then
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 fi
 
+prepend_path() {
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) PATH="$1:$PATH" ;;
+    esac
+    export PATH
+}
+
 # asdf (Linuxbrew-installed; v0.16+ Go binary — no asdf.sh)
 # https://asdf-vm.com/guide/getting-started.html
 # PATH order: asdf shim is prepended here, but later `~/.local/bin` / `~/.cargo/bin`
@@ -18,7 +26,7 @@ fi
 # an overlay — see ADR 0023). To use the asdf-pinned version of an overlapping
 # tool, run `asdf exec <tool>` / `asdf shell <tool> <version>`.
 if command -v asdf &>/dev/null; then
-    export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+    prepend_path "${ASDF_DATA_DIR:-$HOME/.asdf}/shims"
     . <(asdf completion bash)
     # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)
     [[ -f "$HOME/.asdf/plugins/java/set-java-home.bash" ]] \
@@ -26,14 +34,14 @@ if command -v asdf &>/dev/null; then
 fi
 
 # Local bin (uv installer puts uv here)
-[[ -d "$HOME/.local/bin" ]] && PATH="$HOME/.local/bin:$PATH"
+[[ -d "$HOME/.local/bin" ]] && prepend_path "$HOME/.local/bin"
 
 # Rust (rustup)
-[[ -d "$HOME/.cargo/bin" ]] && PATH="$HOME/.cargo/bin:$PATH"
+[[ -d "$HOME/.cargo/bin" ]] && prepend_path "$HOME/.cargo/bin"
 
 # Bun
 export BUN_INSTALL="$HOME/.bun"
-[[ -d "$BUN_INSTALL/bin" ]] && PATH="$BUN_INSTALL/bin:$PATH"
+[[ -d "$BUN_INSTALL/bin" ]] && prepend_path "$BUN_INSTALL/bin"
 
 # OCaml(opam)
 if [[ -r "$HOME/.opam/opam-init/init.sh" ]]; then
@@ -79,7 +87,7 @@ unset _ssh_agent_sock
 
 # Managed Bash scripts use Homebrew Bash; this does not change the login shell.
 if [[ -n "${HOMEBREW_PREFIX:-}" && -x "$HOMEBREW_PREFIX/opt/bash/bin/bash" ]]; then
-    export PATH="$HOMEBREW_PREFIX/opt/bash/bin:$PATH"
+    prepend_path "$HOMEBREW_PREFIX/opt/bash/bin"
 fi
 
 # Machine-specific overrides

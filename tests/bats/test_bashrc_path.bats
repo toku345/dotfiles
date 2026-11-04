@@ -13,28 +13,26 @@ setup() {
   chmod +x "$BATS_TEST_TMPDIR/prefix/opt/bash/bin/bash"
 }
 
-# Source dot_bashrc twice and print the first PATH.
-# Exit non-zero when the second source changes it.
-# Pass "asdf" to define an asdf command before sourcing.
 source_twice() {
   run -0 env \
     -u BASH_ENV -u BUN_INSTALL -u ASDF_DATA_DIR -u ASDF_CONFIG_FILE -u HOMEBREW_PREFIX \
+    WITH_ASDF="${WITH_ASDF:-}" \
     "$BASH5_BIN" --noprofile --norc -c '
       export HOME="$1"
-      export HOMEBREW_PREFIX="$3"
-      export PATH="$4"
-      if [[ "$5" == asdf ]]; then
+      export HOMEBREW_PREFIX="$2"
+      export PATH="$3"
+      if [[ -n "${WITH_ASDF:-}" ]]; then
         asdf() { return 0; }
       fi
-      source "$2"
+      source "$4"
       first=$PATH
-      source "$2"
+      source "$4"
       if [[ "$PATH" != "$first" ]]; then
         printf "PATH changed on second source\nfirst=%s\nsecond=%s\n" "$first" "$PATH"
         exit 1
       fi
       printf "%s\n" "$first"
-    ' -- "$HOME" "$REPO_ROOT/dot_bashrc" "$BATS_TEST_TMPDIR/prefix" "$PATH_VALUE" "$1"
+    ' -- "$HOME" "$BATS_TEST_TMPDIR/prefix" "$PATH_VALUE" "$REPO_ROOT/dot_bashrc"
 }
 
 path_parts() {
@@ -91,7 +89,7 @@ assert_once_before() {
 @test "first source orders user bins ahead of the original PATH and a second source does not grow it" {
   local bash_bin
   PATH_VALUE="/usr/bin:/bin:/bats-path-sentinel"
-  source_twice ''
+  source_twice
   assert_once_before "$HOME/.bun/bin" "$HOME/.cargo/bin"
   assert_once_before "$HOME/.cargo/bin" "$HOME/.local/bin"
   assert_once_before "$HOME/.local/bin" /bats-path-sentinel
@@ -103,7 +101,7 @@ assert_once_before() {
 
 @test "a directory already on PATH stays where it is" {
   PATH_VALUE="/usr/bin:$HOME/.local/bin:/bats-path-sentinel"
-  source_twice ''
+  source_twice
   assert_once_before "$HOME/.bun/bin" "$HOME/.cargo/bin"
   assert_once_before "$HOME/.cargo/bin" /usr/bin
   assert_once_before /usr/bin "$HOME/.local/bin"
@@ -113,7 +111,7 @@ assert_once_before() {
 
 @test "asdf shims stay behind native installers and are not duplicated" {
   PATH_VALUE="/usr/bin:/bin:/bats-path-sentinel"
-  source_twice asdf
+  WITH_ASDF=1 source_twice
   assert_once_before "$HOME/.local/bin" "$HOME/.asdf/shims"
   assert_once_before "$HOME/.asdf/shims" /bats-path-sentinel
   [[ "$(count_entry "$HOME/.asdf/shims")" -eq 1 ]]
