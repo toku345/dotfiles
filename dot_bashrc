@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # Interactive shell configuration (Linux)
 
 # Homebrew update policy is managed in ~/.homebrew/brew.env (ADR 0026).
@@ -27,6 +28,7 @@ prepend_path() {
 # tool, run `asdf exec <tool>` / `asdf shell <tool> <version>`.
 if command -v asdf &>/dev/null; then
     prepend_path "${ASDF_DATA_DIR:-$HOME/.asdf}/shims"
+    # shellcheck disable=SC1090 # completion script is emitted by the asdf binary
     . <(asdf completion bash)
     # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)
     [[ -f "$HOME/.asdf/plugins/java/set-java-home.bash" ]] \

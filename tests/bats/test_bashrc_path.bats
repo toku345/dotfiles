@@ -109,6 +109,14 @@ assert_once_before() {
   [[ "$(count_entry "$HOME/.local/bin")" -eq 1 ]]
 }
 
+@test "a lookalike directory name stays a separate PATH entry" {
+  PATH_VALUE="$HOME/.local/bin-extra:/usr/bin:/bin:/bats-path-sentinel"
+  source_twice
+  [[ "$(count_entry "$HOME/.local/bin")" -eq 1 ]]
+  [[ "$(count_entry "$HOME/.local/bin-extra")" -eq 1 ]]
+  assert_once_before "$HOME/.local/bin" "$HOME/.local/bin-extra"
+}
+
 @test "asdf shims stay behind native installers and are not duplicated" {
   PATH_VALUE="/usr/bin:/bin:/bats-path-sentinel"
   WITH_ASDF=1 source_twice
