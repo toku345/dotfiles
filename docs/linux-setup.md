@@ -162,7 +162,28 @@ docker run --rm -it ubuntu:24.04 bash -c '
 - `~/.bashrc`, `~/.bash_profile`, `~/.config/starship.toml` が生成される
 - macOS 専用ファイル群は[`.chezmoiignore`](../.chezmoiignore) の Linux 分岐に列挙されたパスが**生成されない**
 
-AGENTS.md の「Docker での Ubuntu CI parity 検証」節も併せて参照してください。
+### OS 分岐の bats 回帰
+
+`tests/bats/install-minimum-packages.bats` は `.chezmoiscripts/run_once_before_install-minimum-packages.sh` の darwin 分岐、linux 分岐、Linuxbrew が無い場合、空の `CHEZMOI_OS`、未対応の `CHEZMOI_OS` を検証します。`brew` と `sudo` の引数は stub が記録します。Linuxbrew のパスは一時ディレクトリへ差し替わるので、パッケージは導入されません。
+
+macOS ではリポジトリルートで次を実行してください。
+
+```bash
+bats tests/bats/install-minimum-packages.bats
+```
+
+Ubuntu 24.04 ではリポジトリルートで次を実行してください。終了ステータス 0 なら成功です。
+
+```bash
+docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
+  set -eu
+  apt-get update -qq >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats >/dev/null
+  bats tests/bats/install-minimum-packages.bats
+'
+```
+
+`tests/bats/` 全体を Ubuntu CI と同じ条件で走らせる場合は、[`.claude/rules/bats-testing.md` の Docker での Ubuntu CI parity 検証](../.claude/rules/bats-testing.md) を使ってください。
 
 ## Troubleshooting
 

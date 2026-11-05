@@ -75,6 +75,17 @@ No brew/apt entries for language managers on Linux. `dot_bashrc` conditionally a
 
 Linux CI is not expanded in this PR. Instead, the existing manual pattern (`docker run ubuntu:24.04 bash ...`) is documented in `docs/linux-setup.md` and treated as the pre-PR validation step, consistent with AGENTS.md guidance on Ubuntu CI parity.
 
+The OS branches and failure paths of `.chezmoiscripts/run_once_before_install-minimum-packages.sh` are covered by `tests/bats/install-minimum-packages.bats`. From the repository root on macOS, run `bats tests/bats/install-minimum-packages.bats`. For Ubuntu 24.04, run the `docker run` block below. The same block is in `docs/linux-setup.md`. The full `tests/bats/` recipe remains in `.claude/rules/bats-testing.md`.
+
+```bash
+docker run --rm -v "$(pwd):/work" -w /work ubuntu:24.04 bash -c '
+  set -eu
+  apt-get update -qq >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bats >/dev/null
+  bats tests/bats/install-minimum-packages.bats
+'
+```
+
 ### 9. PR #77 disposition
 
 Close PR #77 with a comment linking to the new PR. The approach diverges enough that a clean diff is clearer than amending the existing branch.
