@@ -515,6 +515,19 @@ The reviewed Homebrew helpers can discover and remember smoke commands. Automati
 
 **Homebrew Formula updates** use `brew-reviewed-upgrade` as the normal path described in the [dedicated runbook](homebrew-update.md): update metadata, classify and dry-run the named target, verify complete Bottle attestation coverage, upgrade it, then test vulnerabilities, global linkage, and behavior. **Strict Cask updates** use `brew-reviewed-cask-upgrade`: validate installed state separately from the Caskroom `INSTALL_RECEIPT.json`, reject non-empty `url_specs` / `container` / `rename`, snapshot the reviewed candidate safety fields, bind a GitHub release asset URL and digest to the Cask checksum and newest asset/release timestamp, display the named dry-run, then revalidate before upgrading without automatic app quit or dependency installation. An explicit asset/Cask digest mismatch is fatal even with a cooldown exception. The helper verifies the reviewed safety-field snapshot, installed version, and behavior after mutation. Casks have no equivalent Bottle attestation or `brew vulns` gate; unsupported Casks and tag archives remain manual-exception paths. Full Formula/Cask outdated listings are a separate periodic inventory. Security fixes bypass the cooldown — see [When to bypass the cooldown](#when-to-bypass-the-cooldown).
 
+### mise update controls
+
+Language runtimes and provenance-attested CLIs are managed by mise ([ADR 0041](adr/0041-mise-for-cli-and-runtime-management.md)); the runbook is [mise.md](mise.md). The global config and lock are chezmoi-managed under `private_dot_config/mise/`.
+
+| Setting | Effect |
+| --- | --- |
+| `minimum_release_age = "48h"` | `mise lock --bump` skips releases younger than 48 hours for non-exact requests (`latest`, prefixes). Exact versions bypass it, so the config never contains them. |
+| `locked = true`, `locked_scopes = ["global"]` | Global tools install only what `mise.lock` records; project configs without a lock keep working. |
+| `locked_verify_provenance = true` | Re-run provenance checks on install instead of trusting a previous result. |
+| `auto_install` / `exec_auto_install` / `not_found_auto_install` = false | No implicit downloads from shims, hooks, or non-interactive shells; installs happen only via an explicit `mise install`. |
+
+A CLI is listed in mise only when the lock records `provenance` (cosign, GitHub attestations, SLSA, or minisign) for every locked platform; checksum-only CLIs stay on Homebrew. A lock diff that drops `provenance` for an existing CLI blocks the update. Resolving new versions trusts mise's metadata services (mise-versions, mise-java); re-installs are pinned by the lock checksum.
+
 ### VS Code extensions and updates
 
 VS Code's extension marketplace is an update channel: an auto-updating extension can pull compromised code that runs with editor — and, via tasks/debuggers, shell — privileges. ADR 0026 requires extension auto-update off, update checks on, manual application updates, and workspace trust restricted. This is **documented as manual machine setup** rather than chezmoi-managed: the settings file is app-owned (VS Code rewrites it), full of personal settings, and lives at platform-specific macOS-only paths, so a managed file would churn and risk clobbering personal config for marginal benefit.
@@ -563,7 +576,7 @@ As of 2026-06-03, all four controls were verified by hand on the current Macs. T
 
 ### When to bypass the cooldown
 
-The two reviewed Homebrew helpers default to a 48-hour cooldown, with explicit per-package settings (including zero hours). Other routine update channels retain their existing 7-day policy. A zero-hour helper setting waives age waiting only; unverifiable release metadata still requires a reasoned exception, and integrity failures remain fatal. The cooldown must not delay security fixes. Apply an update immediately (skip the cooldown) when:
+The two reviewed Homebrew helpers default to a 48-hour cooldown, with explicit per-package settings (including zero hours). mise uses the same 48-hour `minimum_release_age`; bypass it per tool with `mise lock --global --bump --minimum-release-age 0d <tool>` (see [mise.md](mise.md)). Other routine update channels retain their existing 7-day policy. A zero-hour helper setting waives age waiting only; unverifiable release metadata still requires a reasoned exception, and integrity failures remain fatal. The cooldown must not delay security fixes. Apply an update immediately (skip the cooldown) when:
 
 - a security advisory or CVE fix names the version, or there is an active exploit, or
 - it is a break/fix needed to restore work, or
