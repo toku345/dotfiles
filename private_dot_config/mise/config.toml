@@ -1,0 +1,36 @@
+# Global mise config (ADR 0041).
+# - Runtimes use prefix requests; CLIs use "latest". Never write exact versions:
+#   minimum_release_age only filters non-exact requests.
+# - CLIs are listed only when mise.lock records provenance on every platform.
+# - Update: `mise lock --global --bump`, review the lock diff, commit, then
+#   `mise install` explicitly (auto install is disabled on purpose).
+
+[settings]
+minimum_release_age = "48h"
+locked = true
+locked_scopes = ["global"]
+locked_verify_provenance = true
+lockfile_platforms = ["macos-arm64", "linux-x64"]
+auto_install = false
+exec_auto_install = false
+not_found_auto_install = false
+idiomatic_version_file_enable_tools = ["node", "python", "ruby"]
+
+[tools]
+# Runtimes
+node = "26"
+python = "3.14"
+ruby = "3.4"
+java = "temurin-21"
+zig = "0.16"
+bun = "1"
+deno = "2"
+
+# CLIs with provenance on all locked platforms
+"aqua:cli/cli" = "latest"
+"aqua:jqlang/jq" = "latest"
+"aqua:rhysd/actionlint" = "latest"
+"aqua:evilmartians/lefthook" = "latest"
+"aqua:suzuki-shunsuke/pinact" = "latest"
+"aqua:biomejs/biome" = "latest"
+"aqua:aquasecurity/trivy" = "latest"

@@ -10,14 +10,35 @@ if [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]]; then
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 fi
 
-# asdf (Linuxbrew-installed; v0.16+ Go binary — no asdf.sh)
-# https://asdf-vm.com/guide/getting-started.html
-# PATH order: asdf shim is prepended here, but later `~/.local/bin` / `~/.cargo/bin`
-# / `~/.bun/bin` prepends push it back. Final PATH = native installers > asdf shim.
-# This is intentional (native installers win for overlapping tools; asdf acts as
-# an overlay — see ADR 0023). To use the asdf-pinned version of an overlapping
-# tool, run `asdf exec <tool>` / `asdf shell <tool> <version>`.
-if command -v asdf &>/dev/null; then
+# Version manager shims: mise once `mise install` has created its shims directory
+# (ADR 0041, docs/mise.md), otherwise asdf until this machine is migrated.
+# PATH order: shims are prepended here, but later `~/.local/bin` / `~/.cargo/bin`
+# / `~/.bun/bin` prepends push them back. Final PATH = native installers > shims.
+# This is intentional (native installers win for overlapping tools; shims act as
+# an overlay — see ADR 0023). To use the pinned version of an overlapping tool,
+# run `mise exec <tool> -- ...` (or `asdf exec <tool>` before migration).
+if command -v mise &>/dev/null && [[ -d "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" ]]; then
+    export PATH="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims:$PATH"
+    # Shims do not export JAVA_HOME; recompute it before each prompt so it follows
+    # the directory's Java version (same timing as the former asdf-java hook).
+    _mise_update_java_home() {
+        local java_path
+        java_path="$(mise which java 2>/dev/null)" || java_path=""
+        if [[ -z "$java_path" ]]; then
+            # Do not leave the previous directory's JDK behind. Clear only the
+            # values this hook exported, so a user-set JAVA_HOME survives.
+            if [[ -n "${_MISE_JAVA_HOME:-}" && "${JAVA_HOME:-}" == "$_MISE_JAVA_HOME" ]]; then
+                unset JAVA_HOME JDK_HOME
+            fi
+            unset _MISE_JAVA_HOME
+            return 0
+        fi
+        JAVA_HOME="$(dirname "$(dirname "$(realpath "$java_path")")")"
+        export JAVA_HOME JDK_HOME="$JAVA_HOME"
+        _MISE_JAVA_HOME="$JAVA_HOME"
+    }
+    PROMPT_COMMAND="_mise_update_java_home${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+elif command -v asdf &>/dev/null; then
     export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
     . <(asdf completion bash)
     # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)

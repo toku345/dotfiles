@@ -21,22 +21,38 @@ switch (uname)
         test -e /home/linuxbrew/.linuxbrew/bin/brew; and eval (/home/linuxbrew/.linuxbrew/bin/brew shellenv)
 end
 
-## asdf
+## Version manager shims (ADR 0041)
+# mise shims go on PATH instead of `mise activate`, so git hooks and
+# non-interactive shells see the same tools. Until `mise install` has created
+# the shims directory (see docs/mise.md), keep using asdf so an early
+# `chezmoi apply` does not drop the runtimes. Remove the asdf branch with asdf.
 set -gx ASDF_CONFIG_FILE $HOME/.config/asdf/.asdfrc
 
-# https://asdf-vm.com/guide/getting-started.html#_2-configure-asdf
+if test -z "$MISE_DATA_DIR"
+    set _mise_shims "$HOME/.local/share/mise/shims"
+else
+    set _mise_shims "$MISE_DATA_DIR/shims"
+end
 if test -z "$ASDF_DATA_DIR"
     set _asdf_shims "$HOME/.asdf/shims"
 else
     set _asdf_shims "$ASDF_DATA_DIR/shims"
 end
 
+if test -d $_mise_shims
+    set -g __version_manager mise
+    set _shims $_mise_shims
+else
+    set -g __version_manager asdf
+    set _shims $_asdf_shims
+end
+
 # Do not use fish_add_path (added in Fish 3.2) because it
 # potentially changes the order of items in PATH
-if not contains $_asdf_shims $PATH
-    set -gx --prepend PATH $_asdf_shims
+if not contains $_shims $PATH
+    set -gx --prepend PATH $_shims
 end
-set --erase _asdf_shims
+set --erase _mise_shims _asdf_shims _shims
 
 ## starship
 type -q starship; and starship init fish | source
@@ -51,7 +67,29 @@ fish_add_path $HOME/.cargo/bin
 fish_add_path $HOME/go/bin
 
 ## java
-if test -e $HOME/.asdf/plugins/java/set-java-home.fish
+if test "$__version_manager" = mise
+    # Shims do not export JAVA_HOME, so recompute it on every prompt to follow
+    # the directory's Java version (same timing as the asdf-java hook).
+    function __mise_update_java_home --on-event fish_prompt
+        set --local java_path
+        type -q mise; and set java_path (mise which java 2>/dev/null)
+        if test -z "$java_path"
+            # Do not leave the previous directory's JDK behind. Clear only the
+            # values this hook exported, so a user-set JAVA_HOME survives.
+            if set -q __mise_java_home; and test "$JAVA_HOME" = "$__mise_java_home"
+                set --erase JAVA_HOME
+                set --erase JDK_HOME
+            end
+            set --erase __mise_java_home
+            return
+        end
+        set --local full_path (builtin realpath "$java_path")
+        # realpath returns $JAVA_HOME/bin/java (also inside macOS Contents/Home)
+        set -gx JAVA_HOME (dirname (dirname "$full_path"))
+        set -gx JDK_HOME "$JAVA_HOME"
+        set -g __mise_java_home "$JAVA_HOME"
+    end
+else if test -e $HOME/.asdf/plugins/java/set-java-home.fish
     . $HOME/.asdf/plugins/java/set-java-home.fish
 end
 
