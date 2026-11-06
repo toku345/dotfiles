@@ -23,10 +23,19 @@ if command -v mise &>/dev/null && [[ -d "${MISE_DATA_DIR:-$HOME/.local/share/mis
     # the directory's Java version (same timing as the former asdf-java hook).
     _mise_update_java_home() {
         local java_path
-        java_path="$(mise which java 2>/dev/null)" || return 0
-        [[ -n "$java_path" ]] || return 0
+        java_path="$(mise which java 2>/dev/null)" || java_path=""
+        if [[ -z "$java_path" ]]; then
+            # Do not leave the previous directory's JDK behind. Clear only the
+            # values this hook exported, so a user-set JAVA_HOME survives.
+            if [[ -n "${_MISE_JAVA_HOME:-}" && "${JAVA_HOME:-}" == "$_MISE_JAVA_HOME" ]]; then
+                unset JAVA_HOME JDK_HOME
+            fi
+            unset _MISE_JAVA_HOME
+            return 0
+        fi
         JAVA_HOME="$(dirname "$(dirname "$(realpath "$java_path")")")"
         export JAVA_HOME JDK_HOME="$JAVA_HOME"
+        _MISE_JAVA_HOME="$JAVA_HOME"
     }
     PROMPT_COMMAND="_mise_update_java_home${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 elif command -v asdf &>/dev/null; then

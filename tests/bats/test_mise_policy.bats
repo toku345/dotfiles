@@ -179,10 +179,15 @@ run_fish_config() {
     # handlers (some reach the network). Event registration is checked above.
     set -g SELECTED_JAVA $JDK_A; __mise_update_java_home; echo "A=$JAVA_HOME"
     set -g SELECTED_JAVA $JDK_B; __mise_update_java_home; echo "B=$JAVA_HOME"
+    set -g SELECTED_JAVA; __mise_update_java_home; echo "C=[$JAVA_HOME][$JDK_HOME]"
+    set -gx JAVA_HOME /user/jdk; __mise_update_java_home; echo "D=[$JAVA_HOME]"
   ' "$REPO_ROOT/private_dot_config/private_fish/config.fish"
   [ "$status" -eq 0 ]
   grep -Fqx "A=$(cd "$jdk_a" && pwd -P)" <<<"$output"
   grep -Fqx "B=$(cd "$jdk_b" && pwd -P)" <<<"$output"
+  # A failed resolution clears the hook's previous JDK but keeps a user value.
+  grep -Fqx "C=[][]" <<<"$output"
+  grep -Fqx "D=[/user/jdk]" <<<"$output"
 }
 
 # Source dot_bashrc in an isolated HOME. $1 is the stub prelude, $2 the probe.
@@ -233,6 +238,21 @@ run_bashrc() {
     '_mise_update_java_home; printf "%s\n" "$JAVA_HOME"'
   [ "$status" -eq 0 ]
   [[ "${lines[-1]}" == "$(cd "$jdk" && pwd -P)" ]]
+}
+
+@test "bash JAVA_HOME hook clears its previous JDK when resolution fails" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local jdk="$BATS_TEST_TMPDIR/jdk-a"
+  mkdir -p "$HOME/.local/share/mise/shims" "$jdk/bin"
+  : > "$jdk/bin/java"
+  JDK_JAVA="$jdk/bin/java" run_bashrc \
+    'mise() { [[ -n "${SEL:-}" ]] && printf "%s\n" "$SEL"; }' \
+    'SEL=$JDK_JAVA; _mise_update_java_home
+     SEL=; _mise_update_java_home; printf "C=[%s][%s]\n" "${JAVA_HOME:-}" "${JDK_HOME:-}"
+     export JAVA_HOME=/user/jdk; _mise_update_java_home; printf "D=[%s]\n" "$JAVA_HOME"'
+  [ "$status" -eq 0 ]
+  [[ "${lines[-2]}" == "C=[][]" ]]
+  [[ "${lines[-1]}" == "D=[/user/jdk]" ]]
 }
 
 @test "bash JAVA_HOME hook is harmless when java is not installed" {

@@ -71,13 +71,23 @@ if test "$__version_manager" = mise
     # Shims do not export JAVA_HOME, so recompute it on every prompt to follow
     # the directory's Java version (same timing as the asdf-java hook).
     function __mise_update_java_home --on-event fish_prompt
-        type -q mise; or return
-        set --local java_path (mise which java 2>/dev/null)
-        test -n "$java_path"; or return
+        set --local java_path
+        type -q mise; and set java_path (mise which java 2>/dev/null)
+        if test -z "$java_path"
+            # Do not leave the previous directory's JDK behind. Clear only the
+            # values this hook exported, so a user-set JAVA_HOME survives.
+            if set -q __mise_java_home; and test "$JAVA_HOME" = "$__mise_java_home"
+                set --erase JAVA_HOME
+                set --erase JDK_HOME
+            end
+            set --erase __mise_java_home
+            return
+        end
         set --local full_path (builtin realpath "$java_path")
         # realpath returns $JAVA_HOME/bin/java (also inside macOS Contents/Home)
         set -gx JAVA_HOME (dirname (dirname "$full_path"))
         set -gx JDK_HOME "$JAVA_HOME"
+        set -g __mise_java_home "$JAVA_HOME"
     end
 else if test -e $HOME/.asdf/plugins/java/set-java-home.fish
     . $HOME/.asdf/plugins/java/set-java-home.fish

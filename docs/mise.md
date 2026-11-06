@@ -47,12 +47,14 @@ cooldown (`minimum_release_age = "48h"`) は bump 時の新規解決にだけ効
 macOS で一度だけ行います。shell は mise の shims ディレクトリ (`~/.local/share/mise/shims`) ができるまで asdf を使い続けるため、`chezmoi apply` はどの時点で実行しても runtime は消えません。既存ファイルの退避と apply は live 操作なので、実施前に対象と復元方法を確認してください。
 
 1. `brew install mise` (bootstrap 済みなら不要)
-2. `~/.tool-versions` を退避する (例: `mv ~/.tool-versions ~/.tool-versions.asdf-backup`)。残っていると home 配下のディレクトリで旧 exact version が新しい global config より優先されます
-3. `chezmoi apply` で `~/.config/mise/` と shell 設定を配置する (shims がまだないので shell は asdf のまま)
-4. `mise install` で global のツールを導入する。shims ができるので、以後に開いた shell は mise に切り替わる
+2. `chezmoi apply` で `~/.config/mise/` と shell 設定を配置する (shims がまだないので shell は asdf のまま)
+3. `MISE_IGNORED_CONFIG_PATHS="$HOME/.tool-versions" mise install` で global のツールを導入する。asdf が使う `~/.tool-versions` はこの時点では残し、mise にだけ無視させます (読ませると旧 exact version や mise で管理しない tmux / poetry まで導入しようとします)。失敗したら `~/.local/share/mise/shims` があれば削除し、asdf のまま止めます
+4. 成功したら `~/.tool-versions` を退避する (例: `mv ~/.tool-versions ~/.tool-versions.asdf-backup`)。残っていると home 配下で旧 exact version が新しい global config より優先されます。手順 3 で shims ができたので、以後に開いた shell は mise に切り替わります
 5. 普段使うプロジェクトで `mise install` を実行し、要求 version の導入と動作を確認する (mise は asdf の install を再利用しません)
 6. 新しい shell で `mise config ls` / `mise ls --current` の解決元が `~/.config/mise/config.toml` (またはプロジェクトの設定) であること、`java -version` と `echo $JAVA_HOME` が一致することを確認する
 7. 移行できていないプロジェクトは `asdf exec <tool> ...` で一時的に使う
+
+asdf に戻すには `mv ~/.tool-versions.asdf-backup ~/.tool-versions` と `rm -rf ~/.local/share/mise/shims` を実行し、shell を開き直します (shell は shims ディレクトリの有無で切り替わります)。
 
 会社プロジェクトに `mise.lock` がない場合、global の 48h cooldown で同僚と異なる patch が選ばれることがあります。その場合はプロジェクト単位で `mise install --minimum-release-age 0d` を使います。
 
