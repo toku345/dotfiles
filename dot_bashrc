@@ -26,13 +26,16 @@ _path_drop() {
     p="${p#:}"
     PATH="${p%:}"
 }
-_path_prepend_once() {
-    [[ ":$PATH:" == *":$1:"* ]] || PATH="$1:$PATH"
+# Move to the front even when already present: a child shell inherits the
+# parent's shims, and brew shellenv above has put Homebrew ahead of them.
+_path_front() {
+    _path_drop "$1"
+    PATH="$1${PATH:+:$PATH}"
 }
 if command -v mise &>/dev/null && [[ -d "$_mise_shims" && ! -e "$HOME/.tool-versions" ]]; then
     # A parent shell may have exported the other manager's shims.
     _path_drop "$_asdf_shims"
-    _path_prepend_once "$_mise_shims"
+    _path_front "$_mise_shims"
     export PATH
     # Shims do not export JAVA_HOME. Recompute it before each prompt (interactive
     # shells only) to follow the directory's Java version, overriding any
@@ -53,8 +56,8 @@ if command -v mise &>/dev/null && [[ -d "$_mise_shims" && ! -e "$HOME/.tool-vers
             return 0
         fi
         JAVA_HOME="$(dirname "$(dirname "$full_path")")"
-        export JAVA_HOME JDK_HOME="$JAVA_HOME"
-        _MISE_JAVA_HOME="$JAVA_HOME"
+        # Export the marker too, so a child shell can clear an inherited JDK.
+        export JAVA_HOME JDK_HOME="$JAVA_HOME" _MISE_JAVA_HOME="$JAVA_HOME"
     }
     # Re-sourcing ~/.bashrc must not stack the hook.
     [[ ";${PROMPT_COMMAND:-};" == *";_mise_update_java_home;"* ]] \
@@ -63,14 +66,14 @@ else
     _path_drop "$_mise_shims"
     export PATH
     if command -v asdf &>/dev/null; then
-        _path_prepend_once "$_asdf_shims"
+        _path_front "$_asdf_shims"
         . <(asdf completion bash)
         # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)
         [[ -f "$HOME/.asdf/plugins/java/set-java-home.bash" ]] \
             && . "$HOME/.asdf/plugins/java/set-java-home.bash"
     fi
 fi
-unset -f _path_drop _path_prepend_once
+unset -f _path_drop _path_front
 unset _mise_shims _asdf_shims
 
 # Local bin (uv installer puts uv here)

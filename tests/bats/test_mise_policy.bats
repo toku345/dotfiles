@@ -235,6 +235,59 @@ run_fish_config() {
   [ "$(grep -Fcx "$asdf_shims" <<<"$output")" -eq 1 ]
 }
 
+# Line number of the first exact match of $1 in $output (0 if absent).
+path_line() {
+  local n
+  n="$(grep -Fnx -m1 -- "$1" <<<"$output" | cut -d: -f1)"
+  echo "${n:-0}"
+}
+
+@test "fish config moves inherited shims ahead of a Homebrew dir the parent put first" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local mise_shims="$HOME/.local/share/mise/shims" asdf_shims="$HOME/.asdf/shims"
+  local brew="$BATS_TEST_TMPDIR/brew/bin"
+  mkdir -p "$mise_shims" "$brew"
+  FISH_PATH="$brew:$mise_shims:$PATH" run_fish_config 'function mise; end'
+  [ "$status" -eq 0 ]
+  grep -Fqx 'manager=mise' <<<"$output"
+  [ "$(path_line "$mise_shims")" -gt 0 ]
+  [ "$(path_line "$mise_shims")" -lt "$(path_line "$brew")" ]
+
+  : > "$HOME/.tool-versions"
+  FISH_PATH="$brew:$asdf_shims:$PATH" run_fish_config 'function mise; end'
+  [ "$status" -eq 0 ]
+  grep -Fqx 'manager=asdf' <<<"$output"
+  [ "$(path_line "$asdf_shims")" -gt 0 ]
+  [ "$(path_line "$asdf_shims")" -lt "$(path_line "$brew")" ]
+}
+
+@test "fish JAVA_HOME hook in a child shell clears a JDK its parent's hook exported" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.local/share/mise/shims"
+  local jdk="$BATS_TEST_TMPDIR/jdk-a"
+  mkdir -p "$jdk/bin"; : > "$jdk/bin/java"
+  local config_home="$BATS_TEST_TMPDIR/fish-config" script
+  # SELECTED_JAVA is not exported, so java does not resolve in the child.
+  script=$(cat <<'EOF'
+set -l stubs 'function fish_config; end; function starship; end; function direnv; end; function shadowenv; end; function mise; test "$argv[1]" = which; and echo $SELECTED_JAVA; end'
+eval $stubs
+source $argv[1]
+set -g SELECTED_JAVA $JDK_A; __mise_update_java_home
+fish -c "$stubs; source $argv[1]; __mise_update_java_home; echo \"child=[\$JAVA_HOME][\$JDK_HOME]\"" $argv[1]
+set -gx JAVA_HOME /user/jdk
+fish -c "$stubs; source $argv[1]; __mise_update_java_home; echo \"user=[\$JAVA_HOME]\"" $argv[1]
+EOF
+)
+  run env -u MISE_DATA_DIR -u ASDF_DATA_DIR MISE_FISH_AUTO_ACTIVATE=0 HOME="$HOME" XDG_CONFIG_HOME="$config_home" \
+    XDG_DATA_HOME="$config_home/data" JDK_A="$jdk/bin/java" fish -c "$script" \
+    "$REPO_ROOT/private_dot_config/private_fish/config.fish"
+  [ "$status" -eq 0 ]
+  grep -Fqx 'child=[][]' <<<"$output"
+  grep -Fqx 'user=[/user/jdk]' <<<"$output"
+}
+
 @test "fish JAVA_HOME hook follows the java mise resolves on each prompt" {
   command -v fish >/dev/null || skip 'fish is not installed'
   export HOME="$BATS_TEST_TMPDIR/home"
@@ -339,6 +392,49 @@ run_bashrc() {
   [ "$(grep -Fcx "$asdf_shims" <<<"$output")" -eq 1 ]
 }
 
+@test "dot_bashrc moves inherited shims ahead of a Homebrew dir the parent put first" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local mise_shims="$HOME/.local/share/mise/shims" asdf_shims="$HOME/.asdf/shims"
+  local brew="$BATS_TEST_TMPDIR/brew/bin"
+  mkdir -p "$mise_shims"
+  BASHRC_PATH="$brew:$mise_shims:/usr/bin:/bin" \
+    run_bashrc 'mise() { :; }; asdf() { :; }' 'tr : "\n" <<<"$PATH"'
+  [ "$status" -eq 0 ]
+  [ "$(path_line "$mise_shims")" -gt 0 ]
+  [ "$(path_line "$mise_shims")" -lt "$(path_line "$brew")" ]
+  [ "$(grep -Fcx "$mise_shims" <<<"$output")" -eq 1 ]
+
+  : > "$HOME/.tool-versions"
+  BASHRC_PATH="$brew:$asdf_shims:/usr/bin:/bin" \
+    run_bashrc 'mise() { :; }; asdf() { :; }' 'tr : "\n" <<<"$PATH"'
+  [ "$status" -eq 0 ]
+  [ "$(path_line "$asdf_shims")" -gt 0 ]
+  [ "$(path_line "$asdf_shims")" -lt "$(path_line "$brew")" ]
+  [ "$(grep -Fcx "$asdf_shims" <<<"$output")" -eq 1 ]
+}
+
+@test "bash JAVA_HOME hook in a child shell clears a JDK its parent's hook exported" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local jdk="$BATS_TEST_TMPDIR/jdk-a"
+  mkdir -p "$HOME/.local/share/mise/shims" "$jdk/bin"
+  : > "$jdk/bin/java"
+  local probe
+  # SEL is not exported, so java does not resolve in the child.
+  probe=$(cat <<'EOF'
+SEL=$JDK_JAVA; _mise_update_java_home
+child='mise() { [[ -n "${SEL:-}" ]] && printf "%s\n" "$SEL"; }; starship() { :; }; direnv() { :; }; source "$1"; _mise_update_java_home'
+"$BASH" --noprofile --norc -c "$child"'; printf "child=[%s][%s]\n" "${JAVA_HOME:-}" "${JDK_HOME:-}"' -- "$1"
+export JAVA_HOME=/user/jdk
+"$BASH" --noprofile --norc -c "$child"'; printf "user=[%s]\n" "${JAVA_HOME:-}"' -- "$1"
+EOF
+)
+  JDK_JAVA="$jdk/bin/java" run_bashrc \
+    'mise() { [[ -n "${SEL:-}" ]] && printf "%s\n" "$SEL"; }' "$probe"
+  [ "$status" -eq 0 ]
+  [[ "${lines[-2]}" == "child=[][]" ]]
+  [[ "${lines[-1]}" == "user=[/user/jdk]" ]]
+}
+
 @test "bash JAVA_HOME hook follows the java resolved by mise" {
   export HOME="$BATS_TEST_TMPDIR/home"
   local jdk="$BATS_TEST_TMPDIR/jdk-a/Contents/Home"
@@ -382,9 +478,11 @@ run_bashrc() {
 # Start fish with a fake vendor_conf.d whose snippet mimics Homebrew's mise
 # formula, and the repo's conf.d as the user conf.d. $1 names the repo snippet
 # copy; $2 is sed applied to it. MISE_FISH_AUTO_ACTIVATE is unset so only the
-# repo file can stop the vendor snippet.
+# repo file can stop the vendor snippet. Each call gets a fresh directory, so a
+# snippet from an earlier call cannot mask what this call checks.
 run_fish_vendor_mise() {
-  local root="$BATS_TEST_TMPDIR/vendor-test"
+  local root
+  root="$(mktemp -d "$BATS_TEST_TMPDIR/vendor-test.XXXXXX")"
   mkdir -p "$root/share/fish/vendor_conf.d" "$root/config/fish/conf.d"
   printf '%s\n' 'if [ "$MISE_FISH_AUTO_ACTIVATE" != "0" ]' '  set -g VENDOR_MISE_ACTIVATED 1' 'end' \
     > "$root/share/fish/vendor_conf.d/mise-activate.fish"

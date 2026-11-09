@@ -50,17 +50,19 @@ else
     set _other_shims $_mise_shims
 end
 
-# A parent shell may have exported the other manager's shims.
-while set _i (contains -i -- $_other_shims $PATH)
-    set -e PATH[$_i]
+# A parent shell may have exported either manager's shims, and brew shellenv
+# above has moved Homebrew ahead of them. Drop both, then put the selected
+# shims first so a child shell resolves tools like a fresh one.
+for _p in $_other_shims $_shims
+    while set _i (contains -i -- $_p $PATH)
+        set -e PATH[$_i]
+    end
 end
 
 # Do not use fish_add_path (added in Fish 3.2) because it
 # potentially changes the order of items in PATH
-if not contains -- $_shims $PATH
-    set -gx --prepend PATH $_shims
-end
-set --erase _mise_shims _asdf_shims _shims _other_shims _i
+set -gx --prepend PATH $_shims
+set --erase _mise_shims _asdf_shims _shims _other_shims _p _i
 
 ## starship
 type -q starship; and starship init fish | source
@@ -99,7 +101,8 @@ if test "$__version_manager" = mise
         # realpath returns $JAVA_HOME/bin/java (also inside macOS Contents/Home)
         set -gx JAVA_HOME (dirname (dirname "$full_path"))
         set -gx JDK_HOME "$JAVA_HOME"
-        set -g __mise_java_home "$JAVA_HOME"
+        # Export the marker too, so a child shell can clear an inherited JDK.
+        set -gx __mise_java_home "$JAVA_HOME"
     end
 else if test -e $HOME/.asdf/plugins/java/set-java-home.fish
     . $HOME/.asdf/plugins/java/set-java-home.fish
