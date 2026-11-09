@@ -2,8 +2,10 @@
 # - Runtimes use prefix requests; CLIs use "latest". Never write exact versions:
 #   minimum_release_age only filters non-exact requests.
 # - CLIs are listed only when mise.lock records provenance on every platform.
-# - Update: `mise lock --global --bump`, review the lock diff, commit, then
-#   `mise install` explicitly (auto install is disabled on purpose).
+# - Update in the chezmoi source, not here (see docs/mise.md):
+#   `MISE_CONFIG_DIR=<source>/private_dot_config/mise mise lock --global --bump`,
+#   review the lock diff, commit, then `mise install` explicitly
+#   (auto install is disabled on purpose).
 
 [settings]
 minimum_release_age = "48h"

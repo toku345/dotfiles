@@ -576,7 +576,7 @@ As of 2026-06-03, all four controls were verified by hand on the current Macs. T
 
 ### When to bypass the cooldown
 
-The two reviewed Homebrew helpers default to a 48-hour cooldown, with explicit per-package settings (including zero hours). mise uses the same 48-hour `minimum_release_age`; bypass it per tool with `mise lock --global --bump --minimum-release-age 0d <tool>` (see [mise.md](mise.md)). Other routine update channels retain their existing 7-day policy. A zero-hour helper setting waives age waiting only; unverifiable release metadata still requires a reasoned exception, and integrity failures remain fatal. The cooldown must not delay security fixes. Apply an update immediately (skip the cooldown) when:
+The two reviewed Homebrew helpers default to a 48-hour cooldown, with explicit per-package settings (including zero hours). mise uses the same 48-hour `minimum_release_age`; bypass it per tool with `MISE_CONFIG_DIR=<source>/private_dot_config/mise mise lock --global --bump --minimum-release-age 0d <tool>` against the chezmoi source (see [mise.md](mise.md)). Other routine update channels retain their existing 7-day policy. A zero-hour helper setting waives age waiting only; unverifiable release metadata still requires a reasoned exception, and integrity failures remain fatal. The cooldown must not delay security fixes. Apply an update immediately (skip the cooldown) when:
 
 - a security advisory or CVE fix names the version, or there is an active exploit, or
 - it is a break/fix needed to restore work, or

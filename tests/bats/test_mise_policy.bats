@@ -14,6 +14,18 @@ setup() {
   export REPO_ROOT MISE_DIR CONFIG LOCK
 }
 
+# Fail when $output contains the fixed string $2 (grep flags in $1). A bare
+# `! grep` would not fail the test: errexit ignores negated commands.
+refute_output_match() {
+  if grep "$1" -- "$2" <<<"$output"; then
+    echo "unexpected output: $2" >&2
+    return 1
+  fi
+}
+
+# Runtimes are exempt from the provenance rule (ADR 0041 Decision 2).
+RUNTIMES=" node python ruby java zig bun deno "
+
 # Print the [tools] section as "name<TAB>value" lines.
 tools_entries() {
   awk '
@@ -48,6 +60,21 @@ lock_platform_provenance() {
       prov = $0; sub(/^provenance[[:space:]]*=[[:space:]]*/, "", prov); gsub(/"/, "", prov)
     }
     END { if (key != "") print key "\t" prov }
+  ' "$LOCK"
+}
+
+# Print "tool<TAB>specifiers" for every locked tool, e.g. node<TAB>["26"].
+lock_specifiers() {
+  awk '
+    /^\[\[tools\./ {
+      tool = $0; sub(/^\[\[tools\./, "", tool); sub(/\]\]$/, "", tool); gsub(/"/, "", tool)
+      next
+    }
+    /^\[/ { tool = ""; next }
+    tool != "" && /^specifiers[[:space:]]*=/ {
+      value = $0; sub(/^specifiers[[:space:]]*=[[:space:]]*/, "", value)
+      print tool "\t" value
+    }
   ' "$LOCK"
 }
 
@@ -90,52 +117,70 @@ lock_platform_provenance() {
   while IFS=$'\t' read -r name value; do
     count=$((count + 1))
     for platform in macos-arm64 linux-x64; do
-      grep -Fq "$name"$'\t'"$platform"$'\t' <<<"$locked" \
-        || { echo "missing lock entry: $name $platform" >&2; return 1; }
+      awk -F '\t' -v t="$name" -v p="$platform" '$1 == t && $2 == p { found = 1 } END { exit !found }' \
+        <<<"$locked" || { echo "missing lock entry: $name $platform" >&2; return 1; }
     done
   done < <(tools_entries)
   (( count > 0 ))
 }
 
-@test "every aqua CLI has provenance on every locked platform" {
+@test "every non-runtime tool has provenance on every locked platform" {
   run lock_platform_provenance
   [ "$status" -eq 0 ]
   local tool platform prov count=0
   while IFS=$'\t' read -r tool platform prov; do
-    [[ "$tool" == aqua:* ]] || continue
+    [[ "$RUNTIMES" == *" $tool "* ]] && continue
     count=$((count + 1))
     if [[ "$prov" == "-" ]]; then
-      echo "aqua CLI without provenance: $tool $platform" >&2
+      echo "CLI without provenance: $tool $platform" >&2
       return 1
     fi
   done <<<"$output"
   (( count > 0 ))
 }
 
+@test "lock specifiers match the config requests" {
+  run lock_specifiers
+  [ "$status" -eq 0 ]
+  local specs="$output" name value count=0
+  while IFS=$'\t' read -r name value; do
+    count=$((count + 1))
+    awk -F '\t' -v t="$name" -v v="[\"$value\"]" '$1 == t && $2 == v { found = 1 } END { exit !found }' \
+      <<<"$specs" || { echo "lock specifiers do not match config: $name = $value" >&2; return 1; }
+  done < <(tools_entries)
+  (( count > 0 ))
+}
+
 # Source config.fish in an isolated HOME and print the resulting PATH entries.
+# MISE_FISH_AUTO_ACTIVATE=0 stops Homebrew's vendor_conf.d snippet from running
+# the real `mise activate fish` (and its network lookups) on the test host.
+# $1 is fish code evaluated before the config (e.g. a mise stub). Set
+# FISH_PATH to control the inherited PATH.
 run_fish_config() {
   local config_home="$BATS_TEST_TMPDIR/fish-config"
-  run env HOME="$HOME" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
+  run env -u MISE_DATA_DIR -u ASDF_DATA_DIR MISE_FISH_AUTO_ACTIVATE=0 HOME="$HOME" PATH="${FISH_PATH:-$PATH}" \
+    XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
     function fish_config; end
     function starship; end
     function direnv; end
     function shadowenv; end
+    eval $argv[2]
     source $argv[1]
     string join \n $PATH
     echo "manager=$__version_manager"
     functions -q __mise_update_java_home; and echo java-hook=mise; or echo java-hook=none
-  ' "$REPO_ROOT/private_dot_config/private_fish/config.fish"
+  ' "$REPO_ROOT/private_dot_config/private_fish/config.fish" "${1:-}"
 }
 
-@test "fish config uses mise shims once they exist" {
+@test "fish config uses mise shims once mise is installed and ~/.tool-versions is retired" {
   command -v fish >/dev/null || skip 'fish is not installed'
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME/.local/share/mise/shims"
-  run_fish_config
+  run_fish_config 'function mise; end'
   [ "$status" -eq 0 ]
   grep -Fqx "$HOME/.local/share/mise/shims" <<<"$output"
   if grep -Fq "$HOME/.asdf/shims" <<<"$output"; then
-    echo "asdf shims must not be on PATH once mise shims exist" >&2
+    echo "asdf shims must not be on PATH once mise is selected" >&2
     return 1
   fi
   grep -Fqx 'manager=mise' <<<"$output"
@@ -148,7 +193,7 @@ run_fish_config() {
   command -v fish >/dev/null || skip 'fish is not installed'
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME"
-  run_fish_config
+  run_fish_config 'function mise; end'
   [ "$status" -eq 0 ]
   grep -Fqx "$HOME/.asdf/shims" <<<"$output"
   if grep -Fq "$HOME/.local/share/mise/shims" <<<"$output"; then
@@ -159,6 +204,37 @@ run_fish_config() {
   grep -Fqx 'java-hook=none' <<<"$output"
 }
 
+@test "fish config keeps asdf shims while ~/.tool-versions exists" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.local/share/mise/shims"
+  : > "$HOME/.tool-versions"
+  run_fish_config 'function mise; end'
+  [ "$status" -eq 0 ]
+  grep -Fqx "$HOME/.asdf/shims" <<<"$output"
+  refute_output_match -Fq "$HOME/.local/share/mise/shims"
+  grep -Fqx 'manager=asdf' <<<"$output"
+}
+
+@test "fish config drops inherited shims of the manager it did not select" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local mise_shims="$HOME/.local/share/mise/shims" asdf_shims="$HOME/.asdf/shims"
+  mkdir -p "$mise_shims"
+  FISH_PATH="$asdf_shims:$mise_shims:$PATH" run_fish_config 'function mise; end'
+  [ "$status" -eq 0 ]
+  grep -Fqx 'manager=mise' <<<"$output"
+  refute_output_match -Fqx "$asdf_shims"
+  [ "$(grep -Fcx "$mise_shims" <<<"$output")" -eq 1 ]
+
+  : > "$HOME/.tool-versions"
+  FISH_PATH="$mise_shims:$asdf_shims:$PATH" run_fish_config 'function mise; end'
+  [ "$status" -eq 0 ]
+  grep -Fqx 'manager=asdf' <<<"$output"
+  refute_output_match -Fqx "$mise_shims"
+  [ "$(grep -Fcx "$asdf_shims" <<<"$output")" -eq 1 ]
+}
+
 @test "fish JAVA_HOME hook follows the java mise resolves on each prompt" {
   command -v fish >/dev/null || skip 'fish is not installed'
   export HOME="$BATS_TEST_TMPDIR/home"
@@ -167,23 +243,26 @@ run_fish_config() {
   mkdir -p "$jdk_a/bin" "$jdk_b/bin"
   : > "$jdk_a/bin/java"; : > "$jdk_b/bin/java"
   local config_home="$BATS_TEST_TMPDIR/fish-config"
-  run env HOME="$HOME" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" \
-    JDK_A="$jdk_a/bin/java" JDK_B="$jdk_b/bin/java" fish -c '
+  run env -u MISE_DATA_DIR -u ASDF_DATA_DIR MISE_FISH_AUTO_ACTIVATE=0 HOME="$HOME" XDG_CONFIG_HOME="$config_home" \
+    XDG_DATA_HOME="$config_home/data" JDK_A="$jdk_a/bin/java" JDK_B="$jdk_b/bin/java" fish -c '
     function fish_config; end
     function starship; end
     function direnv; end
     function shadowenv; end
-    source $argv[1]
     function mise; test "$argv[1]" = which; and echo $SELECTED_JAVA; end
+    source $argv[1]
     # Call the handler directly: emitting fish_prompt also runs unrelated
     # handlers (some reach the network). Event registration is checked above.
     set -g SELECTED_JAVA $JDK_A; __mise_update_java_home; echo "A=$JAVA_HOME"
+    set -g SELECTED_JAVA /nonexistent/bin/java; __mise_update_java_home; echo "N=[$JAVA_HOME]"
     set -g SELECTED_JAVA $JDK_B; __mise_update_java_home; echo "B=$JAVA_HOME"
     set -g SELECTED_JAVA; __mise_update_java_home; echo "C=[$JAVA_HOME][$JDK_HOME]"
     set -gx JAVA_HOME /user/jdk; __mise_update_java_home; echo "D=[$JAVA_HOME]"
   ' "$REPO_ROOT/private_dot_config/private_fish/config.fish"
   [ "$status" -eq 0 ]
   grep -Fqx "A=$(cd "$jdk_a" && pwd -P)" <<<"$output"
+  # An unresolvable java path is a failed resolution, not JAVA_HOME=".".
+  grep -Fqx "N=[]" <<<"$output"
   grep -Fqx "B=$(cd "$jdk_b" && pwd -P)" <<<"$output"
   # A failed resolution clears the hook's previous JDK but keeps a user value.
   grep -Fqx "C=[][]" <<<"$output"
@@ -191,8 +270,10 @@ run_fish_config() {
 }
 
 # Source dot_bashrc in an isolated HOME. $1 is the stub prelude, $2 the probe.
+# Set BASHRC_PATH to control the inherited PATH.
 run_bashrc() {
-  run env -i HOME="$HOME" PATH="/usr/bin:/bin" JDK_JAVA="${JDK_JAVA:-}" "$BASH5_BIN" --noprofile --norc -c '
+  run env -i HOME="$HOME" PATH="${BASHRC_PATH:-/usr/bin:/bin}" JDK_JAVA="${JDK_JAVA:-}" \
+    "$BASH5_BIN" --noprofile --norc -c '
     eval "$2"
     starship() { :; }; direnv() { :; }
     source "$1"
@@ -200,7 +281,7 @@ run_bashrc() {
   ' -- "$REPO_ROOT/dot_bashrc" "$1" "$2"
 }
 
-@test "dot_bashrc uses mise shims once they exist" {
+@test "dot_bashrc uses mise shims once mise is installed and ~/.tool-versions is retired" {
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME/.local/share/mise/shims"
   run_bashrc 'mise() { :; }; asdf() { :; }' 'printf "%s\n" "$PATH" "$PROMPT_COMMAND"'
@@ -219,6 +300,17 @@ run_bashrc() {
   [[ "$output" != *"/mise/shims"* ]]
 }
 
+@test "dot_bashrc keeps asdf shims while ~/.tool-versions exists" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.local/share/mise/shims"
+  : > "$HOME/.tool-versions"
+  run_bashrc 'mise() { :; }; asdf() { :; }' 'printf "%s\n" "$PATH" "${PROMPT_COMMAND:-}"'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$HOME/.asdf/shims"* ]]
+  [[ "$output" != *"/mise/shims"* ]]
+  [[ "$output" != *"_mise_update_java_home"* ]]
+}
+
 @test "dot_bashrc keeps asdf shims on machines without mise" {
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME/.local/share/mise/shims"
@@ -226,6 +318,24 @@ run_bashrc() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"$HOME/.asdf/shims"* ]]
   [[ "$output" != *"/mise/shims"* ]]
+}
+
+@test "dot_bashrc drops inherited shims of the manager it did not select" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local mise_shims="$HOME/.local/share/mise/shims" asdf_shims="$HOME/.asdf/shims"
+  mkdir -p "$mise_shims"
+  BASHRC_PATH="$asdf_shims:$mise_shims:/usr/bin:/bin" \
+    run_bashrc 'mise() { :; }; asdf() { :; }' 'tr : "\n" <<<"$PATH"'
+  [ "$status" -eq 0 ]
+  refute_output_match -Fqx "$asdf_shims"
+  [ "$(grep -Fcx "$mise_shims" <<<"$output")" -eq 1 ]
+
+  : > "$HOME/.tool-versions"
+  BASHRC_PATH="$mise_shims:$asdf_shims:/usr/bin:/bin" \
+    run_bashrc 'mise() { :; }; asdf() { :; }' 'tr : "\n" <<<"$PATH"'
+  [ "$status" -eq 0 ]
+  refute_output_match -Fqx "$mise_shims"
+  [ "$(grep -Fcx "$asdf_shims" <<<"$output")" -eq 1 ]
 }
 
 @test "bash JAVA_HOME hook follows the java resolved by mise" {
@@ -248,9 +358,13 @@ run_bashrc() {
   JDK_JAVA="$jdk/bin/java" run_bashrc \
     'mise() { [[ -n "${SEL:-}" ]] && printf "%s\n" "$SEL"; }' \
     'SEL=$JDK_JAVA; _mise_update_java_home
+     SEL=/nonexistent/bin/java; _mise_update_java_home; printf "N=[%s]\n" "${JAVA_HOME:-}"
+     SEL=$JDK_JAVA; _mise_update_java_home
      SEL=; _mise_update_java_home; printf "C=[%s][%s]\n" "${JAVA_HOME:-}" "${JDK_HOME:-}"
      export JAVA_HOME=/user/jdk; _mise_update_java_home; printf "D=[%s]\n" "$JAVA_HOME"'
   [ "$status" -eq 0 ]
+  # An unresolvable java path is a failed resolution, not JAVA_HOME=".".
+  [[ "${lines[-3]}" == "N=[]" ]]
   [[ "${lines[-2]}" == "C=[][]" ]]
   [[ "${lines[-1]}" == "D=[/user/jdk]" ]]
 }
@@ -258,23 +372,41 @@ run_bashrc() {
 @test "bash JAVA_HOME hook is harmless when java is not installed" {
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME/.local/share/mise/shims"
-  run_bashrc 'mise() { return 1; }' '_mise_update_java_home; printf "JAVA_HOME=[%s]\n" "${JAVA_HOME:-}"'
+  run_bashrc 'mise() { [[ "$1" == which ]] && return 1; :; }' \
+    '_mise_update_java_home; printf "JAVA_HOME=[%s]\n" "${JAVA_HOME:-}"'
   [ "$status" -eq 0 ]
   [[ "${lines[-1]}" == "JAVA_HOME=[]" ]]
 }
 
-@test "mise run-once installer skips Linux before any brew call" {
-  local script="$REPO_ROOT/.chezmoiscripts/run_once_before_install-mise.sh"
-  local stub_dir="$BATS_TEST_TMPDIR/bin"
-  mkdir -p "$stub_dir"
-  printf '#!/bin/sh\necho "brew $*" >> "%s/brew.log"\n' "$BATS_TEST_TMPDIR" > "$stub_dir/brew"
-  chmod +x "$stub_dir/brew"
+# Start fish with a fake vendor_conf.d whose snippet mimics Homebrew's mise
+# formula, and the repo's conf.d as the user conf.d. $1 names the repo snippet
+# copy; $2 is sed applied to it. MISE_FISH_AUTO_ACTIVATE is unset so only the
+# repo file can stop the vendor snippet.
+run_fish_vendor_mise() {
+  local root="$BATS_TEST_TMPDIR/vendor-test"
+  mkdir -p "$root/share/fish/vendor_conf.d" "$root/config/fish/conf.d"
+  printf '%s\n' 'if [ "$MISE_FISH_AUTO_ACTIVATE" != "0" ]' '  set -g VENDOR_MISE_ACTIVATED 1' 'end' \
+    > "$root/share/fish/vendor_conf.d/mise-activate.fish"
+  if [[ -n "$1" ]]; then
+    sed "${2:-}" "$REPO_ROOT/private_dot_config/private_fish/conf.d/mise-activate.fish" \
+      > "$root/config/fish/conf.d/$1"
+  fi
+  run env -u MISE_FISH_AUTO_ACTIVATE HOME="$root" XDG_CONFIG_HOME="$root/config" \
+    XDG_DATA_HOME="$root/data" XDG_DATA_DIRS="$root/share" fish -c 'echo "activated=[$VENDOR_MISE_ACTIVATED]"'
+}
 
-  run env PATH="$stub_dir:/usr/bin:/bin" CHEZMOI_OS=linux sh "$script"
-  [ "$status" -eq 0 ]
-  [ ! -e "$BATS_TEST_TMPDIR/brew.log" ]
+@test "fish conf.d stops Homebrew's mise auto-activation" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  run_fish_vendor_mise ''
+  [ "$output" = "activated=[1]" ]    # the fake vendor snippet runs on its own
+  run_fish_vendor_mise mise-activate.fish
+  [ "$output" = "activated=[]" ]
+}
 
-  run env PATH="$stub_dir:/usr/bin:/bin" CHEZMOI_OS=darwin sh "$script"
-  [ "$status" -eq 0 ]
-  grep -Fqx 'brew install mise' "$BATS_TEST_TMPDIR/brew.log"
+@test "fish mise auto-activation stays off if Homebrew renames the snippet or drops the variable" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  run_fish_vendor_mise renamed.fish                            # variable alone
+  [ "$output" = "activated=[]" ]
+  run_fish_vendor_mise mise-activate.fish '/MISE_FISH_AUTO_ACTIVATE/d'   # mask alone
+  [ "$output" = "activated=[]" ]
 }

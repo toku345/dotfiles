@@ -10,21 +10,38 @@ if [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]]; then
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 fi
 
-# Version manager shims: mise once `mise install` has created its shims directory
-# (ADR 0041, docs/mise.md), otherwise asdf until this machine is migrated.
+# Version manager shims: mise once it is on PATH, `mise install` has created its
+# shims directory, and ~/.tool-versions has been retired (ADR 0041,
+# docs/mise.md); otherwise asdf until this machine is migrated.
 # PATH order: shims are prepended here, but later `~/.local/bin` / `~/.cargo/bin`
 # / `~/.bun/bin` prepends push them back. Final PATH = native installers > shims.
 # This is intentional (native installers win for overlapping tools; shims act as
 # an overlay — see ADR 0023). To use the pinned version of an overlapping tool,
 # run `mise exec <tool> -- ...` (or `asdf exec <tool>` before migration).
-if command -v mise &>/dev/null && [[ -d "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" ]]; then
-    export PATH="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims:$PATH"
-    # Shims do not export JAVA_HOME; recompute it before each prompt so it follows
-    # the directory's Java version (same timing as the former asdf-java hook).
+_mise_shims="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims"
+_asdf_shims="${ASDF_DATA_DIR:-$HOME/.asdf}/shims"
+_path_drop() {
+    local p=":$PATH:"
+    while [[ "$p" == *":$1:"* ]]; do p="${p//":$1:"/:}"; done
+    p="${p#:}"
+    PATH="${p%:}"
+}
+_path_prepend_once() {
+    [[ ":$PATH:" == *":$1:"* ]] || PATH="$1:$PATH"
+}
+if command -v mise &>/dev/null && [[ -d "$_mise_shims" && ! -e "$HOME/.tool-versions" ]]; then
+    # A parent shell may have exported the other manager's shims.
+    _path_drop "$_asdf_shims"
+    _path_prepend_once "$_mise_shims"
+    export PATH
+    # Shims do not export JAVA_HOME. Recompute it before each prompt (interactive
+    # shells only) to follow the directory's Java version, overriding any
+    # existing value like the former asdf-java hook did.
     _mise_update_java_home() {
-        local java_path
+        local java_path full_path=""
         java_path="$(mise which java 2>/dev/null)" || java_path=""
-        if [[ -z "$java_path" ]]; then
+        [[ -n "$java_path" ]] && full_path="$(realpath "$java_path" 2>/dev/null)"
+        if [[ -z "$full_path" ]]; then
             # Do not leave the previous directory's JDK behind. Clear only the
             # values this hook exported, so a user-set JAVA_HOME survives.
             if [[ -n "${_MISE_JAVA_HOME:-}" && "${JAVA_HOME:-}" == "$_MISE_JAVA_HOME" ]]; then
@@ -33,18 +50,24 @@ if command -v mise &>/dev/null && [[ -d "${MISE_DATA_DIR:-$HOME/.local/share/mis
             unset _MISE_JAVA_HOME
             return 0
         fi
-        JAVA_HOME="$(dirname "$(dirname "$(realpath "$java_path")")")"
+        JAVA_HOME="$(dirname "$(dirname "$full_path")")"
         export JAVA_HOME JDK_HOME="$JAVA_HOME"
         _MISE_JAVA_HOME="$JAVA_HOME"
     }
     PROMPT_COMMAND="_mise_update_java_home${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-elif command -v asdf &>/dev/null; then
-    export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
-    . <(asdf completion bash)
-    # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)
-    [[ -f "$HOME/.asdf/plugins/java/set-java-home.bash" ]] \
-        && . "$HOME/.asdf/plugins/java/set-java-home.bash"
+else
+    _path_drop "$_mise_shims"
+    export PATH
+    if command -v asdf &>/dev/null; then
+        _path_prepend_once "$_asdf_shims"
+        . <(asdf completion bash)
+        # asdf-java JAVA_HOME hook (parity with fish set-java-home.fish)
+        [[ -f "$HOME/.asdf/plugins/java/set-java-home.bash" ]] \
+            && . "$HOME/.asdf/plugins/java/set-java-home.bash"
+    fi
 fi
+unset -f _path_drop _path_prepend_once
+unset _mise_shims _asdf_shims
 
 # Local bin (uv installer puts uv here)
 [[ -d "$HOME/.local/bin" ]] && PATH="$HOME/.local/bin:$PATH"

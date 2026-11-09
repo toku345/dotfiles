@@ -23,9 +23,10 @@ end
 
 ## Version manager shims (ADR 0041)
 # mise shims go on PATH instead of `mise activate`, so git hooks and
-# non-interactive shells see the same tools. Until `mise install` has created
-# the shims directory (see docs/mise.md), keep using asdf so an early
-# `chezmoi apply` does not drop the runtimes. Remove the asdf branch with asdf.
+# non-interactive shells see the same tools. Switch only when mise is on PATH,
+# `mise install` has created the shims directory, and ~/.tool-versions has been
+# retired (docs/mise.md); otherwise keep asdf so a partial migration does not
+# drop the runtimes. Remove the asdf branch with asdf.
 set -gx ASDF_CONFIG_FILE $HOME/.config/asdf/.asdfrc
 
 if test -z "$MISE_DATA_DIR"
@@ -39,20 +40,27 @@ else
     set _asdf_shims "$ASDF_DATA_DIR/shims"
 end
 
-if test -d $_mise_shims
+if type -q mise; and test -d $_mise_shims; and not test -e $HOME/.tool-versions
     set -g __version_manager mise
     set _shims $_mise_shims
+    set _other_shims $_asdf_shims
 else
     set -g __version_manager asdf
     set _shims $_asdf_shims
+    set _other_shims $_mise_shims
+end
+
+# A parent shell may have exported the other manager's shims.
+while set _i (contains -i -- $_other_shims $PATH)
+    set -e PATH[$_i]
 end
 
 # Do not use fish_add_path (added in Fish 3.2) because it
 # potentially changes the order of items in PATH
-if not contains $_shims $PATH
+if not contains -- $_shims $PATH
     set -gx --prepend PATH $_shims
 end
-set --erase _mise_shims _asdf_shims _shims
+set --erase _mise_shims _asdf_shims _shims _other_shims _i
 
 ## starship
 type -q starship; and starship init fish | source
@@ -68,12 +76,15 @@ fish_add_path $HOME/go/bin
 
 ## java
 if test "$__version_manager" = mise
-    # Shims do not export JAVA_HOME, so recompute it on every prompt to follow
-    # the directory's Java version (same timing as the asdf-java hook).
+    # Shims do not export JAVA_HOME. Interactive shells recompute it on every
+    # prompt to follow the directory's Java version, overriding any existing
+    # value like the asdf-java hook did.
     function __mise_update_java_home --on-event fish_prompt
         set --local java_path
+        set --local full_path
         type -q mise; and set java_path (mise which java 2>/dev/null)
-        if test -z "$java_path"
+        test -n "$java_path"; and set full_path (builtin realpath "$java_path" 2>/dev/null)
+        if test -z "$full_path"
             # Do not leave the previous directory's JDK behind. Clear only the
             # values this hook exported, so a user-set JAVA_HOME survives.
             if set -q __mise_java_home; and test "$JAVA_HOME" = "$__mise_java_home"
@@ -83,7 +94,6 @@ if test "$__version_manager" = mise
             set --erase __mise_java_home
             return
         end
-        set --local full_path (builtin realpath "$java_path")
         # realpath returns $JAVA_HOME/bin/java (also inside macOS Contents/Home)
         set -gx JAVA_HOME (dirname (dirname "$full_path"))
         set -gx JDK_HOME "$JAVA_HOME"
