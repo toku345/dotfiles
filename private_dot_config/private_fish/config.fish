@@ -21,22 +21,48 @@ switch (uname)
         test -e /home/linuxbrew/.linuxbrew/bin/brew; and eval (/home/linuxbrew/.linuxbrew/bin/brew shellenv)
 end
 
-## asdf
+## Version manager shims (ADR 0041)
+# mise shims go on PATH instead of `mise activate`, so git hooks and
+# non-interactive shells see the same tools. Switch only when mise is on PATH,
+# `mise install` has created the shims directory, and ~/.tool-versions has been
+# retired (docs/mise.md); otherwise keep asdf so a partial migration does not
+# drop the runtimes. Remove the asdf branch with asdf.
 set -gx ASDF_CONFIG_FILE $HOME/.config/asdf/.asdfrc
 
-# https://asdf-vm.com/guide/getting-started.html#_2-configure-asdf
+if test -z "$MISE_DATA_DIR"
+    set _mise_shims "$HOME/.local/share/mise/shims"
+else
+    set _mise_shims "$MISE_DATA_DIR/shims"
+end
 if test -z "$ASDF_DATA_DIR"
     set _asdf_shims "$HOME/.asdf/shims"
 else
     set _asdf_shims "$ASDF_DATA_DIR/shims"
 end
 
+if type -q mise; and test -d $_mise_shims; and not test -e $HOME/.tool-versions
+    set -g __version_manager mise
+    set _shims $_mise_shims
+    set _other_shims $_asdf_shims
+else
+    set -g __version_manager asdf
+    set _shims $_asdf_shims
+    set _other_shims $_mise_shims
+end
+
+# A parent shell may have exported either manager's shims, and brew shellenv
+# above has moved Homebrew ahead of them. Drop both, then put the selected
+# shims first so a child shell resolves tools like a fresh one.
+for _p in $_other_shims $_shims
+    while set _i (contains -i -- $_p $PATH)
+        set -e PATH[$_i]
+    end
+end
+
 # Do not use fish_add_path (added in Fish 3.2) because it
 # potentially changes the order of items in PATH
-if not contains $_asdf_shims $PATH
-    set -gx --prepend PATH $_asdf_shims
-end
-set --erase _asdf_shims
+set -gx --prepend PATH $_shims
+set --erase _mise_shims _asdf_shims _shims _other_shims _p _i
 
 ## starship
 type -q starship; and starship init fish | source
@@ -51,7 +77,34 @@ fish_add_path $HOME/.cargo/bin
 fish_add_path $HOME/go/bin
 
 ## java
-if test -e $HOME/.asdf/plugins/java/set-java-home.fish
+if test "$__version_manager" = mise
+    # Shims do not export JAVA_HOME. Interactive shells recompute it on every
+    # prompt to follow the directory's Java version, overriding any existing
+    # value like the asdf-java hook did.
+    function __mise_update_java_home --on-event fish_prompt
+        set --local java_path
+        set --local full_path
+        # Offline: resolving an uninstalled version would fetch the remote
+        # version list on every prompt.
+        type -q mise; and set java_path (MISE_OFFLINE=1 mise which java 2>/dev/null)
+        test -n "$java_path"; and set full_path (builtin realpath "$java_path" 2>/dev/null)
+        if test -z "$full_path"
+            # Do not leave the previous directory's JDK behind. Clear only the
+            # values this hook exported, so a user-set JAVA_HOME survives.
+            if set -q __mise_java_home; and test "$JAVA_HOME" = "$__mise_java_home"
+                set --erase JAVA_HOME
+                set --erase JDK_HOME
+            end
+            set --erase __mise_java_home
+            return
+        end
+        # realpath returns $JAVA_HOME/bin/java (also inside macOS Contents/Home)
+        set -gx JAVA_HOME (dirname (dirname "$full_path"))
+        set -gx JDK_HOME "$JAVA_HOME"
+        # Export the marker too, so a child shell can clear an inherited JDK.
+        set -gx __mise_java_home "$JAVA_HOME"
+    end
+else if test -e $HOME/.asdf/plugins/java/set-java-home.fish
     . $HOME/.asdf/plugins/java/set-java-home.fish
 end
 
