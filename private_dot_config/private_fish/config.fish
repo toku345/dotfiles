@@ -82,7 +82,9 @@ if test "$__version_manager" = mise
     function __mise_update_java_home --on-event fish_prompt
         set --local java_path
         set --local full_path
-        type -q mise; and set java_path (mise which java 2>/dev/null)
+        # Offline: resolving an uninstalled version would fetch the remote
+        # version list on every prompt.
+        type -q mise; and set java_path (MISE_OFFLINE=1 mise which java 2>/dev/null)
         test -n "$java_path"; and set full_path (builtin realpath "$java_path" 2>/dev/null)
         if test -z "$full_path"
             # Do not leave the previous directory's JDK behind. Clear only the

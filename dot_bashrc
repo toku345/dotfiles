@@ -39,7 +39,9 @@ if command -v mise &>/dev/null && [[ -d "$_mise_shims" && ! -e "$HOME/.tool-vers
     # existing value like the former asdf-java hook did.
     _mise_update_java_home() {
         local java_path full_path=""
-        java_path="$(mise which java 2>/dev/null)" || java_path=""
+        # Offline: resolving an uninstalled version would fetch the remote
+        # version list on every prompt.
+        java_path="$(MISE_OFFLINE=1 mise which java 2>/dev/null)" || java_path=""
         [[ -n "$java_path" ]] && full_path="$(realpath "$java_path" 2>/dev/null)"
         if [[ -z "$full_path" ]]; then
             # Do not leave the previous directory's JDK behind. Clear only the
@@ -54,7 +56,9 @@ if command -v mise &>/dev/null && [[ -d "$_mise_shims" && ! -e "$HOME/.tool-vers
         export JAVA_HOME JDK_HOME="$JAVA_HOME"
         _MISE_JAVA_HOME="$JAVA_HOME"
     }
-    PROMPT_COMMAND="_mise_update_java_home${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+    # Re-sourcing ~/.bashrc must not stack the hook.
+    [[ ";${PROMPT_COMMAND:-};" == *";_mise_update_java_home;"* ]] \
+        || PROMPT_COMMAND="_mise_update_java_home${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 else
     _path_drop "$_mise_shims"
     export PATH

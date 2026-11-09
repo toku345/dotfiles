@@ -68,6 +68,6 @@ asdf に戻すには `mv ~/.tool-versions.asdf-backup ~/.tool-versions` を実�
 
 ## 新しいマシン
 
-chezmoi は mise を導入しません。`chezmoi apply` → `gh auth login` → `brew install mise` → `cd ~` → `mise install` の順に実行してください。gh は bootstrap が Homebrew で導入済みです (mise の gh とは別。bootstrap に必要なので Homebrew の gh は残します)。apply で `~/.homebrew/brew.env` が配置されるので、mise は attestation 検証付きで入ります。`~/.tool-versions` のないマシンでは、`mise install` で shims ができた時点で shell が mise に切り替わります。
+chezmoi は mise を導入しません。`chezmoi apply` → `gh auth login` → `brew install mise` → `cd ~` → `mise install` の順に実行してください。gh は bootstrap が Homebrew で導入済みです (mise の gh とは別。bootstrap に必要なので Homebrew の gh は残します)。apply で `~/.homebrew/brew.env` が配置されるので、mise は attestation 検証付きで入ります。`~/.tool-versions` のないマシンでは、`mise install` で shims ができた時点で shell が mise に切り替わります。途中で失敗しても切り替わるため、`mise ls --missing` で何も表示されないことを確認してください。
 
 Linux の移行手順が決まるまでは、Linux で mise を導入しないでください。

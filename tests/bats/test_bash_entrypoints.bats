@@ -161,7 +161,9 @@ run_fish_startup() {
   # Keep normal Fish PATH handlers; isolate config/universal state per run.
   local config_home
   config_home="$BATS_TEST_TMPDIR/fish-config-$(basename "$1")"
-  run env PATH="/usr/bin:/bin:$PATH" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
+  # MISE_FISH_AUTO_ACTIVATE=0 keeps Homebrew's vendor `mise activate` (and its
+  # network lookups) out of the test.
+  run env MISE_FISH_AUTO_ACTIVATE=0 PATH="/usr/bin:/bin:$PATH" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
     function fish_config; end
     function starship; end
     function direnv; end

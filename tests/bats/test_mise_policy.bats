@@ -249,7 +249,8 @@ run_fish_config() {
     function starship; end
     function direnv; end
     function shadowenv; end
-    function mise; test "$argv[1]" = which; and echo $SELECTED_JAVA; end
+    # Resolve only when called offline, so a hook without MISE_OFFLINE fails.
+    function mise; test "$argv[1]" = which; and test "$MISE_OFFLINE" = 1; and echo $SELECTED_JAVA; end
     source $argv[1]
     # Call the handler directly: emitting fish_prompt also runs unrelated
     # handlers (some reach the network). Event registration is checked above.
@@ -344,7 +345,7 @@ run_bashrc() {
   mkdir -p "$HOME/.local/share/mise/shims" "$jdk/bin"
   : > "$jdk/bin/java"
   JDK_JAVA="$jdk/bin/java" run_bashrc \
-    'mise() { [[ "$1" == which && "$2" == java ]] && printf "%s\n" "$JDK_JAVA"; }' \
+    'mise() { [[ "$1" == which && "$2" == java && "${MISE_OFFLINE:-}" == 1 ]] && printf "%s\n" "$JDK_JAVA"; }' \
     '_mise_update_java_home; printf "%s\n" "$JAVA_HOME"'
   [ "$status" -eq 0 ]
   [[ "${lines[-1]}" == "$(cd "$jdk" && pwd -P)" ]]
@@ -409,4 +410,13 @@ run_fish_vendor_mise() {
   [ "$output" = "activated=[]" ]
   run_fish_vendor_mise mise-activate.fish '/MISE_FISH_AUTO_ACTIVATE/d'   # mask alone
   [ "$output" = "activated=[]" ]
+}
+
+@test "dot_bashrc does not stack the JAVA_HOME hook when sourced again" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.local/share/mise/shims"
+  BASHRC_PATH="$BATS_TEST_TMPDIR/bin:/usr/bin:/bin" \
+    run_bashrc 'mise() { :; }' 'source "$1"; printf "%s\n" "$PROMPT_COMMAND"'
+  [ "$status" -eq 0 ]
+  [ "${lines[-1]}" = "_mise_update_java_home" ]
 }
