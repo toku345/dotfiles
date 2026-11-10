@@ -14,7 +14,9 @@ switch (uname)
         test -e /opt/homebrew/bin/brew; and eval (/opt/homebrew/bin/brew shellenv)
         # WORKAROUND: fix the issue that the $PATH is not set correctly when tmux is started.
         if set -q HOMEBREW_PREFIX
-            fish_add_path -m /opt/homebrew/bin /opt/homebrew/sbin
+            # -P edits PATH only. Writing the universal fish_user_paths on every
+            # startup would make other running shells rebuild their PATH.
+            fish_add_path -P -m /opt/homebrew/bin /opt/homebrew/sbin
         end
     case Linux
         # Linux (Linuxbrew)
@@ -49,20 +51,23 @@ else
     set _shims $_asdf_shims
     set _other_shims $_mise_shims
 end
+set -g __version_manager_shims $_shims
+set -g __version_manager_other_shims $_other_shims
+set --erase _mise_shims _asdf_shims _shims _other_shims
 
 # A parent shell may have exported either manager's shims, and brew shellenv
 # above has moved Homebrew ahead of them. Drop both, then put the selected
-# shims first so a child shell resolves tools like a fresh one.
-for _p in $_other_shims $_shims
-    while set _i (contains -i -- $_p $PATH)
-        set -e PATH[$_i]
+# shims first so a child shell resolves tools like a fresh one. This edits PATH
+# directly; fish_user_paths is left alone. Called again at the end of this file.
+function __version_manager_shims_front
+    for p in $__version_manager_other_shims $__version_manager_shims
+        while set -l i (contains -i -- $p $PATH)
+            set -e PATH[$i]
+        end
     end
+    set -gx --prepend PATH $__version_manager_shims
 end
-
-# Do not use fish_add_path (added in Fish 3.2) because it
-# potentially changes the order of items in PATH
-set -gx --prepend PATH $_shims
-set --erase _mise_shims _asdf_shims _shims _other_shims _p _i
+__version_manager_shims_front
 
 ## starship
 type -q starship; and starship init fish | source
@@ -342,8 +347,17 @@ end
 
 ## Managed Bash scripts use Homebrew Bash; the login shell is unchanged.
 if set -q HOMEBREW_PREFIX; and test -x "$HOMEBREW_PREFIX/opt/bash/bin/bash"
-    fish_add_path -m "$HOMEBREW_PREFIX/opt/bash/bin"
+    fish_add_path -P -m "$HOMEBREW_PREFIX/opt/bash/bin"
 end
+
+## Version manager shims order (ADR 0041)
+# A fish_add_path above that adds a new directory changes fish_user_paths, and
+# fish then rebuilds PATH with those entries first (behind Homebrew, or after a
+# stale ~/.asdf/shims entry). Restore the order once they have all run.
+# config.fish.local runs later and can still change it.
+__version_manager_shims_front
+functions --erase __version_manager_shims_front
+set --erase __version_manager_shims __version_manager_other_shims
 
 ## Local configuration (machine-specific)
 test -e $HOME/.config/fish/config.fish.local; and source $HOME/.config/fish/config.fish.local

@@ -154,12 +154,13 @@ lock_specifiers() {
 # Source config.fish in an isolated HOME and print the resulting PATH entries.
 # MISE_FISH_AUTO_ACTIVATE=0 stops Homebrew's vendor_conf.d snippet from running
 # the real `mise activate fish` (and its network lookups) on the test host.
-# $1 is fish code evaluated before the config (e.g. a mise stub). Set
+# $1 is fish code evaluated before the config (e.g. a mise stub), $2 after it. Set
 # FISH_PATH to control the inherited PATH.
 run_fish_config() {
   local config_home="$BATS_TEST_TMPDIR/fish-config"
+  # SHELL makes `brew shellenv` (macOS) print fish syntax instead of errors.
   run env -u MISE_DATA_DIR -u ASDF_DATA_DIR MISE_FISH_AUTO_ACTIVATE=0 HOME="$HOME" PATH="${FISH_PATH:-$PATH}" \
-    XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
+    SHELL="$(command -v fish)" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
     function fish_config; end
     function starship; end
     function direnv; end
@@ -169,7 +170,8 @@ run_fish_config() {
     string join \n $PATH
     echo "manager=$__version_manager"
     functions -q __mise_update_java_home; and echo java-hook=mise; or echo java-hook=none
-  ' "$REPO_ROOT/private_dot_config/private_fish/config.fish" "${1:-}"
+    eval $argv[3]
+  ' "$REPO_ROOT/private_dot_config/private_fish/config.fish" "${1:-}" "${2:-}"
 }
 
 @test "fish config uses mise shims once mise is installed and ~/.tool-versions is retired" {
@@ -187,6 +189,38 @@ run_fish_config() {
   grep -Fqx 'java-hook=mise' <<<"$output"
   grep -Fq 'function __mise_update_java_home --on-event fish_prompt' \
     "$REPO_ROOT/private_dot_config/private_fish/config.fish"
+}
+
+@test "fish config keeps mise shims first when fish_user_paths rebuilds PATH" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.local/share/mise/shims" "$HOME/.asdf/shims" "$HOME/go/bin"
+  # A stale universal entry, as left by an earlier asdf setup. The config's
+  # `fish_add_path $HOME/go/bin` then changes fish_user_paths, and fish rebuilds
+  # PATH with those entries first.
+  run_fish_config "function mise; end; set -U fish_user_paths $HOME/.asdf/shims"
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "$HOME/.local/share/mise/shims" ]
+  grep -Fqx "$HOME/go/bin" <<<"$output"
+  refute_output_match -Fx "$HOME/.asdf/shims"
+}
+
+@test "fish config does not rewrite the universal fish_user_paths" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local brew="$BATS_TEST_TMPDIR/brew"
+  mkdir -p "$HOME/.local/share/mise/shims" "$HOME/user-bin" "$brew/opt/bash/bin"
+  printf '#!/bin/sh\n' > "$brew/opt/bash/bin/bash"; chmod +x "$brew/opt/bash/bin/bash"
+  # Writing it on every startup makes other running shells rebuild their PATH.
+  # New directories (e.g. mysql-client on macOS) may still be added once.
+  # (On macOS, brew shellenv replaces the fake HOMEBREW_PREFIX with the real one.)
+  HOMEBREW_PREFIX="$brew" run_fish_config \
+    "function mise; end; set -U fish_user_paths $HOME/user-bin" \
+    'echo "user-paths=$fish_user_paths"'
+  [ "$status" -eq 0 ]
+  [[ "${lines[-1]}" == "user-paths="*"$HOME/user-bin"* ]]
+  # The `fish_add_path -m` moves (Homebrew bin/sbin, Homebrew Bash) must use -P.
+  [[ "${lines[-1]}" != *"/opt/bash/bin"* && "${lines[-1]}" != *"/opt/homebrew/bin"* ]]
 }
 
 @test "fish config keeps asdf shims until mise shims exist" {
