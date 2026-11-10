@@ -225,6 +225,28 @@ run_fish_config() {
   grep -Fqx "$HOME/go/bin" <<<"$output"
 }
 
+@test "every fish_add_path in config.fish edits PATH only and moves existing entries" {
+  # The test above cannot see calls whose directory does not exist in its fixture.
+  run grep -nE '^[[:space:]]*fish_add_path' "$REPO_ROOT/private_dot_config/private_fish/config.fish"
+  [ "$status" -eq 0 ]
+  refute_output_match -vE 'fish_add_path -P -m '
+}
+
+@test "fish config keeps user directories ahead of system paths in a login child shell" {
+  command -v fish >/dev/null || skip 'fish is not installed'
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.local/share/mise/shims" "$HOME/go/bin"
+  # A child shell inherits ~/go/bin behind the system paths (on macOS, a login
+  # fish moves the /etc/paths entries forward).
+  FISH_PATH="/usr/bin:/bin:$HOME/go/bin:$PATH" run_fish_config 'function mise; end'
+  [ "$status" -eq 0 ]
+  local go_line usr_line
+  go_line="$(grep -Fnx "$HOME/go/bin" <<<"$output" | cut -d: -f1)"
+  usr_line="$(grep -Fnx /usr/bin <<<"$output" | head -1 | cut -d: -f1)"
+  [[ -n "$go_line" && -n "$usr_line" ]]
+  (( go_line < usr_line ))
+}
+
 @test "fish config keeps asdf shims until mise shims exist" {
   command -v fish >/dev/null || skip 'fish is not installed'
   export HOME="$BATS_TEST_TMPDIR/home"

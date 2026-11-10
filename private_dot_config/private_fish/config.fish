@@ -3,10 +3,13 @@ set -x LC_ALL en_US.UTF-8
 ## Syntax highlighting theme (fish 4.3+)
 fish_config theme choose tomorrow-night-bright
 
-# fish_add_path is always called with -P in this file: it edits PATH only.
-# Without it, the universal fish_user_paths changes, and fish rebuilds PATH in
-# every running shell with those entries first (ahead of the shims below).
-fish_add_path -P $HOME/.local/bin
+# fish_add_path is always called with -P -m in this file.
+# -P edits PATH only. Without it, the universal fish_user_paths changes, and
+# fish rebuilds PATH in every running shell with those entries first (ahead of
+# the shims below).
+# -m moves a directory that is already on PATH. Without it, a login child shell
+# (e.g. a tmux pane) leaves inherited user directories behind the system paths.
+fish_add_path -P -m $HOME/.local/bin
 
 ## homebrew (OS-specific)
 # Homebrew update policy is managed in ~/.homebrew/brew.env (ADR 0026).
@@ -75,12 +78,12 @@ type -q starship; and starship init fish | source
 
 ## Rust
 # https://www.rust-lang.org/tools/install
-fish_add_path -P $HOME/.cargo/bin
+fish_add_path -P -m $HOME/.cargo/bin
 ## Enable tab completion for Fish
 # https://rust-lang.github.io/rustup/installation/index.html?highlight=fish#enable-tab-completion-for-bash-fish-zsh-or-powershell
 
 ## go
-fish_add_path -P $HOME/go/bin
+fish_add_path -P -m $HOME/go/bin
 
 ## java
 if test "$__version_manager" = mise
@@ -117,9 +120,9 @@ end
 ## Scala (OS-specific path)
 switch (uname)
     case Darwin
-        fish_add_path -P "$HOME/Library/Application Support/Coursier/bin"
+        fish_add_path -P -m "$HOME/Library/Application Support/Coursier/bin"
     case Linux
-        fish_add_path -P "$HOME/.local/share/coursier/bin"
+        fish_add_path -P -m "$HOME/.local/share/coursier/bin"
 end
 
 ## OCaml(opam)
@@ -128,12 +131,12 @@ if test -r "$HOME/.opam/opam-init/init.fish"
 end
 
 ## Haskell
-fish_add_path -P $HOME/.ghcup/bin
-fish_add_path -P $HOME/.cabal/bin
+fish_add_path -P -m $HOME/.ghcup/bin
+fish_add_path -P -m $HOME/.cabal/bin
 
 ## mysql (macOS only - Homebrew path)
 if test (uname) = Darwin
-    fish_add_path -P /opt/homebrew/opt/mysql-client/bin
+    fish_add_path -P -m /opt/homebrew/opt/mysql-client/bin
 end
 
 ## direnv
@@ -188,7 +191,7 @@ end
 test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2.fish
 
 ## Windsurf
-fish_add_path -P $HOME/.codeium/windsurf/bin
+fish_add_path -P -m $HOME/.codeium/windsurf/bin
 
 ## git workflow commands
 function gw --description "Manage git worktrees (create, checkout, remove, clean)"
@@ -347,8 +350,7 @@ function gbd --description 'delete merged git branches'
 end
 
 ## Version manager shims order (ADR 0041)
-# Each `fish_add_path -P` above puts a directory that was not on PATH yet ahead
-# of the shims. Restore the order once they have all run. Only Homebrew Bash
+# Each `fish_add_path -P -m` above moves its directory ahead of the shims. Restore the order once they have all run. Only Homebrew Bash
 # below stays ahead of the shims. config.fish.local runs later and can still
 # change the order.
 __version_manager_shims_front
