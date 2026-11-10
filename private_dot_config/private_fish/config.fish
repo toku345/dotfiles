@@ -3,7 +3,10 @@ set -x LC_ALL en_US.UTF-8
 ## Syntax highlighting theme (fish 4.3+)
 fish_config theme choose tomorrow-night-bright
 
-fish_add_path $HOME/.local/bin
+# fish_add_path is always called with -P in this file: it edits PATH only.
+# Without it, the universal fish_user_paths changes, and fish rebuilds PATH in
+# every running shell with those entries first (ahead of the shims below).
+fish_add_path -P $HOME/.local/bin
 
 ## homebrew (OS-specific)
 # Homebrew update policy is managed in ~/.homebrew/brew.env (ADR 0026).
@@ -14,8 +17,6 @@ switch (uname)
         test -e /opt/homebrew/bin/brew; and eval (/opt/homebrew/bin/brew shellenv)
         # WORKAROUND: fix the issue that the $PATH is not set correctly when tmux is started.
         if set -q HOMEBREW_PREFIX
-            # -P edits PATH only. Writing the universal fish_user_paths on every
-            # startup would make other running shells rebuild their PATH.
             fish_add_path -P -m /opt/homebrew/bin /opt/homebrew/sbin
         end
     case Linux
@@ -58,7 +59,7 @@ set --erase _mise_shims _asdf_shims _shims _other_shims
 # A parent shell may have exported either manager's shims, and brew shellenv
 # above has moved Homebrew ahead of them. Drop both, then put the selected
 # shims first so a child shell resolves tools like a fresh one. This edits PATH
-# directly; fish_user_paths is left alone. Called again at the end of this file.
+# directly; fish_user_paths is left alone. Called again near the end of this file.
 function __version_manager_shims_front
     for p in $__version_manager_other_shims $__version_manager_shims
         while set -l i (contains -i -- $p $PATH)
@@ -74,12 +75,12 @@ type -q starship; and starship init fish | source
 
 ## Rust
 # https://www.rust-lang.org/tools/install
-fish_add_path $HOME/.cargo/bin
+fish_add_path -P $HOME/.cargo/bin
 ## Enable tab completion for Fish
 # https://rust-lang.github.io/rustup/installation/index.html?highlight=fish#enable-tab-completion-for-bash-fish-zsh-or-powershell
 
 ## go
-fish_add_path $HOME/go/bin
+fish_add_path -P $HOME/go/bin
 
 ## java
 if test "$__version_manager" = mise
@@ -116,9 +117,9 @@ end
 ## Scala (OS-specific path)
 switch (uname)
     case Darwin
-        fish_add_path "$HOME/Library/Application Support/Coursier/bin"
+        fish_add_path -P "$HOME/Library/Application Support/Coursier/bin"
     case Linux
-        fish_add_path "$HOME/.local/share/coursier/bin"
+        fish_add_path -P "$HOME/.local/share/coursier/bin"
 end
 
 ## OCaml(opam)
@@ -127,12 +128,12 @@ if test -r "$HOME/.opam/opam-init/init.fish"
 end
 
 ## Haskell
-fish_add_path $HOME/.ghcup/bin
-fish_add_path $HOME/.cabal/bin
+fish_add_path -P $HOME/.ghcup/bin
+fish_add_path -P $HOME/.cabal/bin
 
 ## mysql (macOS only - Homebrew path)
 if test (uname) = Darwin
-    fish_add_path /opt/homebrew/opt/mysql-client/bin
+    fish_add_path -P /opt/homebrew/opt/mysql-client/bin
 end
 
 ## direnv
@@ -187,7 +188,7 @@ end
 test -e $HOME/.orbstack/shell/init2.fish; and source $HOME/.orbstack/shell/init2.fish
 
 ## Windsurf
-fish_add_path $HOME/.codeium/windsurf/bin
+fish_add_path -P $HOME/.codeium/windsurf/bin
 
 ## git workflow commands
 function gw --description "Manage git worktrees (create, checkout, remove, clean)"
@@ -345,19 +346,19 @@ function gbd --description 'delete merged git branches'
     end
 end
 
+## Version manager shims order (ADR 0041)
+# Each `fish_add_path -P` above puts a directory that was not on PATH yet ahead
+# of the shims. Restore the order once they have all run. Only Homebrew Bash
+# below stays ahead of the shims. config.fish.local runs later and can still
+# change the order.
+__version_manager_shims_front
+functions --erase __version_manager_shims_front
+set --erase __version_manager_shims __version_manager_other_shims
+
 ## Managed Bash scripts use Homebrew Bash; the login shell is unchanged.
 if set -q HOMEBREW_PREFIX; and test -x "$HOMEBREW_PREFIX/opt/bash/bin/bash"
     fish_add_path -P -m "$HOMEBREW_PREFIX/opt/bash/bin"
 end
-
-## Version manager shims order (ADR 0041)
-# A fish_add_path above that adds a new directory changes fish_user_paths, and
-# fish then rebuilds PATH with those entries first (behind Homebrew, or after a
-# stale ~/.asdf/shims entry). Restore the order once they have all run.
-# config.fish.local runs later and can still change it.
-__version_manager_shims_front
-functions --erase __version_manager_shims_front
-set --erase __version_manager_shims __version_manager_other_shims
 
 ## Local configuration (machine-specific)
 test -e $HOME/.config/fish/config.fish.local; and source $HOME/.config/fish/config.fish.local
