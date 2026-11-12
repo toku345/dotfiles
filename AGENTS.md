@@ -48,7 +48,7 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 - `private_dot_claude/` → `~/.claude/`（Claude Code 設定）
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
-- `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`hooks/`、`settings.local.json` は machine-local・gitignore
+- `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`skills/` = この repo 専用の skill（`tool-update`: mise 管理ツールの更新）、`hooks/`、`settings.local.json` は machine-local・gitignore
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
 
 ### chezmoi 命名規則の project 固有用法
