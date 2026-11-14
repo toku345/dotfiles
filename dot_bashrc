@@ -97,10 +97,10 @@ command -v starship &>/dev/null && eval "$(starship init bash)"
 command -v direnv &>/dev/null && eval "$(direnv hook bash)"
 
 # Prompt initializers above can replace PROMPT_COMMAND. Register afterwards,
-# without stacking the hook when ~/.bashrc is sourced again.
+# after existing hooks capture the command status, and do not stack on re-source.
 if [[ "$_mise_java_hook_enabled" == 1 ]]; then
     [[ ";${PROMPT_COMMAND:-};" == *";_mise_update_java_home;"* ]] \
-        || PROMPT_COMMAND="_mise_update_java_home${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+        || PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_mise_update_java_home"
 fi
 unset _mise_java_hook_enabled
 

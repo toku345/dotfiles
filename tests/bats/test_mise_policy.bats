@@ -593,6 +593,24 @@ run_fish_vendor_mise() {
     _direnv_hook() { :; }
   ' 'source "$1"; eval "$PROMPT_COMMAND"; printf "prompt=%s\njava=%s\n" "$PROMPT_COMMAND" "$JAVA_HOME"'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"prompt=_mise_update_java_home;_direnv_hook;starship_precmd"* ]]
+  [[ "$output" == *"prompt=_direnv_hook;starship_precmd;_mise_update_java_home"* ]]
   [[ "$output" == *"java=$jdk"* ]]
+}
+
+@test "dot_bashrc preserves command and pipeline status for the prompt" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.local/share/mise/shims"
+  run_bashrc '
+    mise() { :; }
+    starship() { printf "%s\n" "PROMPT_COMMAND=capture_status"; }
+    capture_status() { saved_status=$? saved_pipeline="${PIPESTATUS[*]}"; }
+  ' '
+    false; eval "$PROMPT_COMMAND"
+    printf "command=%s pipeline=%s\n" "$saved_status" "$saved_pipeline"
+    false | true; eval "$PROMPT_COMMAND"
+    printf "pipeline-command=%s pipeline=%s\n" "$saved_status" "$saved_pipeline"
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"command=1 pipeline=1"* ]]
+  [[ "$output" == *"pipeline-command=0 pipeline=1 0"* ]]
 }
