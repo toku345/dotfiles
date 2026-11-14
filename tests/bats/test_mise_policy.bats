@@ -85,7 +85,7 @@ lock_specifiers() {
     'locked = true' \
     'locked_scopes = ["global"]' \
     'locked_verify_provenance = true' \
-    'lockfile_platforms = ["macos-arm64", "linux-x64"]' \
+    'lockfile_platforms = ["macos-arm64", "linux-x64", "linux-arm64"]' \
     'auto_install = false' \
     'exec_auto_install = false' \
     'not_found_auto_install = false'
@@ -116,7 +116,7 @@ lock_specifiers() {
   [ -n "$locked" ]
   while IFS=$'\t' read -r name value; do
     count=$((count + 1))
-    for platform in macos-arm64 linux-x64; do
+    for platform in macos-arm64 linux-x64 linux-arm64; do
       awk -F '\t' -v t="$name" -v p="$platform" '$1 == t && $2 == p { found = 1 } END { exit !found }' \
         <<<"$locked" || { echo "missing lock entry: $name $platform" >&2; return 1; }
     done
