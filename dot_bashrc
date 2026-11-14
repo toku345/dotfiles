@@ -20,6 +20,7 @@ fi
 # run `mise exec <tool> -- ...` (or `asdf exec <tool>` before migration).
 _mise_shims="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims"
 _asdf_shims="${ASDF_DATA_DIR:-$HOME/.asdf}/shims"
+_mise_java_hook_enabled=0
 _path_drop() {
     local p=":$PATH:"
     while [[ "$p" == *":$1:"* ]]; do p="${p//":$1:"/:}"; done
@@ -59,9 +60,7 @@ if command -v mise &>/dev/null && [[ -d "$_mise_shims" && ! -e "$HOME/.tool-vers
         # Export the marker too, so a child shell can clear an inherited JDK.
         export JAVA_HOME JDK_HOME="$JAVA_HOME" _MISE_JAVA_HOME="$JAVA_HOME"
     }
-    # Re-sourcing ~/.bashrc must not stack the hook.
-    [[ ";${PROMPT_COMMAND:-};" == *";_mise_update_java_home;"* ]] \
-        || PROMPT_COMMAND="_mise_update_java_home${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+    _mise_java_hook_enabled=1
 else
     _path_drop "$_mise_shims"
     export PATH
@@ -96,6 +95,14 @@ command -v starship &>/dev/null && eval "$(starship init bash)"
 
 # direnv
 command -v direnv &>/dev/null && eval "$(direnv hook bash)"
+
+# Prompt initializers above can replace PROMPT_COMMAND. Register afterwards,
+# after existing hooks capture the command status, and do not stack on re-source.
+if [[ "$_mise_java_hook_enabled" == 1 ]]; then
+    [[ ";${PROMPT_COMMAND:-};" == *";_mise_update_java_home;"* ]] \
+        || PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_mise_update_java_home"
+fi
+unset _mise_java_hook_enabled
 
 # fzf key bindings (Ctrl-R, Ctrl-T, Alt-C) + completion
 if [[ -n "$HOMEBREW_PREFIX" && -f "$HOMEBREW_PREFIX/opt/fzf/shell/key-bindings.bash" ]]; then

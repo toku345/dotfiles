@@ -104,6 +104,8 @@ OS のログインシェルと Homebrew 導入前の `/bin/bash` installer は�
 
 ### 言語マネージャーの導入
 
+言語ランタイムと対象 CLI の mise への移行は [mise 運用手順](mise.md#linux-の既存-asdf-環境からの移行) に従います。共通 lock は Linux x64/ARM64 を対象とします。既存の旧 bash 設定を維持したまま mise 設定だけを配置し、ツール導入・検証の成功後に bash 設定を適用してください。以下は移行前の asdf 運用です。Linuxbrew と native installer の撤去は別途判断します。
+
 **asdf** は Step 4 の apply で導入済みです。プラグインは **explicit Git URL 指定で追加**します (`asdf plugin add <name> <git-url>`)。supply-chain 対策で短縮名リポジトリ (short-name repository) を無効化しているため、`asdf plugin add <name>` 単体 (短縮名) は使えません ([docs/security.md](security.md#homebrew-and-asdf-update-controls) 参照)。追加後は `asdf install` で利用可能 (参照: [ADR 0023](adr/0023-asdf-on-linux-via-linuxbrew.md))。Java は asdf-java の `set-java-home.bash` hook が `dot_bashrc` で source されるため、`JAVA_HOME` が自動設定され Gradle/Maven 等もそのまま動きます。
 
 言語ごとの専用ツール (Python: `uv` の高速インストーラー / JS: `bun` ランタイム / Rust: `rustup` 公式ツールチェイン) も併用可能です。`dot_bashrc` は `~/.cargo/bin`, `~/.bun/bin`, `~/.local/bin` を asdf shim より**後ろ**で PATH に prepend するため、最終 PATH では専用ツールが asdf shim より優先されます。

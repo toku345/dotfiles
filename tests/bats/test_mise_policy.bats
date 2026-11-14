@@ -85,7 +85,7 @@ lock_specifiers() {
     'locked = true' \
     'locked_scopes = ["global"]' \
     'locked_verify_provenance = true' \
-    'lockfile_platforms = ["macos-arm64", "linux-x64"]' \
+    'lockfile_platforms = ["macos-arm64", "linux-x64", "linux-arm64"]' \
     'auto_install = false' \
     'exec_auto_install = false' \
     'not_found_auto_install = false'
@@ -116,7 +116,7 @@ lock_specifiers() {
   [ -n "$locked" ]
   while IFS=$'\t' read -r name value; do
     count=$((count + 1))
-    for platform in macos-arm64 linux-x64; do
+    for platform in macos-arm64 linux-x64 linux-arm64; do
       awk -F '\t' -v t="$name" -v p="$platform" '$1 == t && $2 == p { found = 1 } END { exit !found }' \
         <<<"$locked" || { echo "missing lock entry: $name $platform" >&2; return 1; }
     done
@@ -387,7 +387,8 @@ run_bashrc() {
   run env -i HOME="$HOME" PATH="${BASHRC_PATH:-/usr/bin:/bin}" JDK_JAVA="${JDK_JAVA:-}" \
     "$BASH5_BIN" --noprofile --norc -c '
     eval "$2"
-    starship() { :; }; direnv() { :; }
+    declare -F starship >/dev/null || starship() { :; }
+    declare -F direnv >/dev/null || direnv() { :; }
     source "$1"
     eval "$3"
   ' -- "$REPO_ROOT/dot_bashrc" "$1" "$2"
@@ -426,7 +427,9 @@ run_bashrc() {
 @test "dot_bashrc keeps asdf shims on machines without mise" {
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME/.local/share/mise/shims"
-  run_bashrc 'asdf() { :; }' 'printf "%s\n" "$PATH"'
+  # brew shellenv can expose the host mise despite the fixture's initial PATH.
+  run_bashrc 'command() { if [[ "$1" == -v && "$2" == mise ]]; then return 1; fi; builtin command "$@"; }; asdf() { :; }' \
+    'printf "%s\n" "$PATH"'
   [ "$status" -eq 0 ]
   [[ "$output" == *"$HOME/.asdf/shims"* ]]
   [[ "$output" != *"/mise/shims"* ]]
@@ -575,4 +578,39 @@ run_fish_vendor_mise() {
     run_bashrc 'mise() { :; }' 'source "$1"; printf "%s\n" "$PROMPT_COMMAND"'
   [ "$status" -eq 0 ]
   [ "${lines[-1]}" = "_mise_update_java_home" ]
+}
+
+@test "dot_bashrc JAVA_HOME hook survives prompt initializers replacing PROMPT_COMMAND" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local jdk="$BATS_TEST_TMPDIR/jdk"
+  mkdir -p "$HOME/.local/share/mise/shims" "$jdk/bin"
+  : > "$jdk/bin/java"
+  JDK_JAVA="$jdk/bin/java" run_bashrc '
+    mise() { [[ "$1" == which && "${MISE_OFFLINE:-}" == 1 ]] && printf "%s\n" "$JDK_JAVA"; }
+    starship() { printf "%s\n" "PROMPT_COMMAND=starship_precmd"; }
+    direnv() { printf "%s\n" '\''PROMPT_COMMAND="_direnv_hook;$PROMPT_COMMAND"'\''; }
+    starship_precmd() { :; }
+    _direnv_hook() { :; }
+  ' 'source "$1"; eval "$PROMPT_COMMAND"; printf "prompt=%s\njava=%s\n" "$PROMPT_COMMAND" "$JAVA_HOME"'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"prompt=_direnv_hook;starship_precmd;_mise_update_java_home"* ]]
+  [[ "$output" == *"java=$jdk"* ]]
+}
+
+@test "dot_bashrc preserves command and pipeline status for the prompt" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.local/share/mise/shims"
+  run_bashrc '
+    mise() { :; }
+    starship() { printf "%s\n" "PROMPT_COMMAND=capture_status"; }
+    capture_status() { saved_status=$? saved_pipeline="${PIPESTATUS[*]}"; }
+  ' '
+    false; eval "$PROMPT_COMMAND"
+    printf "command=%s pipeline=%s\n" "$saved_status" "$saved_pipeline"
+    false | true; eval "$PROMPT_COMMAND"
+    printf "pipeline-command=%s pipeline=%s\n" "$saved_status" "$saved_pipeline"
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"command=1 pipeline=1"* ]]
+  [[ "$output" == *"pipeline-command=0 pipeline=1 0"* ]]
 }
