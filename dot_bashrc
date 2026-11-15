@@ -99,8 +99,12 @@ command -v direnv &>/dev/null && eval "$(direnv hook bash)"
 # Prompt initializers above can replace PROMPT_COMMAND. Register afterwards,
 # after existing hooks capture the command status, and do not stack on re-source.
 if [[ "$_mise_java_hook_enabled" == 1 ]]; then
-    [[ ";${PROMPT_COMMAND:-};" == *";_mise_update_java_home;"* ]] \
-        || PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_mise_update_java_home"
+    PROMPT_COMMAND="${PROMPT_COMMAND:-}"
+    if [[ ";${PROMPT_COMMAND//$'\n'/;};" != *";_mise_update_java_home;"* ]]; then
+        # A newline also works after an existing trailing semicolon.
+        [[ -z "$PROMPT_COMMAND" ]] || PROMPT_COMMAND+=$'\n'
+        PROMPT_COMMAND+="_mise_update_java_home"
+    fi
 fi
 unset _mise_java_hook_enabled
 

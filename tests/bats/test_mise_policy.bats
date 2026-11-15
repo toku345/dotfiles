@@ -593,7 +593,7 @@ run_fish_vendor_mise() {
     _direnv_hook() { :; }
   ' 'source "$1"; eval "$PROMPT_COMMAND"; printf "prompt=%s\njava=%s\n" "$PROMPT_COMMAND" "$JAVA_HOME"'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"prompt=_direnv_hook;starship_precmd;_mise_update_java_home"* ]]
+  [[ "$output" == *$'prompt=_direnv_hook;starship_precmd\n_mise_update_java_home'* ]]
   [[ "$output" == *"java=$jdk"* ]]
 }
 
@@ -613,4 +613,33 @@ run_fish_vendor_mise() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"command=1 pipeline=1"* ]]
   [[ "$output" == *"pipeline-command=0 pipeline=1 0"* ]]
+}
+
+@test "dot_bashrc accepts existing prompt separators and registers Java only once" {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  local jdk="$BATS_TEST_TMPDIR/jdk" initial prelude
+  mkdir -p "$HOME/.local/share/mise/shims" "$jdk/bin"
+  : > "$jdk/bin/java"
+  for initial in '' 'capture_status' 'capture_status;' 'capture_status; ' \
+    $'capture_status;\n' $'capture_status\n'; do
+    printf -v prelude 'PROMPT_COMMAND=%q\n' "$initial"
+    prelude+='
+      mise() { [[ "$1" == which ]] && printf "%s\n" "$JDK_JAVA"; }
+      hook_calls=0
+      capture_status() { saved_status=$?; hook_calls=$((hook_calls + 1)); }
+    '
+    JDK_JAVA="$jdk/bin/java" run_bashrc "$prelude" '
+      original=$PROMPT_COMMAND
+      source "$1"
+      [[ "$PROMPT_COMMAND" == "$original" ]] || exit 9
+      false; eval "$PROMPT_COMMAND" || exit "$?"
+      printf "calls=%s status=%s java=%s\n" "$hook_calls" "${saved_status:-unset}" "$JAVA_HOME"
+    '
+    [ "$status" -eq 0 ]
+    if [[ -n "$initial" ]]; then
+      [[ "$output" == *"calls=1 status=1 java=$jdk"* ]]
+    else
+      [[ "$output" == *"calls=0 status=unset java=$jdk"* ]]
+    fi
+  done
 }
