@@ -197,7 +197,8 @@ setup 同士の二重実行は `setup.lock` ディレクトリで拒否する。
 
 ### 設定の変更
 
-- 編集先は `scripts/codex-config/policy.toml`（通常版 `~/.codex/config.toml`）。分離した Fugu home 用は `scripts/codex-config/policy-fugu.toml`（前述の「base config の管理」）。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないすべてのキーは free。
+- 編集先は `scripts/codex-config/policy.toml`（通常版 `~/.codex/config.toml`）。分離した Fugu home 用は `scripts/codex-config/policy-fugu.toml`（前述の「base config の管理」）。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないキーは、次項の移行対象を除き free。
+- サブエージェントは `agents.enabled = true` を pin する。非推奨の `features.multi_agent` は、この pin を持つポリシーで apply のたびに除去する。既存値は bool の場合だけ移行し、型不正や installer 管理ブロックの変更が必要な場合はエラーにする。Fugu ポリシーはこの移行を行わない。警告が残る場合は `/daemon` からバックグラウンドサーバーを再起動する。
 - seed の現在値が宣言と異なる場合は保持し、stderr にキー名だけ警告する。宣言値が現在値とは限らない。
 - 通常版は `model = "gpt-6.1-sol"` / `model_reasoning_effort = "medium"` / `plan_mode_reasoning_effort = "xhigh"` を pin とする。起動設定を端末間で揃え、計画時の検討を重視するため、Codex 側のデフォルト追従から明示設定へ変更した。TUI で保存した異なる値も次回 apply で戻る。
 - 反映は次節の対象限定 diff / dry-run・承認・apply の手順に従う。マージ前の worktree でも検証できる。hash gate・ACK・手動 merge は不要。
@@ -439,7 +440,7 @@ status line の項目ごとの色表示は `status_line_use_colors = true` で�
 - `review_deep.config.toml`: `gpt-6-astra` / `high`
 - `review_audit.config.toml`: `gpt-6-astra` / `xhigh`
 
-これらの profile は `multi_agent` を有効にする。runtime はモデル名から推測せず、新規プロセスが公開する tool schema で V1/V2 の対応を確認する。`approval_policy = "on-request"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `scripts/codex-config/policy.toml` が管理する。`sandbox_mode` は各 review profile にも同じ値を明示する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
+これらの profile は `agents.enabled = true` でサブエージェントを有効にする。runtime はモデル名から推測せず、新規プロセスが公開する tool schema で V1/V2 の対応を確認する。`approval_policy = "on-request"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `scripts/codex-config/policy.toml` が管理する。`sandbox_mode` は各 review profile にも同じ値を明示する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
 
 multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。`$pr-review` は実際に公開された tool schema を検査し、V1/V2 のどちらにも対応する。
 

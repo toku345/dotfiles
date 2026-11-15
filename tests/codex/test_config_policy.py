@@ -149,6 +149,36 @@ name = "second"
         _, data, _ = self.update('[features]\napps = 1\n')
         self.assertIs(data["features"]["apps"], True)
 
+    def test_retired_multi_agent_migration(self):
+        for value in ("true", "false"):
+            for source in (
+                f'[features]\nmulti_agent = {value}\ncustom = true\n',
+                f'features.multi_agent = {value}\nfeatures.custom = true\n',
+                f'features = {{ multi_agent = {value}, custom = true }}\n',
+                f'[agents.code-reviewer]\ndescription = "keep"\n[features]\nmulti_agent = {value}\ncustom = true\n',
+            ):
+                with self.subTest(source=source):
+                    output, data, _ = self.update(source)
+                    self.assertNotIn("multi_agent", data["features"])
+                    self.assertIs(data["features"]["custom"], True)
+                    self.assertIs(data["agents"]["enabled"], True)
+                    if "code-reviewer" in data["agents"]:
+                        self.assertEqual(data["agents"]["code-reviewer"]["description"], "keep")
+                    self.assertEqual(self.update(output)[0], output)
+
+    def test_retired_key_rejects_invalid_type_and_installer_edit(self):
+        with self.assertRaisesRegex(PolicyError, "must be boolean"):
+            self.update('[features]\nmulti_agent = "invalid"\n')
+        with self.assertRaisesRegex(PolicyError, "installer-owned"):
+            self.update('# >>> owner >>>\n[features]\nmulti_agent = true\n# <<< owner <<<\n')
+        with self.assertRaises(PolicyError):
+            self.update('[agents.enabled]\ncustom = true\n')
+
+    def test_fugu_keeps_legacy_multi_agent(self):
+        policy = load_policy(PROJECT / "policy-fugu.toml")
+        output, _ = merge.merge('[features]\nmulti_agent = false\n', policy)
+        self.assertIs(tomllib.loads(output)["features"]["multi_agent"], False)
+
     def test_no_change_returns_exact_input(self):
         first, _, _ = self.update("")
         for source in (first, first.replace("\n", "\r\n")):

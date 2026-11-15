@@ -112,7 +112,7 @@ Source tree (chezmoi): `private_dot_codex/skills/pr-review/` and `private_dot_co
 codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'
 ```
 
-`review` selects `gpt-6.1-sol` / `medium`; `review_deep` and `review_audit` select `gpt-6-astra` / `high` and `xhigh`. They enable `multi_agent` but do not force a version; compatibility is established from the tools exposed by each fresh process, not inferred from the model name. The original `codex exec /pr-review` draft (slash-command-style) is **not correct** — slash commands are an interactive-only surface.
+`review` selects `gpt-6.1-sol` / `medium`; `review_deep` and `review_audit` select `gpt-6-astra` / `high` and `xhigh`. They enable subagents with `agents.enabled = true` but do not force a version; compatibility is established from the tools exposed by each fresh process, not inferred from the model name. The original `codex exec /pr-review` draft (slash-command-style) is **not correct** — slash commands are an interactive-only surface.
 
 There is no checked-in legacy profile. If a Codex/model-catalog upgrade breaks V2, use this explicit one-shot V1 fallback in a fresh process:
 

@@ -96,7 +96,7 @@ assert data["model"] == "gpt-6.1-sol"
 assert data["model_reasoning_effort"] == "medium"
 assert data["plan_mode_reasoning_effort"] == "xhigh"
 ' "$OUT"
-  grep -qxF 'multi_agent = true' "$OUT"
+  "$CODEX_CONFIG_TEST_PYTHON" -c 'import sys, tomllib; d = tomllib.load(open(sys.argv[1], "rb")); assert d["agents"]["enabled"] is True; assert "multi_agent" not in d["features"]' "$OUT"
   grep -qxF 'network_access = false' "$OUT"
   toml_valid "$OUT"
 }

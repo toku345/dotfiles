@@ -1439,7 +1439,7 @@ def verify_codex_config_profiles() -> None:
             False,
             "sandbox_workspace_write.network_access must be false",
         ),
-        ("features", "multi_agent", True, "features.multi_agent must be true"),
+        ("agents", "enabled", True, "agents.enabled must be true"),
         ("features", "network_proxy", True, "features.network_proxy must be true"),
     )
     for section, key, expected, message in pinned:
@@ -1456,6 +1456,8 @@ def verify_codex_config_profiles() -> None:
             fail(f"{CODEX_POLICY}: {key} must be pinned to {expected!r}")
 
     rows = [*pins, *seeds]
+    if ("features", "multi_agent") in rows:
+        fail(f"{CODEX_POLICY}: deprecated features.multi_agent must be removed")
     stale = sorted({key for (section, key) in rows if section.startswith("profiles")})
     if stale:
         fail(
@@ -1482,11 +1484,14 @@ def verify_codex_config_profiles() -> None:
             if actual != expected:
                 fail(f"{path}: {key} must be {expected!r}, got {actual!r}")
 
-        features = data.get("features")
+        agents = data.get("agents")
+        if not isinstance(agents, dict) or agents.get("enabled") is not True:
+            fail(f"{path}: agents.enabled must be true")
+        features = data.get("features", {})
         if not isinstance(features, dict):
             fail(f"{path}: [features] must be a table")
-        if features.get("multi_agent") is not True:
-            fail(f"{path}: features.multi_agent must be true")
+        if "multi_agent" in features:
+            fail(f"{path}: deprecated features.multi_agent must be removed")
         if "network_proxy" in features:
             fail(
                 f"{path}: features.network_proxy must be inherited from "

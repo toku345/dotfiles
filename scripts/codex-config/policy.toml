@@ -1,5 +1,6 @@
 # pin: reassert on apply. seed: initialize only when absent.
-# Every undeclared key is free, including unknown keys added by Codex.
+# Undeclared keys are free except the retired features.multi_agent key,
+# removed by merge.py when this policy pins agents.enabled.
 
 [pin]
 model = "gpt-6.1-sol"
@@ -12,8 +13,10 @@ approvals_reviewer = "guardian_subagent"
 [pin.sandbox_workspace_write]
 network_access = false
 
+[pin.agents]
+enabled = true
+
 [pin.features]
-multi_agent = true
 apps = true
 guardian_approval = true
 terminal_resize_reflow = true
