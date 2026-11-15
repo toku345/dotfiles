@@ -115,6 +115,23 @@ verified Codex version unless upstream ships configs for a newer one.
 
 ## Additional Setup
 
+### Herdr App layout (macOS)
+
+The managed `bottom-tabs` layout places the tab bar below the terminals and
+above the status bar. It is a clone of Herdr App 0.1.15's `main` layout;
+the shipped `main` layout remains unchanged. Herdr does not update clones
+automatically, so review upstream layout changes when upgrading the app.
+
+After deploying the dotfiles, select it in the running Herdr App:
+
+```sh
+herdr-app do layout.switch '{"name":"bottom-tabs"}'
+```
+
+To restore the standard layout, switch to `main` with the same command.
+The selected layout and other runtime state in `shared.json` remain local
+to each machine and are not managed by chezmoi.
+
 ### Starship
 
 A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal.
