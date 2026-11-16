@@ -454,17 +454,7 @@ codex exec --profile review -C <repo> '$pr-review --base <base>'
 
 base を省略した auto-PR 経路では、`gh pr view` と fresh fetch をまず通常 sandbox で試す。sandbox/network policy や保護された `.git/FETCH_HEAD` に拒否された場合だけ、同一 command を approval 付きの scoped escalation で1回再試行する。profile 全体の network access や sandbox 権限は広げず、通常の Git/auth/ref error は昇格しない。offline または approval なしで実行する場合は immutable commit OID を `--base` に指定する。
 
-checked-in の legacy V1 profile は置かない。V2 runtime に互換性問題が再発した場合は、次の one-shot command で `gpt-5.5` / V1 に退避する。
-
-```bash
-codex \
-  -c 'features.multi_agent=true' \
-  -c 'features.multi_agent_v2=false' \
-  -c 'model_reasoning_effort="medium"' \
-  exec --model gpt-5.5 \
-  -C '<repo-root>' \
-  '$pr-review --base <base>'
-```
+checked-in の legacy V1 profile は置かない。
 
 runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。プロファイル名や終了コードだけで成功とせず、親子の実効モデル・effort・sandbox・承認設定と、実際の collaboration 呼び出し・結果受領・終了を確認する。存在しない profile でも既定値で起動する場合があるため、実効設定の不一致は検証失敗として扱う。merge 前は原則として isolated `CODEX_HOME` と `/tmp` の fixture を使う。実環境での検証が必要なら、ルート `AGENTS.md` の手順に従い、対象・source・復元方法を示して明示承認を得たうえで、マージ前でも対象限定の `chezmoi apply` を実行できる。apply・動作確認の承認は PR のマージ承認を含まない。
 

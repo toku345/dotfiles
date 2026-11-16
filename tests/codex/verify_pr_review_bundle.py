@@ -379,15 +379,6 @@ EXPECTED_FINDING_VERIFIER_CONTRACT = {
         "partial_aggregation": "fatal",
     },
 }
-V1_ROLLBACK_COMMAND_SNIPPETS = (
-    "codex \\",
-    "-c 'features.multi_agent=true'",
-    "-c 'features.multi_agent_v2=false'",
-    "-c 'model_reasoning_effort=\"medium\"'",
-    "exec --model gpt-5.5",
-    "-C '<repo-root>'",
-    "'$pr-review --base <base>'",
-)
 RUNTIME_CONTRACT_SNIPPETS = [
     "Before running any shell or Git command and before invoking any collaboration tool",
     "Tool discovery is allowed here; a probe spawn is not.",
@@ -901,12 +892,10 @@ def verify_runtime_docs() -> None:
     codex_raw = CODEX_DOC.read_text(encoding="utf-8")
     for needle in REQUIRED_CODEX_DOC_SNIPPETS:
         require_contains(codex_raw, needle, str(CODEX_DOC))
-    require_ordered_contains(codex_raw, V1_ROLLBACK_COMMAND_SNIPPETS, f"{CODEX_DOC}:V1-rollback")
 
     design_raw = DESIGN_DOC.read_text(encoding="utf-8")
     for needle in REQUIRED_DESIGN_DOC_SNIPPETS:
         require_contains(design_raw, needle, str(DESIGN_DOC))
-    require_ordered_contains(design_raw, V1_ROLLBACK_COMMAND_SNIPPETS, f"{DESIGN_DOC}:V1-rollback")
     for needle in FORBIDDEN_STALE_DESIGN_SNIPPETS:
         require_not_contains(design_raw, needle, str(DESIGN_DOC))
 

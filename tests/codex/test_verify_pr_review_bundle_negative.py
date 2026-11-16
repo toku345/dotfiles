@@ -681,27 +681,6 @@ def main() -> None:
             "do not call any collaboration or subagent control-plane tool",
         ),
         (
-            "documented V1 rollback pin removal",
-            "docs/codex.md",
-            "-c 'features.multi_agent_v2=false'",
-            "-c 'features.multi_agent_v2=true'",
-            "features.multi_agent_v2=false",
-        ),
-        (
-            "documented V1 rollback effort removal",
-            "docs/codex.md",
-            "  -c 'model_reasoning_effort=\"medium\"' \\\n",
-            "",
-            "model_reasoning_effort",
-        ),
-        (
-            "documented V1 rollback effort drift",
-            "docs/design/codex-pr-review.md",
-            "-c 'model_reasoning_effort=\"medium\"'",
-            "-c 'model_reasoning_effort=\"high\"'",
-            "model_reasoning_effort",
-        ),
-        (
             "HEAD pin sequencing weakened",
             "private_dot_codex/skills/pr-review/SKILL.md",
             "Do not put HEAD recording in the same parallel tool call",
