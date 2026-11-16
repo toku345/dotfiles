@@ -7,7 +7,7 @@
 | source (chezmoi) | target | 内容 |
 | --- | --- | --- |
 | `private_dot_config/mise/config.toml` | `~/.config/mise/config.toml` | 安全設定と global tools。CLI は `"latest"`、ランタイムは prefix。exact version は書かない |
-| `private_dot_config/mise/mise.lock` | `~/.config/mise/mise.lock` | version・checksum・URL・`provenance` (`macos-arm64`, `linux-x64`) |
+| `private_dot_config/mise/mise.lock` | `~/.config/mise/mise.lock` | version・checksum・URL・`provenance` (`macos-arm64`, `linux-x64`, `linux-arm64`) |
 
 前提: `gh auth status` が成功すること (attestation 検証と GitHub API rate limit のため。mise は `gh` の token を使います)。
 
@@ -39,7 +39,7 @@ cooldown (`minimum_release_age = "48h"`) は bump 時の新規解決にだけ効
 ## CLI の追加
 
 1. `config.toml` に `"aqua:owner/repo" = "latest"` を追加する
-2. 上記の手順で lock を生成し、`macos-arm64` と `linux-x64` の両方に `provenance` があることを確認する
+2. 上記の手順で lock を生成し、`macos-arm64`、`linux-x64`、`linux-arm64` のすべてに `provenance` があることを確認する
 3. `provenance` がなければ追加せず Homebrew で管理する
 
 ## 初回移行 (asdf からの切り替え)
@@ -66,8 +66,25 @@ asdf に戻すには `mv ~/.tool-versions.asdf-backup ~/.tool-versions` を実�
 
 会社プロジェクトに `mise.lock` がない場合、global の 48h cooldown で同僚と異なる patch が選ばれることがあります。その場合はプロジェクト単位で `mise install --minimum-release-age 0d` を使います。
 
+## Linux の既存 asdf 環境からの移行
+
+以下は mise を参照しない旧 `~/.bashrc` があり、mise の設定・shims と `~/.tool-versions` がないマシン向けです。先に実状態を確認し、条件が異なる場合はこの順序で切替を保留できるかを再確認してください。macOS の手順と異なり、bash 設定を最後に配置します。
+
+1. 現在の `~/.bashrc`、mise 設定、親ディレクトリの権限・symlink・不在状態を source 外へ保存する。source の絶対パス・HEAD とファイルの path/type/mode/hash/symlink を manifest に記録する
+2. `gh auth status` と Homebrew の attestation 検証が有効なことを確認し、対象・依存への影響に合意して `brew install mise` を実行する。`mise lock --help` と source の設定を使った `mise settings ls` で必要機能を確認する。検証の無効化や別 installer への迂回はしない
+3. 生 diff、対象の template・modifier・hook を確認後、`chezmoi --source <absolute-source> --exclude=scripts` を使って mise の `config.toml` と `mise.lock` だけを diff・dry-run する。親ディレクトリの mode も確認し、manifest の再照合・明示合意後にこの2ファイルだけを apply する。`~/.bashrc` は旧版のまま保持する
+4. home で `mise config ls` の解決元を確認して `mise install` を実行する。`mise ls --missing` の正常終了と不足ゼロ、`mise exec -- <command>` による全ツールの実体・version と lock の一致、配置した設定と source の一致を確認する
+5. 使用するプロジェクトでは設定・hook・導入予定を確認し、想定外のツールがないことを確かめてから `mise install` する。管理ファイルは変更しない。例: zig-keyboard-lab の Zig 0.15.1、briefer の Bun 1.3.9。exact request は cooldown の対象外なので指定内容もレビューする
+6. 全導入・検証の成功後、manifest と適用先を再照合し、`~/.bashrc` だけを diff・dry-run・明示合意後に apply する。新規の対話/login bash と非対話の子 bash で解決元と version を確認する。mise shims が入り asdf shims が外れること、Homebrew Bash の優先と対話プロンプト後の `JAVA_HOME` を確認する
+
+各 apply は対象パスを明示し、読み返しと source との差分で結果を検証します。同じ範囲を承認済みなら再確認は不要ですが、source の manifest が変われば再レビュー・再合意します。merge は検証 apply の前提ではありません。
+
+bash の PATH 方針は維持します。`~/.bun/bin`、`~/.cargo/bin`、`~/.local/bin`、opam 等が mise shims より優先されるため、特定 version が必要な場面では `mise exec -- …` を使います。asdf、Linuxbrew、既存ランタイムは移行確認が済んでも自動削除しません。
+
+失敗が手順6の前なら旧 bash 設定を維持して asdf で継続します。切替後ならバックアップの `~/.bashrc` を権限・symlink を含めて復元し、必要なら mise 設定も配置前状態へ戻します。復元確認は mise の PATH を継承しない新規ログイン環境で行います。導入済み mise ツールと source の変更は自動削除しません。
+
 ## 新しいマシン
 
 chezmoi は mise を導入しません。`chezmoi apply` → `gh auth login` → `brew install mise` → `cd ~` → `mise install` の順に実行してください。gh は bootstrap が Homebrew で導入済みです (mise の gh とは別。bootstrap に必要なので Homebrew の gh は残します)。apply で `~/.homebrew/brew.env` が配置されるので、mise は attestation 検証付きで入ります。`~/.tool-versions` のないマシンでは、`mise install` で shims ができた時点で shell が mise に切り替わります。途中で失敗しても切り替わるため、`mise ls --missing` で何も表示されないことを確認してください。
 
-Linux の移行手順が決まるまでは、Linux で mise を導入しないでください。
+既存 Linux の移行ではこの新規マシン向け順序を使わず、上記の二段階適用を使ってください。
