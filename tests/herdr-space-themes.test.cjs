@@ -1,5 +1,5 @@
 'use strict';
-// Manual regression check (not wired into CI): node --test tests/herdr-space-themes.test.cjs
+// Regression check, run in CI: node --test tests/herdr-space-themes.test.cjs
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
