@@ -145,15 +145,17 @@ Colors come from Herdr's local `space.colors` assignments. Spaces with a
 picked hex color, and windows without an active space, use plain `moss`.
 The six automatic colors can repeat, and colors follow space IDs, so a
 recreated space or another machine may get a different color. A theme
-chosen in the theme picker lasts until the next space switch.
+chosen in the theme picker lasts until the next space switch, app
+restart, or layout reload.
 
 The theme files copy `moss`'s values from Herdr App 0.1.16 and do not
 follow later changes to it. When upgrading Herdr, compare `moss` (read it
 with `themes()` from a mod) and regenerate the six files if it changed.
 The selected theme is recorded in Herdr's own layout state, not in the
 managed files. To turn the colors off, remove the `space-theme` block from
-the layout and pick `moss` in the theme picker; switching to `main` provides an immediate fallback without
-closing terminals.
+the layout, or switch to `main`, which has no such block, without closing
+terminals. Either way the last space theme stays applied, so pick `moss`
+in the theme picker afterwards.
 
 The `space-*` themes and the `bottom-tabs` layout are derived from Herdr
 App's built-in `moss` theme and `main` layout
