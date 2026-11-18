@@ -83,6 +83,8 @@ REQUIRED_DENY_ENTRIES = (
 # Generic run permissions also skip classifier review on unsandboxed retries.
 # Keep both equivalent trailing-wildcard spellings out of the global allow list.
 # The commit-commands plugin is disabled; retain no stale Skill permission.
+# An allow match skips the classifier (and, by inference, managed hard_deny)
+# and runs unprompted on unsandboxed retry; see ADR 0002 "Follow-up 2026-11-18".
 FORBIDDEN_ALLOW_ENTRIES = (
     "Skill(commit-commands:commit-push-pr)",
     "Bash(codex exec:*)",
@@ -92,6 +94,38 @@ FORBIDDEN_ALLOW_ENTRIES = (
     "Bash(yarn run *)",
     "Bash(cargo run:*)",
     "Bash(cargo run *)",
+    "Bash(npm test:*)",
+    "Bash(npm test *)",
+    "Bash(yarn test:*)",
+    "Bash(yarn test *)",
+    "Bash(cargo build:*)",
+    "Bash(cargo build *)",
+    "Bash(cargo test:*)",
+    "Bash(cargo test *)",
+    "Bash(cargo check:*)",
+    "Bash(cargo check *)",
+    "Bash(git fetch:*)",
+    "Bash(git fetch *)",
+    "Bash(chezmoi diff:*)",
+    "Bash(chezmoi diff *)",
+    "Bash(chezmoi status:*)",
+    "Bash(chezmoi status *)",
+    "Bash(chezmoi cat:*)",
+    "Bash(chezmoi cat *)",
+    "Bash(jq:*)",
+    "Bash(jq *)",
+    "Bash(tree:*)",
+    "Bash(tree *)",
+    "Bash(git diff:*)",
+    "Bash(git diff *)",
+    "Bash(git log:*)",
+    "Bash(git log *)",
+    "Bash(git show:*)",
+    "Bash(git show *)",
+    "Bash(git status:*)",
+    "Bash(git status *)",
+    "Bash(git blame:*)",
+    "Bash(git blame *)",
 )
 
 # Structural invariants for path rules in permissions.deny (Issue #303).
