@@ -61,17 +61,17 @@ FINDING_VERIFIER_COMPARISON = (
 EXPECTED_REVIEW_PROFILES = {
     "review": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review.config.toml",
-        "model": "gpt-6.1-sol",
+        "model": "gpt-6.2-sol",
         "model_reasoning_effort": "medium",
     },
     "review_deep": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review_deep.config.toml",
-        "model": "gpt-6-astra",
+        "model": "gpt-6.2-astra",
         "model_reasoning_effort": "high",
     },
     "review_audit": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review_audit.config.toml",
-        "model": "gpt-6-astra",
+        "model": "gpt-6.2-astra",
         "model_reasoning_effort": "xhigh",
     },
 }
@@ -81,7 +81,7 @@ EXPECTED_LAUNCH_PROFILES = {
     "quick": {
         "path": REPO_ROOT / "private_dot_codex" / "private_quick.config.toml",
         "values": {
-            "model": "gpt-6.1-sol",
+            "model": "gpt-6.2-sol",
             "model_reasoning_effort": "low",
             "plan_mode_reasoning_effort": "medium",
         },
@@ -89,7 +89,7 @@ EXPECTED_LAUNCH_PROFILES = {
     "work": {
         "path": REPO_ROOT / "private_dot_codex" / "private_work.config.toml",
         "values": {
-            "model": "gpt-6-astra",
+            "model": "gpt-6.2-astra",
             "model_reasoning_effort": "high",
             "plan_mode_reasoning_effort": "xhigh",
         },
@@ -739,9 +739,9 @@ REQUIRED_REVIEW_CRITERIA_SNIPPETS = [
 ]
 
 REQUIRED_CODEX_DOC_SNIPPETS = [
-    '`review.config.toml`: `gpt-6.1-sol` / `medium`',
-    '`review_deep.config.toml`: `gpt-6-astra` / `high`',
-    '`review_audit.config.toml`: `gpt-6-astra` / `xhigh`',
+    '`review.config.toml`: `gpt-6.2-sol` / `medium`',
+    '`review_deep.config.toml`: `gpt-6.2-astra` / `high`',
+    '`review_audit.config.toml`: `gpt-6.2-astra` / `xhigh`',
     "V1/V2",
     "checked-in の legacy V1 profile は置かない",
     "isolated `CODEX_HOME`",
@@ -1437,7 +1437,7 @@ def verify_codex_config_profiles() -> None:
             fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
 
     for key, expected in (
-        ("model", "gpt-6.1-sol"),
+        ("model", "gpt-6.2-sol"),
         ("model_reasoning_effort", "medium"),
         ("plan_mode_reasoning_effort", "xhigh"),
     ):

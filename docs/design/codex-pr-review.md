@@ -108,11 +108,11 @@ Source tree (chezmoi): `private_dot_codex/skills/pr-review/` and `private_dot_co
 ### Invocation
 
 ```bash
-# Standard path: review uses GPT-6.1 Sol; deep/audit use GPT-6 Astra.
+# Standard path. Review uses GPT-6.2 Sol. Deep and audit use GPT-6.2 Astra.
 codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'
 ```
 
-`review` selects `gpt-6.1-sol` / `medium`; `review_deep` and `review_audit` select `gpt-6-astra` / `high` and `xhigh`. They enable subagents with `agents.enabled = true` but do not force a version; compatibility is established from the tools exposed by each fresh process, not inferred from the model name. The original `codex exec /pr-review` draft (slash-command-style) is **not correct** — slash commands are an interactive-only surface.
+`review` selects `gpt-6.2-sol` with `medium` effort. `review_deep` and `review_audit` select `gpt-6.2-astra` with `high` and `xhigh` effort, respectively. The profiles enable subagents with `agents.enabled = true`. Inspect the tools exposed by each fresh process to confirm the collaboration version. Use the example above for `codex exec`. The slash command is available in interactive sessions.
 
 **Multi-agent runtime contract**:
 

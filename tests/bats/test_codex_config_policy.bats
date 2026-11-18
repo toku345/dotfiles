@@ -25,7 +25,7 @@ setup() {
 
   cat >"$FIXTURE" <<'EOF'
 approval_policy = "never"
-model = "gpt-5.6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 plan_mode_reasoning_effort = "low"
 sandbox_mode = "danger-full-access"
@@ -92,7 +92,7 @@ toml_valid() {
 import sys, tomllib
 with open(sys.argv[1], "rb") as stream:
     data = tomllib.load(stream)
-assert data["model"] == "gpt-6.1-sol"
+assert data["model"] == "gpt-6.2-sol"
 assert data["model_reasoning_effort"] == "medium"
 assert data["plan_mode_reasoning_effort"] == "xhigh"
 ' "$OUT"
@@ -128,7 +128,7 @@ assert data["plan_mode_reasoning_effort"] == "xhigh"
 
 @test "restores a live model and both efforts to their pins without warnings" {
   merge <"$FIXTURE"
-  grep -qxF 'model = "gpt-6.1-sol"' "$OUT"
+  grep -qxF 'model = "gpt-6.2-sol"' "$OUT"
   grep -qxF 'model_reasoning_effort = "medium"' "$OUT"
   grep -qxF 'plan_mode_reasoning_effort = "xhigh"' "$OUT"
   [ ! -s "$ERR" ]

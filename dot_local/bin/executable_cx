@@ -4,8 +4,8 @@ set -euo pipefail
 
 profile_values() {
   case "$1" in
-    quick) model=gpt-6.1-sol; effort=low; plan_effort=medium ;;
-    work) model=gpt-6-astra; effort=high; plan_effort=xhigh ;;
+    quick) model=gpt-6.2-sol; effort=low; plan_effort=medium ;;
+    work) model=gpt-6.2-astra; effort=high; plan_effort=xhigh ;;
   esac
 }
 

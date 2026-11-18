@@ -10,6 +10,8 @@ Amended (2026-10-20): Fugu home の承認レビュアー既定を `user` から 
 
 Amended (2026-10-20): 通常起動を `gpt-6.1-sol` / `medium`、Plan mode を `xhigh` の pin に変更する。quick / work の選択値は維持する。
 
+Amended (2026-11-18): 通常起動と quick を `gpt-6.2-sol`、work を `gpt-6.2-astra` に更新する。通常・Plan の effort は維持する。
+
 ## Context
 
 PR #365 は通常版 Codex の起動入口 `cx`（Astra low / high を profile で選ぶ）と、Fugu 用の `cf`（更新チェック抑止・Fast 無効・承認を人間へ・不一致警告）を提案していた。`cf` の中身を現行 main（ADR 0038 の分離、管理ラッパー、config policy）と突き合わせると、次の問題があった。
@@ -21,7 +23,7 @@ PR #365 は通常版 Codex の起動入口 `cx`（Astra low / high を profile �
 
 ## Decision
 
-1. `cx` を採用する。`dot_local/bin/executable_cx` が `codex --profile quick|work` を exec し、profile（`~/.codex/{quick,work}.config.toml`）は `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` の 3 key だけを持つ。quick は `gpt-6.1-sol` / `low` / Plan `medium`、work は `gpt-6-astra` / `high` / Plan `xhigh` とする。Plan mode でも選択したモデルを使う。Fugu は `cx` ではなく `codex-fugu` を使う。
+1. `cx` を採用する。`dot_local/bin/executable_cx` が `codex --profile quick|work` を exec し、profile（`~/.codex/{quick,work}.config.toml`）は `model` / `model_reasoning_effort` / `plan_mode_reasoning_effort` の 3 key だけを持つ。quick は `gpt-6.2-sol` / `low` / Plan `medium`、work は `gpt-6.2-astra` / `high` / Plan `xhigh` とする。Plan mode でも選択したモデルを使う。Fugu は `cx` ではなく `codex-fugu` を使う。
 2. `cf` は作らない。Fugu の起動時既定はすべて `scripts/codex-config/policy-fugu.toml` の pin に置き、どの起動経路でも常時適用する:
    - `plan_mode_reasoning_effort = "xhigh"`（ADR 0038 から継続）
    - `check_for_update_on_startup = false`（Codex 自身の自己更新プロンプトのみ抑止）
@@ -29,7 +31,7 @@ PR #365 は通常版 Codex の起動入口 `cx`（Astra low / high を profile �
    - `[pin.features] fast_mode = false`
 3. ランチャーと管理ラッパーは変更しない。`--no-update` を注入せず、Fugu の config / CLI 更新は公式ランチャー（bundle の `install.sh` 経由）に一本化する。不一致の扱いもランチャーの TTY 経路に任せる。
 4. ADR 0038 の「vanilla の sandbox / features / tui pin を Fugu home へ持ち込まない」原則は維持する。承認と `fast_mode` は Fugu 専用の起動時既定として明示的に追加する。
-5. 通常版の `model = "gpt-6.1-sol"` / `model_reasoning_effort = "medium"` / `plan_mode_reasoning_effort = "xhigh"` を pin に置く。端末間で起動設定を揃え、計画時の検討を重視する。既存 modifier が追加・置換するため、手動での root キー削除や新しい migration は不要。適用は [docs/codex.md](../codex.md#通常起動の設定を適用する) に従う。profile・trusted project config・CLI 引数による上書きは維持する。review profile は Plan effort 未指定のため `xhigh` を継承し、Fugu は独立した policy を維持する。
+5. 通常版の `model = "gpt-6.2-sol"` / `model_reasoning_effort = "medium"` / `plan_mode_reasoning_effort = "xhigh"` を pin に置く。端末間で起動設定を揃え、計画時の検討を重視する。既存 modifier が追加・置換するため、手動での root キー削除や新しい migration は不要。適用は [docs/codex.md](../codex.md#通常起動の設定を適用する) に従う。profile・trusted project config・CLI 引数による上書きは維持する。review profile は Plan effort 未指定のため `xhigh` を継承し、Fugu は独立した policy を維持する。
 
 ## Consequences
 
