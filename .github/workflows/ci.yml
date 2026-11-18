@@ -168,6 +168,27 @@ jobs:
       - name: Run pr-review workflow logic tests
         run: node tests/claude/test_pr_review_workflow.mjs
 
+  herdr-space-themes:
+    name: Herdr Space Themes
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Check space themes match the space-theme mod
+        run: node --test tests/herdr-space-themes.test.cjs
+
   fish-syntax:
     name: Fish Syntax Check
     runs-on: ubuntu-latest
