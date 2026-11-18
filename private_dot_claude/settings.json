@@ -33,8 +33,7 @@
       "WebFetch(domain:nodejs.org)",
       "WebFetch(domain:developer.mozilla.org)",
       "Bash(gh search:*)",
-      "WebFetch(domain:docs.github.com)",
-      "Bash(fish -n)"
+      "WebFetch(domain:docs.github.com)"
     ],
     "deny": [
       "Bash(sudo:*)",

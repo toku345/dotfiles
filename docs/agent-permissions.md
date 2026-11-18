@@ -29,7 +29,7 @@ Codex の `prompt` は自動 reviewer に回り得る。Claude の content-scope
 
 Claude の `npm run` / `yarn run` / `cargo run` の広い `allow` は削除する。sandbox 内の通常実行は引き続き可能で、sandbox 外の実行は既存の許可や他の判定条件に該当しなければ分類器へ回す。任意コード実行を禁止したわけではない。無効化済み plugin の `Skill(commit-commands:commit-push-pr)` allow も削除する。独自の classifier policy や新しい承認 hook は導入しない。
 
-Claude の `permissions.allow` には、sandbox 外の retry を必要とする読み取り系 `gh` と、既存の低リスクな項目だけを置く。後者は `npm list`、`fish -n`、WebFetch の domain で、WebFetch は Bash ではなく tool のルールである。`npm list` と `fish -n` に allow が必要かは、今回は再確認していない。allow に一致した呼び出しは分類器より先に解決される。そのため、組織が配布する管理設定 (server-managed settings) の `autoMode.hard_deny` は適用されないと推定している (docs には明記されていない)。sandbox 外の retry も承認なしで実行される (#443 で実測)。この理由から、次の 16 件を削除した。
+Claude の `permissions.allow` には、sandbox 外の retry を必要とする読み取り系 `gh` と、既存の低リスクな項目だけを置く。後者は `npm list` と WebFetch の domain で、WebFetch は Bash ではなく tool のルールである。`npm list` に allow が必要かは、今回は再確認していない。`Bash(fish -n)` も削除した。ワイルドカードがないため引数なしの `fish -n` にしか一致せず、`fish -n <file>` には効いていなかった。allow に一致した呼び出しは分類器より先に解決される。そのため、組織が配布する管理設定 (server-managed settings) の `autoMode.hard_deny` は適用されないと推定している (docs には明記されていない)。sandbox 外の retry も承認なしで実行される (#443 で実測)。この理由から、次の 16 件を削除した。
 
 - `npm test` / `yarn test` / `cargo build` / `cargo test` / `cargo check`: repo のスクリプトを通して任意のコマンドを実行できる
 - `git fetch`: `--upload-pack` で任意のコマンドを実行できる
@@ -39,7 +39,7 @@ Claude の `permissions.allow` には、sandbox 外の retry を必要とする�
 - `git diff` / `log` / `show`: `--output=` でファイルに書き込める。`git diff` は `--no-index` で repo 外のファイルも読める
 - `git status` / `blame`: sandbox 内で動くため、allow に置く必要がない
 
-verifier はこれらと、末尾のワイルドカードの別表記 (` *`) の再追加を拒否する。受け入れたトレードオフは2つある。1つは、`gh pr view ... | jq` のような複合コマンドが retry で承認なしに通らなくなることである。複合コマンドでは全体が allow に一致する必要があるためで、`gh` 単体の呼び出しは引き続き allow で通る。もう1つは、削除したコマンドを sandbox 外で実行すると、分類器の判定や確認が入ることである。Claude の `/pr-review` gate が base を解決するときに sandbox 外で実行する `git fetch` もこれに含まれ、分類器が拒否すると gate は fail closed で止まる。auto mode の sandbox 内で、書き込みやネットワークを伴うコマンド (`git fetch` 等) が確認なしで動き続けるかは未検証である。限定的な `Bash(npm test)` のようなルールが auto mode で有効なままかも未検証である。
+verifier はこれらと、末尾のワイルドカードの別表記 (` *`) の再追加を拒否する。受け入れたトレードオフは2つある。1つは、`gh pr view ... | jq` のような複合コマンドが retry で承認なしに通らなくなることである。複合コマンドでは全体が allow に一致する必要があるためで、`gh` 単体の呼び出しは引き続き allow で通る。もう1つは、削除したコマンドを sandbox 外で実行すると、分類器の判定や確認が入ることである。Claude の `/pr-review` gate が base を解決するときに sandbox 外で実行する `git fetch` もこれに含まれ、分類器が拒否すると gate は fail closed で止まる。chezmoi の state DB が必要なため、このリポジトリの完了条件で sandbox 外で実行する `chezmoi diff` も同じ扱いになる。auto mode の sandbox 内で、書き込みやネットワークを伴うコマンド (`git fetch` 等) が確認なしで動き続けるかは未検証である。限定的な `Bash(npm test)` のようなルールが auto mode で有効なままかも未検証である。
 
 通知を伴う Atlassian MCP 操作には `mcp__claude_ai_Atlassian_Rovo__create*` / `mcp__claude_ai_Atlassian_Rovo__transition*` / `mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue` の明示的な `ask` を追加する。これらは会話上の合意を置き換えず、Confluence update / Jira edit を無条件で許可する意味でもない。PR #438 は 2.1.310 の wildcard 解釈を静的に確認したが、実 write による承認 UI は未検証。source verifier は required entries の保持を検査し、runtime の prompt 発生を証明しない。
 
