@@ -83,6 +83,13 @@ REQUIRED_DENY_ENTRIES = (
 # Generic run permissions also skip classifier review on unsandboxed retries.
 # Keep both equivalent trailing-wildcard spellings out of the global allow list.
 # The commit-commands plugin is disabled; retain no stale Skill permission.
+# An allow match resolves before the classifier, so organization-managed
+# autoMode.hard_deny is inferred not to apply to it (docs do not state this),
+# and its unsandboxed retry runs unprompted (measured in #443).
+# Keep commands that run repo code (test/build, git fetch --upload-pack,
+# chezmoi --source/--config templates), read or write arbitrary files
+# (jq, tree -o, git --output/--no-index), or already work in the sandbox
+# (git status/blame) out of the global allow list.
 FORBIDDEN_ALLOW_ENTRIES = (
     "Skill(commit-commands:commit-push-pr)",
     "Bash(codex exec:*)",
@@ -92,6 +99,38 @@ FORBIDDEN_ALLOW_ENTRIES = (
     "Bash(yarn run *)",
     "Bash(cargo run:*)",
     "Bash(cargo run *)",
+    "Bash(npm test:*)",
+    "Bash(npm test *)",
+    "Bash(yarn test:*)",
+    "Bash(yarn test *)",
+    "Bash(cargo build:*)",
+    "Bash(cargo build *)",
+    "Bash(cargo test:*)",
+    "Bash(cargo test *)",
+    "Bash(cargo check:*)",
+    "Bash(cargo check *)",
+    "Bash(git fetch:*)",
+    "Bash(git fetch *)",
+    "Bash(chezmoi diff:*)",
+    "Bash(chezmoi diff *)",
+    "Bash(chezmoi status:*)",
+    "Bash(chezmoi status *)",
+    "Bash(chezmoi cat:*)",
+    "Bash(chezmoi cat *)",
+    "Bash(jq:*)",
+    "Bash(jq *)",
+    "Bash(tree:*)",
+    "Bash(tree *)",
+    "Bash(git diff:*)",
+    "Bash(git diff *)",
+    "Bash(git log:*)",
+    "Bash(git log *)",
+    "Bash(git show:*)",
+    "Bash(git show *)",
+    "Bash(git status:*)",
+    "Bash(git status *)",
+    "Bash(git blame:*)",
+    "Bash(git blame *)",
 )
 
 # Structural invariants for path rules in permissions.deny (Issue #303).
