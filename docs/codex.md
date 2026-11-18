@@ -211,27 +211,45 @@ TOML Kit で構文を解析し、値と型で比較する。出力前に再解�
 2026-10-01 の「root の3項目を削除してデフォルト追従へ切り替える」手順は旧方針。現在は手動削除せず、modifier で3項目を追加・置換する。Codex が設定を書き戻す可能性があるため、live apply は通常版の Codex セッションを閉じて別の端末で行う。
 
 1. 使用する source directory または worktree の絶対パスを決める。chezmoi 評価前に、ルート `AGENTS.md` に従って生の Git 差分・関連する設定・テンプレート・modifier・hook をレビューし、source の絶対パス・HEAD・ファイルの内容と種類と権限の manifest を source 外へ記録する。未追跡ファイルと評価に必要な ignore 対象も含め、未確認のコードは評価しない。
-2. 同じ source と対象で配置先・差分・dry-run を確認する。以下は Bash 用。
+2. Bash で source と対象を指定する。通常版の `config.toml` だけを更新する場合は、次の1ファイルを指定する。
 
    ```bash
    validation_source="/absolute/path/to/selected-source"
-   validation_target="$HOME/.codex/config.toml"
-   chezmoi --source "$validation_source" target-path "$validation_source/private_dot_codex/modify_private_config.toml"
-   chezmoi --source "$validation_source" diff --exclude=scripts "$validation_target"
-   chezmoi --source "$validation_source" apply --dry-run --verbose --exclude=scripts "$validation_target"
+   validation_targets=("$HOME/.codex/config.toml")
    ```
 
-3. 対象・差分・復元方法を示して live apply の明示承認を得る。対象の内容・権限・symlink・不存在状態を保存する。バックアップは機密設定を含むためアクセスを制限する。失敗時や検証状態を戻す場合は、保存した内容と権限・symlink 状態（元が不存在なら不存在）へ復元する。
+   GPT-6.2 移行では、`cx` と5つの profile を同じ配列に追加する。ランチャーが quick／work の内容を照合するため、7ファイルをまとめて適用する。
+
+   ```bash
+   validation_targets+=(
+     "$HOME/.local/bin/cx"
+     "$HOME/.codex/quick.config.toml"
+     "$HOME/.codex/work.config.toml"
+     "$HOME/.codex/review.config.toml"
+     "$HOME/.codex/review_deep.config.toml"
+     "$HOME/.codex/review_audit.config.toml"
+   )
+   ```
+
+   同じ source と対象で配置先・差分・dry-run を確認する。
+
+   ```bash
+   chezmoi --source "$validation_source" target-path "$validation_source/private_dot_codex/modify_private_config.toml"
+   chezmoi --source "$validation_source" diff --exclude=scripts "${validation_targets[@]}"
+   chezmoi --source "$validation_source" apply --dry-run --verbose --exclude=scripts "${validation_targets[@]}"
+   ```
+
+3. `validation_targets` の対象・差分・復元方法を示して live apply の明示承認を得る。配列に含まれる全対象の内容・権限・symlink・不存在状態を保存する。バックアップは機密設定を含むためアクセスを制限する。失敗時や検証状態を戻す場合は、同じ対象を保存した内容と権限・symlink 状態（元が不存在なら不存在）へ復元する。
 4. apply 直前に source の絶対パス・HEAD・ファイル一覧・manifest を再照合する。変化があれば停止し、レビューと承認をやり直す。一致を確認してから適用し、設定を読み返して対象限定 diff が空であることを確認する。
 
    ```bash
-   chezmoi --source "$validation_source" apply --verbose --exclude=scripts "$validation_target"
-   chezmoi --source "$validation_source" diff --exclude=scripts "$validation_target"
+   chezmoi --source "$validation_source" apply --verbose --exclude=scripts "${validation_targets[@]}"
+   chezmoi --source "$validation_source" diff --exclude=scripts "${validation_targets[@]}"
    ```
 
 5. 明示上書きのない新規セッションで通常・Plan 各1ターンを実行し、セッション記録の実効設定がそれぞれ `gpt-6.2-sol` / `medium`、`gpt-6.2-sol` / `xhigh` であることを確認する。自動テスト・live 適用・実行確認の結果は分けて報告し、検証状態を維持したか復元したかも記載する。apply の承認に PR のマージ承認は含まれない。
 
-GPT-6.2 移行時は、上記の手順で通常版 `config.toml`、`cx` ランチャー、quick／work と review 系の5つの profile をまとめて扱う。適用前に各ファイルをバックアップし、問題があれば同じ7ファイルを復元する。新規起動では各入口のモデルと effort を確認する。
+GPT-6.2 移行時は、`cx quick` と `cx work` も新規セッションで通常・Plan 各1ターンを実行し、[起動入口の表](#ターミナルの起動入口-cx)の値を確認する。レビュー用の3入口は [review profile](#review-profile) の手順で確認する。
 
 pin は apply 時の再設定であり、起動時の強制ではない。profile・trusted project config・CLI 引数による明示上書きは引き続き利用できる。
 
