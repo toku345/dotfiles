@@ -83,13 +83,8 @@ REQUIRED_DENY_ENTRIES = (
 # Generic run permissions also skip classifier review on unsandboxed retries.
 # Keep both equivalent trailing-wildcard spellings out of the global allow list.
 # The commit-commands plugin is disabled; retain no stale Skill permission.
-# An allow match resolves before the classifier, so organization-managed
-# autoMode.hard_deny is inferred not to apply to it (docs do not state this),
-# and its unsandboxed retry runs unprompted (measured in #443).
-# Keep commands that run repo code (test/build, git fetch --upload-pack,
-# chezmoi --source/--config templates), read or write arbitrary files
-# (jq, tree -o, git --output/--no-index), or already work in the sandbox
-# (git status/blame) out of the global allow list.
+# An allow match skips the classifier (and, by inference, managed hard_deny)
+# and runs unprompted on unsandboxed retry; see ADR 0002 "Follow-up 2026-11-18".
 FORBIDDEN_ALLOW_ENTRIES = (
     "Skill(commit-commands:commit-push-pr)",
     "Bash(codex exec:*)",

@@ -117,14 +117,14 @@ An organization distributed managed settings (server-managed settings) that add 
 
 ### Decision
 
-Keep in user-global `permissions.allow` only read-only commands that cannot run inside the sandbox: the read-only `gh` entries, `npm list`, the WebFetch domains, and `fish -n`. Remove 16 entries:
+Keep in user-global `permissions.allow` only the read-only `gh` entries, which need the unsandboxed retry, plus the existing low-risk entries: `npm list`, `fish -n`, and the WebFetch domains (tool rules, not Bash commands). This change did not re-check whether `npm list` or `fish -n` need their allow entries. Remove 16 entries:
 
 - `npm test`, `yarn test`, `cargo build`, `cargo test`, `cargo check`: run arbitrary commands through repo scripts.
 - `git fetch`: `--upload-pack` runs an arbitrary command.
 - `chezmoi diff`, `chezmoi status`, `chezmoi cat`: `--source` / `--config` evaluate arbitrary templates, which can run commands through `output`. They can also print decrypted values.
 - `jq`: `jq -n env` prints the environment, and `jq` can read any file.
 - `tree`: `-o` overwrites a file.
-- `git diff`, `git log`, `git show`: `--output=` writes a file, and `--no-index` reads files outside the repository.
+- `git diff`, `git log`, `git show`: `--output=` writes a file, and `git diff --no-index` also reads files outside the repository.
 - `git status`, `git blame`: low risk, but they work inside the sandbox and need no allow entry.
 
 `tests/codex/verify_claude_update_policy.py` rejects these entries and their ` *` spellings.
@@ -132,7 +132,7 @@ Keep in user-global `permissions.allow` only read-only commands that cannot run 
 ### Consequences
 
 - A compound call such as `gh pr view ... | jq ...` no longer resolves from the allow list on the unsandboxed retry, because every part of a compound call must match. A bare `gh` read still does.
-- An unsandboxed run of a removed command now goes through the classifier or a prompt.
+- An unsandboxed run of a removed command now goes through the classifier or a prompt. This includes the unsandboxed `git fetch` that the Claude `/pr-review` gate runs to resolve its base. If the classifier blocks it, the gate aborts (fails closed).
 - Unverified: whether a removed command that writes or uses the network (such as `git fetch`) still runs without a prompt inside the sandbox in auto mode, and whether a narrow rule such as `Bash(npm test)` stays active in auto mode.
 - Re-adding an entry restores the bypass. Handle frequent prompts some other way.
 
