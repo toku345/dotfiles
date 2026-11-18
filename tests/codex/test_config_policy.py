@@ -81,7 +81,7 @@ writable_roots = ["/important"]
                 if "free =" in source:
                     self.assertEqual(data["free"], "keep")
                 if "'model'" in source:
-                    self.assertEqual(data["model"], "gpt-6.1-sol")
+                    self.assertEqual(data["model"], "gpt-6.2-sol")
 
     def test_free_values_comments_and_installer_block(self):
         block = '''# >>> fugu:model_providers.sakana >>>
@@ -107,7 +107,7 @@ custom = { nested = [1, true, "value"] }
 
     def test_missing_model_and_efforts_receive_pins(self):
         output, data, warnings = self.update("")
-        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model"], "gpt-6.2-sol")
         self.assertEqual(data["model_reasoning_effort"], "medium")
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         self.assertFalse(warnings)
@@ -119,7 +119,7 @@ model_reasoning_effort = "high"
 plan_mode_reasoning_effort = "low"
 '''
         output, data, warnings = self.update(source)
-        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model"], "gpt-6.2-sol")
         self.assertEqual(data["model_reasoning_effort"], "medium")
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         self.assertIn("# local choice overridden on apply", output)
@@ -668,7 +668,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(live.stat().st_mode & 0o777, 0o600)
         first = live.read_bytes()
         data = tomllib.loads(first.decode())
-        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model"], "gpt-6.2-sol")
         self.assertEqual(data["model_reasoning_effort"], "medium")
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         result = call("diff")
@@ -679,7 +679,7 @@ class CommandTests(unittest.TestCase):
         self.assertFalse((self.home / "scripts").exists())
 
         # Apply restores changed pins without introducing duplicate TOML keys.
-        existing = first.replace(b'model = "gpt-6.1-sol"', b'model = "custom-provider"')
+        existing = first.replace(b'model = "gpt-6.2-sol"', b'model = "custom-provider"')
         existing = existing.replace(b'model_reasoning_effort = "medium"', b'model_reasoning_effort = "high"')
         existing = existing.replace(b'plan_mode_reasoning_effort = "xhigh"', b'plan_mode_reasoning_effort = "low"')
         live.write_bytes(existing)
