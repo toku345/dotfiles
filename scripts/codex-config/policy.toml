@@ -19,7 +19,6 @@ enabled = true
 [pin.features]
 apps = true
 guardian_approval = true
-terminal_resize_reflow = true
 memories = true
 network_proxy = true
 mentions_v2 = true
