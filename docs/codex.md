@@ -197,9 +197,10 @@ setup 同士の二重実行は `setup.lock` ディレクトリで拒否する。
 
 ### 設定の変更
 
-- 編集先は `scripts/codex-config/policy.toml`（通常版 `~/.codex/config.toml`）。分離した Fugu home 用は `scripts/codex-config/policy-fugu.toml`（前述の「base config の管理」）。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないすべてのキーは free。
+- 編集先は `scripts/codex-config/policy.toml`（通常版 `~/.codex/config.toml`）。分離した Fugu home 用は `scripts/codex-config/policy-fugu.toml`（前述の「base config の管理」）。`[pin]` / `[pin.features]` 等は毎回再適用する値、`[seed]` は未設定時だけ投入する初期値。宣言されていないキーは、次項の移行対象を除き free。
+- サブエージェントは `agents.enabled = true` を pin する。非推奨の `features.multi_agent` は、この pin を持つポリシーで apply のたびに除去する。既存値は bool の場合だけ移行し、型不正や installer 管理ブロックの変更が必要な場合はエラーにする。Fugu ポリシーはこの移行を行わない。警告が残る場合は `/daemon` からバックグラウンドサーバーを再起動する。
 - seed の現在値が宣言と異なる場合は保持し、stderr にキー名だけ警告する。宣言値が現在値とは限らない。
-- 通常版は `model = "gpt-6.1-sol"` / `model_reasoning_effort = "medium"` / `plan_mode_reasoning_effort = "xhigh"` を pin とする。起動設定を端末間で揃え、計画時の検討を重視するため、Codex 側のデフォルト追従から明示設定へ変更した。TUI で保存した異なる値も次回 apply で戻る。
+- 通常版は `model = "gpt-6.2-sol"` / `model_reasoning_effort = "medium"` / `plan_mode_reasoning_effort = "xhigh"` を pin とする。起動設定を端末間で揃え、計画時の検討を重視するため、Codex 側のデフォルト追従から明示設定へ変更した。TUI で保存した異なる値も次回 apply で戻る。
 - 反映は次節の対象限定 diff / dry-run・承認・apply の手順に従う。マージ前の worktree でも検証できる。hash gate・ACK・手動 merge は不要。
 - 旧 baseline / hash state が残る場合は、内容を確認して `rm -f ~/.codex/config.chezmoi.toml ~/.codex/.baseline-hash` で削除する。
 
@@ -210,25 +211,45 @@ TOML Kit で構文を解析し、値と型で比較する。出力前に再解�
 2026-10-01 の「root の3項目を削除してデフォルト追従へ切り替える」手順は旧方針。現在は手動削除せず、modifier で3項目を追加・置換する。Codex が設定を書き戻す可能性があるため、live apply は通常版の Codex セッションを閉じて別の端末で行う。
 
 1. 使用する source directory または worktree の絶対パスを決める。chezmoi 評価前に、ルート `AGENTS.md` に従って生の Git 差分・関連する設定・テンプレート・modifier・hook をレビューし、source の絶対パス・HEAD・ファイルの内容と種類と権限の manifest を source 外へ記録する。未追跡ファイルと評価に必要な ignore 対象も含め、未確認のコードは評価しない。
-2. 同じ source と対象で配置先・差分・dry-run を確認する。以下は Bash 用。
+2. Bash で source と対象を指定する。通常版の `config.toml` だけを更新する場合は、次の1ファイルを指定する。
 
    ```bash
    validation_source="/absolute/path/to/selected-source"
-   validation_target="$HOME/.codex/config.toml"
-   chezmoi --source "$validation_source" target-path "$validation_source/private_dot_codex/modify_private_config.toml"
-   chezmoi --source "$validation_source" diff --exclude=scripts "$validation_target"
-   chezmoi --source "$validation_source" apply --dry-run --verbose --exclude=scripts "$validation_target"
+   validation_targets=("$HOME/.codex/config.toml")
    ```
 
-3. 対象・差分・復元方法を示して live apply の明示承認を得る。対象の内容・権限・symlink・不存在状態を保存する。バックアップは機密設定を含むためアクセスを制限する。失敗時や検証状態を戻す場合は、保存した内容と権限・symlink 状態（元が不存在なら不存在）へ復元する。
+   GPT-6.2 移行では、`cx` と5つの profile を同じ配列に追加する。ランチャーが quick／work の内容を照合するため、7ファイルをまとめて適用する。
+
+   ```bash
+   validation_targets+=(
+     "$HOME/.local/bin/cx"
+     "$HOME/.codex/quick.config.toml"
+     "$HOME/.codex/work.config.toml"
+     "$HOME/.codex/review.config.toml"
+     "$HOME/.codex/review_deep.config.toml"
+     "$HOME/.codex/review_audit.config.toml"
+   )
+   ```
+
+   同じ source と対象で配置先・差分・dry-run を確認する。
+
+   ```bash
+   chezmoi --source "$validation_source" target-path "$validation_source/private_dot_codex/modify_private_config.toml"
+   chezmoi --source "$validation_source" diff --exclude=scripts "${validation_targets[@]}"
+   chezmoi --source "$validation_source" apply --dry-run --verbose --exclude=scripts "${validation_targets[@]}"
+   ```
+
+3. `validation_targets` の対象・差分・復元方法を示して live apply の明示承認を得る。配列に含まれる全対象の内容・権限・symlink・不存在状態を保存する。バックアップは機密設定を含むためアクセスを制限する。失敗時や検証状態を戻す場合は、同じ対象を保存した内容と権限・symlink 状態（元が不存在なら不存在）へ復元する。
 4. apply 直前に source の絶対パス・HEAD・ファイル一覧・manifest を再照合する。変化があれば停止し、レビューと承認をやり直す。一致を確認してから適用し、設定を読み返して対象限定 diff が空であることを確認する。
 
    ```bash
-   chezmoi --source "$validation_source" apply --verbose --exclude=scripts "$validation_target"
-   chezmoi --source "$validation_source" diff --exclude=scripts "$validation_target"
+   chezmoi --source "$validation_source" apply --verbose --exclude=scripts "${validation_targets[@]}"
+   chezmoi --source "$validation_source" diff --exclude=scripts "${validation_targets[@]}"
    ```
 
-5. 明示上書きのない新規セッションで通常・Plan 各1ターンを実行し、セッション記録の実効設定がそれぞれ `gpt-6.1-sol` / `medium`、`gpt-6.1-sol` / `xhigh` であることを確認する。自動テスト・live 適用・実行確認の結果は分けて報告し、検証状態を維持したか復元したかも記載する。apply の承認に PR のマージ承認は含まれない。
+5. 明示上書きのない新規セッションで通常・Plan 各1ターンを実行し、セッション記録の実効設定がそれぞれ `gpt-6.2-sol` / `medium`、`gpt-6.2-sol` / `xhigh` であることを確認する。自動テスト・live 適用・実行確認の結果は分けて報告し、検証状態を維持したか復元したかも記載する。apply の承認に PR のマージ承認は含まれない。
+
+GPT-6.2 移行時は、`cx quick` と `cx work` も新規セッションで通常・Plan 各1ターンを実行し、[起動入口の表](#ターミナルの起動入口-cx)の値を確認する。レビュー用の3入口は [review profile](#review-profile) の手順で確認する。
 
 pin は apply 時の再設定であり、起動時の強制ではない。profile・trusted project config・CLI 引数による明示上書きは引き続き利用できる。
 
@@ -255,9 +276,9 @@ Python テストには `chezmoi` が必要。Bats は依存未準備を skip せ
 
 | 入口 | 選び方 | モデル | 通常モードの effort | Plan mode の effort |
 | --- | --- | --- | --- | --- |
-| `codex` | 通常の作業 | `gpt-6.1-sol` | `medium` | `xhigh` |
-| `cx quick` | 方針・範囲・検証方法が明確で、やり直しやすい作業 | `gpt-6.1-sol` | `low` | `medium` |
-| `cx work` | 不確実な作業、迷う場合 | `gpt-6-astra` | `high` | `xhigh` |
+| `codex` | 通常の作業 | `gpt-6.2-sol` | `medium` | `xhigh` |
+| `cx quick` | 方針・範囲・検証方法が明確で、やり直しやすい作業 | `gpt-6.2-sol` | `low` | `medium` |
+| `cx work` | 不確実な作業、迷う場合 | `gpt-6.2-astra` | `high` | `xhigh` |
 
 quick は変更行数の少なさや Fast モードを意味しない。Plan mode でも選択したモデルを使い、effort は profile の `plan_mode_reasoning_effort` から選ぶ。通常起動の Plan effort は共通設定で `xhigh` に固定する。profile 選択は Plan への切替ではない。`deep`、自動選択、自動昇格、独自の選択メニューは提供しない。
 
@@ -305,24 +326,16 @@ Fugu は `cx` ではなく `codex-fugu`（専用 HOME）を使う。Fugu 側の�
 
 ## 実験的コンテキスト管理
 
-長い対話で制約や設計判断の理由を保持しやすくするため、以下を `pin` に含める。複数端末で継続利用を試す設定として管理する。
+長い対話で制約や設計判断の理由を保持する機能を試すため、以下を `pin` に含めている。[公式設定リファレンス](https://learn.chatgpt.com/docs/config-file/config-reference) ではこの機能を現在利用不可としている（2026-11-18 確認）。
 
 ```toml
 [features.context_management]
 experimental_mode = true
 ```
 
-対応条件（2026-09-12 確認）:
+2026-09-12 時点の手順では、[公式 changelog](https://learn.chatgpt.com/docs/changelog) に記載された Codex CLI 0.154.0 を確認対象とし、ChatGPT でサインインして `codex --model gpt-6-astra` で新規タスクを開く想定だった。実機での機能動作は未検証だった。
 
-- [公式モデル説明](https://learn.chatgpt.com/docs/models#experimental-context-management) の対象は Astra。同じタスク内のメモと履歴検索を利用する機能で、別セッションへの自動引き継ぎは前提にしない。他モデルでの対応は未確認。
-- [公式設定リファレンス](https://learn.chatgpt.com/docs/config-file/config-reference) では既定はオフで、ChatGPT Plus / Pro / Pro Lite のサインインが必要。モデル説明は Plus / Pro のみを挙げ、開始時点の Business / Enterprise / API キー認証を対象外としている。Pro Lite は資料間に記載差があり、実機での有効性は未検証。
-- [公式 changelog](https://learn.chatgpt.com/docs/changelog) の CLI 0.154.0 に activation 追加の記載があり、このバージョンを確認対象とする。対応クライアント全体の一覧と最低バージョンは未確認。
-
-利用開始: main への merge 後、[運用](#運用)の準備・diff・apply 手順で live に反映し、ChatGPT サインインした CLI で `codex --model gpt-6-astra` を実行して新規タスクを開始する。
-
-新規タスク開始時に設定読み込みエラーがないことを確認する。エラーがないだけでは当該設定の受理や機能動作を確認したことにはせず、確認できなかった部分は未検証として記録する。
-
-無効化: live の同じキーを `false` にして新規タスクを開始する（[公式設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)）。これは一時的な無効化で、次回 `chezmoi apply` で pin の `true` に戻る。全端末向けに取り消す場合は `pin` の値を `false` に変更し、`chezmoi apply` で反映する。
+この設定を一時的に無効化するには、live の同じキーを `false` にして新規タスクを開始する。次回 `chezmoi apply` で pin の `true` に戻る。全端末で無効にする場合は pin を `false` に変更して適用する。 [Codex の設定手順](https://learn.chatgpt.com/docs/config-file/config-basic)
 
 ## 人が編集する計画レビュー
 
@@ -433,13 +446,13 @@ status line の項目ごとの色表示は `status_line_use_colors = true` で�
 
 ## review profile
 
-レビュー用途では、直接 chezmoi 管理する独立 profile でモデルと reasoning effort を選ぶ。通常レビューは GPT-6.1 Sol、複雑なレビューと監査は GPT-6 Astra を使う。この用途分担は品質向上の実証を意味しない。通常 session のモデル選択は変更しない。
+レビュー用途では、直接 chezmoi 管理する独立 profile でモデルと reasoning effort を選ぶ。通常レビューは GPT-6.2 Sol、複雑なレビューと監査は GPT-6.2 Astra を使う。
 
-- `review.config.toml`: `gpt-6.1-sol` / `medium`
-- `review_deep.config.toml`: `gpt-6-astra` / `high`
-- `review_audit.config.toml`: `gpt-6-astra` / `xhigh`
+- `review.config.toml`: `gpt-6.2-sol` / `medium`
+- `review_deep.config.toml`: `gpt-6.2-astra` / `high`
+- `review_audit.config.toml`: `gpt-6.2-astra` / `xhigh`
 
-これらの profile は `multi_agent` を有効にする。runtime はモデル名から推測せず、新規プロセスが公開する tool schema で V1/V2 の対応を確認する。`approval_policy = "on-request"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `scripts/codex-config/policy.toml` が管理する。`sandbox_mode` は各 review profile にも同じ値を明示する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
+これらの profile は `agents.enabled = true` でサブエージェントを有効にする。runtime はモデル名から推測せず、新規プロセスが公開する tool schema で V1/V2 の対応を確認する。`approval_policy = "on-request"`、`sandbox_workspace_write.network_access = false`、`features.network_proxy = true` は `~/.codex/config.toml` の `pin` から継承し、review profile 側では上書きしない。`~/.codex/config.toml` の local-only section は持たず、`~/.codex/<profile>.config.toml` として直接管理するため、profile の更新は pin/seed ポリシーの対象ではない。通常 session のポリシーは `scripts/codex-config/policy.toml` が管理する。`sandbox_mode` は各 review profile にも同じ値を明示する。static verifier は checked-in の継承構造を固定し、Codex CLI が実際に layer した値は isolated smoke の turn context で確認する。
 
 multi-agent version は session 開始時に固定されるため、既存 session 内で model や profile を切り替えず、新しい Codex process として起動する。`$pr-review` は実際に公開された tool schema を検査し、V1/V2 のどちらにも対応する。
 
@@ -453,17 +466,7 @@ codex exec --profile review -C <repo> '$pr-review --base <base>'
 
 base を省略した auto-PR 経路では、`gh pr view` と fresh fetch をまず通常 sandbox で試す。sandbox/network policy や保護された `.git/FETCH_HEAD` に拒否された場合だけ、同一 command を approval 付きの scoped escalation で1回再試行する。profile 全体の network access や sandbox 権限は広げず、通常の Git/auth/ref error は昇格しない。offline または approval なしで実行する場合は immutable commit OID を `--base` に指定する。
 
-checked-in の legacy V1 profile は置かない。V2 runtime に互換性問題が再発した場合は、次の one-shot command で `gpt-5.5` / V1 に退避する。
-
-```bash
-codex \
-  -c 'features.multi_agent=true' \
-  -c 'features.multi_agent_v2=false' \
-  -c 'model_reasoning_effort="medium"' \
-  exec --model gpt-5.5 \
-  -C '<repo-root>' \
-  '$pr-review --base <base>'
-```
+checked-in の legacy V1 profile は置かない。
 
 runtime smoke は credentials と server-side model catalog に依存するため CI ではなく手動で行う。プロファイル名や終了コードだけで成功とせず、親子の実効モデル・effort・sandbox・承認設定と、実際の collaboration 呼び出し・結果受領・終了を確認する。存在しない profile でも既定値で起動する場合があるため、実効設定の不一致は検証失敗として扱う。merge 前は原則として isolated `CODEX_HOME` と `/tmp` の fixture を使う。実環境での検証が必要なら、ルート `AGENTS.md` の手順に従い、対象・source・復元方法を示して明示承認を得たうえで、マージ前でも対象限定の `chezmoi apply` を実行できる。apply・動作確認の承認は PR のマージ承認を含まない。
 

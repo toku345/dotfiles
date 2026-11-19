@@ -9,6 +9,9 @@ setup() {
   for tool in jq fish shellcheck git chezmoi; do
     command -v "$tool" >/dev/null || { printf 'Required entrypoint test dependency missing: %s\n' "$tool" >&2; return 1; }
   done
+  # Resolve jq before replacing HOME: with HOME replaced, a mise shim treats the
+  # real ~/.config/mise/config.toml as an untrusted project config and stops.
+  JQ_BIN="$(mise which jq 2>/dev/null || command -v jq)"
   export HOME="$BATS_TEST_TMPDIR/home"
   export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
   export CLAUDE_PROJECT_DIR="$BATS_TEST_TMPDIR/project"
@@ -55,7 +58,7 @@ assert_target_runtime() {
   local target="$HOME/.claude/statusline-command.sh" command
   cp "$REPO_ROOT/private_dot_claude/executable_statusline-command.sh" "$target"
   chmod +x "$target"
-  command=$(jq -r '.statusLine.command' "$REPO_ROOT/private_dot_claude/settings.json")
+  command=$("$JQ_BIN" -r '.statusLine.command' "$REPO_ROOT/private_dot_claude/settings.json")
   run -0 env PATH="/usr/bin:/bin:$PATH" /bin/sh -c "$command" <<<'{"model":{"display_name":"Fixture"}}'
   [[ "$output" == *Fixture* ]]
   assert_target_runtime "$target"
@@ -64,7 +67,7 @@ assert_target_runtime() {
 @test "Codex configured hook commands select Homebrew Bash" {
   local command target commands count=0
   cd "$CLAUDE_PROJECT_DIR"
-  commands=$(jq -r '.hooks[][] .hooks[].command' "$REPO_ROOT/.codex/hooks.json")
+  commands=$("$JQ_BIN" -r '.hooks[][] .hooks[].command' "$REPO_ROOT/.codex/hooks.json")
   while IFS= read -r command; do
     : > "$BASH_RUNTIME_LOG"
     run -0 env PATH="/usr/bin:/bin:$PATH" /bin/sh -c "$command" <<<'{}'
@@ -81,7 +84,7 @@ assert_target_runtime() {
 
 @test "documented Claude hook commands select Homebrew Bash" {
   local command target commands count=0
-  commands=$(sed -n '/^```json$/,/^```$/p' "$REPO_ROOT/docs/claude-code-hooks.md" | sed '1d;$d' | jq -r '.hooks[][] .hooks[].command')
+  commands=$(sed -n '/^```json$/,/^```$/p' "$REPO_ROOT/docs/claude-code-hooks.md" | sed '1d;$d' | "$JQ_BIN" -r '.hooks[][] .hooks[].command')
   while IFS= read -r command; do
     : > "$BASH_RUNTIME_LOG"
     run -0 env PATH="/usr/bin:/bin:$PATH" /bin/sh -c "$command" <<<'{}'
@@ -161,7 +164,9 @@ run_fish_startup() {
   # Keep normal Fish PATH handlers; isolate config/universal state per run.
   local config_home
   config_home="$BATS_TEST_TMPDIR/fish-config-$(basename "$1")"
-  run env PATH="/usr/bin:/bin:$PATH" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
+  # MISE_FISH_AUTO_ACTIVATE=0 keeps Homebrew's vendor `mise activate` (and its
+  # network lookups) out of the test.
+  run env MISE_FISH_AUTO_ACTIVATE=0 PATH="/usr/bin:/bin:$PATH" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$config_home/data" fish -c '
     function fish_config; end
     function starship; end
     function direnv; end

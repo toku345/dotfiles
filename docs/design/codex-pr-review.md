@@ -33,7 +33,7 @@ Additionally:
 - DGX Spark + OpenCode local-LLM fallback — separate Issue, separate timeline
 - Activation of the `code-review` plugin from `anthropics/claude-plugins-official` (distinct from `pr-review-toolkit`) — out of scope
 - Running `codex exec` (with this skill) from within an enclosing Claude Code session — nested-bwrap "Permission denied" infinite spawn-retry incident verified in `~/.codex/history.jsonl` (2026-03). Same constraint as the legacy `triple-review` per `private_dot_claude/CLAUDE.md` `Git / PR 規約`.
-- A permanently checked-in legacy V1 profile — V1 remains available through an explicit one-shot rollback command, not a second managed profile family.
+- A permanently checked-in legacy V1 profile.
 
 ## Alternatives considered
 
@@ -108,23 +108,11 @@ Source tree (chezmoi): `private_dot_codex/skills/pr-review/` and `private_dot_co
 ### Invocation
 
 ```bash
-# Standard path: review uses GPT-6.1 Sol; deep/audit use GPT-6 Astra.
+# Standard path. Review uses GPT-6.2 Sol. Deep and audit use GPT-6.2 Astra.
 codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'
 ```
 
-`review` selects `gpt-6.1-sol` / `medium`; `review_deep` and `review_audit` select `gpt-6-astra` / `high` and `xhigh`. They enable `multi_agent` but do not force a version; compatibility is established from the tools exposed by each fresh process, not inferred from the model name. The original `codex exec /pr-review` draft (slash-command-style) is **not correct** — slash commands are an interactive-only surface.
-
-There is no checked-in legacy profile. If a Codex/model-catalog upgrade breaks V2, use this explicit one-shot V1 fallback in a fresh process:
-
-```bash
-codex \
-  -c 'features.multi_agent=true' \
-  -c 'features.multi_agent_v2=false' \
-  -c 'model_reasoning_effort="medium"' \
-  exec --model gpt-5.5 \
-  -C '<repo-root>' \
-  '$pr-review --base <base>'
-```
+`review` selects `gpt-6.2-sol` with `medium` effort. `review_deep` and `review_audit` select `gpt-6.2-astra` with `high` and `xhigh` effort, respectively. The profiles enable subagents with `agents.enabled = true`. Inspect the tools exposed by each fresh process to confirm the collaboration version. Use the example above for `codex exec`. The slash command is available in interactive sessions.
 
 **Multi-agent runtime contract**:
 
@@ -343,6 +331,8 @@ Version note: the initial design and Phase 3 PoC references intentionally retain
 
 Issue #393 bounded profile smoke (2026-10-16, Codex CLI 0.163.0) verified `review` on `gpt-6.1-sol` / `medium`, `review_deep` on `gpt-6-astra` / `high`, and `review_audit` on `gpt-6-astra` / `xhigh` in an isolated home. Each process spawned one `code-reviewer` with `fork_turns="none"` and no model/effort overrides; persisted parent/child settings agreed, and the child result and completion were observed through V2-shaped spawn/wait/list calls. The parent retained workspace-write, on-request approval, and restricted network; the child matched the same effective managed sandbox. The missing-profile negative observed a successful CLI fallback to defaults, which was rejected by effective-setting validation. This is bounded lifecycle evidence, not a full review gate or a quality comparison; historical gate evidence above remains unchanged.
 
+GPT-6.2 bounded profile smoke (2026-11-18) ran with Codex CLI 0.169.1 and 0.170.0 using isolated homes populated from a target-scoped chezmoi apply. Persisted parent and child turn settings verified `review` on `gpt-6.2-sol` / `medium`, `review_deep` on `gpt-6.2-astra` / `high`, and `review_audit` on `gpt-6.2-astra` / `xhigh`. Each profile spawned one `code-reviewer` with `fork_turns="none"` and inherited settings. V2 `wait_agent` returned and `list_agents` reported the child's completed result before the parent turn ended. Both sessions in each run recorded workspace-write, on-request approval, and restricted network. The two Astra checks on 0.169.1 completed on retry with the release's matching Code Mode host installed in the isolated CLI directory.
+
 Current verification boundary: CI checks bundle integrity and static contract drift via `tests/codex/verify_pr_review_bundle.py`, proves selected high-risk verifier regressions fail closed with `tests/codex/test_verify_pr_review_bundle_negative.py`, validates the accepted historical baseline, sanitized post-change comparison, finding-verdict contract, and immutable evidence resolver, replays PR and `--allow-no-pr` base-resolution command/control-plane decisions with `tests/codex/test_pr_review_base_resolution.py`, and executes the V1 Stage-3 lifecycle plus the V2 abnormal-path state-machine and its retained-list and scheduler-owned dispatch replays with `tests/codex/test_pr_review_v2_scheduler.py`. Static checks cover the three managed review profiles and their per-profile model/effort routing, both runtime schemas, all pinned machine-readable contracts, agent control-plane bans, first-party read-only inheritance, severity normalization, `$HEAD_REF`-bound collection, authoritative packet hashing, exact candidate identity, evidence value and immutable blob constraints, immutable historical artifact identity, per-case verdict accounting, and negative mutations for high-risk drift. Deterministic replay covers scoped escalation, Stage 1/2/3 lifecycle boundaries, scheduler refill, cleanup ownership, exact-role/candidate completeness, verdict shape, evidence resolution, verdict application, output budgeting, and aggregation decisions. CI does **not** prove Codex CLI profile layering or run live model requests; isolated manual smoke records the effective turn context and actual tool calls without retaining Raw JSONL.
 
 **Phase 5 (T9)**:
@@ -370,10 +360,10 @@ Current verification boundary: CI checks bundle integrity and static contract dr
 |---|---|---|
 | Codex-routed specialist quality < Claude-routed equivalent | Medium | E2E test (Phase 5) on 3 historical PRs catalogues deltas. If material gaps appear, fix by per-specialist `model` field or by language-specific specialists |
 | **Same-model adversarial review weakened** — `adversarial-reviewer.toml` was originally meant to bring Codex's "outside perspective" into Claude Code's flow. Running Codex inside Codex may dilute the cross-model property | **Medium** | Phase 5 explicitly catalogues legacy-ADV-vs-new-ADV finding diversity. If degradation is material, options: (a) keep a single Claude leg for ADV only (partial Hybrid), (b) pin a distinct Codex model for `adversarial-reviewer.toml` via `model` field, (c) accept and document the trade-off |
-| **Model-selected multi-agent version or schema may drift** — managed profiles may select a different runtime after a model/catalog update, while the explicit `gpt-5.5` rollback reaches V1 through feature fallback | Low–Medium | The skill recognizes only the two exact exposed schemas and fails closed on mixed/unknown shapes. Static verification pins both adapters; isolated manual smoke records effective model/effort/schema and is repeated after relevant Codex/model-catalog upgrades |
+| **Model-selected multi-agent version or schema may drift** — managed profiles may select a different runtime after a model/catalog update | Low–Medium | The skill recognizes only the two exact exposed schemas and fails closed on mixed/unknown shapes. Static verification pins both adapters; isolated manual smoke records effective model/effort/schema and is repeated after relevant Codex/model-catalog upgrades |
 | **V2 retained-list rollover or first-snapshot completion hides terminal status** — final delivery, slot refill, and status retention can race; requiring explicit completed or prior-running status alone creates false-negative gates | Low–Medium | Contract V4 retains canonical FINAL plus completed status or qualified retirement after prior running or a validated canonical FINAL. It preserves strict full-tree, 60-second/stage boundaries, parent-interrupt and run-fatal exclusions, ordered reconciliation, late-conflict validation, and exact role/candidate aggregation. Sanitized retention and scheduler-owned replays pin both sequences |
 | **V2 spawn ambiguity or nested descendants escape ownership** | Low | Use unique run/stage/role/attempt names, reconcile every spawn error before retrying, retry only an explicit absent capacity failure once, ban specialist control-plane tools at developer level, and interrupt only run-owned tasks/descendants during abnormal cleanup |
-| **Codex non-interactive invocation or profile loading may drift** — `codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'` and `~/.codex/review.config.toml` are CLI behavior dependencies | Low | Isolated smoke proves effective model, effort, and schema instead of trusting the requested profile name. Missing-profile fallback is an explicit negative case; the one-shot V1 command remains the rollback path |
+| **Codex non-interactive invocation or profile loading may drift** — `codex exec --profile review -C '<repo-root>' '$pr-review --base <base>'` and `~/.codex/review.config.toml` are CLI behavior dependencies | Low | Isolated smoke proves effective model, effort, and schema instead of trusting the requested profile name. Missing-profile fallback is an explicit negative case |
 | **`gh` or fetch is blocked under Codex sandbox** — the managed profile intentionally keeps network disabled and `.git` protected, while auto-PR resolution needs GitHub metadata and a fresh fetched base | Medium | `PR_REVIEW_BASE_RESOLUTION_CONTRACT_V2` permits one approval-bound retry only for the exact sandbox-denied `gh pr view` / validated fetch / default-head operation, rejects persistent prefixes and ordinary auth/ref/API escalation, preserves immutable OID as the zero-escalation path, and pins the full `--allow-no-pr` transition. Static replay is complemented by pre-merge isolated live smoke |
 | License attribution gap (header missing in some `.toml`; NOTICE preservation overlooked) | Low | CI runs `tests/codex/verify_pr_review_bundle.py`: per-file header presence, expected source commit/copyright/license, bundled LICENSE/NOTICE SHA-256 pins, and `codex-plugin-cc` NOTICE reference are mechanically verified |
 | 30-min+ reviews emerge → sleep timer fires mid-review | Low | Empirical: previous "long" runs were stuck, not running. If real long-compute emerges, add a thin `caffeinate` wrapper at that point (YAGNI now) |
@@ -386,7 +376,7 @@ Current verification boundary: CI checks bundle integrity and static contract dr
 
 - [Issue #282](https://github.com/toku345/dotfiles/issues/282) — finding verification and historical comparison
 - [Issue #297](https://github.com/toku345/dotfiles/issues/297) — current multi-agent V2 rollout and dual-runtime adapter work
-- [Issue #295](https://github.com/toku345/dotfiles/issues/295) — completed V1 compatibility baseline retained by the rollback adapter
+- [Issue #295](https://github.com/toku345/dotfiles/issues/295) — completed V1 compatibility baseline retained by the V1 runtime adapter
 - [Closed PR #296](https://github.com/toku345/dotfiles/pull/296) — abandoned metadata-override experiment; historical failure, not the current implementation base
 - [Codex 0.144.3 session selector](https://github.com/openai/codex/blob/rust-v0.144.3/codex-rs/core/src/session/mod.rs#L3109-L3122) — model metadata precedence and session-fixed version selection
 - [Codex 0.144.3 feature fallback](https://github.com/openai/codex/blob/rust-v0.144.3/codex-rs/core/src/config/mod.rs#L1410-L1417) — V2/V1 feature fallback when model metadata is absent

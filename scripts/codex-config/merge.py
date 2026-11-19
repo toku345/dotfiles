@@ -135,6 +135,16 @@ def merge(text: str, policy: dict) -> tuple[str, list[str]]:
     blocks = marker_blocks(text)
     warnings = []
     changed = False
+    # The agents.enabled pin replaces our retired multi_agent pin. Policies
+    # without that pin (including Fugu) retain ownership of their legacy key.
+    features = document.get("features")
+    if ("agents", "enabled") in policy["pin"] and isinstance(features, MutableMapping):
+        if "multi_agent" in features:
+            if type(expected["features"]["multi_agent"]) is not bool:
+                raise PolicyError("legacy features.multi_agent must be boolean")
+            del features["multi_agent"]
+            del expected["features"]["multi_agent"]
+            changed = True
     for mode, rows in policy.items():
         for path, value in rows.items():
             wanted = parent(expected, path, dict)

@@ -115,6 +115,53 @@ verified Codex version unless upstream ships configs for a newer one.
 
 ## Additional Setup
 
+### Herdr App layout (macOS)
+
+The managed `bottom-tabs` layout places the tab bar below the terminals and
+above the status bar. It is a clone of Herdr App 0.1.15's `main` layout;
+the shipped `main` layout remains unchanged. Herdr does not update clones
+automatically, so review upstream layout changes when upgrading the app.
+
+After deploying the dotfiles, select it in the running Herdr App:
+
+```sh
+herdr-app do layout.switch '{"name":"bottom-tabs"}'
+```
+
+To restore the standard layout, switch to `main` with the same command.
+The selected layout and other runtime state in `shared.json` remain local
+to each machine and are not managed by chezmoi.
+
+The window follows the active space's color. A small `space-theme` mod
+switches to one of six `space-ansi1` to `space-ansi6` themes when the
+active space changes; the shipped panels stay unmodified, so they receive
+Herdr updates. Each theme is the built-in `moss` theme with its `chrome`,
+`canvas`, and `raised` colors mixed 15% toward the space color
+(`ansi6` `#22a99a`, `ansi3` `#e3814f`, `ansi4` `#5b8def`, `ansi5` `#8b7cf6`,
+`ansi2` `#3fae6a`, `ansi1` `#d9649a`, matching the space icons). Terminal
+colors stay `moss`. Only dark themes are provided.
+
+Colors come from Herdr's local `space.colors` assignments. Spaces with a
+picked hex color, and windows without an active space, use plain `moss`.
+The six automatic colors can repeat, and colors follow space IDs, so a
+recreated space or another machine may get a different color. A theme
+chosen in the theme picker lasts until the next space switch, app
+restart, or layout reload.
+
+The theme files copy `moss`'s values from Herdr App 0.1.16 and do not
+follow later changes to it. When upgrading Herdr, compare `moss` (read it
+with `themes()` from a mod) and regenerate the six files if it changed.
+The selected theme is recorded in Herdr's own layout state, not in the
+managed files. To turn the colors off, remove the `space-theme` block from
+the layout, or switch to `main`, which has no such block, without closing
+terminals. Either way the last space theme stays applied, so pick `moss`
+in the theme picker afterwards.
+
+The `space-*` themes and the `bottom-tabs` layout are derived from Herdr
+App's built-in `moss` theme and `main` layout
+([herdrdev/herdr-app](https://github.com/herdrdev/herdr-app), Apache
+License 2.0).
+
 ### Starship
 
 A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal.

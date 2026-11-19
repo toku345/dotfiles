@@ -135,8 +135,8 @@ path_without() {
   run -0 /usr/bin/env PATH="$BATS_TEST_TMPDIR/empty-bin" CODEX_HOME="$BATS_TEST_TMPDIR/not-installed" \
     "$TEST_BASH" "$CX_SOURCE" --help
   [[ "$output" == *'Usage: cx'* ]]
-  [[ "$output" == *'gpt-6.1-sol / low; Plan: medium'* ]]
-  [[ "$output" == *'gpt-6-astra / high; Plan: xhigh'* ]]
+  [[ "$output" == *'gpt-6.2-sol / low; Plan: medium'* ]]
+  [[ "$output" == *'gpt-6.2-astra / high; Plan: xhigh'* ]]
   [[ ! -e "$ARGV_LOG" ]]
 }
 

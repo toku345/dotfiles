@@ -4,7 +4,7 @@
 
 ## 会話で合意する操作
 
-commit・push・apply・共有先への書き込みは、対象・内容・影響を示して明示合意を待つ。CLI、MCP、app のどの経路でも同じ原則を適用する。同じ会話で対象と操作を明示承認済みなら、その範囲で会話上の確認を重ねない。対象や影響の変更、Skill の着手・引き渡し確認、リポジトリ固有の要件は別途守る。
+commit・push・apply・共有先への書き込みは、対象・内容・影響を示して明示合意を待つ。CLI、MCP、app のどの経路でも同じ原則を適用する。同じ会話で対象と操作を明示承認済みなら、その範囲で会話上の確認を重ねない。Claude の着手前の合意確認は一度にまとめ、sandbox の事情の説明やユーザーが自分で実行する選択肢を含めない。対象や影響の変更、Skill の着手・引き渡し確認、リポジトリ固有の要件は別途守る。
 
 管理元を編集する合意は、live apply、管理外ルールの清掃、commit、push、PR 作成を一括で許可するものではない。共有先への書き込み後は read-back で確認する。Confluence ページ更新・Jira 編集も対象とし、履歴から復元できることだけでは未合意の共有書き込みを正当化しない。同じページ・issue への反復更新は、対象・目的・操作が明示合意の範囲内なら会話上の確認を毎回繰り返さない。
 
@@ -27,7 +27,19 @@ Codex の `prompt` は自動 reviewer に回り得る。Claude の content-scope
 
 これは主要なコマンド形を補う一覧で、共有更新の全経路を列挙したものではない。`git -C ... push`、`chezmoi --source ... apply`、絶対パスや任意スクリプト経由、MCP / app は同じ prefix に一致するとは限らない。会話上の合意原則はこれらにも適用する。
 
-Claude の `npm run` / `yarn run` / `cargo run` の広い `allow` は削除する。sandbox 内の通常実行は引き続き可能で、sandbox 外の実行は既存の許可や他の判定条件に該当しなければ分類器へ回す。任意コード実行を禁止したわけではなく、残している build / test 許可も無害性を保証しない。無効化済み plugin の `Skill(commit-commands:commit-push-pr)` allow も削除する。独自の classifier policy や新しい承認 hook は導入しない。
+Claude の `npm run` / `yarn run` / `cargo run` の広い `allow` は削除する。sandbox 内の通常実行は引き続き可能で、sandbox 外の実行は既存の許可や他の判定条件に該当しなければ分類器へ回す。任意コード実行を禁止したわけではない。無効化済み plugin の `Skill(commit-commands:commit-push-pr)` allow も削除する。独自の classifier policy や新しい承認 hook は導入しない。
+
+Claude の `permissions.allow` には、sandbox 外の retry を必要とする読み取り系 `gh` と、既存の低リスクな項目だけを置く。後者は `npm list` と WebFetch の domain で、WebFetch は Bash ではなく tool のルールである。`npm list` に allow が必要かは、今回は再確認していない。`Bash(fish -n)` も削除した。ワイルドカードがないため引数なしの `fish -n` にしか一致せず、`fish -n <file>` には効いていなかった。allow に一致した呼び出しは分類器より先に解決される。そのため、組織が配布する管理設定 (server-managed settings) の `autoMode.hard_deny` は適用されないと推定している (docs には明記されていない)。sandbox 外の retry も承認なしで実行される (#443 で実測)。この理由から、次の 16 件を削除した。
+
+- `npm test` / `yarn test` / `cargo build` / `cargo test` / `cargo check`: repo のスクリプトを通して任意のコマンドを実行できる
+- `git fetch`: `--upload-pack` で任意のコマンドを実行できる
+- `chezmoi diff` / `status` / `cat`: `--source` / `--config` で任意の template を評価でき、`output` 関数でコマンドも実行できる。暗号化した値を表示することもある
+- `jq`: `-n env` で環境変数を出力でき、任意のファイルを読める
+- `tree`: `-o` でファイルを上書きできる
+- `git diff` / `log` / `show`: `--output=` でファイルに書き込める。`git diff` は `--no-index` で repo 外のファイルも読める
+- `git status` / `blame`: sandbox 内で動くため、allow に置く必要がない
+
+verifier はこれらと、末尾のワイルドカードの別表記 (` *`) の再追加を拒否する。受け入れたトレードオフは2つある。1つは、`gh pr view ... | jq` のような複合コマンドが retry で承認なしに通らなくなることである。複合コマンドでは全体が allow に一致する必要があるためで、`gh` 単体の呼び出しは引き続き allow で通る。もう1つは、削除したコマンドを sandbox 外で実行すると、分類器の判定や確認が入ることである。Claude の `/pr-review` gate が base を解決するときに sandbox 外で実行する `git fetch` もこれに含まれ、分類器が拒否すると gate は fail closed で止まる。chezmoi の state DB が必要なため、このリポジトリの完了条件で sandbox 外で実行する `chezmoi diff` も同じ扱いになる。auto mode の sandbox 内で、書き込みやネットワークを伴うコマンド (`git fetch` 等) が確認なしで動き続けるかは未検証である。限定的な `Bash(npm test)` のようなルールが auto mode で有効なままかも未検証である。
 
 通知を伴う Atlassian MCP 操作には `mcp__claude_ai_Atlassian_Rovo__create*` / `mcp__claude_ai_Atlassian_Rovo__transition*` / `mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue` の明示的な `ask` を追加する。これらは会話上の合意を置き換えず、Confluence update / Jira edit を無条件で許可する意味でもない。PR #438 は 2.1.310 の wildcard 解釈を静的に確認したが、実 write による承認 UI は未検証。source verifier は required entries の保持を検査し、runtime の prompt 発生を証明しない。
 
@@ -44,7 +56,7 @@ Claude の `npm run` / `yarn run` / `cargo run` の広い `allow` は削除す�
 | Claude `allowAllUnixSockets: true` | SSH agent 等との接続。Docker daemon に到達できても完全な隔離ではない。全 socket を許可する必要があるか、限定できるかは未検証 |
 | Claude `allowLocalBinding: true` | ローカル開発サーバー。必要な実行経路と OS 差は未検証 |
 | Claude `enableWeakerNestedSandbox: true` | nested sandbox の互換性。必要な環境と保護への影響は未検証 |
-| Claude `allowUnsandboxedCommands: true` | sandbox で動かないツールの retry。allow に一致する retry は承認なしで実行される (#443 で実測)。読み取り系 `gh` の allow はこの retry に依存する。`npm test` / `cargo test` / `git fetch` など、repo のコードを実行しうる既存の allow も同じ扱いになるため、必要性を再確認する |
+| Claude `allowUnsandboxedCommands: true` | sandbox で動かないツールの retry。allow に一致する retry は承認なしで実行される (#443 で実測)。読み取り系 `gh` の allow はこの retry に依存する。repo のコードを実行しうる `npm test` / `cargo test` / `git fetch` などの allow は削除した (上記) |
 | Claude の追加 write 領域 | `/tmp`、Codex plugin data、agmsg の db / teams / run、SSH known_hosts。各用途と最小範囲を再確認する |
 | Claude の追加 read 領域 | SSH config / config.local / known_hosts、OrbStack SSH config。秘密鍵の許可とは区別し、deny と併せて必要性を確認する |
 | Codex の追加 `writable_roots` | machine-local の free 設定。調査端末は agmsg の db / teams / run。端末ごとに再確認する |

@@ -81,7 +81,7 @@ writable_roots = ["/important"]
                 if "free =" in source:
                     self.assertEqual(data["free"], "keep")
                 if "'model'" in source:
-                    self.assertEqual(data["model"], "gpt-6.1-sol")
+                    self.assertEqual(data["model"], "gpt-6.2-sol")
 
     def test_free_values_comments_and_installer_block(self):
         block = '''# >>> fugu:model_providers.sakana >>>
@@ -107,7 +107,7 @@ custom = { nested = [1, true, "value"] }
 
     def test_missing_model_and_efforts_receive_pins(self):
         output, data, warnings = self.update("")
-        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model"], "gpt-6.2-sol")
         self.assertEqual(data["model_reasoning_effort"], "medium")
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         self.assertFalse(warnings)
@@ -119,7 +119,7 @@ model_reasoning_effort = "high"
 plan_mode_reasoning_effort = "low"
 '''
         output, data, warnings = self.update(source)
-        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model"], "gpt-6.2-sol")
         self.assertEqual(data["model_reasoning_effort"], "medium")
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         self.assertIn("# local choice overridden on apply", output)
@@ -148,6 +148,36 @@ name = "second"
     def test_type_sensitive_pins(self):
         _, data, _ = self.update('[features]\napps = 1\n')
         self.assertIs(data["features"]["apps"], True)
+
+    def test_retired_multi_agent_migration(self):
+        for value in ("true", "false"):
+            for source in (
+                f'[features]\nmulti_agent = {value}\ncustom = true\n',
+                f'features.multi_agent = {value}\nfeatures.custom = true\n',
+                f'features = {{ multi_agent = {value}, custom = true }}\n',
+                f'[agents.code-reviewer]\ndescription = "keep"\n[features]\nmulti_agent = {value}\ncustom = true\n',
+            ):
+                with self.subTest(source=source):
+                    output, data, _ = self.update(source)
+                    self.assertNotIn("multi_agent", data["features"])
+                    self.assertIs(data["features"]["custom"], True)
+                    self.assertIs(data["agents"]["enabled"], True)
+                    if "code-reviewer" in data["agents"]:
+                        self.assertEqual(data["agents"]["code-reviewer"]["description"], "keep")
+                    self.assertEqual(self.update(output)[0], output)
+
+    def test_retired_key_rejects_invalid_type_and_installer_edit(self):
+        with self.assertRaisesRegex(PolicyError, "must be boolean"):
+            self.update('[features]\nmulti_agent = "invalid"\n')
+        with self.assertRaisesRegex(PolicyError, "installer-owned"):
+            self.update('# >>> owner >>>\n[features]\nmulti_agent = true\n# <<< owner <<<\n')
+        with self.assertRaises(PolicyError):
+            self.update('[agents.enabled]\ncustom = true\n')
+
+    def test_fugu_keeps_legacy_multi_agent(self):
+        policy = load_policy(PROJECT / "policy-fugu.toml")
+        output, _ = merge.merge('[features]\nmulti_agent = false\n', policy)
+        self.assertIs(tomllib.loads(output)["features"]["multi_agent"], False)
 
     def test_no_change_returns_exact_input(self):
         first, _, _ = self.update("")
@@ -638,7 +668,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(live.stat().st_mode & 0o777, 0o600)
         first = live.read_bytes()
         data = tomllib.loads(first.decode())
-        self.assertEqual(data["model"], "gpt-6.1-sol")
+        self.assertEqual(data["model"], "gpt-6.2-sol")
         self.assertEqual(data["model_reasoning_effort"], "medium")
         self.assertEqual(data["plan_mode_reasoning_effort"], "xhigh")
         result = call("diff")
@@ -649,7 +679,7 @@ class CommandTests(unittest.TestCase):
         self.assertFalse((self.home / "scripts").exists())
 
         # Apply restores changed pins without introducing duplicate TOML keys.
-        existing = first.replace(b'model = "gpt-6.1-sol"', b'model = "custom-provider"')
+        existing = first.replace(b'model = "gpt-6.2-sol"', b'model = "custom-provider"')
         existing = existing.replace(b'model_reasoning_effort = "medium"', b'model_reasoning_effort = "high"')
         existing = existing.replace(b'plan_mode_reasoning_effort = "xhigh"', b'plan_mode_reasoning_effort = "low"')
         live.write_bytes(existing)

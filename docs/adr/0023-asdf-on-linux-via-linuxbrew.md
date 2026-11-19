@@ -4,6 +4,8 @@
 
 Accepted (supersedes ADR 0013 §3 "asdf" exclusion and §6 "No brew/apt entries for language managers on Linux")
 
+Partially superseded by [ADR 0041](0041-mise-for-cli-and-runtime-management.md): `dot_bashrc` switches to mise shims once mise is installed and `~/.tool-versions` is retired; asdf remains only until the Linux migration.
+
 ## Context
 
 - ADR 0013 §3 は Linux で asdf を除外し、§6 では uv/bun/rustup の native installer のみ使う方針だった。

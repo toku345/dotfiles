@@ -29,6 +29,8 @@ scripts
 .config/cmux/**
 .config/ghostty
 .config/ghostty/**
+.config/herdr-app
+.config/herdr-app/**
 .config/google_ime
 .config/google_ime/**
 .local/bin/ghostty-theme

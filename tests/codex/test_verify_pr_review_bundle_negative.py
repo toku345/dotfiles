@@ -99,14 +99,14 @@ def main() -> None:
             f'model = "{wrong}"',
             f"model must be {model!r}",
         )
-        for name, model in (
-            ("review", "gpt-6.1-sol"),
-            ("review_deep", "gpt-6-astra"),
-            ("review_audit", "gpt-6-astra"),
+        for name, model, previous, other_family in (
+            ("review", "gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.2-astra"),
+            ("review_deep", "gpt-6.2-astra", "gpt-6-astra", "gpt-6.2-sol"),
+            ("review_audit", "gpt-6.2-astra", "gpt-6-astra", "gpt-6.2-sol"),
         )
         for label, wrong in (
-            ("old model regression", "gpt-5.6-sol"),
-            ("model routing drift", "gpt-6-astra" if model == "gpt-6.1-sol" else "gpt-6.1-sol"),
+            ("previous model regression", previous),
+            ("model routing drift", other_family),
         )
     ] + [
         (
@@ -130,7 +130,7 @@ def main() -> None:
             f"{key} must be pinned to {value!r}",
         )
         for key, value, wrong in (
-            ("model", "gpt-6.1-sol", "gpt-6-astra"),
+            ("model", "gpt-6.2-sol", "gpt-6.2-astra"),
             ("model_reasoning_effort", "medium", "low"),
             ("plan_mode_reasoning_effort", "xhigh", "medium"),
         )
@@ -141,6 +141,13 @@ def main() -> None:
                 "[seed]", f'[seed]\n{key} = "{value}"', 1)),
         )
     ] + [
+        (
+            "managed baseline model: previous model regression",
+            "scripts/codex-config/policy.toml",
+            'model = "gpt-6.2-sol"',
+            'model = "gpt-6.1-sol"',
+            "model must be pinned to 'gpt-6.2-sol'",
+        ),
         (
             "coverage-sentinel contract removal",
             "private_dot_codex/agents/code-reviewer.toml",
@@ -221,16 +228,44 @@ def main() -> None:
         (
             "quick profile extra key",
             "private_dot_codex/private_quick.config.toml",
-            'model = "gpt-6.1-sol"',
-            'model = "gpt-6.1-sol"\nsandbox_mode = "workspace-write"',
+            'model = "gpt-6.2-sol"',
+            'model = "gpt-6.2-sol"\nsandbox_mode = "workspace-write"',
             "must be exactly",
         ),
         (
             "review profile pins legacy V1",
             "private_dot_codex/private_review.config.toml",
-            "multi_agent = true",
-            "multi_agent = true\nmulti_agent_v2 = false",
+            "enabled = true",
+            "enabled = true\n[features]\nmulti_agent_v2 = false",
             "features.multi_agent_v2 must not be pinned",
+        ),
+        (
+            "review profile disables agents",
+            "private_dot_codex/private_review.config.toml",
+            "enabled = true",
+            "enabled = false",
+            "agents.enabled must be true",
+        ),
+        (
+            "review profile restores deprecated key",
+            "private_dot_codex/private_review.config.toml",
+            "enabled = true",
+            "enabled = true\n[features]\nmulti_agent = true",
+            "deprecated features.multi_agent must be removed",
+        ),
+        (
+            "managed baseline disables agents",
+            "scripts/codex-config/policy.toml",
+            "enabled = true",
+            "enabled = false",
+            "agents.enabled must be true",
+        ),
+        (
+            "managed baseline restores deprecated key",
+            "scripts/codex-config/policy.toml",
+            "[pin.features]",
+            "[pin.features]\nmulti_agent = true",
+            "deprecated features.multi_agent must be removed",
         ),
         (
             "managed baseline disables approval escalation",
@@ -263,15 +298,15 @@ def main() -> None:
         (
             "review profile overrides inherited network proxy",
             "private_dot_codex/private_review.config.toml",
-            "multi_agent = true",
-            "multi_agent = true\nnetwork_proxy = true",
+            "enabled = true",
+            "enabled = true\n[features]\nnetwork_proxy = true",
             "features.network_proxy must be inherited",
         ),
         (
             "review profile overrides inherited sandbox network",
             "private_dot_codex/private_review.config.toml",
-            '[features]\nmulti_agent = true',
-            '[sandbox_workspace_write]\nnetwork_access = true\n\n[features]\nmulti_agent = true',
+            '[agents]\nenabled = true',
+            '[sandbox_workspace_write]\nnetwork_access = true\n\n[agents]\nenabled = true',
             "[sandbox_workspace_write] must be inherited",
         ),
         (
@@ -651,27 +686,6 @@ def main() -> None:
             "do not call any collaboration or subagent control-plane tool",
             "may call collaboration tools",
             "do not call any collaboration or subagent control-plane tool",
-        ),
-        (
-            "documented V1 rollback pin removal",
-            "docs/codex.md",
-            "-c 'features.multi_agent_v2=false'",
-            "-c 'features.multi_agent_v2=true'",
-            "features.multi_agent_v2=false",
-        ),
-        (
-            "documented V1 rollback effort removal",
-            "docs/codex.md",
-            "  -c 'model_reasoning_effort=\"medium\"' \\\n",
-            "",
-            "model_reasoning_effort",
-        ),
-        (
-            "documented V1 rollback effort drift",
-            "docs/design/codex-pr-review.md",
-            "-c 'model_reasoning_effort=\"medium\"'",
-            "-c 'model_reasoning_effort=\"high\"'",
-            "model_reasoning_effort",
         ),
         (
             "HEAD pin sequencing weakened",

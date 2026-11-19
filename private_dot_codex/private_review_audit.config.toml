@@ -1,6 +1,6 @@
-model = "gpt-6-astra"
+model = "gpt-6.2-astra"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"
 
-[features]
-multi_agent = true
+[agents]
+enabled = true
