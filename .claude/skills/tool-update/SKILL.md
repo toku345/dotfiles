@@ -77,8 +77,10 @@ mise で管理するランタイムと CLI を、収集 → 提案 → 実行 �
 
 1. chezmoi の source (通常は main の checkout) が main で、未 commit の変更がないことを確かめてから、merge を取り込む。そうでなければ止まって相談する。
 2. 対象を `~/.config/mise/mise.lock` だけに絞り、scripts を除外した diff を示す。差分が今回の更新だけであることを確かめ、apply の承認を取って実行する。ほかの target に差分があっても apply しない。
-3. `mise install` の承認を取り、home で実行する (プロジェクトの中だと、そのプロジェクトの設定が読まれる)。
+3. `mise install` の承認を取り、home で実行する (プロジェクトの中だと、そのプロジェクトの設定が読まれる)。apply から install までの間、更新したツールは未導入 (`mise ls --missing` に出る) になるので、間を空けない。
 4. `mise ls --missing` が何も表示しないことと、更新したツールの version が新しくなったことを確かめる。
+
+apply や `mise install` をユーザーが自分で実行した場合も、結果は手順 2 の read-back (配置された lock が source と一致すること) と、手順 4 と同じ方法で確かめる。
 
 ## 4. 報告
 

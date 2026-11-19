@@ -64,7 +64,7 @@ cooldown は mise が持つ公開日で判定されます。この日付は、�
 
 そのため、候補に出た version は、upstream の実際の公開日時 (GitHub release など) を確認し、48 時間たっていなければ、cooldown の省略と同じ条件で判断します。
 
-レビュー後に commit し、PR を merge してから、各マシンで `chezmoi apply` → home で `mise install` を実行し、`mise ls --missing` が何も表示しないことを確認します。apply は lock を配置するだけで、ツールは入れ替わりません (`auto_install` は無効)。
+レビュー後に commit し、PR を merge してから、各マシンで `chezmoi apply` → home で `mise install` を実行し、`mise ls --missing` が何も表示しないことを確認します。apply は lock を配置するだけで、ツールは入れ替わりません (`auto_install` は無効)。apply の後は lock の新しい version で解決されるため、`mise install` までの間、更新したツールは未導入になります (`mise ls --missing` に出ます)。apply の後は続けて `mise install` を実行してください。
 
 ## CLI の追加
 
