@@ -61,17 +61,17 @@ FINDING_VERIFIER_COMPARISON = (
 EXPECTED_REVIEW_PROFILES = {
     "review": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review.config.toml",
-        "model": "gpt-6.1-sol",
+        "model": "gpt-6.2-sol",
         "model_reasoning_effort": "medium",
     },
     "review_deep": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review_deep.config.toml",
-        "model": "gpt-6-astra",
+        "model": "gpt-6.2-astra",
         "model_reasoning_effort": "high",
     },
     "review_audit": {
         "path": REPO_ROOT / "private_dot_codex" / "private_review_audit.config.toml",
-        "model": "gpt-6-astra",
+        "model": "gpt-6.2-astra",
         "model_reasoning_effort": "xhigh",
     },
 }
@@ -81,7 +81,7 @@ EXPECTED_LAUNCH_PROFILES = {
     "quick": {
         "path": REPO_ROOT / "private_dot_codex" / "private_quick.config.toml",
         "values": {
-            "model": "gpt-6.1-sol",
+            "model": "gpt-6.2-sol",
             "model_reasoning_effort": "low",
             "plan_mode_reasoning_effort": "medium",
         },
@@ -89,7 +89,7 @@ EXPECTED_LAUNCH_PROFILES = {
     "work": {
         "path": REPO_ROOT / "private_dot_codex" / "private_work.config.toml",
         "values": {
-            "model": "gpt-6-astra",
+            "model": "gpt-6.2-astra",
             "model_reasoning_effort": "high",
             "plan_mode_reasoning_effort": "xhigh",
         },
@@ -379,15 +379,6 @@ EXPECTED_FINDING_VERIFIER_CONTRACT = {
         "partial_aggregation": "fatal",
     },
 }
-V1_ROLLBACK_COMMAND_SNIPPETS = (
-    "codex \\",
-    "-c 'features.multi_agent=true'",
-    "-c 'features.multi_agent_v2=false'",
-    "-c 'model_reasoning_effort=\"medium\"'",
-    "exec --model gpt-5.5",
-    "-C '<repo-root>'",
-    "'$pr-review --base <base>'",
-)
 RUNTIME_CONTRACT_SNIPPETS = [
     "Before running any shell or Git command and before invoking any collaboration tool",
     "Tool discovery is allowed here; a probe spawn is not.",
@@ -748,9 +739,9 @@ REQUIRED_REVIEW_CRITERIA_SNIPPETS = [
 ]
 
 REQUIRED_CODEX_DOC_SNIPPETS = [
-    '`review.config.toml`: `gpt-6.1-sol` / `medium`',
-    '`review_deep.config.toml`: `gpt-6-astra` / `high`',
-    '`review_audit.config.toml`: `gpt-6-astra` / `xhigh`',
+    '`review.config.toml`: `gpt-6.2-sol` / `medium`',
+    '`review_deep.config.toml`: `gpt-6.2-astra` / `high`',
+    '`review_audit.config.toml`: `gpt-6.2-astra` / `xhigh`',
     "V1/V2",
     "checked-in の legacy V1 profile は置かない",
     "isolated `CODEX_HOME`",
@@ -901,12 +892,10 @@ def verify_runtime_docs() -> None:
     codex_raw = CODEX_DOC.read_text(encoding="utf-8")
     for needle in REQUIRED_CODEX_DOC_SNIPPETS:
         require_contains(codex_raw, needle, str(CODEX_DOC))
-    require_ordered_contains(codex_raw, V1_ROLLBACK_COMMAND_SNIPPETS, f"{CODEX_DOC}:V1-rollback")
 
     design_raw = DESIGN_DOC.read_text(encoding="utf-8")
     for needle in REQUIRED_DESIGN_DOC_SNIPPETS:
         require_contains(design_raw, needle, str(DESIGN_DOC))
-    require_ordered_contains(design_raw, V1_ROLLBACK_COMMAND_SNIPPETS, f"{DESIGN_DOC}:V1-rollback")
     for needle in FORBIDDEN_STALE_DESIGN_SNIPPETS:
         require_not_contains(design_raw, needle, str(DESIGN_DOC))
 
@@ -1439,7 +1428,7 @@ def verify_codex_config_profiles() -> None:
             False,
             "sandbox_workspace_write.network_access must be false",
         ),
-        ("features", "multi_agent", True, "features.multi_agent must be true"),
+        ("agents", "enabled", True, "agents.enabled must be true"),
         ("features", "network_proxy", True, "features.network_proxy must be true"),
     )
     for section, key, expected, message in pinned:
@@ -1448,7 +1437,7 @@ def verify_codex_config_profiles() -> None:
             fail(f"{CODEX_POLICY}: {message} (got {actual!r})")
 
     for key, expected in (
-        ("model", "gpt-6.1-sol"),
+        ("model", "gpt-6.2-sol"),
         ("model_reasoning_effort", "medium"),
         ("plan_mode_reasoning_effort", "xhigh"),
     ):
@@ -1456,6 +1445,8 @@ def verify_codex_config_profiles() -> None:
             fail(f"{CODEX_POLICY}: {key} must be pinned to {expected!r}")
 
     rows = [*pins, *seeds]
+    if ("features", "multi_agent") in rows:
+        fail(f"{CODEX_POLICY}: deprecated features.multi_agent must be removed")
     stale = sorted({key for (section, key) in rows if section.startswith("profiles")})
     if stale:
         fail(
@@ -1482,11 +1473,14 @@ def verify_codex_config_profiles() -> None:
             if actual != expected:
                 fail(f"{path}: {key} must be {expected!r}, got {actual!r}")
 
-        features = data.get("features")
+        agents = data.get("agents")
+        if not isinstance(agents, dict) or agents.get("enabled") is not True:
+            fail(f"{path}: agents.enabled must be true")
+        features = data.get("features", {})
         if not isinstance(features, dict):
             fail(f"{path}: [features] must be a table")
-        if features.get("multi_agent") is not True:
-            fail(f"{path}: features.multi_agent must be true")
+        if "multi_agent" in features:
+            fail(f"{path}: deprecated features.multi_agent must be removed")
         if "network_proxy" in features:
             fail(
                 f"{path}: features.network_proxy must be inherited from "

@@ -1,0 +1,11 @@
+{
+  "zoom": 1,
+  "sounds": {
+    "enabled": true
+  },
+  "font_ligatures": false,
+  "minimum_contrast": 1,
+  "telemetry": false,
+  "font": "HackGen Console NF",
+  "font_size": 14
+}

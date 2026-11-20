@@ -9,13 +9,13 @@ paths:
 - `outputStyle` はシステムプロンプトを直接置換し headless `claude -p` にも適用 (Agent tool 経由の subagents には伝播しない)
 - precedence: project-local (`<repo>/.claude/settings.local.json`) > user-global (`~/.claude/settings.json`)
 - user-global default は built-in output style `Concise` (2026-09-05 変更)。`JUIZ` / `Lum` persona は `~/.claude/output-styles/` に配備済みで `/config` から選択可、repo 単位の常用は `<repo>/.claude/settings.local.json` で opt-in する。詳細: `docs/adr/0015-multi-persona-output-styles.md` (Amendment 2026-09-05)
-- `verbose: true` (公式 doc 未記載だが実在) — UI ラベル "Verbose output"、default `true`、turn-by-turn logging を制御 (`--verbose` CLI flag の persistent 版)
+- `verbose` — ツールの入出力を省略せず表示する設定。既定値は `false`。<https://code.claude.com/docs/en/settings-reference#verbose>
 - `enableWorkflows: true` (公式 doc 未記載、`/config` の "Dynamic workflows" 行を ON にすると書き込まれる) — **Pro プランでは必須**。dynamic workflows は Max / Team / Enterprise / API 経由では既定 ON だが **Pro は既定 OFF** で、無いと `Workflow` tool が tool list にも `ToolSearch` にも現れない (`/pr-review` の precondition 1 がこれで abort する)。source 管理下に置かないと `chezmoi apply` が live から消して機能が戻る。無効化側は文書化済みの `disableWorkflows` / `CLAUDE_CODE_DISABLE_WORKFLOWS`。<https://code.claude.com/docs/en/workflows>
-- `viewMode` (`"default"` / `"verbose"` / `"focus"`、default `"default"`) — startup transcript view を制御。`verbose` とは別レイヤーで両者独立。verbose 表示にしたければ明示設定必要。<https://code.claude.com/docs/en/settings>
+- `viewMode` (`"default"` / `"verbose"` / `"focus"`) — 起動時の表示を指定し、`verbose` 設定と前回の `/focus` 選択に優先する。未設定時は `verbose` 設定と前回の `/focus` 選択が反映される。<https://code.claude.com/docs/en/settings-reference#viewmode>
 - `/config` UI 表示値は **effective default**（stored ≠ displayed）。settings.json に該当キーが無くても UI は default を表示する。**閲覧のみでは settings.json は書き換わらず**、UI で toggle した時のみ書き込まれる (2026-05-02 実機検証)
 - `/config` toggle 後の運用: `chezmoi diff` で新規キー確認 → 公式 doc 照会 → default / undocumented キーは `chezmoi apply` で live をクリーンアップ (source 主導削除)、必要なキーのみ `chezmoi re-add` で source に取り込み
 - `agentPushNotifEnabled` — UI ラベル "Push when Claude decides"。**default 値の記録が矛盾している**: 本 repo の実機検証は `true`、公式 docs は 2026-08-17 時点で `false` と記載 (<https://code.claude.com/docs/en/settings>、要約モデル経由の取得で**未再検証**)。現行設定 `true` はどちらが正でも無害 (docs が正なら非既定として明示が正しく、実測が正なら冗長なだけ) のため変更しない。実モバイル push は Remote Control 有効時のみ発火 (changelog 2026-04-15)
-- `teammateMode` (documented, default `"auto"`) — agent team teammates 表示モード (`auto` / `in-process` / `tmux`)。明示値が default と同一なら settings 記載は redundant
+- `teammateMode` — agent team の表示モード。既定値は `in-process`。`auto` は対応する tmux または iTerm2 環境で分割ペインを使う。<https://code.claude.com/docs/en/settings-reference#teammatemode>
 - `claude -p --settings '{"outputStyle":"X"}'` は X が live に未配備/壊れていても rc=0/stderr 空で default style にフォールバックする (claude 2.1.126 で実機確認)。output-style / 配備 asset 依存の automation は file 存在 check ではなく**埋め込み sentinel 文字列の grep 検証**を preflight に置く (例: `/pr-review` skill の `PR_REVIEW_CRITERIA_SHARED_V1` / `PR_REVIEW_SEVERITY_RULES_V1` 検証)
 
 ## auto-mode 分類器 (v2.1.233 時点)

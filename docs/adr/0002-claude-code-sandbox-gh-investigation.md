@@ -109,6 +109,34 @@ Add `gh pr checks`, `gh pr status`, `gh repo view` and `gh run list` to `permiss
 
 Accepted trade-off: each allow-listed read still makes one failing sandboxed attempt before the retry.
 
+## Follow-up 2026-11-18: narrow the allow list
+
+### Context
+
+An organization distributed managed settings (server-managed settings) that add `autoMode.hard_deny` rules but no `permissions`. The auto mode docs say actions matching an allow, ask, or deny rule resolve immediately. Inferred, not stated in the docs: an allow match never reaches the classifier, so `hard_deny` does not apply to it. Measured in #443 above: an allow match also runs without a prompt on the unsandboxed retry. An allow entry therefore bypasses both the classifier and the sandbox.
+
+### Decision
+
+Keep in user-global `permissions.allow` only the read-only `gh` entries, which need the unsandboxed retry, plus the existing low-risk entries: `npm list` and the WebFetch domains (tool rules, not Bash commands). This change did not re-check whether `npm list` needs its allow entry. Also remove `Bash(fish -n)`: without a wildcard it matches only a bare `fish -n` call, so it never applied to `fish -n <file>`. Remove 16 entries:
+
+- `npm test`, `yarn test`, `cargo build`, `cargo test`, `cargo check`: run arbitrary commands through repo scripts.
+- `git fetch`: `--upload-pack` runs an arbitrary command.
+- `chezmoi diff`, `chezmoi status`, `chezmoi cat`: `--source` / `--config` evaluate arbitrary templates, which can run commands through `output`. They can also print decrypted values.
+- `jq`: `jq -n env` prints the environment, and `jq` can read any file.
+- `tree`: `-o` overwrites a file.
+- `git diff`, `git log`, `git show`: `--output=` writes a file, and `git diff --no-index` also reads files outside the repository.
+- `git status`, `git blame`: low risk, but they work inside the sandbox and need no allow entry.
+
+`tests/codex/verify_claude_update_policy.py` rejects these entries and their ` *` spellings.
+
+### Consequences
+
+- A compound call such as `gh pr view ... | jq ...` no longer resolves from the allow list on the unsandboxed retry, because every part of a compound call must match. A bare `gh` read still does.
+- An unsandboxed run of a removed command now goes through the classifier or a prompt. This includes the unsandboxed `git fetch` that the Claude `/pr-review` gate runs to resolve its base. If the classifier blocks it, the gate aborts (fails closed).
+- The same applies to `chezmoi diff`, which the repository's Definition of Done runs outside the sandbox because it needs the chezmoi state database.
+- Unverified: whether a removed command that writes or uses the network (such as `git fetch`) still runs without a prompt inside the sandbox in auto mode, and whether a narrow rule such as `Bash(npm test)` stays active in auto mode.
+- Re-adding an entry restores the bypass. Handle frequent prompts some other way.
+
 ## TODO
 
 - [ ] After Claude Code [#26466](https://github.com/anthropics/claude-code/issues/26466) is resolved, re-test `enableWeakerNetworkIsolation`
