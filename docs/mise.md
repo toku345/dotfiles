@@ -22,18 +22,18 @@ chezmoi source 側の lock を更新します。`~/.config/mise` を直接編集
 ```sh
 REPO="$(git rev-parse --show-toplevel)"   # 更新する checkout の中で実行する
 SRC="$REPO/private_dot_config/mise"
-export MISE_CONFIG_DIR="$SRC"         # lock の作業用の shell に限る (mise install に持ち越さない)
-export MISE_USE_VERSIONS_HOST=false   # upstream から直接取得する (下の「cooldown の制約」)
+# mise の環境変数はコマンドごとに付ける (export しない。同じ shell の mise install に持ち越さないため)
+# MISE_USE_VERSIONS_HOST=false: upstream から直接取得する (下の「cooldown の制約」)
 
 # 更新候補の確認 (書き込みなし)
-mise lock --global --bump --dry-run --json
+MISE_CONFIG_DIR="$SRC" MISE_USE_VERSIONS_HOST=false mise lock --global --bump --dry-run --json
 # cooldown で待機中の version も含めた候補 (書き込みなし)
-mise lock --global --bump --dry-run --json --minimum-release-age 0d
+MISE_CONFIG_DIR="$SRC" MISE_USE_VERSIONS_HOST=false mise lock --global --bump --dry-run --json --minimum-release-age 0d
 
 # lock の更新 (全ツール)
-mise lock --global --bump
+MISE_CONFIG_DIR="$SRC" MISE_USE_VERSIONS_HOST=false mise lock --global --bump
 # lock の更新 (ツールを指定。名前は dry-run の name)
-mise lock --global --bump node aqua:biomejs/biome
+MISE_CONFIG_DIR="$SRC" MISE_USE_VERSIONS_HOST=false mise lock --global --bump node aqua:biomejs/biome
 
 git -C "$REPO" diff -- private_dot_config/mise/mise.lock
 bats "$REPO/tests/bats/test_mise_policy.bats"

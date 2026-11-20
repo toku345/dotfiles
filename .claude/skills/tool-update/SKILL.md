@@ -26,11 +26,11 @@ mise で管理するランタイムと CLI を、収集 → 提案 → 実行 �
 
 ## 1. 収集 (書き込みなし)
 
-1. `docs/mise.md` のとおりに `REPO`、`SRC` と環境変数 (`MISE_CONFIG_DIR`、`MISE_USE_VERSIONS_HOST=false`) を決める。以後のコマンドはすべて同じ `REPO` を使い、収集と bump のどちらにも同じ環境変数を付ける。
+1. `docs/mise.md` のとおりに `REPO`、`SRC` と環境変数 (`MISE_CONFIG_DIR`、`MISE_USE_VERSIONS_HOST=false`) を決める。以後のコマンドはすべて同じ `REPO` を使い、収集と bump の各 `mise lock` に同じ環境変数をコマンドごとに付ける (export しない)。
 2. `git -C "$REPO" rev-parse HEAD` と、`$SRC/mise.lock` の SHA-256 を控える。
-3. 通常の候補 (cooldown あり) と、cooldown を外した候補 (`--minimum-release-age 0d`) の dry-run を、それぞれ JSON で取得する。
+3. 通常の候補 (cooldown あり) と、cooldown を外した候補 (`--minimum-release-age 0d`) の dry-run を、それぞれ JSON で取得する。stdout と stderr は分けて、両方を残す。
 4. 各要素の `lockfile` が `$SRC/mise.lock` を指すことを確かめる (`~` は home に展開して比べる)。別の場所を指していたら止まる。
-5. 終了コードが 0 でない、JSON として読めない、取得の警告で一部のツールが解決できていない、のいずれかなら「候補なし」とせず、未確認として止まって報告する。
+5. 終了コードが 0 でない、JSON として読めない、stderr に WARN または ERROR の行がある、のいずれかなら「候補なし」とせず、未確認として止まって報告する (stderr の該当行を示す)。終了コードが 0 でも、取得の失敗が警告だけで済まされ、JSON が空や一部だけになることがある。
 6. 収集の後、lock の SHA-256 が変わっていないことを確かめる。
 
 ## 2. 提案 (ここで止まる)
@@ -76,7 +76,7 @@ mise で管理するランタイムと CLI を、収集 → 提案 → 実行 �
 ユーザーが merge を伝えてから進める。apply は `AGENTS.md` の「Chezmoi Operations」に従う。
 
 1. chezmoi の source (通常は main の checkout) が main で、未 commit の変更がないことを確かめてから、merge を取り込む。そうでなければ止まって相談する。
-2. 対象を `~/.config/mise/mise.lock` だけに絞り、scripts を除外した diff を示す。差分が今回の更新だけであることを確かめ、apply の承認を取って実行する。ほかの target に差分があっても apply しない。
+2. 対象を `~/.config/mise/mise.lock` だけに絞り、scripts を除外した diff を示す。差分が今回の更新だけであることを確かめ、apply の承認を取って実行する。ほかの target に差分があっても apply しない。apply の後は read-back として、同じ source を指定した `chezmoi diff ~/.config/mise/mise.lock` が何も表示しないことを確かめる。
 3. `mise install` の承認を取り、home で実行する (プロジェクトの中だと、そのプロジェクトの設定が読まれる)。apply から install までの間、更新したツールは未導入 (`mise ls --missing` に出る) になるので、間を空けない。
 4. `mise ls --missing` が何も表示しないことと、更新したツールの version が新しくなったことを確かめる。
 
