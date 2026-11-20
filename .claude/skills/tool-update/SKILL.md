@@ -51,7 +51,7 @@ mise で管理するランタイムと CLI を、収集 → 提案 → 実行 �
 
 ### a. bump
 
-1. `git fetch origin` の後、`origin/main` から worktree と branch を作る (置き場所は `git worktree list` の既存のものに合わせる)。以後の `REPO` はこの worktree の絶対パスにする。
+1. `git fetch origin` の後、`origin/main` から worktree と branch を作る (置き場所は `git worktree list` の既存のものに合わせる)。以後の `REPO` はこの worktree の絶対パスにし、`SRC` も `$REPO/private_dot_config/mise` にする (bump、lock の SHA-256 と `lockfile` の確認、差分の検査は、すべてこの worktree を対象にする)。
 2. worktree の lock の SHA-256 が、収集のときに控えた値と同じことを確かめる。違えば、worktree を使って「1. 収集」からやり直す。
 3. 選ばれたツールだけを指定して bump する (ツール名は dry-run の `name`)。cooldown を省略する更新は、ここで混ぜない。承認された省略と、「cooldown が実質効いていないもの」の更新は、別の worktree と branch で、対象ツール1つを指定して、同じ a 〜 d の手順で行う。`--minimum-release-age 0d` を付けるのは、bump の直前の通常の dry-run に承認された version が出ないときだけ。付けたかどうかを控え、PR 本文に書く。
 
@@ -63,7 +63,7 @@ mise で管理するランタイムと CLI を、収集 → 提案 → 実行 �
 - 新しい version が、提案した version と一致する。違う場合 (提案の後に新しい版が出たなど) は commit せず、提案し直して承認を取る。
 - `provenance` の行が消えていない。
 - `config.toml` に差分がない。
-- `bats tests/bats/test_mise_policy.bats` が通る。
+- `bats "$REPO/tests/bats/test_mise_policy.bats"` が通る (このテストは、自分が置かれた checkout の lock を検査する。相対パスで実行すると、cwd の checkout を検査してしまう)。
 
 ### c. commit、push、PR
 
@@ -76,9 +76,9 @@ mise で管理するランタイムと CLI を、収集 → 提案 → 実行 �
 ユーザーが merge を伝えてから進める。apply は `AGENTS.md` の「Chezmoi Operations」に従う。
 
 1. chezmoi の source (通常は main の checkout) が main で、未 commit の変更がないことを確かめてから、merge を取り込む。そうでなければ止まって相談する。
-2. 対象を `~/.config/mise/mise.lock` だけに絞り、scripts を除外した diff を示す。差分が今回の更新だけであることを確かめ、apply の承認を取って実行する。ほかの target に差分があっても apply しない。apply の後は read-back として、同じ source を指定した `chezmoi diff ~/.config/mise/mise.lock` が何も表示しないことを確かめる。
+2. 対象を `~/.config/mise/mise.lock` だけに絞り、scripts を除外した diff を示す。差分が今回の更新だけであることを確かめ、apply の承認を取って実行する。ほかの target に差分があっても apply しない。apply の後は read-back として、同じ source を指定した `chezmoi diff ~/.config/mise/mise.lock` が終了コード 0 で何も表示しないことを確かめる。
 3. `mise install` の承認を取り、home で実行する (プロジェクトの中だと、そのプロジェクトの設定が読まれる)。apply から install までの間、更新したツールは未導入 (`mise ls --missing` に出る) になるので、間を空けない。
-4. `mise ls --missing` が何も表示しないことと、更新したツールの version が新しくなったことを確かめる。
+4. `mise ls --missing` が終了コード 0 で何も表示しないことと、更新したツールの version が新しくなったことを確かめる。
 
 apply や `mise install` をユーザーが自分で実行した場合も、結果は手順 2 の read-back (配置された lock が source と一致すること) と、手順 4 と同じ方法で確かめる。
 
