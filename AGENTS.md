@@ -40,6 +40,8 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 
 どちらも PR 必須 + fail-closed が default。draft PR を先に作成しておけば全 specialist が同じ base ref に収束する。詳細: [ADR 0029](docs/adr/0029-claude-pr-review-dynamic-workflow.md) / [docs/design/claude-pr-review.md](docs/design/claude-pr-review.md)。旧 `triple-review` bash orchestrator は 2026-06 に削除済み ([ADR 0012](docs/adr/0012-triple-review-bash-script.md) は Superseded)。
 
+Cursor の入口は `.cursor/skills/pr-review`（正本）と、chezmoi 適用後の `~/.cursor/skills/pr-review`。手順の正本が Claude 版か Codex 版かは未決（#486）なので、この入口はレビューを実行しない。厚い変更の gate は上の 2 系統のまま。
+
 ## Repository Structure
 
 主要なツリー（自明なサブディレクトリは省略）:
@@ -49,6 +51,7 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
 - `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`hooks/`、`settings.local.json` は machine-local・gitignore
+- `.cursor/skills/pr-review/` は Cursor 向け pr-review の正本。source 名が `.` で始まるので chezmoi は管理しない。`dot_cursor/skills/pr-review/SKILL.md.tmpl` が正本を include し、`~/.cursor/skills/pr-review/SKILL.md` へ出す
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
 
 ### chezmoi 命名規則の project 固有用法
