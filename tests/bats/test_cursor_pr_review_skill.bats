@@ -1,26 +1,22 @@
 #!/usr/bin/env bats
 # shellcheck shell=bash
-# Cursor pr-review runs the Codex procedure. Specialist text and the shared
-# gate files are generated from the Codex sources; the chezmoi templates only
-# include those files so ~/.cursor gets real files, which skill sync requires.
+# Cursor pr-review is a pointer at the Codex sources. A second copy of the
+# procedure would fork the gate that #436 is trying to unify.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   SKILL="$REPO_ROOT/.cursor/skills/pr-review/SKILL.md"
+  TEMPLATE="$REPO_ROOT/dot_cursor/skills/pr-review/SKILL.md.tmpl"
   command -v chezmoi >/dev/null || {
     printf 'Required test dependency missing: chezmoi\n' >&2
-    return 1
-  }
-  command -v python3 >/dev/null || {
-    printf 'Required test dependency missing: python3\n' >&2
     return 1
   }
   CM_ROOT="$BATS_TEST_TMPDIR/cm"
   mkdir -p "$CM_ROOT/home" "$CM_ROOT/config" "$CM_ROOT/data" "$CM_ROOT/cache"
   : > "$CM_ROOT/config.toml"
-  export REPO_ROOT SKILL CM_ROOT
+  export REPO_ROOT SKILL TEMPLATE CM_ROOT
 }
 
 chezmoi_env() {
@@ -30,68 +26,40 @@ chezmoi_env() {
     --persistent-state "$CM_ROOT/state.boltdb" "$@"
 }
 
-@test "cursor pr-review files match the Codex sources" {
-  python3 "$REPO_ROOT/tests/cursor/render_pr_review_agents.py" --check
-}
-
-@test "cursor pr-review templates render the included file" {
-  local tmpl rel target checked=0
-  while IFS= read -r -d '' tmpl; do
-    rel="${tmpl#"$REPO_ROOT/dot_cursor/"}"
-    rel="${rel%.tmpl}"
-    target="$REPO_ROOT/.cursor/$rel"
-    [ -f "$target" ]
-    [ ! -L "$target" ]
-    chezmoi_env execute-template --file "$tmpl" > "$BATS_TEST_TMPDIR/rendered" || {
-      printf 'template failed: %s\n' "$tmpl" >&2
-      return 1
-    }
-    cmp "$target" "$BATS_TEST_TMPDIR/rendered" || {
-      printf 'render drifted: %s\n' "$tmpl" >&2
-      return 1
-    }
-    run chezmoi_env target-path "${tmpl#"$REPO_ROOT/"}"
-    [ "$status" -eq 0 ]
-    [ "$output" = "$CM_ROOT/home/.cursor/$rel" ]
-    run chezmoi_env source-path "$CM_ROOT/home/.cursor/$rel"
-    [ "$status" -eq 0 ]
-    [ "$output" = "$tmpl" ]
-    checked=$((checked + 1))
-  done < <(find "$REPO_ROOT/dot_cursor/skills/pr-review" "$REPO_ROOT/dot_cursor/agents" -type f -name '*.tmpl' -print0)
-  [ "$checked" -gt 0 ]
-}
-
-@test "cursor pr-review deploys each included file once" {
-  local tmpl rel copies checked=0
-  run chezmoi_env managed --include=files --exclude=encrypted
+@test "cursor pr-review template renders the skill" {
+  [ -f "$SKILL" ]
+  [ ! -L "$SKILL" ]
+  chezmoi_env execute-template --file "$TEMPLATE" > "$BATS_TEST_TMPDIR/rendered" || {
+    printf 'template failed to render\n' >&2
+    return 1
+  }
+  cmp "$SKILL" "$BATS_TEST_TMPDIR/rendered"
+  run chezmoi_env target-path "dot_cursor/skills/pr-review/SKILL.md.tmpl"
   [ "$status" -eq 0 ]
-  while IFS= read -r -d '' tmpl; do
-    rel="${tmpl#"$REPO_ROOT/dot_cursor/"}"
-    rel="${rel%.tmpl}"
-    copies=$(printf '%s\n' "$output" | grep -c -F -x ".cursor/${rel}" || true)
-    [ "$copies" -eq 1 ] || {
-      printf 'expected one managed .cursor/%s, found %s\n' "$rel" "$copies" >&2
-      return 1
-    }
-    checked=$((checked + 1))
-  done < <(find "$REPO_ROOT/dot_cursor/skills/pr-review" "$REPO_ROOT/dot_cursor/agents" -type f -name '*.tmpl' -print0)
-  [ "$checked" -gt 0 ]
+  [ "$output" = "$CM_ROOT/home/.cursor/skills/pr-review/SKILL.md" ]
 }
 
-@test "cursor pr-review skill launches Codex specialists through Cursor subagents" {
+@test "cursor pr-review points at Codex and does not vendor it" {
   [ "$(basename "$(dirname "$SKILL")")" = "pr-review" ]
   grep -q '^name: pr-review$' "$SKILL"
   grep -q '^disable-model-invocation: true$' "$SKILL"
+  grep -q 'private_dot_codex/skills/pr-review/SKILL.md' "$SKILL"
+  grep -q 'private_dot_codex/agents/\*\.toml' "$SKILL"
   grep -q 'subagent_type' "$SKILL"
   grep -q 'generalPurpose' "$SKILL"
-  grep -q 'Codex の `spawn_agent` は使わない。' "$SKILL"
-  grep -q '#482' "$SKILL"
-  grep -q 'blocking' "$SKILL"
-  grep -q 'validate_finding_evidence.py' "$SKILL"
+  grep -q 'どちらも読めなければ止まる' "$SKILL"
+  [ ! -e "$REPO_ROOT/.cursor/agents" ]
+  [ ! -e "$REPO_ROOT/.cursor/skills/pr-review/agents" ]
+  [ ! -e "$REPO_ROOT/.cursor/skills/pr-review/references" ]
+  [ ! -e "$REPO_ROOT/.cursor/skills/pr-review/scripts" ]
+  [ ! -e "$REPO_ROOT/dot_cursor/agents" ]
+  [ ! -e "$REPO_ROOT/tests/cursor" ]
   if grep -q 'routing-flags' "$SKILL"; then
-    printf 'Cursor pr-review must not use the Claude routing floor\n' >&2
+    printf 'Cursor entry must not grow a Claude routing copy\n' >&2
     return 1
   fi
+  # The Codex procedure stays in the Codex skill. This file only points at it.
+  [ "$(wc -l < "$SKILL")" -le 40 ]
 }
 
 @test "cursor pr-review is not on a Claude or Codex skill path" {
