@@ -194,6 +194,23 @@ name = "second"
         second, _, _ = self.update(first)
         self.assertEqual(first, second)
 
+    def test_whimsy_pin_inserts_before_an_installer_block(self):
+        block = (
+            "# >>> fugu:model_providers.sakana >>>\n"
+            "[model_providers.sakana]\n"
+            'name = "Sakana API"\n'
+            "# <<< fugu:model_providers.sakana <<<\n"
+        )
+        output, data, warnings = self.update(
+            "[tui]\nstatus_line_use_colors = false\n\n" + block
+        )
+        self.assertIs(data["tui"]["whimsy"], False)
+        self.assertIs(data["tui"]["status_line_use_colors"], True)
+        self.assertEqual(merge.marker_blocks(output), [block])
+        self.assertLess(output.index("whimsy = false"), output.index(block))
+        self.assertFalse(warnings)
+        self.assertEqual(self.update(output)[0], output)
+
     def test_whimsy_pin_overrides_live_true_without_touching_animations(self):
         output, data, warnings = self.update("[tui]\nwhimsy = true\n")
         self.assertIs(data["tui"]["whimsy"], False)

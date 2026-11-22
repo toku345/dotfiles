@@ -61,7 +61,6 @@ status_line = [
   "run-state",
   "task-progress",
 ]
-whimsy = true
 status_line_use_colors = false
 
 # >>> fugu:model_providers.sakana >>>
