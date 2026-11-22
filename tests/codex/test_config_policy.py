@@ -206,6 +206,20 @@ name = "second"
         self.assertFalse(warnings)
         self.assertEqual(self.update(output)[0], output)
 
+    def test_whimsy_pin_leaves_an_existing_starfield_value(self):
+        source = (
+            "[tui]\nwhimsy = true\nanimations = true\n\n"
+            "[tui.effects]\nstarfield = true\nshimmer = false\nprogress = true\n"
+        )
+        output, data, warnings = self.update(source)
+        self.assertIs(data["tui"]["whimsy"], False)
+        self.assertIs(data["tui"]["effects"]["starfield"], True)
+        self.assertIs(data["tui"]["effects"]["shimmer"], False)
+        self.assertIs(data["tui"]["effects"]["progress"], True)
+        self.assertIs(data["tui"]["animations"], True)
+        self.assertFalse(warnings)
+        self.assertEqual(self.update(output)[0], output)
+
     def test_structure_conflicts(self):
         for source in ('features = false', '[personality]\ncustom = true', '[[features]]\napps = false'):
             with self.subTest(source=source), self.assertRaises(PolicyError):

@@ -446,7 +446,7 @@ status line の項目ごとの色表示は `status_line_use_colors = true` で�
 
 ## composer の sparkle
 
-プロンプト入力欄の装飾的な星は出さない。`[pin.tui]` の `whimsy = false` がそれにあたる。Codex CLI 0.162.0 ではこのキーは `tui.effects.starfield` の別名で、composer の starfield だけを止める。spinner と shimmer は別の effect なので、`tui.animations` は変えない。
+プロンプト入力欄の装飾的な星は出さない。`[pin.tui]` の `whimsy = false` がそれにあたる。Codex CLI 0.162.0 ではこのキーは `tui.effects.starfield` の別名で、同じ設定に canonical な値があると別名は捨てられる。spinner (`tui.effects.progress`) と shimmer は別項目で、`tui.animations` は変えない。
 
 ## review profile
 
