@@ -444,6 +444,10 @@ status line の項目ごとの色表示は `status_line_use_colors = true` で�
 
 `used-tokens` は長時間セッションの診断には有用だが、常時表示ではノイズになりやすいため `pin` には入れない。必要な時は `/status` または `/statusline` で確認する。
 
+## composer の sparkle
+
+プロンプト入力欄の装飾的な星は出さない。`[pin.tui]` の `whimsy = false` がそれにあたる。Codex CLI 0.162.0 ではこのキーは `tui.effects.starfield` の別名で、composer の starfield だけを止める。spinner と shimmer は別の effect なので、`tui.animations` は変えない。
+
 ## review profile
 
 レビュー用途では、直接 chezmoi 管理する独立 profile でモデルと reasoning effort を選ぶ。通常レビューは GPT-6.2 Sol、複雑なレビューと監査は GPT-6.2 Astra を使う。

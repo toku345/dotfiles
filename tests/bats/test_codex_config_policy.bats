@@ -61,6 +61,7 @@ status_line = [
   "run-state",
   "task-progress",
 ]
+whimsy = true
 status_line_use_colors = false
 
 # >>> fugu:model_providers.sakana >>>
@@ -98,6 +99,8 @@ assert data["plan_mode_reasoning_effort"] == "xhigh"
 ' "$OUT"
   "$CODEX_CONFIG_TEST_PYTHON" -c 'import sys, tomllib; d = tomllib.load(open(sys.argv[1], "rb")); assert d["agents"]["enabled"] is True; assert "multi_agent" not in d["features"]' "$OUT"
   grep -qxF 'network_access = false' "$OUT"
+  grep -qxF 'whimsy = false' "$OUT"
+  run ! grep -q 'animations' "$OUT"
   toml_valid "$OUT"
 }
 
@@ -107,6 +110,8 @@ assert data["plan_mode_reasoning_effort"] == "xhigh"
   grep -qxF 'sandbox_mode = "workspace-write"' "$OUT"
   grep -qxF 'network_access = false' "$OUT"
   grep -qxF 'status_line_use_colors = true' "$OUT"
+  grep -qxF 'whimsy = false' "$OUT"
+  run ! grep -q 'animations' "$OUT"
   grep -qxF 'enabled = true' "$OUT"
 
   grep -qxF 'service_tier = "fast"' "$OUT"

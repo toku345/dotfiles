@@ -194,6 +194,18 @@ name = "second"
         second, _, _ = self.update(first)
         self.assertEqual(first, second)
 
+    def test_whimsy_pin_overrides_live_true_without_touching_animations(self):
+        output, data, warnings = self.update("[tui]\nwhimsy = true\n")
+        self.assertIs(data["tui"]["whimsy"], False)
+        self.assertNotIn("animations", data["tui"])
+        self.assertEqual(
+            data["tui"]["status_line"],
+            self.policy["pin"][("tui", "status_line")],
+        )
+        self.assertIs(data["tui"]["status_line_use_colors"], True)
+        self.assertFalse(warnings)
+        self.assertEqual(self.update(output)[0], output)
+
     def test_structure_conflicts(self):
         for source in ('features = false', '[personality]\ncustom = true', '[[features]]\napps = false'):
             with self.subTest(source=source), self.assertRaises(PolicyError):
