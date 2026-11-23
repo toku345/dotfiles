@@ -90,9 +90,10 @@ _INSTALLER_OPEN = re.compile(r"^\s*# >>> .+ >>>\s*$")
 
 
 def _detach_installer_suffix(table: Any) -> list[tuple[Any, Any]] | None:
-    """A new key is appended after trailing comments tomlkit stored on the table.
+    """Return trailing body items when they contain an installer opener.
 
-    An installer opener in that tail would then sit inside the protected block.
+    tomlkit appends a new key after comments stored at the end of a table.
+    An opener in that tail places the new key inside the protected block.
     """
     import tomlkit.items
 
