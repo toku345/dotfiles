@@ -86,6 +86,40 @@ def marker_blocks(text: str) -> list[str]:
     return blocks
 
 
+_INSTALLER_OPEN = re.compile(r"^\s*# >>> .+ >>>\s*$")
+
+
+def _detach_installer_suffix(table: Any) -> list[tuple[Any, Any]] | None:
+    """A new key is appended after trailing comments tomlkit stored on the table.
+
+    An installer opener in that tail would then sit inside the protected block.
+    """
+    import tomlkit.items
+
+    if not isinstance(table, tomlkit.items.Table):
+        return None
+    body = table.value.body
+    start = len(body)
+    while start and body[start - 1][0] is None:
+        start -= 1
+    suffix = body[start:]
+    if not any(
+        isinstance(item, tomlkit.items.Comment) and _INSTALLER_OPEN.match(item.as_string())
+        for _, item in suffix
+    ):
+        return None
+    del body[start:]
+    return suffix
+
+
+def _assign(table: MutableMapping, key: str, value: Any) -> None:
+    suffix = _detach_installer_suffix(table) if key not in table else None
+    table[key] = value
+    if suffix is not None:
+        for _, item in suffix:
+            table.value.append(None, item)
+
+
 def set_value(document: MutableMapping, path: tuple[str, ...], value: Any) -> None:
     import tomlkit
 
@@ -97,12 +131,14 @@ def set_value(document: MutableMapping, path: tuple[str, ...], value: Any) -> No
             if isinstance(target, tomlkit.items.Table) and target.is_super_table():
                 target.add(tomlkit.key(list(path[index:])), copy.deepcopy(value))
                 return
-            target[key] = (
+            _assign(
+                target,
+                key,
                 tomlkit.inline_table() if isinstance(target, tomlkit.items.InlineTable)
-                else tomlkit.table()
+                else tomlkit.table(),
             )
         target = target[key]
-    target[path[-1]] = copy.deepcopy(value)
+    _assign(target, path[-1], copy.deepcopy(value))
 
 
 def root_values_prefix(document: MutableMapping, policy: dict) -> str:
