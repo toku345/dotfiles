@@ -31,7 +31,6 @@ scripts
 .config/ghostty/**
 .config/herdr-app
 .config/herdr-app/**
-.local/bin/herdr-keys
 .config/google_ime
 .config/google_ime/**
 .local/bin/ghostty-theme
