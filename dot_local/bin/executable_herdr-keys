@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+
+import argparse
+import difflib
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from urllib.request import urlopen
+
+
+DEFAULTS = "https://raw.githubusercontent.com/herdrdev/herdr-app/v{}/defaults/keys.macos.json"
+PATCH_GROUPS = (
+    {"cmd-w": ("tab.close", None)},
+    {"cmd-n": ("space.new", None), "cmd-shift-n": (None, "space.new")},
+)
+
+
+def run_herdr(*args):
+    return subprocess.run(
+        ["herdr-app", *args], capture_output=True, text=True, timeout=10
+    )
+
+
+def installed_version():
+    result = run_herdr("--version")
+    match = re.fullmatch(r"herdr-app ([0-9]+\.[0-9]+\.[0-9]+)", result.stdout.strip())
+    if result.returncode or not match:
+        raise ValueError("could not identify a Herdr App release from herdr-app --version")
+    return match[1]
+
+
+def app_directory():
+    root = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
+    override = os.environ.get("HERDR_APP_HOME")
+    return (Path(override) if override else Path(root) / "herdr-app").absolute()
+
+
+def snapshot(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    with os.fdopen(fd, "rb") as file:
+        info = os.fstat(file.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"{path} must be a regular file")
+        return info.st_dev, info.st_ino, stat.S_IMODE(info.st_mode), file.read()
+
+
+def parse_keymap(data, label):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ValueError(f"{value} is not valid JSON")
+
+    try:
+        keymap = json.loads(
+            data, object_pairs_hook=unique_object, parse_constant=invalid_constant
+        )
+        if not isinstance(keymap, dict) or any(
+            not isinstance(section, dict)
+            or any(not isinstance(action, (str, dict)) for action in section.values())
+            for section in keymap.values()
+        ):
+            raise ValueError("expected keymap sections containing string or object bindings")
+        return keymap
+    except ValueError as error:
+        raise ValueError(f"{label}: {error}") from error
+
+
+def patched_defaults(version):
+    with urlopen(DEFAULTS.format(version), timeout=15) as response:
+        defaults = parse_keymap(response.read(), f"Herdr {version} defaults")
+    global_keys = defaults.get("global", {})
+    if "space.new" not in (global_keys.get("cmd-n"), global_keys.get("cmd-shift-n")):
+        raise ValueError("the release no longer binds space.new to Cmd+N or Cmd+Shift+N")
+
+    for group in PATCH_GROUPS:
+        for key, (original, patched) in group.items():
+            if global_keys.get(key) not in (None, original, patched) or any(
+                key in bindings for section, bindings in defaults.items() if section != "global"
+            ):
+                raise ValueError(f"upstream binding for {key} changed; review the patch")
+            set_binding(defaults, "global", key, patched)
+    return defaults
+
+
+def set_binding(keymap, section, key, action):
+    if action is None:
+        if section in keymap:
+            keymap[section].pop(key, None)
+            if not keymap[section]:
+                del keymap[section]
+    else:
+        keymap.setdefault(section, {})[key] = action
+
+
+def managed_key(key):
+    return any(key in group for group in PATCH_GROUPS)
+
+
+def choice(prompt):
+    while True:
+        answer = input(f"{prompt} [k]eep current / [n]ew / [q]uit (k): ").strip().lower()
+        if answer in ("", "k", "n", "q"):
+            return answer or "k"
+
+
+def resolve_changes(current, candidate):
+    for group in PATCH_GROUPS:
+        if any(
+            key in bindings and (section != "global" or bindings[key] not in values)
+            for section, bindings in current.items()
+            for key, values in group.items()
+        ):
+            answer = choice(f"Custom binding found in {', '.join(group)}.")
+            if answer == "q":
+                return False
+            if answer == "k":
+                for section in sorted(current.keys() | candidate.keys()):
+                    for key in group:
+                        set_binding(candidate, section, key, current.get(section, {}).get(key))
+
+    for section in sorted(current.keys() | candidate.keys()):
+        before, after = current.get(section, {}), candidate.get(section, {})
+        for key in sorted(before.keys() | after.keys()):
+            old, new = before.get(key), after.get(key)
+            old_json, new_json = json.dumps(old, sort_keys=True), json.dumps(new, sort_keys=True)
+            if managed_key(key) or old_json == new_json:
+                continue
+            answer = choice(f"{json.dumps(section + '/' + key)}: {old_json} → {new_json}.")
+            if answer == "q":
+                return False
+            if answer == "k":
+                set_binding(candidate, section, key, old)
+    return True
+
+
+def show_diff(current, candidate):
+    old = json.dumps(current, indent=2, sort_keys=True)
+    new = json.dumps(candidate, indent=2, sort_keys=True)
+    if old == new:
+        print("No keymap changes.")
+        return False
+    lines = difflib.unified_diff(
+        old.splitlines(), new.splitlines(),
+        fromfile="current", tofile="candidate", lineterm="",
+    )
+    print("\n".join(lines))
+    return True
+
+
+def stage_file(path, data, mode, prefix):
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=prefix, delete=False) as file:
+        staged = Path(file.name)
+        try:
+            file.write(data)
+            file.flush()
+            os.fchmod(file.fileno(), mode)
+            os.fsync(file.fileno())
+        except OSError:
+            staged.unlink()
+            raise
+    return staged
+
+
+def apply_keymap(path, before, candidate, version):
+    payload = (json.dumps(candidate, indent=2) + "\n").encode("utf-8")
+    if installed_version() != version or snapshot(path) != before:
+        raise ValueError("Herdr or keys.json changed during review; run herdr-keys again")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = before[2] if before else 0o644
+    staged = stage_file(path, payload, mode, ".herdr-keys-")
+    try:
+        if before:
+            backup = stage_file(path, before[3], mode, "keys.json.backup-")
+            if snapshot(path) != before:
+                backup.unlink()
+                raise ValueError("keys.json changed during review; run herdr-keys again")
+            print(f"Backup: {backup}", flush=True)
+            os.replace(staged, path)
+        else:
+            # An app starting during review can create the file first.
+            os.link(staged, path)
+    finally:
+        staged.unlink(missing_ok=True)
+    print(f"Wrote {path}.")
+
+
+def check_reload(path):
+    status = run_herdr("status")
+    if not status.returncode:
+        time.sleep(1)
+        status = run_herdr("status")
+    error_file = path.with_name("keys.error")
+    if error_file.exists():
+        print(f"Herdr reported a keymap error; see {error_file}.", file=sys.stderr)
+        return 1
+    if status.returncode:
+        print("Herdr status unavailable; keymap reload is unverified.")
+    else:
+        print("No keys.error reported. Verify the shortcuts in a disposable Herdr space.")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Compare the Herdr keymap with patched release defaults.")
+    parser.add_argument("--apply", action="store_true", help="review and apply changes interactively")
+    args = parser.parse_args()
+    try:
+        version = installed_version()
+        path = app_directory() / "keys.json"
+        before = snapshot(path)
+        current = parse_keymap(before[3], str(path)) if before else {}
+        candidate = patched_defaults(version)
+        print(f"Herdr {version} keymap: {path}")
+        if not show_diff(current, candidate) or not args.apply:
+            return 0
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            print("Preview only: --apply requires an interactive terminal.")
+            return 0
+        if before and not resolve_changes(current, candidate):
+            return 0
+        print("Final diff:")
+        if not show_diff(current, candidate):
+            return 0
+        if input("Apply this keymap? [y/N] ").strip().lower() != "y":
+            return 0
+        apply_keymap(path, before, candidate, version)
+        return check_reload(path)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"herdr-keys: {error}", file=sys.stderr)
+        return 1
+    except (EOFError, KeyboardInterrupt):
+        print("\nherdr-keys: cancelled", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())
