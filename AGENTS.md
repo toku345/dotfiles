@@ -9,7 +9,10 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 
 ## Repository Language
 
-- Write Git commit messages, Pull Request titles and descriptions, and Issue titles and descriptions in English.
+- リポジトリの文書と、新規 PR・Issue のタイトルと本文は、日本語を基本とする。
+- コミットメッセージは英語を基本とする。
+- クローズ済みの PR・Issue と、既存のコミット履歴は、英語のまま扱う。
+- 進行中の PR・Issue で判断に必要な説明は、次に手を入れるときに日本語で追記する。
 
 ## Common Commands
 
