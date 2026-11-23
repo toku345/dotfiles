@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import difflib
 import json
 import os
 from pathlib import Path
@@ -19,6 +18,7 @@ PATCH_GROUPS = (
     {"cmd-w": ("tab.close", None)},
     {"cmd-n": ("space.new", None), "cmd-shift-n": (None, "space.new")},
 )
+PATCHED_KEYS = {key for group in PATCH_GROUPS for key in group}
 
 
 def run_herdr(*args):
@@ -107,10 +107,6 @@ def set_binding(keymap, section, key, action):
         keymap.setdefault(section, {})[key] = action
 
 
-def managed_key(key):
-    return any(key in group for group in PATCH_GROUPS)
-
-
 def choice(prompt):
     while True:
         answer = input(f"{prompt} [k]eep current / [n]ew / [q]uit (k): ").strip().lower()
@@ -118,48 +114,48 @@ def choice(prompt):
             return answer or "k"
 
 
-def resolve_changes(current, candidate):
+def keymap_changes(current, candidate):
+    for section in sorted(current.keys() | candidate.keys()):
+        before, after = current.get(section, {}), candidate.get(section, {})
+        for key in sorted(before.keys() | after.keys()):
+            old, new = before.get(key), after.get(key)
+            if json.dumps(old, sort_keys=True) != json.dumps(new, sort_keys=True):
+                yield section, key, old, new
+
+
+def describe_change(section, key, before, after):
+    return f"{json.dumps(section + '/' + key)}: {json.dumps(before)} → {json.dumps(after)}"
+
+
+def resolve_changes(candidate, changes):
     for group in PATCH_GROUPS:
+        related = [change for change in changes if change[1] in group]
         if any(
-            key in bindings and (section != "global" or bindings[key] not in values)
-            for section, bindings in current.items()
-            for key, values in group.items()
+            old is not None and (section != "global" or old not in group[key])
+            for section, key, old, _ in related
         ):
             answer = choice(f"Custom binding found in {', '.join(group)}.")
             if answer == "q":
                 return False
             if answer == "k":
-                for section in sorted(current.keys() | candidate.keys()):
-                    for key in group:
-                        set_binding(candidate, section, key, current.get(section, {}).get(key))
-
-    for section in sorted(current.keys() | candidate.keys()):
-        before, after = current.get(section, {}), candidate.get(section, {})
-        for key in sorted(before.keys() | after.keys()):
-            old, new = before.get(key), after.get(key)
-            old_json, new_json = json.dumps(old, sort_keys=True), json.dumps(new, sort_keys=True)
-            if managed_key(key) or old_json == new_json:
-                continue
-            answer = choice(f"{json.dumps(section + '/' + key)}: {old_json} → {new_json}.")
-            if answer == "q":
-                return False
-            if answer == "k":
-                set_binding(candidate, section, key, old)
+                for section, key, old, _ in related:
+                    set_binding(candidate, section, key, old)
+    for section, key, old, new in changes:
+        if key in PATCHED_KEYS:
+            continue
+        answer = choice(describe_change(section, key, old, new))
+        if answer == "q":
+            return False
+        if answer == "k":
+            set_binding(candidate, section, key, old)
     return True
 
 
-def show_diff(current, candidate):
-    old = json.dumps(current, indent=2, sort_keys=True)
-    new = json.dumps(candidate, indent=2, sort_keys=True)
-    if old == new:
+def show_diff(changes):
+    for change in changes:
+        print(describe_change(*change))
+    if not changes:
         print("No keymap changes.")
-        return False
-    lines = difflib.unified_diff(
-        old.splitlines(), new.splitlines(),
-        fromfile="current", tofile="candidate", lineterm="",
-    )
-    print("\n".join(lines))
-    return True
 
 
 def stage_file(path, data, mode, prefix):
@@ -200,10 +196,8 @@ def apply_keymap(path, before, candidate, version):
 
 
 def check_reload(path):
+    time.sleep(1)
     status = run_herdr("status")
-    if not status.returncode:
-        time.sleep(1)
-        status = run_herdr("status")
     error_file = path.with_name("keys.error")
     if error_file.exists():
         print(f"Herdr reported a keymap error; see {error_file}.", file=sys.stderr)
@@ -225,18 +219,20 @@ def main():
         before = snapshot(path)
         current = parse_keymap(before[3], str(path)) if before else {}
         candidate = patched_defaults(version)
+        changes = list(keymap_changes(current, candidate))
         print(f"Herdr {version} keymap: {path}")
-        if not show_diff(current, candidate) or not args.apply:
+        show_diff(changes)
+        if not changes or not args.apply:
             return 0
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             print("Preview only: --apply requires an interactive terminal.")
             return 0
-        if before and not resolve_changes(current, candidate):
+        if before and not resolve_changes(candidate, changes):
             return 0
+        changes = list(keymap_changes(current, candidate))
         print("Final diff:")
-        if not show_diff(current, candidate):
-            return 0
-        if input("Apply this keymap? [y/N] ").strip().lower() != "y":
+        show_diff(changes)
+        if not changes or input("Apply this keymap? [y/N] ").strip().lower() != "y":
             return 0
         apply_keymap(path, before, candidate, version)
         return check_reload(path)

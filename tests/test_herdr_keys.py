@@ -69,8 +69,9 @@ class HerdrKeysTest(unittest.TestCase):
     def test_custom_space_binding_keeps_both_keys_when_declined(self):
         current = {"global": {"cmd-n": "space.new", "cmd-shift-n": "mod.open:custom"}}
         candidate = {"global": {"cmd-shift-n": "space.new"}}
+        changes = list(MODULE["keymap_changes"](current, candidate))
         with patch("builtins.input", return_value="k"):
-            self.assertTrue(MODULE["resolve_changes"](current, candidate))
+            self.assertTrue(MODULE["resolve_changes"](candidate, changes))
         self.assertEqual(candidate, current)
 
     def test_absent_file_is_created_only_after_confirmation(self):
