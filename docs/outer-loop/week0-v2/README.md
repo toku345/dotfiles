@@ -184,7 +184,7 @@ Information-boundary incidents follow the originating environment's security pro
 
 ## Work boundary and aggregation
 
-Raw Work artifacts, review, identifiers, code, architecture, conventions, Skills/prompts, paths, logs, tickets, exact timing, and identifiable metric combinations stay on Work. `agmsg` is not an automatic cross-machine or cross-environment transport. agmsg was removed from this repository in #459 and is not a current dependency.
+Raw Work artifacts, review, identifiers, code, architecture, conventions, Skills/prompts, paths, logs, tickets, exact timing, and identifiable metric combinations stay on Work. `agmsg` is not an automatic cross-machine or cross-environment transport.
 
 After both Work tasks terminate, use exactly one mode defined by [policy.md](policy.md#information-boundary):
 

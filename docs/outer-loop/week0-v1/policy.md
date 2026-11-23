@@ -149,7 +149,7 @@ At terminal disposition, full-burden attention is `lower` at no more than 90% of
 
 ## Information boundary
 
-Private and Work run on separate machines with no shared pilot-state store. Raw Work artifacts and review MUST stay on Work. Work architecture, code, diffs, repository paths, internal conventions, internal Skills/prompts, logs, tickets, exact timestamps, task order, raw measurements, and identifiable combinations MUST NOT move to Private. `agmsg` MUST NOT automate cross-boundary transfer. agmsg was removed from this repository in #459 and is not a current dependency.
+Private and Work run on separate machines with no shared pilot-state store. Raw Work artifacts and review MUST stay on Work. Work architecture, code, diffs, repository paths, internal conventions, internal Skills/prompts, logs, tickets, exact timestamps, task order, raw measurements, and identifiable combinations MUST NOT move to Private. `agmsg` MUST NOT automate cross-boundary transfer.
 
 Only these human-reviewed run-derived artifact types MAY cross through a company-permitted path:
 
