@@ -38,11 +38,6 @@ scripts
 .local/bin/ghostty-theme-preview
 {{ end }}
 
-# Initialize the keymap only when no directory entry exists at the target.
-{{ if and (eq .chezmoi.os "darwin") (lstat (joinPath .chezmoi.destDir ".config/herdr-app/keys.json")) }}
-.config/herdr-app/keys.json
-{{ end }}
-
 # macOS: exclude Linux-only bash configs
 {{ if ne .chezmoi.os "linux" }}
 .bashrc

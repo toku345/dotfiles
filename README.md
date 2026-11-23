@@ -164,16 +164,15 @@ License 2.0).
 
 ### Herdr App shortcuts (macOS)
 
-The initial `~/.config/herdr-app/keys.json` is based on the [Herdr App
-0.1.16 macOS keymap](https://github.com/herdrdev/herdr-app/blob/v0.1.16/defaults/keys.macos.json)
-(Apache License 2.0). It removes Cmd+W and moves New Space from Cmd+N to
-Cmd+Shift+N. Use File → Close Tab to close a tab.
+After installing Herdr App, run `herdr-keys --apply` (Python 3.8+ required)
+to remove Cmd+W and move New Space from Cmd+N to Cmd+Shift+N. Use File →
+Close Tab to close a tab. The command downloads the macOS defaults for the
+installed release and lets you review changes before it writes
+`~/.config/herdr-app/keys.json`. Chezmoi installs the command.
 
-Chezmoi seeds this file only when it is absent. Herdr keeps customized
-keymaps across upgrades. When What's New opens, run `herdr-keys` (Python 3.8+
-required) to compare your keymap with the patched defaults for the
-installed Herdr release. Run `herdr-keys --apply` to choose which changes
-to keep and review the final diff before writing.
+Herdr keeps customized keymaps across upgrades. When What's New opens,
+run `herdr-keys` to preview changes and `herdr-keys --apply` to choose
+which changes to take.
 
 After applying, check `herdr-app status` and try Cmd+W, Cmd+N and
 Cmd+Shift+N in a disposable space. To restore a previous keymap, copy the
