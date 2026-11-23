@@ -27,7 +27,6 @@ class HerdrKeysTest(unittest.TestCase):
             patch.object(output, "isatty", return_value=interactive),
             patch("sys.stdin.isatty", return_value=interactive),
             patch("builtins.input", side_effect=answers),
-            patch.dict(MODULE, {"check_reload": lambda path: 0}),
             patch.dict(MODULE, {"urlopen": fetch}),
         ):
             code = MODULE["main"]()
@@ -107,13 +106,14 @@ class HerdrKeysTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(path.read_text())["global"]["cmd-t"], "tab.new")
 
-    def test_same_keymap_does_not_rewrite_formatting(self):
+    def test_same_keymap_does_not_rewrite_formatting_or_object_order(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / "keys.json"
-            original = '{"global":{"cmd-shift-n":"space.new","cmd-t":"tab.new"}}'
+            original = '{"global":{"cmd-t":{"args":{},"command":"tab.new"},"cmd-shift-n":"space.new"}}'
             path.write_text(original)
-            code, output = self.run_command(root, apply=True, interactive=True)
+            defaults = {"global": {**DEFAULTS["global"], "cmd-t": {"command": "tab.new", "args": {}}}}
+            code, output = self.run_command(root, apply=True, interactive=True, defaults=defaults)
             self.assertEqual(code, 0)
             self.assertIn("No keymap changes.", output)
             self.assertEqual(path.read_text(), original)
@@ -131,15 +131,15 @@ class HerdrKeysTest(unittest.TestCase):
             self.assertEqual(path.read_text(), '{"global": {}}')
             self.assertFalse(list(path.parent.glob("keys.json.backup-*")))
 
-    def test_herdr_keymap_error_is_reported(self):
+    def test_apply_reports_write_without_inferring_reload_from_old_error(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "keys.json"
-            path.with_name("keys.error").write_text("invalid binding")
-            output = io.StringIO()
-            with (
-                patch.dict(MODULE, {"run_herdr": Mock(return_value=Mock(returncode=0))}),
-                patch.object(MODULE["time"], "sleep"),
-                patch("sys.stderr", output),
-            ):
-                self.assertEqual(MODULE["check_reload"](path), 1)
-            self.assertIn("keys.error", output.getvalue())
+            root = Path(directory)
+            error = root / "keys.error"
+            error.write_text("older invalid binding")
+            with patch("subprocess.run", side_effect=AssertionError("unexpected status probe")):
+                code, output = self.run_command(root, apply=True, interactive=True, answers=["y"])
+            self.assertEqual(code, 0)
+            self.assertTrue((root / "keys.json").exists())
+            self.assertEqual(error.read_text(), "older invalid binding")
+            self.assertIn("Wrote ", output)
+            self.assertIn("Check the reload", output)

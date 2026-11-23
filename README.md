@@ -174,8 +174,9 @@ Herdr keeps customized keymaps across upgrades. When What's New opens,
 run `herdr-keys` to preview changes and `herdr-keys --apply` to choose
 which changes to take.
 
-After applying, check `herdr-app status` and try Cmd+W, Cmd+N and
-Cmd+Shift+N in a disposable space. To restore a previous keymap, copy the
+After writing the file, confirm the reload with `herdr-app status` and
+try Cmd+W, Cmd+N and Cmd+Shift+N in a disposable space. Herdr reports
+keymap errors in `keys.error`. To restore a previous keymap, copy the
 backup printed by the command over the target path with `cp -p`.
 
 ### Starship
