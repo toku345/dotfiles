@@ -9,7 +9,10 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 
 ## Repository Language
 
-- Write Git commit messages, Pull Request titles and descriptions, and Issue titles and descriptions in English.
+- リポジトリの文書と、新規 PR・Issue のタイトルと本文は、日本語を基本とする。
+- コミットメッセージは日本語を基本とする。Conventional Commits の type prefix だけは英語のままにする。例: `feat:`、`fix:`、`chore:`。
+- クローズ済みの PR・Issue と、既存のコミット履歴は、英語のまま扱う。
+- 進行中の PR・Issue で判断に必要な説明は、次に手を入れるときに日本語で追記する。
 
 ## Common Commands
 
@@ -40,6 +43,8 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 
 どちらも PR 必須 + fail-closed が default。draft PR を先に作成しておけば全 specialist が同じ base ref に収束する。詳細: [ADR 0029](docs/adr/0029-claude-pr-review-dynamic-workflow.md) / [docs/design/claude-pr-review.md](docs/design/claude-pr-review.md)。旧 `triple-review` bash orchestrator は 2026-06 に削除済み ([ADR 0012](docs/adr/0012-triple-review-bash-script.md) は Superseded)。
 
+Cursor の `/pr-review` は `.cursor/skills/pr-review/SKILL.md` の薄い入口。手順と specialist は Codex の正本をその場で読む。写しは置かない。`chezmoi apply` で `~/.cursor/skills/pr-review/SKILL.md` になる。他リポジトリの cloud agent は Codex のファイルを読めないので、そこでは実行せず止まる。共通化は #436、検出差は #482。厚い変更の gate は、Codex と Claude では上の 2 系統のまま。
+
 ## Repository Structure
 
 主要なツリー（自明なサブディレクトリは省略）:
@@ -49,6 +54,7 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
 - `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`hooks/`、`settings.local.json` は machine-local・gitignore
+- `.cursor/skills/pr-review/SKILL.md` は Cursor 向け pr-review の入口。source 名が `.` で始まるので chezmoi は管理しない。`dot_cursor/skills/pr-review/SKILL.md.tmpl` がそれを include し、`~/.cursor/skills/pr-review/SKILL.md` へ出す
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
 
 ### chezmoi 命名規則の project 固有用法
