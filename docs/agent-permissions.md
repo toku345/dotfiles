@@ -57,9 +57,9 @@ verifier はこれらと、末尾のワイルドカードの別表記 (` *`) の
 | Claude `allowLocalBinding: true` | ローカル開発サーバー。必要な実行経路と OS 差は未検証 |
 | Claude `enableWeakerNestedSandbox: true` | nested sandbox の互換性。必要な環境と保護への影響は未検証 |
 | Claude `allowUnsandboxedCommands: true` | sandbox で動かないツールの retry。allow に一致する retry は承認なしで実行される (#443 で実測)。読み取り系 `gh` の allow はこの retry に依存する。repo のコードを実行しうる `npm test` / `cargo test` / `git fetch` などの allow は削除した (上記) |
-| Claude の追加 write 領域 | `/tmp`、Codex plugin data、agmsg の db / teams / run、SSH known_hosts。各用途と最小範囲を再確認する |
+| Claude の追加 write 領域 | `/tmp`、Codex plugin data、SSH known_hosts。各用途と最小範囲を再確認する |
 | Claude の追加 read 領域 | SSH config / config.local / known_hosts、OrbStack SSH config。秘密鍵の許可とは区別し、deny と併せて必要性を確認する |
-| Codex の追加 `writable_roots` | machine-local の free 設定。調査端末は agmsg の db / teams / run。端末ごとに再確認する |
+| Codex の追加 `writable_roots` | machine-local の free 設定。端末ごとに再確認する |
 
 Claude の credential 系 `Read` / `Edit` deny は維持する。Codex の workspace 外への書き込み制限は、機密ファイルの読み取り拒否と同じではない。Codex の秘密情報読み取り保護の設計は未解決事項として残す。Claude の Bash sandbox は file tools・MCP server・hook の隔離を保証しない。
 

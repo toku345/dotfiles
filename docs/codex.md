@@ -127,7 +127,6 @@ fast/service tier は [#366](https://github.com/toku345/dotfiles/issues/366)、a
 - `private_dot_codex-fugu/modify_private_config.toml` -> `~/.codex-fugu/config.toml` の per-key 更新（opt-in）
 - `private_dot_codex-fugu/symlink_AGENTS.md` / `symlink_agents` / `rules/symlink_managed.rules` -> `~/.codex` への symlink 共有（opt-in）
 - `.chezmoiscripts/run_before_check-codex-fugu-static-conflicts.sh` -> 既存 real target の置換防止（opt-in）
-- `.chezmoiscripts/run_after_setup-agmsg.sh`
 
 ## 管理しないもの
 
@@ -353,24 +352,6 @@ CIのtemplate検証はincludeの解決・構文、Bats（`tests/bats/test_claude
 - co-dev単独：実装前の1問と補足後に着手合意を扱い、回答だけで着手しない。
 - 併用：説明中の質問にクイズを追加せず、実装直前だけ1問を出す。正解だけで着手せず、承認後の同じ範囲の追加説明では停止点を繰り返さない。重要な方針変更では再合意し、引き渡し前にはクイズを出さない。
 - Codexの明示起動設定とClaude Codeの呼び出し・配置を別々に確認する。片方の成功をもう片方の動作保証にしない。
-
-## agmsg writable roots
-
-agmsg installer は Codex bridge / monitor beta 用に、`~/.codex/config.toml`
-の `[sandbox_workspace_write].writable_roots` へ以下の絶対パスを追加する:
-
-- `~/.agents/skills/agmsg/db`
-- `~/.agents/skills/agmsg/teams`
-- `~/.agents/skills/agmsg/run`
-
-この repo では Codex monitor beta を通常運用の対象外とし、Codex delivery
-mode は `off` で使うが、agmsg runtime state の書き込み先として同じ
-3ディレクトリを許可する。これらは
-`free` キーとして扱い、installer-managed local entry のまま live config に保持する。ポリシー変更時も残る。
-
-`.chezmoiscripts/run_after_setup-agmsg.sh` は install/update 前後の
-`~/.codex/config.toml` diff を確認し、この3ディレクトリの writable roots 追加
-以外の変更が入った場合は fail loud する。
 
 ## cc-session-finder CLI
 
