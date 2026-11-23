@@ -248,8 +248,6 @@ class RootInsertionTests(unittest.TestCase):
 
 
 class MissingPinTests(unittest.TestCase):
-    """Apply still succeeds when a pinned key is absent, and the key lands in its table."""
-
     BLOCK = (
         "# >>> owner >>>\n"
         "[owner.payload]\n"
@@ -275,7 +273,6 @@ class MissingPinTests(unittest.TestCase):
                     self.assertFalse(again_warnings)
 
     def _source_without(self, policy, missing):
-        """Every other pin is present. The missing key's table sits against the block."""
         import tomlkit
 
         def assignment(key, value):
@@ -283,33 +280,16 @@ class MissingPinTests(unittest.TestCase):
             document[key] = value
             return tomlkit.dumps(document).strip()
 
-        roots = []
-        tables = {}
-        for path, value in policy["pin"].items():
-            if path == missing:
-                continue
-            if len(path) == 1:
-                roots.append(assignment(path[0], value))
-            else:
-                tables.setdefault(path[:-1], []).append(assignment(path[-1], value))
         parent = missing[:-1]
-        if parent and parent not in tables:
-            tables[parent] = [assignment("kept", True)]
-        parent_rows = tables.pop(parent, None) if parent else None
-        # Nested headers of this table must not straddle the installer block.
-        # Merge inserts those omitted pins itself.
-        others = [
-            (path, rows)
-            for path, rows in tables.items()
-            if not (parent and path[:len(parent)] == parent)
-        ]
+        rows = []
+        for path, value in policy["pin"].items():
+            if path[:-1] == parent and path != missing:
+                rows.append(assignment(path[-1], value))
+        if parent and not rows:
+            rows.append(assignment("kept", True))
         parts = []
-        if roots:
-            parts.append("\n".join(roots))
-        for path, rows in sorted(others, key=lambda item: (len(item[0]), item[0])):
-            parts.append("[" + ".".join(path) + "]\n" + "\n".join(rows))
-        if parent_rows is not None:
-            parts.append("[" + ".".join(parent) + "]\n" + "\n".join(parent_rows))
+        if parent:
+            parts.append("[" + ".".join(parent) + "]\n" + "\n".join(rows))
         parts.append(self.BLOCK.rstrip("\n"))
         return "\n\n".join(parts) + "\n"
 

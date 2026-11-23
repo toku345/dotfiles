@@ -105,7 +105,6 @@ assert data["plan_mode_reasoning_effort"] == "xhigh"
 }
 
 @test "does not rewrite an array pin that Codex reformatted" {
-  # The shared fixture omits this array so other tests hit the add path.
   cat <<'EOF' | merge
 model = "gpt-6.1-sol"
 [tui]
