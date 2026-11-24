@@ -12,9 +12,13 @@ setup() {
   export REPO_ROOT SKILL
 }
 
-# Print the YAML frontmatter (the lines between the first two `---` lines).
+# Print the YAML frontmatter of file $1 (the lines between the first two `---`
+# lines). Fail if line 1 is not `---` or the closing `---` is missing.
 frontmatter() {
-  awk 'NR == 1 && $0 != "---" { exit 1 } NR > 1 && $0 == "---" { exit } NR > 1' "$SKILL"
+  awk 'NR == 1 { if ($0 != "---") exit 1; next }
+       $0 == "---" { closed = 1; exit }
+       { print }
+       END { if (!closed) exit 1 }' "$1"
 }
 
 # Print every repo path the skill cites in backticks, one per line.
@@ -24,10 +28,23 @@ cited_paths() {
 }
 
 @test "tool-update skill has the frontmatter Claude Code needs to load it" {
-  run frontmatter
+  run frontmatter "$SKILL"
   [ "$status" -eq 0 ]
   grep -Fqx 'name: tool-update' <<<"$output"
   grep -Eq '^description: .+' <<<"$output"
+  # Only the frontmatter is printed, not the body.
+  # (`! grep` would not fail the test under errexit unless it were the last command.)
+  if grep -Fqx '# tool-update' <<<"$output"; then
+    echo "frontmatter output includes the skill body" >&2
+    return 1
+  fi
+}
+
+@test "frontmatter check rejects a skill whose closing delimiter is missing" {
+  local broken="$BATS_TEST_TMPDIR/SKILL.md"
+  printf '%s\n' '---' 'name: tool-update' 'description: x' '' '# tool-update' > "$broken"
+  run frontmatter "$broken"
+  [ "$status" -eq 1 ]
 }
 
 @test "every repo path the tool-update skill cites exists" {
