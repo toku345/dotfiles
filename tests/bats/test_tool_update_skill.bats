@@ -65,7 +65,7 @@ cited_paths() {
 @test "the doc sections the tool-update skill names still exist" {
   grep -Fqx '## 更新 (lock の bump)' "$REPO_ROOT/docs/mise.md"
   grep -Fqx '### When to bypass the cooldown' "$REPO_ROOT/docs/security.md"
-  grep -Fq 'Chezmoi Operations' "$REPO_ROOT/AGENTS.md"
+  grep -Fqx '### Chezmoi Operations' "$REPO_ROOT/AGENTS.md"
   grep -Fq '更新 (lock の bump)' "$SKILL"
   grep -Fq 'When to bypass the cooldown' "$SKILL"
 }
