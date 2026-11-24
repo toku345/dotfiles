@@ -211,13 +211,17 @@ cask_json="$(brew info --cask --json=v2 <cask>)" &&
 
 エージェントが Cask の更新を手伝うときは、インストール済みの各 Cask に次の規則を上から順に当てはめ、最初に当たった扱いにします。個別の Cask の一覧はこの文書に置きません。Cask は各マシンで入れ外しし、定義も変わるためです。
 
-インストール済みの Cask の名前は `ls "$(brew --prefix)/Caskroom"` で取り、metadata は `brew info --cask --installed --json=v2` で取ります。JSON は、定義を読み込めない Cask を黙って省くことがあるため、名前の一覧には使いません。`HOMEBREW_NO_AUTO_UPDATE=1` のため Homebrew の metadata は自動では更新されないので、分類の前に `brew update` を実行します (Cask は変更しません)。`brew update` が失敗したら、新しい version の有無は「確認できなかった」と報告します。エージェントは Cask の更新、削除、入れ直しを自分では行いません。今の helper は端末での確認を求めるので、helper のコマンドはユーザーに示して実行してもらいます。
+インストール済みの Cask の名前は `ls "$(brew --prefix)/Caskroom"` で取り、metadata は `brew info --cask --installed --json=v2` で取ります。JSON は、定義を読み込めない Cask を黙って省くことがあるため、名前の一覧には使いません。`HOMEBREW_NO_AUTO_UPDATE=1` のため Homebrew の metadata は自動では更新されないので、分類の前に、ユーザーに `brew update` を実行してもらいます。`brew update` は metadata を更新するだけでなく、改名の記録がある Cask を新しい名前へ移します。新しい名前の Cask がすでに入っていれば、古い名前の Cask をアンインストールします。そのためエージェントは `brew update` を自分では実行しません。移行が起こりうることを伝えてからユーザーに実行してもらい、その出力を受け取ります。Cask の名前と metadata は、実行が終わった後に取ります。`brew update` が失敗したら、新しい version の有無は「確認できなかった」と報告します。エージェントは Cask の更新、削除、入れ直しを自分では行いません。今の helper は端末での確認を求めるので、helper のコマンドはユーザーに示して実行してもらいます。
 
-1. **定義を読めない → 原因を確かめてから尋ねる**: Caskroom にあるのに JSON に出ない Cask と、JSON で tap が空になる Cask は、現行の定義を読めていません。まず `brew info --cask <名前>` (`--installed` なし) のエラーで原因を確かめます。`Cask '<名前>' is unavailable` なら、`homebrew/cask` から削除されたか、Homebrew が追従しなかった改名です。この場合だけ、Homebrew の管理から外す (`brew uninstall --cask <名前>`) か、新しい名前で入れ直すかを尋ねます。改名先は `brew search` などで探し、見つかれば示します。Tap の信頼や読み込みのエラーなど、それ以外の原因なら、そのエラーを報告するだけにし、削除や入れ直しは案内しません。インストール時の記録がない Cask では、`brew uninstall` は Homebrew の記録だけを消し、アプリ本体を残すことがあります。
+1. **定義を読めない → 削除や改名を確かめられたときだけ尋ねる**: Caskroom にあるのに JSON に出ない Cask と、JSON で tap が空になる Cask は、現在の定義を読めていない可能性があります。`brew info --cask <名前>` の結果は、削除や改名の根拠にしません。現在の定義がなくても、インストールの時に保存された定義で成功することがあり、`is unavailable` はファイルを読めないときにも出るためです。まず receipt (`$(brew --prefix)/Caskroom/<名前>/.metadata/INSTALL_RECEIPT.json`) の `source.tap` で、どの Tap から入れたかを確かめます。`homebrew/cask` から入れた Cask で、次のどちらかを確かめられたときだけ、扱いを尋ねます。
+   - 改名: `homebrew/cask` の `cask_renames.json` に、旧名から新名への記録がある → 新しい名前で入れ直すかを尋ねる。
+   - 削除: formulae.brew.sh の Cask API にその名前がなく、`homebrew/cask` の履歴に、その定義を削除した commit がある → Homebrew の管理から外すか (`brew uninstall --cask <名前>`) を尋ねる。改名先の候補が見つかれば示す。
+
+   どちらも確かめられないときや、ほかの Tap から入れた Cask は、観察した出力を添えて報告するだけにし、削除や入れ直しは案内しません。インストール時の記録がない Cask では、`brew uninstall` は Homebrew の記録だけを消し、アプリ本体を残すことがあります。
 2. **非推奨 → 尋ねる**: `deprecated` または `disabled` が true の Cask は、helper も拒否します。後継 (`deprecation_replacement_formula` / `deprecation_replacement_cask`、`disable_replacement_formula` / `disable_replacement_cask`) が記録されていればそれを示し、後継に移すか削除するかを尋ねます。
 3. **third-party Tap → 報告する**: `homebrew/cask` 以外の Tap の Cask は helper の対象外です。[third-party Tap](#third-party-tap) と上の「手動レビュー対象」に従い、手動でのレビューに回します。
 4. **`auto_updates: true` → アプリ自身の更新に任せる**: 更新を提案せず、そう扱ったことだけを報告します。版を Homebrew で管理したい場合は、ユーザーがアプリ側の自動更新を無効にしたうえで、手動でレビューします。
-5. **helper の条件を満たす → helper での更新を提案する**: metadata が [Quick Start](#quick-start-1) の節の条件を満たす Cask は、`brew update` の後で新しい version がなければ、最新であることだけを報告します。`brew update` が失敗していたら、最新かどうかは確認できなかったと報告します。新しい version があれば、release notes と公開日時を添えて `brew-reviewed-cask-upgrade <名前>` を提案します。受け付けるかどうかの最終判断は helper が行います。helper は receipt など metadata 以外も検査するため、条件を満たして見えても拒否されることがあります。拒否されたら、そのメッセージを添えて 6 に回します。
+5. **helper の条件を満たす → helper での更新を提案する**: metadata が [Quick Start](#quick-start-1) の節の条件を満たす Cask は、ユーザーが `brew update` を実行した後で新しい version がなければ、最新であることだけを報告します。`brew update` が失敗していたら、最新かどうかは確認できなかったと報告します。新しい version があれば、release notes と公開日時を添えて `brew-reviewed-cask-upgrade <名前>` を提案します。受け付けるかどうかの最終判断は helper が行います。helper は receipt など metadata 以外も検査するため、条件を満たして見えても拒否されることがあります。拒否されたら、そのメッセージを添えて 6 に回します。
 6. **それ以外 → 報告する**: pin、helper が許さない artifact や dependency、conflict、`version: latest`、`sha256: no_check` などの理由を添えて報告し、上の「手動レビュー対象」に従って手動でのレビューに回します。
 
 ## third-party Tap
