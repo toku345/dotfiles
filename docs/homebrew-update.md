@@ -2,7 +2,7 @@
 
 この手順書は、未確認の更新を普段使いの環境へ偶然取り込まず、通常更新を確認後に個別適用するためのものです。方針の根拠は [ADR 0026](adr/0026-development-update-policy.md)、開発環境全体のセキュリティ方針は [security.md](security.md) を参照してください。
 
-言語ランタイムと、lock に provenance が記録される CLI は mise で管理します ([mise.md](mise.md)、[ADR 0041](adr/0041-mise-for-cli-and-runtime-management.md))。Homebrew にはライブラリ・基盤・Cask・checksum のみの CLI、言語ツールチェーンのマネージャ (rustup, ghcup, opam, uv) が残ります。
+言語ランタイムと、lock に provenance が記録される CLI は mise で管理します ([mise.md](mise.md)、[ADR 0041](adr/0041-mise-for-cli-and-runtime-management.md))。Homebrew にはライブラリ・基盤・Cask・checksum のみの CLI、言語ツールチェーンのマネージャ (rustup, ghcup, opam, uv) が残ります。仕事でだけ使うツール (terraform、tflint など) はこの repo では配らず、会社プロジェクトの `mise.toml`、または仕事用のマシンで個別に管理します。
 
 ## 管理設定
 
