@@ -53,7 +53,7 @@ Cursor の `/pr-review` は `.cursor/skills/pr-review/SKILL.md` の薄い入口�
 - `private_dot_claude/` → `~/.claude/`（Claude Code 設定）
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
-- `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`hooks/`、`settings.local.json` は machine-local・gitignore
+- `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`skills/` = この repo 専用の skill（`tool-update`: mise 管理ツールの更新）、`hooks/`、`settings.local.json` は machine-local・gitignore
 - `.cursor/skills/pr-review/SKILL.md` は Cursor 向け pr-review の入口。source 名が `.` で始まるので chezmoi は管理しない。`dot_cursor/skills/pr-review/SKILL.md.tmpl` がそれを include し、`~/.cursor/skills/pr-review/SKILL.md` へ出す
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
 
