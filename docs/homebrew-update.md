@@ -207,6 +207,19 @@ cask_json="$(brew info --cask --json=v2 <cask>)" &&
 
 版を管理したいCaskはアプリ側の自動更新も無効にします。`--require-sha`で拒否されたCaskは設定を一時解除してinstallせず、vendor配布物として署名主体、配布URL、release notesを別途レビューします。helperの通常対象へ入れるためにCask定義やmanaged policyを一時的に緩和しません。
 
+### Cask の扱いの決め方
+
+エージェントが Cask の更新を手伝うときは、インストール済みの各 Cask に次の規則を上から順に当てはめ、最初に当たった扱いにします。個別の Cask の一覧はこの文書に置きません。Cask は各マシンで入れ外しし、定義も変わるためです。
+
+材料は `brew info --cask --installed --json=v2` の metadata です。エージェントは Cask の更新、削除、入れ直しを自分では行いません。今の helper は端末での確認を求めるので、helper のコマンドはユーザーに示して実行してもらいます。
+
+1. **定義がない → 尋ねる**: tap が空になる、または `Cask '<名前>' is unavailable` で止まる Cask は、`homebrew/cask` から削除されたか、名前が変わっています。Homebrew が rename を記録していない場合は自動では追従しません。Homebrew の管理から外す (`brew uninstall --cask <名前>`) か、新しい名前で入れ直すかを尋ねます。インストール時の記録がない Cask では、`brew uninstall` は Homebrew の記録だけを消し、アプリ本体を残すことがあります。
+2. **非推奨 → 尋ねる**: `deprecated` または `disabled` が true の Cask は、helper も拒否します。後継 (`deprecation_replacement_formula` / `deprecation_replacement_cask`、`disable_replacement_formula` / `disable_replacement_cask`) が記録されていればそれを示し、後継に移すか削除するかを尋ねます。
+3. **third-party Tap → 報告する**: `homebrew/cask` 以外の Tap の Cask は helper の対象外です。[third-party Tap](#third-party-tap) と上の「手動レビュー対象」に従い、手動でのレビューに回します。
+4. **`auto_updates: true` → アプリ自身の更新に任せる**: 更新を提案せず、そう扱ったことだけを報告します。版を Homebrew で管理したい場合は、ユーザーがアプリ側の自動更新を無効にしたうえで、手動でレビューします。
+5. **helper の条件を満たす → helper での更新を提案する**: metadata が [Quick Start](#quick-start-1) の節の条件を満たし、新しい version がある Cask は、release notes と公開日時を添えて `brew-reviewed-cask-upgrade <名前>` を提案します。受け付けるかどうかの最終判断は helper が行います。helper は receipt など metadata 以外も検査するため、条件を満たして見えても拒否されることがあります。拒否されたら、そのメッセージを添えて 6 に回します。
+6. **それ以外 → 報告する**: helper が許さない artifact や dependency、conflict、`version: latest`、`sha256: no_check` などの理由を添えて報告し、上の「手動レビュー対象」に従って手動でのレビューに回します。
+
 ## third-party Tap
 
 Tap全体ではなく必要なFormula、Cask、commandだけをtrustします。
