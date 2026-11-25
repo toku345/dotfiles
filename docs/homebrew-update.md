@@ -209,20 +209,21 @@ cask_json="$(brew info --cask --json=v2 <cask>)" &&
 
 ### Cask の扱いの決め方
 
-エージェントが Cask の更新を手伝うときは、インストール済みの各 Cask に次の規則を上から順に当てはめ、最初に当たった扱いにします。個別の Cask の一覧はこの文書に置きません。Cask は各マシンで入れ外しし、定義も変わるためです。
+エージェントが Cask の更新を手伝うときの規則です。helper で更新できるかの最終判断は `brew-reviewed-cask-upgrade` が行います。この文書には、個別の Cask の扱いや、改名と削除の判定は書きません。
 
-インストール済みの Cask の名前は `ls "$(brew --prefix)/Caskroom"` で取り、metadata は `brew info --cask --installed --json=v2` で取ります。JSON は、定義を読み込めない Cask を黙って省くことがあるため、名前の一覧には使いません。`HOMEBREW_NO_AUTO_UPDATE=1` のため Homebrew の metadata は自動では更新されないので、分類の前に、ユーザーに `brew update` を実行してもらいます。`brew update` は metadata を更新するだけでなく、改名の記録がある Cask を新しい名前へ移します。新しい名前の Cask がすでに入っていれば、古い名前の Cask をアンインストールします。そのためエージェントは `brew update` を自分では実行しません。移行が起こりうることを伝えてからユーザーに実行してもらい、その出力を受け取ります。Cask の名前と metadata は、実行が終わった後に取ります。`brew update` が失敗したら、新しい version の有無は「確認できなかった」と報告します。エージェントは Cask の更新、削除、入れ直しを自分では行いません。今の helper は端末での確認を求めるので、helper のコマンドはユーザーに示して実行してもらいます。
+- エージェントは、Cask の更新、削除、入れ直し、`brew update` を自分では実行しません。コマンドはユーザーに示して、実行してもらいます。
+- `HOMEBREW_NO_AUTO_UPDATE=1` のため、metadata を新しくするには `brew update` が必要です。`brew update` は、改名された Cask を移行するなど、インストール済みの Cask を変えることがあります。ユーザーにそれを伝えてから実行してもらいます。
+- Cask の名前は `find "$(brew --prefix)/Caskroom" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;` で取ります。metadata は `brew info --cask --installed --json=v2` で、更新の有無は `brew outdated --cask --json=v2` で取ります。どちらのコマンドも、定義を読めない Cask を黙って省くことがあるため、名前の一覧には使いません。
 
-1. **定義を読めない → 削除や改名を確かめられたときだけ尋ねる**: Caskroom にあるのに JSON に出ない Cask と、JSON で tap が空になる Cask は、現在の定義を読めていない可能性があります。`brew info --cask <名前>` の結果は、削除や改名の根拠にしません。現在の定義がなくても、インストールの時に保存された定義で成功することがあり、`is unavailable` はファイルを読めないときにも出るためです。まず receipt (`$(brew --prefix)/Caskroom/<名前>/.metadata/INSTALL_RECEIPT.json`) の `source.tap` で、どの Tap から入れたかを確かめます。`homebrew/cask` から入れた Cask で、次のどちらかを確かめられたときだけ、扱いを尋ねます。
-   - 改名: `homebrew/cask` の `cask_renames.json` に、旧名から新名への記録がある → 新しい名前で入れ直すかを尋ねる。
-   - 削除: formulae.brew.sh の Cask API にその名前がなく、`homebrew/cask` の履歴に、その定義を削除した commit がある → Homebrew の管理から外すか (`brew uninstall --cask <名前>`) を尋ねる。改名先の候補が見つかれば示す。
+各 Cask に次の規則を上から順に当てはめ、最初に当たった扱いにします。
 
-   どちらも確かめられないときや、ほかの Tap から入れた Cask は、観察した出力を添えて報告するだけにし、削除や入れ直しは案内しません。インストール時の記録がない Cask では、`brew uninstall` は Homebrew の記録だけを消し、アプリ本体を残すことがあります。
-2. **非推奨 → 尋ねる**: `deprecated` または `disabled` が true の Cask は、helper も拒否します。後継 (`deprecation_replacement_formula` / `deprecation_replacement_cask`、`disable_replacement_formula` / `disable_replacement_cask`) が記録されていればそれを示し、後継に移すか削除するかを尋ねます。
-3. **third-party Tap → 報告する**: `homebrew/cask` 以外の Tap の Cask は helper の対象外です。[third-party Tap](#third-party-tap) と上の「手動レビュー対象」に従い、手動でのレビューに回します。
-4. **`auto_updates: true` → アプリ自身の更新に任せる**: 更新を提案せず、そう扱ったことだけを報告します。版を Homebrew で管理したい場合は、ユーザーがアプリ側の自動更新を無効にしたうえで、手動でレビューします。
-5. **helper の条件を満たす → helper での更新を提案する**: metadata が [Quick Start](#quick-start-1) の節の条件を満たす Cask は、ユーザーが `brew update` を実行した後で新しい version がなければ、最新であることだけを報告します。`brew update` が失敗していたら、最新かどうかは確認できなかったと報告します。新しい version があれば、release notes と公開日時を添えて `brew-reviewed-cask-upgrade <名前>` を提案します。受け付けるかどうかの最終判断は helper が行います。helper は receipt など metadata 以外も検査するため、条件を満たして見えても拒否されることがあります。拒否されたら、そのメッセージを添えて 6 に回します。
-6. **それ以外 → 報告する**: pin、helper が許さない artifact や dependency、conflict、`version: latest`、`sha256: no_check` などの理由を添えて報告し、上の「手動レビュー対象」に従って手動でのレビューに回します。
+1. **Caskroom にあるのに JSON に出ない、または tap が空** → 見た出力を添えて、削除するか入れ直すかを尋ねます。原因は断定しません。
+2. **`deprecated` または `disabled` が true** → 記録された後継 (`deprecation_replacement_formula` / `deprecation_replacement_cask`、`disable_replacement_formula` / `disable_replacement_cask`) があればそれを示し、後継に移すか削除するかを尋ねます。
+3. **`auto_updates: true`** → アプリ自身の更新に任せ、そう扱ったことだけを報告します。
+4. **tap が `homebrew/cask` で、`brew outdated --cask --json=v2` に出る** → release notes と公開日時を添えて、`brew-reviewed-cask-upgrade <名前>` を提案します。helper に拒否されたら、そのメッセージを添えて、上の「手動レビュー対象」に従って手動でのレビューに回します。
+5. **それ以外** (third-party Tap、`brew outdated` に出ない、など) → 見た出力をそのまま添えて報告します。
+
+`brew info` か `brew outdated` が失敗したときは、分類せずに「確認できなかった」と報告します。ユーザーが `brew update` を実行していない、または失敗したときは、metadata が古いかもしれないことを報告に書きます。
 
 ## third-party Tap
 
