@@ -217,10 +217,10 @@ cask_json="$(brew info --cask --json=v2 <cask>)" &&
 
 各 Cask に次の規則を上から順に当てはめ、最初に当たった扱いにします。
 
-1. **Caskroom にあるのに JSON に出ない、または tap が空** → 見た出力を添えて、削除するか入れ直すかを尋ねます。原因は断定しません。
+1. **Caskroom にあるのに JSON に出ない、または tap が空** → 見た出力を添えて「要確認」と報告し、どう扱うかを尋ねます。原因は断定せず、削除や入れ直しを前提にした選択肢は示しません。
 2. **`deprecated` または `disabled` が true** → 記録された後継 (`deprecation_replacement_formula` / `deprecation_replacement_cask`、`disable_replacement_formula` / `disable_replacement_cask`) があればそれを示し、後継に移すか削除するかを尋ねます。
 3. **`auto_updates: true`** → アプリ自身の更新に任せ、そう扱ったことだけを報告します。
-4. **tap が `homebrew/cask` で、`brew outdated --cask --json=v2` に出る** → release notes と公開日時を添えて、`brew-reviewed-cask-upgrade <名前>` を提案します。helper に拒否されたら、そのメッセージを添えて、上の「手動レビュー対象」に従って手動でのレビューに回します。
+4. **tap が `homebrew/cask` で、`brew outdated --cask --json=v2` に出る** → release notes と公開日時を添えて、`brew-reviewed-cask-upgrade <名前>` を提案します。helper が止まったら、そのメッセージを添えて報告します。cooldown で止まったときは、[Cask の Quick Start](#quick-start-1) の cooldown の扱いに従います (待つか、理由を付けて例外を指定します)。ユーザーが確認で見送ったときは、そこで終わります。それ以外の理由で拒否されたときは、上の「手動レビュー対象」に従って手動でのレビューに回します。
 5. **それ以外** (third-party Tap、`brew outdated` に出ない、など) → 見た出力をそのまま添えて報告します。
 
 `brew info` か `brew outdated` が失敗したときは、分類せずに「確認できなかった」と報告します。ユーザーが `brew update` を実行していない、または失敗したときは、metadata が古いかもしれないことを報告に書きます。
