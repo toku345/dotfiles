@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted (the delegation of worktree creation to `git gtr` is superseded by [ADR 0043](0043-gw-on-vanilla-git-worktree.md))
 
 ## Context
 
