@@ -15,16 +15,35 @@
 
 ## 更新 (lock の bump)
 
-chezmoi source 側の lock を更新します。`~/.config/mise` を直接編集しないでください。
+chezmoi source 側の lock を更新します。`~/.config/mise` を直接編集しないでください。エージェントに頼む場合は、この repo のセッションで `tool-update` skill (`.claude/skills/tool-update/SKILL.md`) を使います。skill はこの節の手順を、収集 → 提案 → 実行の順に、段ごとの承認つきで進めます。
+
+更新する repo (main の checkout または worktree) の絶対パスを1つ決め、lock の生成、git の差分、chezmoi の操作のすべてで同じパスを使います。`chezmoi source-path` は設定済みの source を返すので、worktree で作業するときは使いません。
 
 ```sh
-SRC="$(chezmoi source-path)/private_dot_config/mise"   # worktree なら worktree のパス
+REPO="$(git rev-parse --show-toplevel)"   # 更新する checkout の中で実行する
+SRC="$REPO/private_dot_config/mise"
+# mise の環境変数はコマンドごとに付ける (export しない。同じ shell の mise install に持ち越さないため)
+# MISE_USE_VERSIONS_HOST=false: upstream から直接取得する (下の「cooldown の制約」)
+
 # 更新候補の確認 (書き込みなし)
-MISE_CONFIG_DIR="$SRC" mise lock --global --bump --dry-run --json
-# lock の更新
-MISE_CONFIG_DIR="$SRC" mise lock --global --bump
-git -C "$(chezmoi source-path)" diff -- private_dot_config/mise/mise.lock
+MISE_CONFIG_DIR="$SRC" MISE_USE_VERSIONS_HOST=false mise lock --global --bump --dry-run --json
+# cooldown で待機中の version も含めた候補 (書き込みなし)
+MISE_CONFIG_DIR="$SRC" MISE_USE_VERSIONS_HOST=false mise lock --global --bump --dry-run --json --minimum-release-age 0d
+
+# lock の更新 (全ツール)
+MISE_CONFIG_DIR="$SRC" MISE_USE_VERSIONS_HOST=false mise lock --global --bump
+# lock の更新 (ツールを指定。名前は dry-run の name)
+MISE_CONFIG_DIR="$SRC" MISE_USE_VERSIONS_HOST=false mise lock --global --bump node aqua:biomejs/biome
+
+git -C "$REPO" diff -- private_dot_config/mise/mise.lock
+bats "$REPO/tests/bats/test_mise_policy.bats"
 ```
+
+dry-run の JSON は、ツールごとに `name`、`lockfile`、`old_versions`、`new_versions` を返します。`lockfile` が `$SRC/mise.lock` を指していることを確認してください。2つの dry-run を「ツールと新しい version の組」で比べると、cooldown を外したときだけ出る組が、待機中の version です。同じツールが両方に出ることがあります。
+
+chezmoi で worktree の内容を確認するときは、`chezmoi --source "$REPO" diff --exclude=scripts ~/.config/mise/mise.lock` のように source を明示します。
+
+Claude Code の sandbox の中では、mise のネットワーク取得が timeout になり、候補を取得できません。sandbox の外で実行します。
 
 差分のレビューでは次を確認します。
 
@@ -32,9 +51,20 @@ git -C "$(chezmoi source-path)" diff -- private_dot_config/mise/mise.lock
 - prefix 指定のランタイムが EOL になっていないこと
 - 新しい version の release notes
 
-cooldown (`minimum_release_age = "48h"`) は bump 時の新規解決にだけ効きます。lock 済みの version の install には効きません。security fix などで待機を省略する場合は、[When to bypass the cooldown](security.md#when-to-bypass-the-cooldown) の条件に該当するときだけ `--minimum-release-age 0d` を付けて対象ツールを bump します。
+cooldown (`minimum_release_age = "48h"`) は bump 時の新規解決にだけ効きます。lock 済みの version の install には効きません。security fix などで待機を省略する場合は、[When to bypass the cooldown](security.md#when-to-bypass-the-cooldown) の条件に該当するときだけ、対象ツールを指定して bump します。通常の dry-run にその version が出ないときだけ `--minimum-release-age 0d` を付けます。
 
-レビュー後に commit し、各マシンで `chezmoi apply` → `mise install` を実行します。apply は lock を配置するだけで、ツールは入れ替わりません (`auto_install` は無効)。
+### cooldown の制約
+
+cooldown は mise が持つ公開日で判定されます。この日付は、実際の公開日時と一致しないことがあります (2026-11-12、mise 2026.11.0 で確認)。
+
+- node と zig は、upstream の index が日付だけを持ちます。ruby も一部の version が日付だけです。既定の取得元 (mise-versions) では、日付が 00:00 UTC の時刻として扱われます。
+- upstream の日付が、実際の公開より前のことがあります。node 26.13.1 は index の日付が 2026-11-10、GitHub release の公開が 2026-11-11 16:44 UTC で、公開から約 8 時間後に通常の候補に出ました。
+- そのため、lock の候補の確認と更新は `MISE_USE_VERSIONS_HOST=false` を付けて upstream から直接取得します。直接取得では、node 26.13.1 は 2026-11-12 09:21 UTC と 23:19 UTC の時点で通常の候補に出ませんでした (既定の取得元では出ていました)。日付だけの値が遅い側に扱われるためと見ていますが、境界の正確な時刻は確認していません。日付そのもののずれは残ります。取得は GitHub と upstream に直接向かうので、`gh` の token が必要です。
+- python、bun、deno、java と `aqua:` の CLI は、時刻つきの公開日時で判定されます。
+
+そのため、候補に出た version は、upstream の実際の公開日時 (GitHub release など) を確認し、48 時間たっていなければ、cooldown の省略と同じ条件で判断します。
+
+レビュー後に commit し、PR を merge してから、各マシンで `chezmoi apply` → home で `mise install` を実行し、`mise ls --missing` が終了コード 0 で何も表示しないことを確認します。apply は lock を配置するだけで、ツールは入れ替わりません (`auto_install` は無効)。apply の後は lock の新しい version で解決されるため、`mise install` までの間、更新したツールは未導入になります (`mise ls --missing` に出ます)。apply の後は続けて `mise install` を実行してください。
 
 ## CLI の追加
 
