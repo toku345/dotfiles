@@ -49,7 +49,7 @@ verifier はこれらと、末尾のワイルドカードの別表記 (` *`) の
 
 ## 例外の棚卸し
 
-以下は2026-10-27に確認した管理設定であり、今回の整理では維持する。用途の候補と、必要性を実測した事実は区別する。
+以下は現行の管理設定である。用途の候補と、必要性を実測した事実は区別する。
 
 | 維持する設定 | 想定用途・次に確認する事項 |
 |---|---|
@@ -60,6 +60,8 @@ verifier はこれらと、末尾のワイルドカードの別表記 (` *`) の
 | Claude の追加 write 領域 | `/tmp`、Codex plugin data、SSH known_hosts。各用途と最小範囲を再確認する |
 | Claude の追加 read 領域 | SSH config / config.local / known_hosts、OrbStack SSH config。秘密鍵の許可とは区別し、deny と併せて必要性を確認する |
 | Codex の追加 `writable_roots` | machine-local の free 設定。端末ごとに再確認する |
+
+旧 agmsg の installer を実行した端末には、`~/.agents/skills/agmsg`、installer が追加した Claude の hook と command、Codex の `sandbox_workspace_write.writable_roots` にある `~/.agents/skills/agmsg/{db,teams,run}` が残ることがある。このキーは [ADR 0037](adr/0037-codex-config-per-key-policy.md) で free であり、`chezmoi apply` はこれらの root を外さない。後始末は toku345 の承認が必要な別作業で、同梱の `uninstall.sh` を先に読むか、ディレクトリ・hook・root を手で外す。`db` を残すなら先にバックアップする。新しい `allowWrite` 一覧を apply する前か同時に行う。後始末より先に一覧だけを反映すると、残った hook や watcher は sandbox 内へ書き込めず失敗する。
 
 Claude の credential 系 `Read` / `Edit` deny は維持する。Codex の workspace 外への書き込み制限は、機密ファイルの読み取り拒否と同じではない。Codex の秘密情報読み取り保護の設計は未解決事項として残す。Claude の Bash sandbox は file tools・MCP server・hook の隔離を保証しない。
 
