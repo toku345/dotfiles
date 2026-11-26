@@ -40,5 +40,6 @@ function __gw_checkout
         echo "Error: branch '$branch' not found locally or on origin" >&2
         return 1
     end
-    __gw_add $branch -b $branch --track origin/$branch
+    # Fully qualified: a local branch named origin/<branch> makes the short name ambiguous
+    __gw_add $branch -b $branch --track refs/remotes/origin/$branch
 end
