@@ -28,6 +28,13 @@ function __gw_rm
         return 1
     end
 
+    # ディレクトリが無いと git worktree remove は clean チェックを飛ばして登録を消すため、ここで止める
+    if not test -d "$wt_path"
+        echo "Error: worktree directory '$wt_path' not found (moved or unmounted?)" >&2
+        echo "  If it was deleted on purpose, run 'git worktree prune' and delete the branch manually." >&2
+        return 1
+    end
+
     # git worktree remove は削除対象の worktree 内から実行すると失敗するため、先に退避する
     set -l current (pwd -P)
     if test "$current" = "$wt_path"; or string match -q "$wt_path/*" -- "$current"
