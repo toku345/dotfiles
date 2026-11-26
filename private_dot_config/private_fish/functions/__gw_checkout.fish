@@ -13,32 +13,32 @@ function __gw_checkout
         return $status
     end
 
-    # -c <branch> <base> → create new branch from base
+    # -c <branch> <base> → create new branch from base (no upstream)
     if test -n "$base"
+        git fetch origin; or echo "Warning: git fetch origin failed; using local refs" >&2
         # Verify branch doesn't already exist (locally OR on remote)
-        if git rev-parse --verify $branch >/dev/null 2>&1
-            or git rev-parse --verify origin/$branch >/dev/null 2>&1
+        if git rev-parse --verify --quiet "refs/heads/$branch" >/dev/null
+            or git rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null
             echo "Error: branch '$branch' already exists. Use 'gw -c $branch' without base." >&2
             return 1
         end
-        git gtr new $branch --from $base --track none --yes
-    else
-        # -c <branch> → use existing local/remote branch
-        if git rev-parse --verify $branch >/dev/null 2>&1
-            # Local branch exists → default tracking (auto)
-            git gtr new $branch --yes
-        else
-            # No local branch → try remote only (errors if not found after fetch)
-            git gtr new $branch --track remote --yes
-        end
+        set -l sha (__gw_resolve_base $base)
+        or return 1
+        __gw_add $branch -b $branch --no-track $sha
+        return $status
     end
 
-    or return 1
+    # -c <branch> with an existing local branch
+    if git rev-parse --verify --quiet "refs/heads/$branch" >/dev/null
+        __gw_add $branch $branch
+        return $status
+    end
 
-    set -l d (git gtr go $branch)
-    test $status -eq 0; and test -n "$d"; and cd "$d"
-    or begin
-        echo "Error: failed to navigate to worktree for '$branch'" >&2
+    # -c <branch> → remote-only branch, tracked as origin/<branch>
+    git fetch origin; or echo "Warning: git fetch origin failed; using local refs" >&2
+    if not git rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null
+        echo "Error: branch '$branch' not found locally or on origin" >&2
         return 1
     end
+    __gw_add $branch -b $branch --track origin/$branch
 end

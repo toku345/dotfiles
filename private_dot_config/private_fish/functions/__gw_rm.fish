@@ -40,12 +40,7 @@ function __gw_rm
         or begin; echo "Error: failed to cd to main repo" >&2; return 1; end
     end
 
-    git gtr rm $branch --delete-branch --yes $force_flag
-
-    # git gtr rm は失敗時も exit 0 を返すため、worktree の残存で判定
-    set -l remaining (__worktree_path_for_branch $branch)
-    if test -n "$remaining"
-        echo "Error: failed to remove worktree for branch '$branch'" >&2
-        return 1
-    end
+    git worktree remove $force_flag "$wt_path"
+    or begin; echo "Error: failed to remove worktree for branch '$branch'" >&2; return 1; end
+    git branch -D $branch
 end
