@@ -85,7 +85,7 @@ plan は、次のどれかの状態を `status` として返します。どれ�
 
 `needs_exception` は、今の helper が「`--cooldown-exception` を付けて再実行」と案内して止まる場合のすべてに当たります。理由は `cooldown.blocked_by` に、次の種類で返します。
 
-- `age`: 公開から待機時間がたっていない。このときだけ `eligible_at` を返す。
+- `age`: 公開から待機時間がたっていない。`needs_exception` では、このときだけ `eligible_at` を返す。
 - `draft`、`prerelease`: Release が draft、または prerelease。
 - `unverified`: 公開日時や asset を確かめられない (GitHub の Release でない、asset の digest がない、など)。
 
@@ -97,15 +97,26 @@ apply が受け付けるのは `ready` の plan だけです。
 
 ### 3. apply は plan を集め直して突き合わせる
 
-apply は、plan のファイルを判断の根拠にしません。承認された内容の記録として受け取り、同じ検査をもう一度実行して、得られた plan と突き合わせます。
+apply は、plan のファイルにある検査の結果を判断の根拠にしません。承認された内容の記録として受け取り、同じ検査をすべてもう一度実行して、得られた plan と突き合わせます。plan のファイルから取るのは、ユーザーが plan に渡した入力 (下の「plan の入力」) だけです。
 
 1. plan のファイルを一度だけ読み込み、その内容の SHA-256 が `--plan-sha256` と一致することを確かめる。以後は、読み込んだ同じ内容だけを使う。一致する前には、plan の中身を何も使わない。
 2. `schema_version`、`kind` (`formula` / `cask`)、`status` が `ready` であることを確かめる。
-3. plan と同じ関数で、plan と同じ段 (`brew update` を除く) をもう一度実行し、新しい plan を作る。
+3. plan と同じ関数で、plan と同じ段 (`brew update` を除く) をもう一度実行し、新しい plan を作る。入力は、plan を作ったときのものを plan のファイルから取る (下の「plan の入力」)。
 4. 2 つの plan の「突き合わせる項目」が 1 つでも違えば止まる。
 5. 一致すれば、smoke command を試し (下の 5 を参照)、段 10〜12 を今と同じに実行する。
 
 plan の SHA-256 は、skill がユーザーに提案するときに見せ、承認された値を apply に渡します。plan のファイルの取り違えや、承認の後に作り直された plan は、ここで止まります。
+
+#### plan の入力
+
+apply の引数には、`-- COMMAND`、`--no-check`、対象の名前がありません。そこで plan は、自分が受け取った入力を `input` に記録し、apply は SHA-256 が一致した後で、そこから同じ入力を取って plan を作り直します。
+
+- 対象の名前。
+- `--no-check` を渡したか (Formula だけ)。
+- `--cooldown-exception` を渡したか。理由の文面は記録せず、apply の引数で受け取る。
+- `-- COMMAND` の argv。渡されたときのまま (コマンド名を解決する前) を記録する。apply は、今と同じ方法でコマンド名を解決し直し、解決した argv を plan と突き合わせる。PATH が変わって別のコマンドに解決されれば、突き合わせで止まる。
+
+設定ファイル (保存済みの check、待機時間) は入力に含めません。apply は今の設定を読み直し、plan と突き合わせます。
 
 突き合わせる項目は、時間で変わらないものに限ります。
 
@@ -122,10 +133,10 @@ plan の SHA-256 は、skill がユーザーに提案するときに見せ、承
 | dry-run の出力 | ○ (正規化の要否は「未確定の点」) | ○ |
 | attestation を確かめる Formula の一覧 | ○ | — |
 | smoke command (argv、出どころ、自動検出の候補) | ○ | ○ |
-| `--no-check` | ○ | — |
-| cooldown の例外の有無 | ○ | ○ |
 
-cooldown の判定のうち、経過時間、通常の更新ができる日時、例外で通した判定の種類は、時間がたつと変わるので突き合わせません。apply の時点でもう一度判定し、下の 4 の規則で通すかを決めます。
+`--no-check` と `--cooldown-exception` を渡したかは、apply が plan の `input` から取るので、作り直した plan とは必ず一致します。
+
+cooldown の判定のうち、経過時間、通常の更新ができる日時、例外を実際に使ったか、例外で通した判定の種類は、時間がたつと変わるので突き合わせません。apply の時点でもう一度判定し、下の 4 の規則で通すかを決めます。
 
 Cask の helper の段 10 (`verify_pre_upgrade`) は、apply の中でも残します。apply が plan を集め直した後から `brew upgrade` までの間の変化を見るためです。Formula の helper には今この段がないので、apply の 3〜4 がその役を兼ねます。
 
@@ -133,8 +144,8 @@ Cask の helper の段 10 (`verify_pre_upgrade`) は、apply の中でも残し�
 
 今の文書は、例外の理由をファイルに保存しないと決めています (shell history 以外に理由を残さないため)。この決めごとは変えません。
 
-- plan は、例外を使ったことと、例外で通した判定の種類 (`cooldown.exception_covers`、種類は上の `blocked_by` と同じ) を記録し、理由は記録しない。
-- apply は、plan に例外があるときだけ `--cooldown-exception REASON` を受け付け、そのときは必ず求める。plan に例外がないのにフラグが渡されたら止まる。
+- plan は、`--cooldown-exception` を渡したか (`input`) と、例外で通した判定の種類 (`cooldown.exception_covers`、種類は上の `blocked_by` と同じ) を記録し、理由は記録しない。
+- apply は、plan の `input` で `--cooldown-exception` が渡されていたときだけ `--cooldown-exception REASON` を受け付け、そのときは必ず求める。渡されていなかったのにフラグが渡されたら止まる。例外を実際に使ったかどうかでは決めない。
 - apply で判定を通らなかった種類が、すべて plan の `exception_covers` に含まれていれば通す。含まれない種類があれば、例外があっても止まる。
 - plan のときは `age` で例外を使い、apply のときには待機時間がたっていた場合は、今と同じく「例外は不要」と表示して先へ進む。
 - digest と checksum の不一致は、今と同じく例外では通さない。
@@ -191,6 +202,7 @@ plan も apply も、1 回の実行で 1 つのパッケージだけを扱いま
   "kind": "cask",
   "status": "ready",
   "token": "codex",
+  "input": {"target": "codex", "no_check": false, "cooldown_exception": false, "command": null},
   "tap": "homebrew/cask",
   "installed_version": "1.2.3",
   "candidate_version": "1.2.4",
@@ -203,13 +215,12 @@ plan も apply も、1 回の実行で 1 つのパッケージだけを扱いま
   "cooldown": {
     "hours": 48,
     "eligible_at": "2026-11-22T00:00:00Z",
-    "exception": false,
     "blocked_by": [],
     "exception_covers": []
   },
   "dry_run": "...",
   "verification": {"attested_formulae": []},
-  "check": {"origin": "saved_auto", "argv": ["/opt/homebrew/bin/codex", "--version"], "waived": false},
+  "check": {"origin": "saved_auto", "argv": ["/opt/homebrew/bin/codex", "--version"]},
   "snapshots": {"installed_state": {}, "installed_receipt": {}, "candidate": {}}
 }
 ```
@@ -220,7 +231,7 @@ plan のファイルは、呼び出す側が権限 0600 の一時ファイルに
 
 ## helper では防げないこと
 
-- **承認の内容と plan の対応。** helper が確かめるのは、apply に渡された plan が SHA-256 で指定されたものであり、今の状態と一致することです。その plan がユーザーの承認したパッケージのものかどうかは確かめられません。これは skill で守ります。skill は、ユーザーに見せた plan のファイルと SHA-256 をそのまま apply に渡し、plan の名前と version を承認の内容と照らし合わせます。
+- **承認の内容と plan の対応。** helper が確かめるのは、apply に渡された plan が SHA-256 で指定されたものであり、今の状態と一致することです。その plan がユーザーの承認したパッケージのものかどうかは確かめられません。これは skill で守ります。skill は、ユーザーに見せた plan のファイルと SHA-256 をそのまま apply に渡し、plan の名前と version を承認の内容と照らし合わせます。apply は `input` の `no_check`、`cooldown_exception`、`command` に従うので、skill はこれらも承認のときにユーザーに見せます。
 - **同じ version のまま中身が差し替わること (Formula)。** 突き合わせは version で行うので、同じ version のまま bottle が差し替わっても気づきません。更新する bottle は、今と同じく attestation の検証で確かめます。
 - **検査から `brew upgrade` までの間の変化。** `brew upgrade` は名前で候補を決め直すので、検査が済んでから更新が始まるまでに metadata が変われば、検査していない候補が入りえます。これは今の helper にもある隙間で、plan と apply に分けて新しく生まれたものではありません。`HOMEBREW_NO_AUTO_UPDATE=1` があるので、変わるのは誰かが並行して `brew update` を実行したときに限られ、その操作は防ぐ範囲の外です。
 
