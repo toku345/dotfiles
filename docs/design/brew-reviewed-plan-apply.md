@@ -1,0 +1,214 @@
+# Homebrew helper の plan と apply の分割
+
+`brew-reviewed-upgrade` (Formula) と `brew-reviewed-cask-upgrade` (Cask) を、承認の要らない検査をまとめる plan と、承認された plan だけを実行する apply に分ける設計です。Issue: #460。目的は ADR 0041 の「エージェントが候補を集めて提案し、ユーザーが承認し、エージェントが承認された更新を実行する。検査は決定的な helper が行う」を Homebrew でも実現することです (#462 の段階 2)。
+
+## 前提
+
+### 今の流れ
+
+どちらの helper も、1 回の実行で 1 つのパッケージを次の順に扱います。
+
+| 段 | Formula | Cask |
+|---|---|---|
+| 1. 設定と認証の検査 | policy、developer mode、GitHub 認証 | policy、developer mode (GitHub の client は 6 の前に用意する) |
+| 2. 対象の metadata | `load_target_metadata` | metadata の形、インストール済みの状態と receipt の snapshot |
+| 3. smoke command の決定 | `br_select_check` (下記) | 同じ |
+| 4. `brew update` | 実行し、名前が変わっていないことを確かめる | 実行し、名前が変わっていないことを確かめ、候補の snapshot を取る |
+| 5. 更新の有無 | `brew outdated` | `brew outdated` |
+| 6. cooldown | GitHub Release の公開日時 | Release と asset の時刻、asset の digest と Cask の checksum の一致 |
+| 7. dry-run | `brew upgrade --dry-run` を表示 | 同じ |
+| 8. 検証の範囲 | attestation を確かめる Formula の一覧。依存の metadata の検査 (`validate_dependency_metadata`) もここで行う | — |
+| 9. 確認 | 端末で `[y/N]` | 端末で `[y/N]` |
+| 10. 更新の直前の再確認 | — | インストール済みの状態、receipt、候補の snapshot が 2〜4 から変わっていないこと (`verify_pre_upgrade`) |
+| 11. 更新 | attestation の検証 → `brew upgrade` | `brew upgrade --require-sha` |
+| 12. 更新後の検査 | `brew vulns`、`brew linkage`、smoke command | 更新後の metadata、smoke command の対象、smoke command |
+
+段 3 の `br_select_check` は、`-- COMMAND` が渡されず、Formula では `--no-check` もないときに動きます (`dot_local/lib/brew-reviewed-upgrade/common.sh` の `br_select_check`)。
+
+- 保存済みの check があれば、それを試しに実行する (`br_probe`)。失敗したら止まり、自動検出には戻らない。
+- 保存済みの check がなければ、対象のコマンドを `--version`、`version` の順に試し、通った方を保存する。
+- どちらもなければ、端末で入力を求める。端末がなければ終了コード 2 で止まる。
+
+`-- COMMAND` で渡した command は、更新の前には試しません。
+
+端末の入力を求めるのは 3 と 9 だけです。端末がないとき、9 は入力の終わりとして止まります。
+
+### 決めごと
+
+- 検査を弱めたり省いたりしない (ADR 0026)。
+- 対話で使う今の 1 コマンドの流れは残す。plan と apply は、同じ検査の関数を使う。
+- `HOMEBREW_NO_AUTO_UPDATE=1` (`dot_homebrew/brew.env`) により、`brew upgrade` は metadata を自分では更新しない。
+
+### helper が防ぐ範囲
+
+helper が防ぐのは、次の 2 つです。
+
+- plan を作った後で、Homebrew の metadata、インストール済みの状態、Release、設定が変わったこと。
+- 呼び出す側 (skill) の取り違え。別のパッケージの plan や、承認された後に作り直した plan を apply に渡すなど。
+
+同じユーザー権限で動くプロセスが、わざと plan のファイルを書き換えたり、`brew` を並行して操作したりすることは、防ぐ範囲に含めません。そうしたプロセスは、helper を通さずに `brew upgrade` を直接実行できるので、helper では止められないからです。
+
+## 設計
+
+### コマンドの形
+
+```sh
+brew-reviewed-upgrade plan [--cooldown-exception REASON] [--no-check] FORMULA [-- COMMAND [ARG...]]
+brew-reviewed-upgrade apply --plan PLAN_FILE --plan-sha256 HEX [--cooldown-exception REASON]
+
+brew-reviewed-cask-upgrade plan [--cooldown-exception REASON] CASK [-- COMMAND [ARG...]]
+brew-reviewed-cask-upgrade apply --plan PLAN_FILE --plan-sha256 HEX [--cooldown-exception REASON]
+```
+
+サブコマンドを付けない今の呼び方は、対話の流れとして残し、今と同じ段 1〜12 の順に進みます。
+
+plan は JSON を stdout に、診断を stderr に出します。apply の出力は今と同じ人向けの表示です。
+
+### 1. `brew update` は plan に含めない
+
+`brew update` は metadata を更新するだけでなく、改名された Formula や Cask を移行します。新しい名前の Cask がすでにあれば、古い Cask をアンインストールします (#509 で Homebrew の実装を確認)。plan に含めると「plan は Formula も Cask も変更しない」を満たせないので、plan も apply も `brew update` を実行しません。`brew update` は、ユーザーが承認して実行する独立した段にします。
+
+対話の流れは、今と同じく `brew update` を実行します。
+
+metadata が新しいかどうかは、helper では判断せず、plan にも記録しません。plan の前に `brew update` を済ませるのは、呼び出す側の責任です。
+
+### 2. plan の状態
+
+plan は、次のどれかの状態を `status` として返します。どれも終了コード 0 です。検査に失敗したときは、JSON を出さずに 0 以外の終了コードで止まります。
+
+| 状態 | 意味 | plan がどこで止まるか |
+|---|---|---|
+| `no_update` | 更新がない | 段 5 |
+| `needs_check` | smoke command が決まらない | 段 5 の後 (下の 5 を参照) |
+| `waiting` | cooldown を満たさず、例外もない | 段 6。今と同じく dry-run の前で止まり、`eligible_at` を返す |
+| `ready` | 段 1〜8 の検査をすべて通った | 最後まで |
+
+plan の中の順番は、段 1、2、5、smoke command の決定、6、7、8 です。`no_update` は smoke command を決める前に判定します。そのため、更新がないパッケージで「smoke command の選択が必要」と報告することはありません。
+
+apply が受け付けるのは `ready` の plan だけです。
+
+### 3. apply は plan を集め直して突き合わせる
+
+apply は、plan のファイルを判断の根拠にしません。承認された内容の記録として受け取り、同じ検査をもう一度実行して、得られた plan と突き合わせます。
+
+1. plan のファイルを一度だけ読み込み、その内容の SHA-256 が `--plan-sha256` と一致することを確かめる。以後は、読み込んだ同じ内容だけを使う。一致する前には、plan の中身を何も使わない。
+2. `schema_version`、`kind` (`formula` / `cask`)、`status` が `ready` であることを確かめる。
+3. plan と同じ関数で、plan と同じ段 (`brew update` を除く) をもう一度実行し、新しい plan を作る。
+4. 2 つの plan の「突き合わせる項目」が 1 つでも違えば止まる。
+5. 一致すれば、smoke command を試し (下の 5 を参照)、段 10〜12 を今と同じに実行する。
+
+plan の SHA-256 は、skill がユーザーに提案するときに見せ、承認された値を apply に渡します。plan のファイルの取り違えや、承認の後に作り直された plan は、ここで止まります。
+
+突き合わせる項目は、時間で変わらないものに限ります。
+
+| 項目 | Formula | Cask |
+|---|---|---|
+| 対象の名前と tap | ○ | ○ |
+| インストール済みの version | ○ | ○ |
+| 候補の version | ○ | ○ |
+| 候補の checksum、URL | — | ○ (今の候補の snapshot) |
+| インストール済みの状態と receipt | — | ○ (今の snapshot) |
+| release notes の URL、Release の公開日時、draft と prerelease | ○ | ○ |
+| Release と asset の個別の時刻、digest の照合の結果 | — | ○ |
+| cooldown の待機時間の設定 | ○ | ○ |
+| dry-run の出力 | ○ (正規化の要否は「未確定の点」) | ○ |
+| attestation を確かめる Formula の一覧 | ○ | — |
+| smoke command (argv、出どころ、自動検出の候補) | ○ | ○ |
+| `--no-check` | ○ | — |
+| cooldown の例外の有無と、例外で通した判定の種類 | ○ | ○ |
+
+cooldown の判定のうち、経過時間と通常の更新ができる日時は、時間がたつと変わるので突き合わせません。apply の時点でもう一度判定し、満たさなければ止まります。
+
+Cask の helper の段 10 (`verify_pre_upgrade`) は、apply の中でも残します。apply が plan を集め直した後から `brew upgrade` までの間の変化を見るためです。Formula の helper には今この段がないので、apply の 3〜4 がその役を兼ねます。
+
+### 4. cooldown の例外は plan に記録し、理由は残さない
+
+今の文書は、例外の理由をファイルに保存しないと決めています (shell history 以外に理由を残さないため)。この決めごとは変えません。
+
+- plan は、例外を使ったことと、例外で通した判定の種類 (待機中、公開日時が確かめられない、など) を記録し、理由は記録しない。
+- apply は、plan に例外があるときだけ `--cooldown-exception REASON` を受け付け、そのときは必ず求める。plan に例外がないのにフラグが渡されたら止まる。
+- apply で、plan に記録されていない種類の判定に失敗したら、例外があっても止まる。digest と checksum の不一致は、今と同じく例外では通さない。
+- 理由は、今と同じく画面に表示する。
+
+例外が承認するのは、記録された種類の失敗を通すことです。apply で渡された理由の文面が plan のときと同じかどうかは、確かめません。
+
+### 5. smoke command は plan で決め、試すのは apply
+
+plan は端末の入力を求めず、command を実行せず、設定ファイルにも書きません。smoke command は、次のどれかで決め、argv と出どころを plan に書きます。
+
+- `argument`: `-- COMMAND` での指定。今と同じく、パスを解決するだけで試さない。
+- `saved_auto`: 自動検出で保存された check。今の対象のコマンドを指していることを確かめる。
+- `saved_manual`: 手動で保存された check。パスを解決できることを確かめる。
+- `auto`: 保存済みの check がなく、対象のコマンドが見つかるとき。候補の `--version`、`version` を、試す順に plan に書く。
+
+保存済みの check は、自動検出か手動かを分けて記録し、突き合わせます。更新後に対象のコマンドを確かめるか (`br_verify_auto_check`) は、この出どころで決まるからです。plan の後で設定が書き換わり、同じ argv のまま出どころだけが変わった場合も、突き合わせで止まります。
+
+どれにも当たらなければ、plan は `needs_check` を返します。この場合は、ユーザーが `-- COMMAND` で指定して plan をやり直します。
+
+apply は、突き合わせが済んだ後、更新の前に、今の `br_probe` で smoke command を試します。`saved` が失敗したら止まります。`auto` は候補を順に試し、通ったものを保存します。設定ファイルに書くのは apply だけです。
+
+`--no-check` (Formula だけ) も plan に記録します。apply は、plan に書かれた smoke command と `--no-check` だけを使い、自分では選び直しません。自動検出の check (`saved_auto`、`auto`) が更新後も対象のコマンドを指しているかの確認 (`br_verify_auto_check`) は、今と同じく残します。実行するかどうかは、突き合わせで一致した出どころで決めます。
+
+### 6. apply は端末の入力を読まない
+
+apply は、引数を読んだ後に stdin を `/dev/null` につなぎ替えます。そのため、`brew upgrade`、smoke command などの子プロセスが stdin から入力を求めても、待たずに失敗します。bats では、stdin を読む smoke command の fixture で、apply が止まらずに失敗することを確かめます。
+
+制御端末がある環境では、子プロセスが `/dev/tty` を開いて入力を求めることができます (`sudo` のパスワードなど)。stdin のつなぎ替えでは、これは防げません。apply を制御端末から切り離す方法は、macOS に標準の手段がないので、v1 では入れません。エージェントが制御端末のない環境で apply を実行するなら、`/dev/tty` は開けずに失敗します。そうなるかどうかは「未確定の点」で確かめます。
+
+### 7. plan は 1 つのパッケージずつ
+
+plan も apply も、1 回の実行で 1 つのパッケージだけを扱います。候補の一覧は、skill が `brew outdated --json=v2` で集め、パッケージごとに plan を呼んで作ります。一度に複数を扱う必要が分かったら、そのときに足します。
+
+### plan の JSON
+
+```json
+{
+  "schema_version": 1,
+  "kind": "cask",
+  "status": "ready",
+  "token": "codex",
+  "tap": "homebrew/cask",
+  "installed_version": "1.2.3",
+  "candidate_version": "1.2.4",
+  "release": {
+    "notes_url": "https://github.com/...",
+    "published_at": "2026-11-20T00:00:00Z",
+    "draft": false,
+    "prerelease": false
+  },
+  "cooldown": {
+    "hours": 48,
+    "status": "eligible",
+    "eligible_at": "2026-11-22T00:00:00Z",
+    "exception": false,
+    "exception_covers": []
+  },
+  "dry_run": "...",
+  "verification": {"attested_formulae": []},
+  "check": {"origin": "saved_auto", "argv": ["/opt/homebrew/bin/codex", "--version"], "waived": false},
+  "snapshots": {"installed_state": {}, "installed_receipt": {}, "candidate": {}}
+}
+```
+
+`ready` 以外の状態では、その状態を決めた段までの項目だけを返します。たとえば `no_update` は対象の名前と version だけ、`waiting` は `eligible_at` までを返し、`dry_run` を含みません。`auto` の check は、`argv` の代わりに試す順の候補 (`candidates`) を返します。
+
+plan のファイルは、呼び出す側が権限 0600 の一時ファイルに保存します。ファイルには secret を含めません (cooldown の例外の理由を記録しないのはこのためです)。
+
+## helper では防げないこと
+
+- **承認の内容と plan の対応。** helper が確かめるのは、apply に渡された plan が SHA-256 で指定されたものであり、今の状態と一致することです。その plan がユーザーの承認したパッケージのものかどうかは確かめられません。これは skill で守ります。skill は、ユーザーに見せた plan のファイルと SHA-256 をそのまま apply に渡し、plan の名前と version を承認の内容と照らし合わせます。
+- **同じ version のまま中身が差し替わること (Formula)。** 突き合わせは version で行うので、同じ version のまま bottle が差し替わっても気づきません。更新する bottle は、今と同じく attestation の検証で確かめます。
+- **検査から `brew upgrade` までの間の変化。** `brew upgrade` は名前で候補を決め直すので、検査が済んでから更新が始まるまでに metadata が変われば、検査していない候補が入りえます。これは今の helper にもある隙間で、plan と apply に分けて新しく生まれたものではありません。`HOMEBREW_NO_AUTO_UPDATE=1` があるので、変わるのは誰かが並行して `brew update` を実行したときに限られ、その操作は防ぐ範囲の外です。
+
+## 進め方
+
+1. この設計を Codex にレビューしてもらう (初回は済み。指摘を反映し、修正の確認を 1 回行う)。
+2. Cask の helper で plan と apply を作る。更新の直前に再確認する仕組みがすでにあり、変更が小さいので、形を試すのに向いている。価値が大きいのは Formula の方 (Cask の helper で扱える Cask は今 2 件) だが、先に小さい方で形を固める。
+3. plan の JSON の形と共通の処理を `dot_local/lib/brew-reviewed-upgrade/common.sh` にまとめ、Formula の helper に広げる。
+4. `docs/homebrew-update.md` と bats のテストを、それぞれの PR で更新する。
+
+## 未確定の点
+
+- **dry-run の出力が毎回同じか。** 今は文字列をそのまま表示しています。同じ状態で 2 回実行して同じ出力になるかは、macOS でまだ確かめていません (この Linux の環境では、sandbox の中で書き込み権限が足りず、dry-run を実行できませんでした)。違うなら、突き合わせの前に正規化する必要があります。
+- **端末なしで更新が通るか。** `brew upgrade` が、stdin を `/dev/null` にした状態で最後まで進むかを、macOS で確かめていません (Cask では、アプリによっては管理者のパスワードを求めることがあります)。通らないものは、apply では止まって報告します。あわせて、エージェント (Claude Code の Bash など) から実行したときに制御端末がなく、`/dev/tty` を開けないことを確かめます。開けるなら、apply を制御端末から切り離す方法を検討し直します。
+- **apply が plan を集め直すときの GitHub API の呼び出し。** plan と apply で 2 回呼ぶことになります。rate limit に触れるかは、使ってみて確かめます。
