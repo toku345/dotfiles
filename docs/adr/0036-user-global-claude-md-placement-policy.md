@@ -91,6 +91,6 @@ Claude Code v2.1.233 で `autoMode` 設定ブロックが導入され、公式 d
 - `private_dot_claude/settings.json` (`permissions.allow` から `Bash(codex exec:*)` を削除)
 - `private_dot_claude/skills/codex-usage/SKILL.md` (上記の挙動変化を注記)
 - `private_dot_claude/agents/rich-hickey-reviewer.md` (常駐 description の短縮)
-- `docs/claude-code-plugins.md` (agmsg gotcha の移設先)
+- `docs/claude-code-plugins.md` (当時の agmsg gotcha の移設先。agmsg は #459 で削除済みで、現行の依存ではない)
 - `.claude/rules/claude-code-config.md` (`permissions.ask` の load-bearing 性、`autoMode` の読み取り元、`agentPushNotifEnabled` の default 矛盾を記録)
 - `docs/adr/0036-user-global-claude-md-placement-policy.md` (本 ADR)

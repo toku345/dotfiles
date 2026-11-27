@@ -23,7 +23,7 @@ This document turns that decision into an executable plan. It describes the trac
 
 - Implementing a Skill, plugin, hook, Dynamic Workflow, runner, automatic timer, artifact generator, or aggregator.
 - Installing persistent runtime adapters or changing global Codex or Claude Code configuration.
-- Automatically synchronizing the two machines or using `agmsg` across the information boundary.
+- Automatically synchronizing the two machines or using `agmsg` across the information boundary. agmsg was removed from this repository in #459 and is not a current dependency.
 - Storing run instances in this repository or in the target task repository.
 - Transferring Work contract, report, scorecard, code, diff, path, log, ticket, timestamp, task order, or run-level measurements.
 - Allowing stage, commit, push, draft PR creation, branch/worktree mutation, merge, deploy, or external-state writes inside a Week 0 `/goal` run.

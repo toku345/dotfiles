@@ -1,4 +1,4 @@
-# Claude Code プラグイン / agent messaging セットアップ
+# Claude Code プラグイン
 
 `chezmoi apply` では Claude Code のプラグインは自動インストールされません。新しいマシンや環境では手動セットアップが必要です。
 
@@ -8,58 +8,11 @@
 
 `/plan-review-handoff` に `prepare` / `review` / `assess` と対象を添え、依頼文の準備・受け取った計画のレビュー・元の作成元での採否判断を行う。[共通手順と依頼文](plan-review-handoff.md)は Codex と共有し、`~/.claude/skills/plan-review-handoff/` へ生成する。
 
-依頼文と結果はユーザーが編集可能な状態で手動転送する。この Skill は相手を自動起動せず、通常の自動計画レビューや pre-PR gate も置き換えない。agmsg は転送手段の選択肢であり、この手順の前提ではない。
+依頼文と結果はユーザーが編集可能な状態で手動転送する。この Skill は相手を自動起動せず、通常の自動計画レビューや pre-PR gate も置き換えない。
 
-## agmsg
+## 別セッションへの通信
 
-Claude Code / Codex / 別セッション間の handoff transport。
-`chezmoi apply` の `.chezmoiscripts/run_after_setup-agmsg.sh` が
-`~/.agents/skills/agmsg/` に pin 済み commit の agmsg を導入・更新する。
-
-### 用途
-
-- Claude Code から Codex へレビュー・調査依頼を送る
-- Codex から Claude Code へ follow-up や review 結果を返す
-- 別セッションへの handoff prompt を手動 copy & paste せず共有する
-
-agmsg はレビュー gate そのものではない。`$pr-review` / `/pr-review`
-の base pinning / fail-closed aggregation は既存 gate 側で維持する。
-
-### 手動運用
-
-独立した別セッションへの通信は、agmsg・Claude 標準通信ともユーザーの明示依頼時だけ行う。
-現在のタスク配下のサブエージェント通信は対象外とする。
-
-- Claude Code / Codex とも配信モードは `off` を維持する。
-- team と送受信者名をユーザーが明示する。この repo の既存登録は `dotfiles` team の `cc` / `codex` だが、同じ repo で起動しただけではその名前を自動使用しない。
-- 自動参加・監視開始・自動返信は行わない。未参加なら、参加先と agent 名を確認してから公式 `join.sh` で登録し、配信は `off` のまま使う。
-- 同じ agent 名を複数セッションで使う場合、手動受信先を分離する保証はない。
-
-引数なしの `/agmsg` / `$agmsg` は identity 解決や inbox 読み取りを伴うため、停止確認には使わない。
-送受信は後述の公式スクリプトで対象を明示する。`inbox.sh` は表示したメッセージを既読にする。
-
-### この repo の自動配信を停止する
-
-実環境への反映承認後、project-local 設定を日時付きでバックアップし、repo root で実行する:
-
-```bash
-bash ~/.agents/skills/agmsg/scripts/delivery.sh set off claude-code "$PWD"
-bash ~/.agents/skills/agmsg/scripts/delivery.sh status claude-code "$PWD"
-bash ~/.agents/skills/agmsg/scripts/delivery.sh status codex "$PWD"
-```
-
-Claude 側の agmsg フックだけを除去し、他の設定は保持する。
-Codex は既に `off` のため、Git 管理の検証用フックを書き換えない。
-`delivery.sh stop` は全 watcher が対象になるため、この停止作業では使わない。
-
-`set off` は watcher 停止失敗を無視し、状態表示は pidfile に依存する。
-終了コードや `off` 表示だけで完了とせず、プロセスを確認できる環境で、
-この project path と agent type に一致する watcher の不在を確認する。
-残っていれば対象を限定して停止し、Claude 側の Monitor task は所有セッションでも確認する。
-確認権限が不足する場合は停止確認を未完了として報告する。
-変更前から動いている対象セッションは再起動し、通常作業で自動受信や agmsg フック出力がないことを確認する。
-他 repo・他マシンで agmsg に参加したことがある場合は、`teams/<team>/config.json` の project path ごとに
-`delivery.sh status` を実行し、`off` でなければ同じ手順で停止する。
+独立した別セッションへの通信は、ユーザーが明示的に頼んだときだけ行う。現在のタスク配下のサブエージェント通信は対象外とする。
 
 ### Claude 標準通信の受信
 
@@ -75,68 +28,17 @@ project-local の `refuse` はこの上書きより優先されるため、既�
 また、`refuse` は送信禁止ではないため、標準通信による送信もユーザーの明示依頼時だけ行う。
 詳細は [Claude Code のセッション間通信](https://code.claude.com/docs/en/cross-session-messaging) を参照する。
 
-### 設定の保存先
-
-agmsg の install 本体は `~/.agents/skills/agmsg/` に置かれる。team 登録は
-repo ごとの runtime state で、`~/.agents/skills/agmsg/teams/<team>/config.json`
-に保存される。このファイルには agent 名、agent type、project path が入る。
-
-message 本体は `~/.agents/skills/agmsg/db/messages.db` に保存される。どちらも
-chezmoi 管理対象ではなく、agmsg installer/runtime が管理する local state として扱う。
-
-### 使い方例
-
-ユーザーが `dotfiles` team の `cc` から `codex` への送信を指定した場合:
-
-```bash
-bash ~/.agents/skills/agmsg/scripts/send.sh dotfiles cc codex \
-  'repo の調査依頼: /tmp/agmsg-handoff-dotfiles/request.md'
-```
-
-受信側でもユーザーが `dotfiles` / `codex` の手動受信を指定した場合:
-
-```bash
-bash ~/.agents/skills/agmsg/scripts/inbox.sh dotfiles codex
-```
-
-返信は別途ユーザーが明示した場合だけ送信する。既存の実セッション宛てに動作確認用メッセージを送らない。
-
-### 運用ルール
-
-- 長文依頼やレビュー結果は `/tmp/agmsg-handoff-<slug>/request.md` / `result.md` に置き、agmsg では path を送る
-- secret、credential、長大 diff 本文は agmsg に送らない
-- 依頼文には repo path、branch/base、目的、非対象、検証方法と「1 回実行して結果を artifact に保存する」を含める
-- 通信テストは一時ディレクトリに scripts をコピーし、空の team・DB・run を使う。`AGMSG_STORAGE_PATH` だけでは team 登録を隔離できないため、実インストールの `join.sh` で検証用登録を作らない
-- 通常起動での受信拒否と `accept` 指定時の受信確認は専用 Claude セッションで行い、未実施なら未検証として記録する
-
-### 更新
-
-現行 pin は `AGMSG_REF` を正とする。次回更新は [Issue #376](https://github.com/toku345/dotfiles/issues/376) で扱う。
-
-agmsg は automatic latest 追従しない。更新時は
-`.chezmoiscripts/run_after_setup-agmsg.sh` の `AGMSG_REF` をレビュー付きで
-新しい CLI 正式リリースタグ (`vX.Y.Z`) が指す full commit SHA に bump し、
-`chezmoi apply -v` で installer の `--update` path を走らせる。未リリースの
-`main` 先端は pin しない。GitHub の latest release は `app-vX.Y.Z` を返す場合が
-あるため、CLI の更新候補は `vX.Y.Z` タグ一覧から選び、タグと commit SHA の
-対応を確認してから差分をレビューする。
+通常起動での受信拒否と `accept` 指定時の受信確認は専用 Claude セッションで行い、未実施なら未検証として記録する。
 
 ## 定期更新チェックリスト
 
-agmsg / Claude Code plugins は自動更新しない
+Claude Code plugins は自動更新しない
 (`DISABLE_AUTOUPDATER=1` と marketplace の `autoUpdate=false` は維持)。
 四半期に 1 回を下限として、同じレビュー窓で更新有無を確認する。変更と
 rollback を分離するため、実際の bump はコンポーネントごとに reviewed PR を
 作る。レビュー窓は [docs/security.md の high-privilege CLI 四半期 pin
 レビュー](security.md#high-privilege-clis-and-casks) に相乗りし、upstream の
 動きが速くなったら月次に短縮してよい。
-
-### agmsg
-
-[§更新](#更新) の手順に従う (CLI の `vX.Y.Z` タグ選定 → タグが指す full SHA
-までの upstream diff レビュー → `AGMSG_REF` bump → `chezmoi apply -v` →
-Claude Code は `/agmsg version`、Codex は
-`~/.agents/skills/agmsg/scripts/version.sh` で同じタグが返ることを確認)。
 
 ### Claude Code plugins
 
@@ -154,7 +56,6 @@ policy と詳細 runbook は [docs/security.md の Claude Code and Codex
 ### bump PR の検証
 
 - `sh -n` + `shellcheck` (変更した `.chezmoiscripts/*.sh`)
-- `bats tests/bats/test_agmsg_setup.bats`
 
 ## codex-plugin-cc
 

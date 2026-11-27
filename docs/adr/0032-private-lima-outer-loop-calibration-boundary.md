@@ -50,6 +50,8 @@ Use guest-source inspection to diagnose static inventory, node, link, symlink, p
 
 Freeze accepted quarantine bytes under a canonical logical-name manifest and digest, then stop the driver guest and record its stopped identity before transfer. The reviewer guest recomputes every input and bundle digest before the runtime receives the content. Guests share no filesystem, SQLite database, direct network channel, or `agmsg` transport. Calibrate both Codex-driver to Claude-reviewer and Claude-driver to Codex-reviewer directions; restarting a stopped guest for the reverse direction or reviewer role requires its sealed identity check before use.
 
+agmsg was removed from this repository in #459 and is not a current dependency.
+
 ### Replace v2 hard-link and quiescence gates with the VM and frozen-export boundary
 
 Do not require all-role hard-link creation denial or exhaustive execution-group quiescence inside a guest. Instead, remove host mounts, export into operator-owned host quarantine, freeze exact accepted bytes, stop the driver guest, and give every later stage only the frozen bundle. A continuing guest process cannot mutate those host bytes. Hard links, symlinks, special nodes, unexpected paths, and secret-shaped content remain export hazards and fail the export gate, but the design makes no broader guest-local alias-prevention claim.

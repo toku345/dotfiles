@@ -5,6 +5,8 @@ Target decision: [ADR 0032](../adr/0032-private-lima-outer-loop-calibration-boun
 Status: Accepted
 Repository status: Historical snapshot retained in `toku345/dotfiles`; the active implementation is maintained in `toku345/private-outer-loop`.
 
+agmsg was removed from this repository in #459 and is not a current dependency.
+
 ## Context
 
 The `outer-loop-week0/v1` Private Codex calibration stopped before any real task after a harmless control proved that the observed stock path sandbox denied a direct outside-root read but disclosed the same bytes through a pre-existing hard-link alias in an approved root. ADR 0031 and `outer-loop-week0/v2` attempted to preserve a Markdown-only, zero-build pilot by adding an operator collector, all-role hard-link creation denial, and execution-group quiescence. Pre-seal feasibility could not demonstrate those load-bearing controls, and the resulting mechanism was too complex to remain a useful small pilot.
