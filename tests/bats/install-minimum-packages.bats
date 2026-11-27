@@ -99,7 +99,6 @@ setup() {
 update
 install coreutils git gitleaks git-delta starship fzf eza bat fd ripgrep
 install tmux direnv shadowenv asdf age fish nano aspell gh herdr
-install coderabbitai/tap/git-gtr
 install --cask karabiner-elements
 install --cask font-fira-code-nerd-font font-fira-mono-nerd-font font-hack-nerd-font font-hackgen-nerd
 EOF
@@ -123,7 +122,6 @@ EOF
 shellenv
 update
 install gh tmux starship fzf eza bat fd ripgrep git-delta direnv nano aspell gitleaks asdf herdr
-install coderabbitai/tap/git-gtr
 EOF
 }
 

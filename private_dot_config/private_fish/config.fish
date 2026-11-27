@@ -225,18 +225,19 @@ function gw --description "Manage git worktrees (create, checkout, remove, clean
     set -l base
     if set -q argv[1]; and test -n "$argv[1]"
         set base $argv[1]
+        # An explicit base may exist only on origin. A local ref still wins
+        # (same as git-gtr); pass origin/<base> to branch from the fetched tip.
+        git fetch origin; or echo "Warning: git fetch origin failed; using local refs" >&2
     else
+        # No fetch: the local default branch is used, as git-gtr effectively did
         set base (__detect_default_branch)
         or return 1
     end
 
+    set -l sha (__gw_resolve_base $base)
+    or return 1
     set -l branch "wip/gw-"(date "+%Y%m%d-%H%M%S")
-    git gtr new $branch --from $base --track none --yes
-    and begin
-        set -l d (git gtr go $branch)
-        test $status -eq 0; and test -n "$d"; and cd "$d"
-        or begin; echo "Error: failed to navigate to worktree" >&2; return 1; end
-    end
+    __gw_add $branch -b $branch --no-track $sha
 end
 
 ## abbreviations
