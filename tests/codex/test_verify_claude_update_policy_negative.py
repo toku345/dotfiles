@@ -169,52 +169,47 @@ def main() -> None:
     mutations.append(("wrong update channel", data, 'autoUpdatesChannel must be "stable"'))
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"].pop("openai-codex")
+    data["extraKnownMarketplaces"] = {"openai-codex": {}}
     mutations.append(
         (
-            "missing Codex marketplace",
+            "Codex marketplace reintroduced",
             data,
-            "extraKnownMarketplaces.openai-codex must be present",
+            "extraKnownMarketplaces.openai-codex must be absent",
         )
     )
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"]["openai-codex"]["autoUpdate"] = True
+    data["extraKnownMarketplaces"] = []
     mutations.append(
         (
-            "Codex marketplace auto-update enabled",
+            "marketplaces not an object",
             data,
-            "extraKnownMarketplaces.openai-codex.autoUpdate must be false",
+            "extraKnownMarketplaces must be an object",
         )
     )
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"]["openai-codex"]["source"]["source"] = "local"
+    data["extraKnownMarketplaces"] = {
+        "codex-cc": {
+            "source": {"source": "github", "repo": "openai/codex-plugin-cc"},
+            "autoUpdate": False,
+        }
+    }
     mutations.append(
         (
-            "wrong Codex marketplace source type",
+            "Codex plugin repo registered under another marketplace key",
             data,
-            'extraKnownMarketplaces.openai-codex.source.source must be "github"',
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"',
         )
     )
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"]["openai-codex"]["source"]["repo"] = "example/untrusted"
+    data["enabledPlugins"]["codex@openai-codex"] = True
     mutations.append(
         (
-            "wrong Codex marketplace repo",
+            "Codex plugin reintroduced",
             data,
-            'extraKnownMarketplaces.openai-codex.source.repo must be "openai/codex-plugin-cc"',
-        )
-    )
-
-    data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"]["openai-codex"]["source"]["ref"] = "main"
-    mutations.append(
-        (
-            "ambiguous Codex marketplace source",
-            data,
-            'extraKnownMarketplaces.openai-codex.source must contain only "source" and "repo"',
+            "enabledPlugins must not contain Codex plugins",
         )
     )
 
@@ -222,9 +217,9 @@ def main() -> None:
     data["enabledPlugins"]["codex@openai-codex"] = False
     mutations.append(
         (
-            "Codex plugin disabled",
+            "disabled Codex plugin left in settings",
             data,
-            'enabledPlugins."codex@openai-codex" must be true',
+            "enabledPlugins must not contain Codex plugins",
         )
     )
 
@@ -234,9 +229,32 @@ def main() -> None:
         (
             "untrusted Codex plugin enabled",
             data,
-            'enabledPlugins must not enable Codex plugins outside "codex@openai-codex"',
+            "enabledPlugins must not contain Codex plugins",
         )
     )
+
+    for entry in (
+        "~/.claude/plugins/data/codex-openai-codex",
+        "~/.claude/plugins/data/codex-openai-codex/",
+        "~/.claude/plugins/data/codex-openai-codex/.",
+        "~/.claude/plugins/data/codex-openai-codex/**",
+    ):
+        data = copy.deepcopy(baseline)
+        data["sandbox"]["filesystem"]["allowWrite"].append(entry)
+        mutations.append(
+            (
+                f"Codex plugin data dir reintroduced: {entry}",
+                data,
+                'sandbox.filesystem.allowWrite must not contain '
+                '"~/.claude/plugins/data/codex-openai-codex"',
+            )
+        )
+
+    data = copy.deepcopy(baseline)
+    data["sandbox"]["filesystem"]["allowWrite"].append("~/.claude/plugins/data")
+    parent_failures = all_failures(data, verifier)
+    if any("codex-openai-codex" in failure for failure in parent_failures):
+        raise AssertionError(f"parent plugin data dir rejected: {parent_failures!r}")
 
     # Generating one case per tuple entry is safe here because
     # assert_pin_contents already pinned the tuples themselves; a deleted entry

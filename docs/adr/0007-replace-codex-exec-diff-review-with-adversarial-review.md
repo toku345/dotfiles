@@ -4,6 +4,8 @@
 
 Accepted
 
+Note (Issue #275): codex-plugin-cc and the `/codex:*` commands are no longer installed. This ADR records the decision at the time. Adversarial review uses the in-repo `adversarial-reviewer` agents.
+
 ## Context
 
 The CLAUDE.md Codex integration had two AI-automatic review modes using `codex exec`: implementation plan review and diff-based code review. Both used manually crafted prompts ("致命的な点のみ指摘してください") to filter Codex output.

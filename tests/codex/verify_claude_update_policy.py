@@ -177,6 +177,29 @@ def deny_path_rule_failures(entry: object) -> list[str]:
     return []
 
 
+CODEX_PLUGIN_REPO = "openai/codex-plugin-cc"
+CODEX_PLUGIN_DATA = "~/.claude/plugins/data/codex-openai-codex"
+
+
+def _registers_codex_plugin_repo(marketplaces: dict) -> bool:
+    for marketplace in marketplaces.values():
+        source = marketplace.get("source") if isinstance(marketplace, dict) else None
+        if isinstance(source, dict) and source.get("repo") == CODEX_PLUGIN_REPO:
+            return True
+    return False
+
+
+def _is_codex_plugin_data_dir(entry: object) -> bool:
+    if not isinstance(entry, str):
+        return False
+    path = entry.rstrip("/")
+    if path.endswith("/**"):
+        path = path[: -len("/**")].rstrip("/")
+    if path.endswith("/."):
+        path = path[: -len("/.")].rstrip("/")
+    return path == CODEX_PLUGIN_DATA
+
+
 def validate_update_policy(data: object) -> list[str]:
     failures: list[str] = []
 
@@ -195,47 +218,35 @@ def validate_update_policy(data: object) -> list[str]:
     if data.get("autoUpdatesChannel") != "stable":
         failures.append('autoUpdatesChannel must be "stable"')
 
-    marketplaces = data.get("extraKnownMarketplaces")
+    marketplaces = data.get("extraKnownMarketplaces", {})
     if not isinstance(marketplaces, dict):
         failures.append("extraKnownMarketplaces must be an object")
-    else:
-        marketplace = marketplaces.get("openai-codex")
-        if not isinstance(marketplace, dict):
-            failures.append("extraKnownMarketplaces.openai-codex must be present")
-        else:
-            source = marketplace.get("source")
-            if not isinstance(source, dict):
-                failures.append("extraKnownMarketplaces.openai-codex.source must be an object")
-            else:
-                if set(source) != {"source", "repo"}:
-                    failures.append(
-                        'extraKnownMarketplaces.openai-codex.source must contain only "source" and "repo"'
-                    )
-                if source.get("source") != "github":
-                    failures.append('extraKnownMarketplaces.openai-codex.source.source must be "github"')
-                if source.get("repo") != "openai/codex-plugin-cc":
-                    failures.append(
-                        'extraKnownMarketplaces.openai-codex.source.repo must be "openai/codex-plugin-cc"'
-                    )
-            if marketplace.get("autoUpdate") is not False:
-                failures.append("extraKnownMarketplaces.openai-codex.autoUpdate must be false")
+    elif "openai-codex" in marketplaces:
+        failures.append("extraKnownMarketplaces.openai-codex must be absent")
+    elif _registers_codex_plugin_repo(marketplaces):
+        failures.append(
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"'
+        )
 
     enabled_plugins = data.get("enabledPlugins")
     if not isinstance(enabled_plugins, dict):
         failures.append("enabledPlugins must be an object")
-    else:
-        if enabled_plugins.get("codex@openai-codex") is not True:
-            failures.append('enabledPlugins."codex@openai-codex" must be true')
-        for plugin_name, enabled in enabled_plugins.items():
-            if (
-                isinstance(plugin_name, str)
-                and plugin_name.startswith("codex@")
-                and plugin_name != "codex@openai-codex"
-                and enabled is True
-            ):
-                failures.append(
-                    'enabledPlugins must not enable Codex plugins outside "codex@openai-codex"'
-                )
+    elif any(
+        isinstance(plugin_name, str) and plugin_name.startswith("codex@")
+        for plugin_name in enabled_plugins
+    ):
+        failures.append("enabledPlugins must not contain Codex plugins")
+
+    sandbox = data.get("sandbox")
+    filesystem = sandbox.get("filesystem") if isinstance(sandbox, dict) else None
+    allow_write = filesystem.get("allowWrite") if isinstance(filesystem, dict) else None
+    if isinstance(allow_write, list) and any(
+        _is_codex_plugin_data_dir(entry) for entry in allow_write
+    ):
+        failures.append(
+            'sandbox.filesystem.allowWrite must not contain '
+            '"~/.claude/plugins/data/codex-openai-codex"'
+        )
 
     return failures
 
