@@ -1,6 +1,6 @@
 # Homebrew helper の plan と apply の分割
 
-`brew-reviewed-upgrade` (Formula) と `brew-reviewed-cask-upgrade` (Cask) を、承認の要らない検査をまとめる plan と、承認された plan だけを実行する apply に分ける設計です。Issue: #460。目的は ADR 0041 の「エージェントが候補を集めて提案し、ユーザーが承認し、エージェントが承認された更新を実行する。検査は決定的な helper が行う」を Homebrew でも実現することです (#462 の段階 2)。
+`brew-reviewed-upgrade` (Formula) と `brew-reviewed-cask-upgrade` (Cask) を、承認の要らない検査をまとめる plan と、承認された plan だけを実行する apply に分ける設計です。Issue: #460。目的は、mise の更新 (ADR 0041、skill `tool-update`) と同じく、エージェントが候補を集めて提案し、ユーザーが承認し、承認された更新だけを実行する流れを、Homebrew でも実現することです (#462 の段階 2)。検査は、今と同じく helper が行います。
 
 ## 前提
 
@@ -25,11 +25,11 @@
 
 段 3 の `br_select_check` は、`-- COMMAND` が渡されず、Formula では `--no-check` もないときに動きます (`dot_local/lib/brew-reviewed-upgrade/common.sh` の `br_select_check`)。
 
-- 保存済みの check があれば、それを試しに実行する (`br_probe`)。失敗したら止まり、自動検出には戻らない。
+- 保存済みの check があれば、それを試しに実行する (`br_probe`)。失敗しても自動検出には戻らず、下の手動の入力に進む。
 - 保存済みの check がなければ、対象のコマンドを `--version`、`version` の順に試し、通った方を保存する。
-- どちらもなければ、端末で入力を求める。端末がなければ終了コード 2 で止まる。
+- どちらでも決まらなければ、端末で入力を求める。端末がなければ終了コード 2 で止まる。
 
-`-- COMMAND` で渡した command は、更新の前には試しません。
+試しの実行に通った check は、その後で更新を見送ったり cooldown で止まったりしても保存されます。`-- COMMAND` で渡した command は今回限りで、更新の前には試さず、更新の後に一度だけ実行します (ADR 0026 の Amendment 2026-09-09)。壊れたツールを更新で直すときにも使えるようにするためです。
 
 端末の入力を求めるのは 3 と 9 だけです。端末がないとき、9 は入力の終わりとして止まります。
 
@@ -80,10 +80,18 @@ plan は、次のどれかの状態を `status` として返します。どれ�
 |---|---|---|
 | `no_update` | 更新がない | 段 5 |
 | `needs_check` | smoke command が決まらない | 段 5 の後 (下の 5 を参照) |
-| `waiting` | cooldown を満たさず、例外もない | 段 6。今と同じく dry-run の前で止まり、`eligible_at` を返す |
+| `needs_exception` | cooldown の判定を通らず、例外もない | 段 6。今と同じく dry-run の前で止まる |
 | `ready` | 段 1〜8 の検査をすべて通った | 最後まで |
 
-plan の中の順番は、段 1、2、5、smoke command の決定、6、7、8 です。`no_update` は smoke command を決める前に判定します。そのため、更新がないパッケージで「smoke command の選択が必要」と報告することはありません。
+`needs_exception` は、今の helper が「`--cooldown-exception` を付けて再実行」と案内して止まる場合のすべてに当たります。理由は `cooldown.blocked_by` に、次の種類で返します。
+
+- `age`: 公開から待機時間がたっていない。このときだけ `eligible_at` を返す。
+- `draft`、`prerelease`: Release が draft、または prerelease。
+- `unverified`: 公開日時や asset を確かめられない (GitHub の Release でない、asset の digest がない、など)。
+
+skill は、`age` だけなら `eligible_at` まで待つ案を、それ以外なら例外を使うかの判断をユーザーに求めます。digest と checksum の不一致など、例外で通せない失敗は、今と同じく 0 以外の終了コードで止まります。
+
+plan の中の順番は、段 1、2、4 の一部、5、smoke command の決定、6、7、8 です。段 4 では、`brew update` と、その前後で名前が変わっていないかの確認は行いません。Cask の候補の metadata の読み込みと snapshot は行います。`no_update` は smoke command を決める前に判定します。そのため、更新がないパッケージで「smoke command の選択が必要」と報告することはありません。
 
 apply が受け付けるのは `ready` の plan だけです。
 
@@ -115,9 +123,9 @@ plan の SHA-256 は、skill がユーザーに提案するときに見せ、承
 | attestation を確かめる Formula の一覧 | ○ | — |
 | smoke command (argv、出どころ、自動検出の候補) | ○ | ○ |
 | `--no-check` | ○ | — |
-| cooldown の例外の有無と、例外で通した判定の種類 | ○ | ○ |
+| cooldown の例外の有無 | ○ | ○ |
 
-cooldown の判定のうち、経過時間と通常の更新ができる日時は、時間がたつと変わるので突き合わせません。apply の時点でもう一度判定し、満たさなければ止まります。
+cooldown の判定のうち、経過時間、通常の更新ができる日時、例外で通した判定の種類は、時間がたつと変わるので突き合わせません。apply の時点でもう一度判定し、下の 4 の規則で通すかを決めます。
 
 Cask の helper の段 10 (`verify_pre_upgrade`) は、apply の中でも残します。apply が plan を集め直した後から `brew upgrade` までの間の変化を見るためです。Formula の helper には今この段がないので、apply の 3〜4 がその役を兼ねます。
 
@@ -125,9 +133,11 @@ Cask の helper の段 10 (`verify_pre_upgrade`) は、apply の中でも残し�
 
 今の文書は、例外の理由をファイルに保存しないと決めています (shell history 以外に理由を残さないため)。この決めごとは変えません。
 
-- plan は、例外を使ったことと、例外で通した判定の種類 (待機中、公開日時が確かめられない、など) を記録し、理由は記録しない。
+- plan は、例外を使ったことと、例外で通した判定の種類 (`cooldown.exception_covers`、種類は上の `blocked_by` と同じ) を記録し、理由は記録しない。
 - apply は、plan に例外があるときだけ `--cooldown-exception REASON` を受け付け、そのときは必ず求める。plan に例外がないのにフラグが渡されたら止まる。
-- apply で、plan に記録されていない種類の判定に失敗したら、例外があっても止まる。digest と checksum の不一致は、今と同じく例外では通さない。
+- apply で判定を通らなかった種類が、すべて plan の `exception_covers` に含まれていれば通す。含まれない種類があれば、例外があっても止まる。
+- plan のときは `age` で例外を使い、apply のときには待機時間がたっていた場合は、今と同じく「例外は不要」と表示して先へ進む。
+- digest と checksum の不一致は、今と同じく例外では通さない。
 - 理由は、今と同じく画面に表示する。
 
 例外が承認するのは、記録された種類の失敗を通すことです。apply で渡された理由の文面が plan のときと同じかどうかは、確かめません。
@@ -136,24 +146,38 @@ Cask の helper の段 10 (`verify_pre_upgrade`) は、apply の中でも残し�
 
 plan は端末の入力を求めず、command を実行せず、設定ファイルにも書きません。smoke command は、次のどれかで決め、argv と出どころを plan に書きます。
 
-- `argument`: `-- COMMAND` での指定。今と同じく、パスを解決するだけで試さない。
+- `argument`: `-- COMMAND` での指定。今と同じく、パスを解決するだけで、更新の前には試さない。
 - `saved_auto`: 自動検出で保存された check。今の対象のコマンドを指していることを確かめる。
 - `saved_manual`: 手動で保存された check。パスを解決できることを確かめる。
 - `auto`: 保存済みの check がなく、対象のコマンドが見つかるとき。候補の `--version`、`version` を、試す順に plan に書く。
 
 保存済みの check は、自動検出か手動かを分けて記録し、突き合わせます。更新後に対象のコマンドを確かめるか (`br_verify_auto_check`) は、この出どころで決まるからです。plan の後で設定が書き換わり、同じ argv のまま出どころだけが変わった場合も、突き合わせで止まります。
 
-どれにも当たらなければ、plan は `needs_check` を返します。この場合は、ユーザーが `-- COMMAND` で指定して plan をやり直します。
+次の場合、plan は `needs_check` を返し、理由を `check.problem` に書きます。
 
-apply は、突き合わせが済んだ後、更新の前に、今の `br_probe` で smoke command を試します。`saved` が失敗したら止まります。`auto` は候補を順に試し、通ったものを保存します。設定ファイルに書くのは apply だけです。
+- `none`: 保存済みの check がなく、対象のコマンドも見つからない。
+- `saved_auto_mismatch`: 自動検出で保存された check が、今の対象のコマンドを指していない。
+- `saved_manual_unresolved`: 手動で保存された check のパスを解決できない。
 
-`--no-check` (Formula だけ) も plan に記録します。apply は、plan に書かれた smoke command と `--no-check` だけを使い、自分では選び直しません。自動検出の check (`saved_auto`、`auto`) が更新後も対象のコマンドを指しているかの確認 (`br_verify_auto_check`) は、今と同じく残します。実行するかどうかは、突き合わせで一致した出どころで決めます。
+今の helper は、保存済みの check が使えないとき、自動検出に戻らずに手動の入力を求めます。plan も、自分で別の check に変えません。ユーザーは、次のどれかで直してから plan をやり直します。
+
+- 今回限りの check を `-- COMMAND` で指定する。
+- `--forget-check` で保存済みの check を消し、自動検出に任せる。
+- サブコマンドを付けない対話の流れで、check を入力し直す。
+
+apply は、突き合わせが済んだ後、更新の前に、今の `br_probe` で smoke command を試します。試すのは `saved_auto`、`saved_manual`、`auto` だけです。`saved_auto` と `saved_manual` は、失敗したら止まります。直し方は、plan の `needs_check` と同じです。`auto` は候補を順に試し、通ったものを保存します。どれも通らなければ止まります。`argument` は、今と同じく更新の前には試さず、更新の後に一度だけ実行します。
+
+設定ファイルに書くのは apply だけです。そのため、今の helper と違い、plan で止まったり apply を実行しなかったりした場合は、自動検出した check は保存されません。
+
+`--no-check` (Formula だけ) も plan に記録します。`--no-check` を付けたときは smoke command を決めないので、`needs_check` にもなりません。apply は、plan に書かれた smoke command と `--no-check` だけを使い、自分では選び直しません。自動検出の check (`saved_auto`、`auto`) が更新後も対象のコマンドを指しているかの確認 (`br_verify_auto_check`) は、今と同じく残します。実行するかどうかは、突き合わせで一致した出どころで決めます。
 
 ### 6. apply は端末の入力を読まない
 
 apply は、引数を読んだ後に stdin を `/dev/null` につなぎ替えます。そのため、`brew upgrade`、smoke command などの子プロセスが stdin から入力を求めても、待たずに失敗します。bats では、stdin を読む smoke command の fixture で、apply が止まらずに失敗することを確かめます。
 
-制御端末がある環境では、子プロセスが `/dev/tty` を開いて入力を求めることができます (`sudo` のパスワードなど)。stdin のつなぎ替えでは、これは防げません。apply を制御端末から切り離す方法は、macOS に標準の手段がないので、v1 では入れません。エージェントが制御端末のない環境で apply を実行するなら、`/dev/tty` は開けずに失敗します。そうなるかどうかは「未確定の点」で確かめます。
+制御端末がある環境では、子プロセスが `/dev/tty` を開いて入力を求めることができます (`sudo` のパスワードなど)。stdin のつなぎ替えでは、これは防げません。apply を制御端末から切り離す方法は、macOS に標準の手段がないので、v1 では入れません。
+
+その代わり、apply は制御端末がないことを実行の条件にします。引数を読んだ直後、plan のファイルを読む前に `/dev/tty` を開けるかを確かめ、開けたらエラーで止まります。端末から自分で更新するときは、サブコマンドを付けない対話の流れを使います。判定は 1 つの関数にまとめ、bats ではその関数を差し替えて、端末があるときに止まることと、ないときに進むことを確かめます。
 
 ### 7. plan は 1 つのパッケージずつ
 
@@ -178,9 +202,9 @@ plan も apply も、1 回の実行で 1 つのパッケージだけを扱いま
   },
   "cooldown": {
     "hours": 48,
-    "status": "eligible",
     "eligible_at": "2026-11-22T00:00:00Z",
     "exception": false,
+    "blocked_by": [],
     "exception_covers": []
   },
   "dry_run": "...",
@@ -190,7 +214,7 @@ plan も apply も、1 回の実行で 1 つのパッケージだけを扱いま
 }
 ```
 
-`ready` 以外の状態では、その状態を決めた段までの項目だけを返します。たとえば `no_update` は対象の名前と version だけ、`waiting` は `eligible_at` までを返し、`dry_run` を含みません。`auto` の check は、`argv` の代わりに試す順の候補 (`candidates`) を返します。
+`ready` 以外の状態では、その状態を決めた段までの項目だけを返します。たとえば `no_update` は対象の名前と version だけ、`needs_exception` は `cooldown` (`blocked_by`、`age` のときは `eligible_at`) までを返し、`dry_run` を含みません。`auto` の check は、`argv` の代わりに試す順の候補 (`candidates`) を返します。`needs_check` の check は、`argv` の代わりに `problem` を返します。
 
 plan のファイルは、呼び出す側が権限 0600 の一時ファイルに保存します。ファイルには secret を含めません (cooldown の例外の理由を記録しないのはこのためです)。
 
@@ -210,5 +234,5 @@ plan のファイルは、呼び出す側が権限 0600 の一時ファイルに
 ## 未確定の点
 
 - **dry-run の出力が毎回同じか。** 今は文字列をそのまま表示しています。同じ状態で 2 回実行して同じ出力になるかは、macOS でまだ確かめていません (この Linux の環境では、sandbox の中で書き込み権限が足りず、dry-run を実行できませんでした)。違うなら、突き合わせの前に正規化する必要があります。
-- **端末なしで更新が通るか。** `brew upgrade` が、stdin を `/dev/null` にした状態で最後まで進むかを、macOS で確かめていません (Cask では、アプリによっては管理者のパスワードを求めることがあります)。通らないものは、apply では止まって報告します。あわせて、エージェント (Claude Code の Bash など) から実行したときに制御端末がなく、`/dev/tty` を開けないことを確かめます。開けるなら、apply を制御端末から切り離す方法を検討し直します。
+- **端末なしで更新が通るか。** `brew upgrade` が、stdin を `/dev/null` にした状態で最後まで進むかを、macOS で確かめていません (Cask では、アプリによっては管理者のパスワードを求めることがあります)。通らないものは、apply では止まって報告します。あわせて、エージェント (Claude Code の Bash など) から実行したときに制御端末がないことを確かめます。制御端末があれば、apply は条件を満たさずに止まるだけで、更新はしません。その場合は、apply を制御端末から切り離す方法を検討し直します。
 - **apply が plan を集め直すときの GitHub API の呼び出し。** plan と apply で 2 回呼ぶことになります。rate limit に触れるかは、使ってみて確かめます。
