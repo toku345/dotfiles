@@ -1,0 +1,16 @@
+# DSH web プロファイル向けの共有上書き。認証情報は端末ごとに設定する。
+- id: llm-pi-ai
+  config:
+    # config は全置換されるため、DSH 0.2.3-alpha.2 の標準値を維持する。
+    chatGptSignIn: true
+    # プロバイダーの追加だけを共有し、モデル一覧は DSH 内蔵カタログに従う。
+    providers:
+      openai-codex: {}
+      ollama-cloud:
+        apiKeyEnv: OLLAMA_CLOUD_API_KEY
+
+# 標準の経路ではなく、検索・取得ともに Ollama Cloud を使う。
+- id: web
+  config:
+    searchProvider: ollama-cloud-search
+    fetchProvider: ollama-cloud-fetch
