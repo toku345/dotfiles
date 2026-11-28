@@ -179,25 +179,136 @@ def deny_path_rule_failures(entry: object) -> list[str]:
 
 CODEX_PLUGIN_REPO = "openai/codex-plugin-cc"
 CODEX_PLUGIN_DATA = "~/.claude/plugins/data/codex-openai-codex"
+CODEX_PLUGIN_DATA_PARENT = "~/.claude/plugins/data"
+# additionalMarketplaces is the v2.1.232 alias of extraKnownMarketplaces.
+# strictKnownMarketplaces / allowedMarketplaces allow or block sources and do not register one.
+MARKETPLACE_KEYS = ("extraKnownMarketplaces", "additionalMarketplaces")
 
 
-def _registers_codex_plugin_repo(marketplaces: dict) -> bool:
-    for marketplace in marketplaces.values():
-        source = marketplace.get("source") if isinstance(marketplace, dict) else None
-        if isinstance(source, dict) and source.get("repo") == CODEX_PLUGIN_REPO:
+def _names_codex_plugin_repo(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip().rstrip("/")
+    if text.lower().endswith(".git"):
+        text = text[:-4].rstrip("/")
+    text = text.lower()
+    needle = CODEX_PLUGIN_REPO
+    return text == needle or text.endswith("/" + needle) or text.endswith(":" + needle)
+
+
+def _marketplace_failures(key: str, marketplaces: object) -> list[str]:
+    if not isinstance(marketplaces, dict):
+        return [f"{key} must be an object"]
+    failures: list[str] = []
+    if "openai-codex" in marketplaces:
+        failures.append(f"{key}.openai-codex must be absent")
+    for name, marketplace in marketplaces.items():
+        if not isinstance(marketplace, dict):
+            failures.append(f"{key}.{name} must be an object")
+            continue
+        if "source" not in marketplace:
+            continue
+        source = marketplace.get("source")
+        if not isinstance(source, dict):
+            failures.append(f"{key}.{name}.source must be an object")
+            continue
+        for field in ("repo", "url"):
+            if field not in source:
+                continue
+            field_value = source.get(field)
+            if not isinstance(field_value, str):
+                failures.append(f"{key}.{name}.source.{field} must be a string")
+            elif _names_codex_plugin_repo(field_value):
+                failures.append(f'{key} must not register "{CODEX_PLUGIN_REPO}"')
+    return failures
+
+
+def _normalize_allow_write(entry: str) -> str:
+    text = entry.strip()
+    for prefix in ("${HOME}/", "$HOME/", "~/"):
+        if text.startswith(prefix):
+            return "~/" + text[len(prefix) :]
+    for root in ("/Users/", "/home/"):
+        if text.startswith(root):
+            rest = text[len(root) :]
+            slash = rest.find("/")
+            if slash > 0:
+                return "~/" + rest[slash + 1 :]
+    return text
+
+
+def _strip_trailing_dot_slash(path: str) -> str:
+    path = path.rstrip("/")
+    if path.endswith("/."):
+        path = path[: -len("/.")].rstrip("/")
+    return path
+
+
+def _glob_matches(pattern: str, candidate: str) -> bool:
+    parts: list[str] = []
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**", index):
+            parts.append(".*")
+            index += 2
+        elif pattern[index] == "*":
+            parts.append("[^/]*")
+            index += 1
+        elif pattern[index] == "?":
+            parts.append("[^/]")
+            index += 1
+        else:
+            parts.append(re.escape(pattern[index]))
+            index += 1
+    return re.fullmatch("".join(parts), candidate) is not None
+
+
+def _wildcard_covers_plugin(pattern: str) -> bool:
+    if _glob_matches(pattern, CODEX_PLUGIN_DATA):
+        return True
+    if _glob_matches(pattern, CODEX_PLUGIN_DATA + "/x") or _glob_matches(
+        pattern, CODEX_PLUGIN_DATA + "/x/y"
+    ):
+        return True
+    ancestor = CODEX_PLUGIN_DATA
+    while "/" in ancestor:
+        ancestor = ancestor.rsplit("/", 1)[0]
+        if ancestor in {"~", ""}:
+            break
+        if _glob_matches(pattern, ancestor):
             return True
     return False
 
 
-def _is_codex_plugin_data_dir(entry: object) -> bool:
-    if not isinstance(entry, str):
+def _grants_codex_plugin_data(entry: str) -> bool:
+    path = _strip_trailing_dot_slash(_normalize_allow_write(entry))
+    if path == CODEX_PLUGIN_DATA_PARENT:
         return False
-    path = entry.rstrip("/")
-    if path.endswith("/**"):
-        path = path[: -len("/**")].rstrip("/")
-    if path.endswith("/."):
-        path = path[: -len("/.")].rstrip("/")
-    return path == CODEX_PLUGIN_DATA
+    if "*" in path or "?" in path:
+        return _wildcard_covers_plugin(path)
+    return path == CODEX_PLUGIN_DATA or path.startswith(CODEX_PLUGIN_DATA + "/")
+
+
+def _allow_write_failures(sandbox: object) -> list[str]:
+    if not isinstance(sandbox, dict):
+        return []
+    filesystem = sandbox.get("filesystem")
+    if not isinstance(filesystem, dict):
+        return ["sandbox.filesystem must be an object"]
+    allow_write = filesystem.get("allowWrite")
+    if not isinstance(allow_write, list):
+        return ["sandbox.filesystem.allowWrite must be an array"]
+    failures: list[str] = []
+    for entry in allow_write:
+        if not isinstance(entry, str):
+            failures.append("sandbox.filesystem.allowWrite entries must be strings")
+            continue
+        if _grants_codex_plugin_data(entry):
+            failures.append(
+                "sandbox.filesystem.allowWrite must not contain "
+                f'"{CODEX_PLUGIN_DATA}"'
+            )
+    return failures
 
 
 def validate_update_policy(data: object) -> list[str]:
@@ -218,15 +329,9 @@ def validate_update_policy(data: object) -> list[str]:
     if data.get("autoUpdatesChannel") != "stable":
         failures.append('autoUpdatesChannel must be "stable"')
 
-    marketplaces = data.get("extraKnownMarketplaces", {})
-    if not isinstance(marketplaces, dict):
-        failures.append("extraKnownMarketplaces must be an object")
-    elif "openai-codex" in marketplaces:
-        failures.append("extraKnownMarketplaces.openai-codex must be absent")
-    elif _registers_codex_plugin_repo(marketplaces):
-        failures.append(
-            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"'
-        )
+    for key in MARKETPLACE_KEYS:
+        if key in data:
+            failures.extend(_marketplace_failures(key, data.get(key)))
 
     enabled_plugins = data.get("enabledPlugins")
     if not isinstance(enabled_plugins, dict):
@@ -237,16 +342,7 @@ def validate_update_policy(data: object) -> list[str]:
     ):
         failures.append("enabledPlugins must not contain Codex plugins")
 
-    sandbox = data.get("sandbox")
-    filesystem = sandbox.get("filesystem") if isinstance(sandbox, dict) else None
-    allow_write = filesystem.get("allowWrite") if isinstance(filesystem, dict) else None
-    if isinstance(allow_write, list) and any(
-        _is_codex_plugin_data_dir(entry) for entry in allow_write
-    ):
-        failures.append(
-            'sandbox.filesystem.allowWrite must not contain '
-            '"~/.claude/plugins/data/codex-openai-codex"'
-        )
+    failures.extend(_allow_write_failures(data.get("sandbox")))
 
     return failures
 

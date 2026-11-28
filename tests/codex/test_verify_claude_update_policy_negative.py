@@ -204,6 +204,75 @@ def main() -> None:
     )
 
     data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {
+        "codex-cc": {
+            "source": {
+                "source": "git",
+                "url": "HTTPS://GitHub.com/OpenAI/codex-plugin-cc.git/",
+            }
+        }
+    }
+    mutations.append(
+        (
+            "Codex plugin git url registered",
+            data,
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["additionalMarketplaces"] = {
+        "codex-cc": {"source": {"source": "github", "repo": "openai/codex-plugin-cc"}}
+    }
+    mutations.append(
+        (
+            "Codex plugin repo registered under additionalMarketplaces",
+            data,
+            'additionalMarketplaces must not register "openai/codex-plugin-cc"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["additionalMarketplaces"] = []
+    mutations.append(
+        (
+            "additionalMarketplaces not an object",
+            data,
+            "additionalMarketplaces must be an object",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {"codex-cc": []}
+    mutations.append(
+        (
+            "marketplace entry not an object",
+            data,
+            "extraKnownMarketplaces.codex-cc must be an object",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {"codex-cc": {"source": "git"}}
+    mutations.append(
+        (
+            "marketplace source not an object",
+            data,
+            "extraKnownMarketplaces.codex-cc.source must be an object",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {"codex-cc": {"source": {"repo": 1}}}
+    mutations.append(
+        (
+            "marketplace repo not a string",
+            data,
+            "extraKnownMarketplaces.codex-cc.source.repo must be a string",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
     data["enabledPlugins"]["codex@openai-codex"] = True
     mutations.append(
         (
@@ -238,6 +307,15 @@ def main() -> None:
         "~/.claude/plugins/data/codex-openai-codex/",
         "~/.claude/plugins/data/codex-openai-codex/.",
         "~/.claude/plugins/data/codex-openai-codex/**",
+        "~/.claude/plugins/data/codex-openai-codex/*",
+        "~/.claude/plugins/data/codex-openai-codex/state",
+        "~/.claude/plugins/data/*",
+        "~/.claude/plugins/data/**",
+        "~/.claude/plugins/*",
+        "$HOME/.claude/plugins/data/codex-openai-codex",
+        "${HOME}/.claude/plugins/data/codex-openai-codex",
+        "/home/toku345/.claude/plugins/data/codex-openai-codex",
+        "/Users/toku345/.claude/plugins/data/codex-openai-codex/",
     ):
         data = copy.deepcopy(baseline)
         data["sandbox"]["filesystem"]["allowWrite"].append(entry)
@@ -250,11 +328,47 @@ def main() -> None:
             )
         )
 
+    for entry in (
+        "~/.claude/plugins/data",
+        "/home/toku345/.claude/plugins/data",
+        "$HOME/.claude/plugins/data",
+        "~/.claude/plugins",
+    ):
+        data = copy.deepcopy(baseline)
+        data["sandbox"]["filesystem"]["allowWrite"].append(entry)
+        parent_failures = all_failures(data, verifier)
+        if any("codex-openai-codex" in failure for failure in parent_failures):
+            raise AssertionError(f"allowWrite entry {entry!r} rejected: {parent_failures!r}")
+
     data = copy.deepcopy(baseline)
-    data["sandbox"]["filesystem"]["allowWrite"].append("~/.claude/plugins/data")
-    parent_failures = all_failures(data, verifier)
-    if any("codex-openai-codex" in failure for failure in parent_failures):
-        raise AssertionError(f"parent plugin data dir rejected: {parent_failures!r}")
+    data["sandbox"]["filesystem"]["allowWrite"] = "~/.claude/plugins/data/codex-openai-codex"
+    mutations.append(
+        (
+            "allowWrite not an array",
+            data,
+            "sandbox.filesystem.allowWrite must be an array",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["sandbox"]["filesystem"]["allowWrite"].append(1)
+    mutations.append(
+        (
+            "allowWrite entry not a string",
+            data,
+            "sandbox.filesystem.allowWrite entries must be strings",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["sandbox"].pop("filesystem")
+    mutations.append(
+        (
+            "sandbox filesystem removed",
+            data,
+            "sandbox.filesystem must be an object",
+        )
+    )
 
     # Generating one case per tuple entry is safe here because
     # assert_pin_contents already pinned the tuples themselves; a deleted entry
