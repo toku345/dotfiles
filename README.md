@@ -112,6 +112,7 @@ verified Codex version unless upstream ships configs for a newer one.
 - Recovery needs GitHub access, 1Password access, and the `key.txt.age`
   password: [docs/backup-restore.md](docs/backup-restore.md).
 - Update policy for Codex and Fugu: [docs/codex.md](docs/codex.md).
+- DSH を新規環境で使う: [時雨堂 fork のビルドと初回セットアップ](docs/dsh.md)。
 
 ## Additional Setup
 

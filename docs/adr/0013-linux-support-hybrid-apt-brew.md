@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (§3 asdf exclusion and §6 language manager scope superseded by ADR 0023)
+Accepted (§3 asdf exclusion and §6 language manager scope superseded by ADR 0023; `git-gtr` removed from both OSs by ADR 0043)
 
 ## Context
 
