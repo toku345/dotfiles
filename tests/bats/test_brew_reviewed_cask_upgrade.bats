@@ -1159,3 +1159,227 @@ EOF
   [[ "$output" == *"Post-upgrade smoke check: passed"* ]]
   [[ "$output" == *"could not display the result summary"* ]]
 }
+
+# --- plan ---------------------------------------------------------------
+
+plan_has() {
+  jq -e "$1" <<<"$output" >/dev/null
+}
+
+recent_timestamp() {
+  jq -nr 'now - 3600 | floor | strftime("%Y-%m-%dT%H:%M:%SZ")'
+}
+
+refute_plan_side_effects() {
+  run ! grep -Fxq 'update' "$BREW_STUB_LOG"
+  run ! grep -Fq -- '--no-ask' "$BREW_STUB_LOG"
+  [ ! -e "$SMOKE_STUB_LOG" ]
+  [ ! -e "$HOME/.config/brew-reviewed-upgrade" ]
+}
+
+@test "plan ready records the full plan on stdout without side effects" {
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex -- \
+    smoke-command "two words" "" <"$YES_FILE"
+
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <<<"$output")" -eq 1 ]
+  plan_has '.schema_version == 1 and .kind == "cask" and .status == "ready"'
+  plan_has '.token == "codex" and .tap == "homebrew/cask"'
+  plan_has '.installed_version == "1.0.0" and .candidate_version == "2.0.0"'
+  plan_has '.input == {target: "codex", no_check: false, cooldown_exception: false,
+    command: ["smoke-command", "two words", ""]}'
+  jq -e --arg cwd "$(pwd -P)" '.cwd == $cwd' <<<"$output"
+  jq -e --arg smoke "$TEST_BIN/smoke-command" \
+    '.check == {origin: "argument", argv: [$smoke, "two words", ""]}' <<<"$output"
+  plan_has '.release.notes_url == "https://github.com/openai/codex/releases/tag/v2.0.0"'
+  plan_has '.release.published_at == "2020-01-01T00:00:00Z"
+    and .release.draft == false and .release.prerelease == false'
+  plan_has '.release.asset == {created_at: "2020-01-01T00:00:00Z",
+    updated_at: "2020-01-01T00:00:00Z", digest_matched: true}'
+  plan_has '.release.unverified_reason == null'
+  plan_has '.cooldown == {hours: 48, blocked_by: [], exception_covers: [],
+    eligible_at: "2020-01-03T00:00:00Z"}'
+  plan_has '.dry_run | contains("Would upgrade codex 1.0.0 -> 2.0.0")'
+  plan_has '.verification == {attested_formulae: []}'
+  plan_has '.snapshots.installed_state.installed == "1.0.0"
+    and .snapshots.installed_receipt.source.version == "1.0.0"
+    and .snapshots.candidate.sha256 == "2222222222222222222222222222222222222222222222222222222222222222"'
+  [[ "$stderr" == *"==> Cask review"* && "$stderr" == *"Plan status: ready"* ]]
+  [[ "$stderr" == *"Would upgrade codex"* ]]
+  assert_log_order \
+    'config' \
+    $'developer\tstate' \
+    $'info\t--cask\t--json=v2\tcodex' \
+    $'outdated\t--cask\t--json=v2\tcodex' \
+    $'upgrade\t--cask\t--dry-run\t--require-sha\t--no-quit\t--skip-cask-deps\tcodex'
+  refute_plan_side_effects
+}
+
+@test "plan no_update stops before resolving the smoke command or querying GitHub" {
+  export BREW_STUB_CURRENT=true BREW_STUB_OUTDATED_MODE=current
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex -- missing-smoke
+
+  [ "$status" -eq 0 ]
+  plan_has '.status == "no_update" and .installed_version == "1.0.0"
+    and .candidate_version == "1.0.0"'
+  plan_has '.input.command == ["missing-smoke"]'
+  plan_has 'has("check") or has("release") or has("cooldown") or has("dry_run") | not'
+  [ ! -s "$GH_STUB_LOG" ]
+  run ! grep -Fq -- '--dry-run' "$BREW_STUB_LOG"
+  refute_plan_side_effects
+}
+
+@test "plan needs_check reports each problem without querying GitHub" {
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex
+  [ "$status" -eq 0 ]
+  plan_has '.status == "needs_check" and .check == {problem: "none"}'
+  plan_has 'has("release") or has("dry_run") | not'
+  [ ! -s "$GH_STUB_LOG" ]
+  [[ "$stderr" == *"a check command is needed (none)"* ]]
+
+  remember_manual_check cask codex missing-reviewed-check --version
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex
+  [ "$status" -eq 0 ]
+  plan_has '.check == {problem: "saved_manual_unresolved"}'
+
+  "$BASH5_BIN" -c '
+    source "$SOURCE"
+    JQ_BIN="$(type -P jq)"
+    br_settings_init cask codex
+    br_save_check auto /elsewhere/codex --version
+  ' >/dev/null
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex
+  [ "$status" -eq 0 ]
+  plan_has '.check == {problem: "saved_auto_mismatch"}'
+  [ ! -s "$GH_STUB_LOG" ]
+}
+
+@test "plan lists automatic candidates without probing or saving" {
+  prepare_cask_auto_check
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex
+
+  [ "$status" -eq 0 ]
+  jq -e --arg path "$TEST_PREFIX/bin/codex" '
+    .status == "ready"
+      and .check == {origin: "auto", candidates: [[$path, "--version"], [$path, "version"]]}
+  ' <<<"$output"
+  refute_plan_side_effects
+}
+
+@test "plan saved checks keep their origin" {
+  remember_manual_check cask codex smoke-command --flag
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex
+  [ "$status" -eq 0 ]
+  jq -e --arg smoke "$TEST_BIN/smoke-command" \
+    '.check == {origin: "saved_manual", argv: [$smoke, "--flag"]}' <<<"$output"
+  [ ! -e "$SMOKE_STUB_LOG" ]
+
+  prepare_cask_auto_check
+  "$BASH5_BIN" -c '
+    source "$SOURCE"
+    JQ_BIN="$(type -P jq)"
+    br_settings_init cask codex
+    br_save_check auto "$TEST_PREFIX/bin/codex" version
+  ' >/dev/null
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex
+  [ "$status" -eq 0 ]
+  jq -e --arg path "$TEST_PREFIX/bin/codex" \
+    '.check == {origin: "saved_auto", argv: [$path, "version"]}' <<<"$output"
+  [ ! -e "$SMOKE_STUB_LOG" ]
+}
+
+@test "plan needs_exception records every blocked kind and stops before dry-run" {
+  export GH_STUB_PUBLISHED_AT="$(recent_timestamp)" GH_STUB_DRAFT=true
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex -- smoke-command
+
+  [ "$status" -eq 0 ]
+  plan_has '.status == "needs_exception"
+    and .cooldown.blocked_by == ["draft", "age"]
+    and .cooldown.exception_covers == []
+    and (.cooldown.eligible_at | type) == "string"'
+  plan_has 'has("dry_run") or has("snapshots") | not'
+  [[ "$stderr" == *"Release is a draft"* ]]
+  run ! grep -Fq -- '--dry-run' "$BREW_STUB_LOG"
+
+  export GH_STUB_PUBLISHED_AT=2020-01-01T00:00:00Z GH_STUB_DRAFT=false GH_STUB_PRERELEASE=true
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex -- smoke-command
+  [ "$status" -eq 0 ]
+  plan_has '.cooldown.blocked_by == ["prerelease"] and (.cooldown | has("eligible_at") | not)'
+
+  unset GH_STUB_PRERELEASE
+  export BREW_STUB_CANDIDATE_MODE=nongithub
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex -- smoke-command
+  [ "$status" -eq 0 ]
+  plan_has '.cooldown.blocked_by == ["unverified"]
+    and (.cooldown | has("eligible_at") | not)
+    and .release.unverified_reason == "Cask download is not a supported GitHub release URL"'
+}
+
+@test "plan exception records covered kinds but never the reason" {
+  export GH_STUB_PUBLISHED_AT="$(recent_timestamp)" GH_STUB_DRAFT=true
+  run --separate-stderr brew-reviewed-cask-upgrade plan \
+    --cooldown-exception "reviewed security fix" codex -- smoke-command
+
+  [ "$status" -eq 0 ]
+  plan_has '.status == "ready" and .input.cooldown_exception == true
+    and .cooldown.blocked_by == ["draft", "age"]
+    and .cooldown.exception_covers == ["draft", "age"]'
+  [[ "$output" != *"reviewed security fix"* ]]
+  [[ "$stderr" == *"Exception reason: reviewed security fix"* ]]
+  [[ "$stderr" == *"Exception covers: draft age"* ]]
+
+  unset GH_STUB_PUBLISHED_AT GH_STUB_DRAFT
+  run --separate-stderr brew-reviewed-cask-upgrade plan \
+    --cooldown-exception "not needed" codex -- smoke-command
+  [ "$status" -eq 0 ]
+  plan_has '.input.cooldown_exception == true and .cooldown.exception_covers == []'
+  [[ "$stderr" == *"Cooldown: eligible (exception not needed)"* ]]
+}
+
+@test "plan keeps fetched asset fields when the release stays unverified" {
+  export GH_STUB_ASSET_UPDATED_AT=2999-01-01T00:00:00Z
+  run --separate-stderr brew-reviewed-cask-upgrade plan codex -- smoke-command
+
+  [ "$status" -eq 0 ]
+  plan_has '.status == "needs_exception" and .cooldown.blocked_by == ["unverified"]
+    and .release.asset == {created_at: "2020-01-01T00:00:00Z",
+      updated_at: "2999-01-01T00:00:00Z", digest_matched: true}'
+}
+
+@test "plan digest mismatch fails without a plan even with an exception" {
+  export GH_STUB_ASSET_DIGEST=sha256:3333333333333333333333333333333333333333333333333333333333333333
+  run --separate-stderr brew-reviewed-cask-upgrade plan \
+    --cooldown-exception "reason" codex -- smoke-command
+
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"digest does not match"* ]]
+}
+
+@test "plan publishes nothing when temporary cleanup fails" {
+  export TMPDIR="$BATS_TEST_TMPDIR"
+  run --separate-stderr "$BASH5_BIN" -c '
+    source "$SOURCE"
+    rm() { return 9; }
+    main plan codex -- smoke-command
+  '
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
+
+@test "plan usage errors do not invoke Homebrew" {
+  run brew-reviewed-cask-upgrade plan
+  [ "$status" -eq 2 ]
+  run brew-reviewed-cask-upgrade plan codex other -- smoke-command
+  [ "$status" -eq 2 ]
+  run brew-reviewed-cask-upgrade plan --cooldown-exception "" codex
+  [ "$status" -eq 2 ]
+  [ ! -s "$BREW_STUB_LOG" ]
+}
+
+@test "a tap-qualified reserved name uses the interactive flow" {
+  run brew-reviewed-cask-upgrade homebrew/cask/plan -- smoke-command <"$YES_FILE"
+  [ "$status" -eq 0 ]
+  grep -Fxq $'info\t--cask\t--json=v2\thomebrew/cask/plan' "$BREW_STUB_LOG"
+  grep -Fxq 'update' "$BREW_STUB_LOG"
+}
