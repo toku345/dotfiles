@@ -336,8 +336,11 @@ CONFIG
     ;;
   upgrade)
     if [[ "$*" == *"--dry-run"* ]]; then
-      [[ "${BREW_STUB_DRY_RUN_EMPTY:-false}" == true ]] || printf 'Would upgrade %s 1.0.0 -> 2.0.0\n' "$BREW_STUB_CASK"
+      [[ "${BREW_STUB_DRY_RUN_EMPTY:-false}" == true ]] || printf 'Would upgrade %s 1.0.0 -> 2.0.0%s\n' "$BREW_STUB_CASK" "${BREW_STUB_DRY_RUN_EXTRA:-}"
       exit "${BREW_STUB_DRY_RUN_STATUS:-0}"
+    fi
+    if [[ "${BREW_STUB_UPGRADE_READS_STDIN:-false}" == true ]] && IFS= read -r line; then
+      printf '%s\n' "$line" >"$BREW_STUB_STDIN_FILE"
     fi
     if [[ "${BREW_STUB_BLOCK_UPGRADE:-false}" == true ]]; then
       : >"$BREW_STUB_SIGNAL_MARKER"
@@ -361,9 +364,32 @@ CONFIG
 esac
 EOF
 
+  # apply refuses a controlling terminal; tests replace that probe (and the
+  # clock when APPLY_NOW is set) instead of depending on how bats was started.
+  cat >"$TEST_BIN/cask-apply" <<'EOF'
+#!/bin/sh
+exec "$BASH5_BIN" -c '
+  source "$SOURCE"
+  br_has_controlling_terminal() { return 1; }
+  if [ -n "${APPLY_NOW:-}" ]; then current_epoch() { printf "%s\n" "$APPLY_NOW"; }; fi
+  main apply "$@"
+' cask-apply "$@"
+EOF
+
+  cat >"$TEST_BIN/stdin-smoke" <<'EOF'
+#!/usr/bin/env bash
+if IFS= read -r line; then
+  printf 'read:%s\n' "$line" >>"$SMOKE_STUB_LOG"
+  exit 0
+fi
+printf 'stdin:eof\n' >>"$SMOKE_STUB_LOG"
+exit 5
+EOF
+
   ln -s "$(type -P jq)" "$TEST_BIN/jq"
   chmod +x "$TEST_BIN/brew-reviewed-cask-upgrade" "$TEST_BIN/brew" \
-    "$TEST_BIN/gh" "$TEST_BIN/smoke-command"
+    "$TEST_BIN/gh" "$TEST_BIN/smoke-command" "$TEST_BIN/cask-apply" \
+    "$TEST_BIN/stdin-smoke"
 }
 
 assert_log_order() {
@@ -1382,4 +1408,317 @@ refute_plan_side_effects() {
   [ "$status" -eq 0 ]
   grep -Fxq $'info\t--cask\t--json=v2\thomebrew/cask/plan' "$BREW_STUB_LOG"
   grep -Fxq 'update' "$BREW_STUB_LOG"
+}
+
+# --- apply --------------------------------------------------------------
+
+file_sha() {
+  if type -P sha256sum >/dev/null; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+reset_stub_state() {
+  : >"$BREW_STUB_LOG"
+  : >"$GH_STUB_LOG"
+  printf '0\n' >"$BREW_STUB_INSTALLED_COUNT"
+  printf '0\n' >"$BREW_STUB_NAMED_COUNT"
+  printf '0\n' >"$BREW_STUB_RECEIPT_COUNT"
+  rm -f "$SMOKE_STUB_LOG"
+}
+
+make_plan() {
+  PLAN_PATH="$BATS_TEST_TMPDIR/plan.json"
+  run --separate-stderr brew-reviewed-cask-upgrade plan "$@"
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" >"$PLAN_PATH"
+  PLAN_SHA="$(file_sha "$PLAN_PATH")"
+  reset_stub_state
+}
+
+apply_plan() {
+  run --separate-stderr cask-apply --plan "$PLAN_PATH" --plan-sha256 "$PLAN_SHA" "$@"
+}
+
+count_log() {
+  grep -c -F -- "$1" "$BREW_STUB_LOG" || true
+}
+
+expect_drift() {
+  local key="$1"
+  shift
+  reset_stub_state
+  apply_plan "$@"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"state changed since the approved plan"*"$key"* ]]
+  [ "$(count_log '--no-ask')" -eq 0 ]
+}
+
+@test "apply upgrades an approved plan without brew update" {
+  make_plan codex -- smoke-command "two words" ""
+  apply_plan
+
+  [ "$status" -eq 0 ]
+  grep -Fxq 'argc=2' "$SMOKE_STUB_LOG"
+  grep -Fxq '<two words>' "$SMOKE_STUB_LOG"
+  grep -Fxq '<>' "$SMOKE_STUB_LOG"
+  [ "$(grep -cFx update "$BREW_STUB_LOG" || true)" -eq 0 ]
+  assert_log_order \
+    $'upgrade\t--cask\t--dry-run\t--require-sha\t--no-quit\t--skip-cask-deps\tcodex' \
+    $'upgrade\t--cask\t--no-ask\t--require-sha\t--no-quit\t--skip-cask-deps\tcodex'
+  [[ "$output" == *"Current state matches the approved plan"* ]]
+  [[ "$output" == *"Installed Cask version verified: codex 2.0.0"* ]]
+  [[ "$stderr" == *"Pre-upgrade validation: passed"* ]]
+  [[ "$stderr" == *"Overall: completed"* ]]
+}
+
+@test "apply refuses a controlling terminal before reading the plan" {
+  run --separate-stderr "$BASH5_BIN" -c '
+    source "$SOURCE"
+    br_has_controlling_terminal() { return 0; }
+    main apply --plan "$1" --plan-sha256 "$2"
+  ' _ "$BATS_TEST_TMPDIR/missing-plan.json" \
+    0000000000000000000000000000000000000000000000000000000000000000
+
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"without a controlling terminal"* ]]
+  [[ "$stderr" != *"could not read the plan"* ]]
+  [ ! -s "$BREW_STUB_LOG" ]
+}
+
+@test "apply usage errors do not invoke Homebrew" {
+  run cask-apply --plan "$BATS_TEST_TMPDIR/plan.json"
+  [ "$status" -eq 2 ]
+  run cask-apply --plan a --plan b --plan-sha256 \
+    0000000000000000000000000000000000000000000000000000000000000000
+  [ "$status" -eq 2 ]
+  run cask-apply --plan a --plan-sha256 abc
+  [ "$status" -eq 2 ]
+  run cask-apply --plan a --plan-sha256 \
+    0000000000000000000000000000000000000000000000000000000000000000 --other
+  [ "$status" -eq 2 ]
+  [ ! -s "$BREW_STUB_LOG" ]
+}
+
+@test "apply rejects a mismatched or malformed plan before Homebrew" {
+  local variant filter
+  make_plan codex -- smoke-command
+  cp "$PLAN_PATH" "$BATS_TEST_TMPDIR/good.json"
+
+  run --separate-stderr cask-apply --plan "$PLAN_PATH" --plan-sha256 \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"SHA-256 does not match"* ]]
+
+  for filter in '.schema_version = 2' '.kind = "formula"' \
+    '.input.command = ["smoke-command", "a\u0000b"]' '.input.no_check = true'; do
+    variant="$BATS_TEST_TMPDIR/variant.json"
+    jq -c "$filter" "$BATS_TEST_TMPDIR/good.json" >"$variant"
+    run --separate-stderr cask-apply --plan "$variant" --plan-sha256 "$(file_sha "$variant")"
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"plan is malformed"* ]]
+  done
+  cat "$BATS_TEST_TMPDIR/good.json" "$BATS_TEST_TMPDIR/good.json" >"$variant"
+  run --separate-stderr cask-apply --plan "$variant" --plan-sha256 "$(file_sha "$variant")"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"plan is malformed"* ]]
+  [ ! -s "$BREW_STUB_LOG" ]
+
+  make_plan codex
+  apply_plan
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"accepts only a ready plan"* ]]
+  [ ! -s "$BREW_STUB_LOG" ]
+}
+
+@test "apply requires the plan's working directory and exception choice" {
+  make_plan codex -- smoke-command
+  cd "$BATS_TEST_TMPDIR"
+  apply_plan
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"plan's working directory"* ]]
+  cd - >/dev/null
+
+  apply_plan --cooldown-exception "not approved"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"did not use a cooldown exception"* ]]
+
+  make_plan --cooldown-exception "approved" codex -- smoke-command
+  apply_plan
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"pass --cooldown-exception REASON"* ]]
+  [ ! -s "$BREW_STUB_LOG" ]
+}
+
+@test "apply stops before upgrade when any compared field drifts" {
+  local alt="$BATS_TEST_TMPDIR/alt-bin"
+  make_plan codex -- smoke-command
+
+  BREW_STUB_CANDIDATE_MODE=changedartifacts expect_drift snapshots
+  GH_STUB_PUBLISHED_AT=2020-01-02T00:00:00Z expect_drift release
+  GH_STUB_ASSET_CREATED_AT=2019-12-31T00:00:00Z expect_drift release
+  GH_STUB_RELEASE_URL=https://github.com/openai/codex/releases/tag/v2.0.0-renamed \
+    expect_drift release
+  BREW_STUB_DRY_RUN_EXTRA=' (changed)' expect_drift dry_run
+
+  reset_stub_state
+  printf '1\n' >"$BREW_STUB_RECEIPT_COUNT"
+  BREW_STUB_RECEIPT_DRIFT=true apply_plan
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"state changed since the approved plan"*"snapshots"* ]]
+
+  mkdir -p "$alt"
+  cp "$TEST_BIN/smoke-command" "$alt/smoke-command"
+  PATH="$alt:$PATH" expect_drift check
+
+  brew-reviewed-cask-upgrade --set-cooldown-hours 24 codex >/dev/null
+  expect_drift cooldown
+  brew-reviewed-cask-upgrade --set-cooldown-hours default codex >/dev/null
+
+  reset_stub_state
+  apply_plan
+  [ "$status" -eq 0 ]
+}
+
+@test "apply stops when the package no longer needs the approved update" {
+  make_plan codex -- smoke-command
+  BREW_STUB_CURRENT=true BREW_STUB_OUTDATED_MODE=current apply_plan
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"(now no_update)"* ]]
+  [ "$(count_log '--no-ask')" -eq 0 ]
+}
+
+@test "apply drops an age exception that is no longer needed" {
+  export GH_STUB_PUBLISHED_AT="$(recent_timestamp)"
+  make_plan --cooldown-exception "reviewed fix" codex -- smoke-command
+  jq -e '.cooldown.exception_covers == ["age"]' "$PLAN_PATH"
+
+  APPLY_NOW=4102444800 apply_plan --cooldown-exception "reviewed fix"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cooldown: eligible (exception not needed)"* ]]
+}
+
+@test "apply stops before dry-run on a blocked kind the plan did not cover" {
+  export GH_STUB_PUBLISHED_AT="$(recent_timestamp)"
+  make_plan --cooldown-exception "reviewed fix" codex -- smoke-command
+
+  GH_STUB_DRAFT=true apply_plan --cooldown-exception "reviewed fix"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"now blocked by draft"* ]]
+  [ "$(count_log '--dry-run')" -eq 0 ]
+
+  reset_stub_state
+  GH_STUB_ASSET_DIGEST=sha256:3333333333333333333333333333333333333333333333333333333333333333 \
+    apply_plan --cooldown-exception "reviewed fix"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"digest does not match"* ]]
+  [ "$(count_log '--dry-run')" -eq 0 ]
+
+  unset GH_STUB_PUBLISHED_AT
+  make_plan codex -- smoke-command
+  GH_STUB_AUTH_STATUS=1 apply_plan
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"now blocked by unverified"* ]]
+  [ "$(count_log '--dry-run')" -eq 0 ]
+}
+
+@test "apply does not pass terminal input to Homebrew or the smoke command" {
+  export BREW_STUB_UPGRADE_READS_STDIN=true
+  export BREW_STUB_STDIN_FILE="$BATS_TEST_TMPDIR/upgrade-stdin"
+  make_plan codex -- stdin-smoke
+  apply_plan <"$YES_FILE"
+
+  [ "$status" -eq 5 ]
+  [ "$(count_log '--no-ask')" -eq 1 ]
+  [ ! -e "$BREW_STUB_STDIN_FILE" ]
+  grep -Fxq 'stdin:eof' "$SMOKE_STUB_LOG"
+}
+
+@test "apply stops before upgrade when a saved check fails its probe" {
+  remember_manual_check cask codex smoke-command --flag
+  make_plan codex
+  SMOKE_STUB_STATUS=3 apply_plan
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"saved check failed"* ]]
+  [ "$(count_log '--no-ask')" -eq 0 ]
+}
+
+@test "apply revalidates installed state after the probe" {
+  remember_manual_check cask codex smoke-command --flag
+  make_plan codex
+  BREW_STUB_RECEIPT_DRIFT=true apply_plan
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"installed Cask receipt changed before upgrade"* ]]
+  [[ "$stderr" == *"Pre-upgrade validation: failed"* ]]
+  [ "$(count_log '--no-ask')" -eq 0 ]
+}
+
+@test "apply probes and saves an automatic check before upgrading" {
+  prepare_cask_auto_check
+  make_plan codex
+  [ ! -e "$HOME/.config/brew-reviewed-upgrade" ]
+  apply_plan
+
+  [ "$status" -eq 0 ]
+  jq -e --arg path "$TEST_PREFIX/bin/codex" \
+    '.check == {origin: "auto", argv: [$path, "--version"]}' \
+    "$HOME/.config/brew-reviewed-upgrade/cask/codex.json"
+  [[ "$stderr" == *"Smoke target validation: passed"* ]]
+  [[ "$stderr" == *"Overall: completed"* ]]
+}
+
+@test "apply rechecks the automatic target before every candidate probe" {
+  prepare_cask_auto_check
+  cat >"$BREW_STUB_CASKROOM/1.0.0/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+printf '%s %s\n' "$0" "$*" >>"$SMOKE_STUB_LOG"
+ln -sfn "$BREW_STUB_CASKROOM/2.0.0/bin/codex" "$TEST_PREFIX/bin/codex"
+exit 2
+EOF
+  make_plan codex
+  apply_plan
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"no longer belongs to the target"* ]]
+  [ "$(wc -l <"$SMOKE_STUB_LOG")" -eq 1 ]
+  [ "$(count_log '--no-ask')" -eq 0 ]
+  [ ! -e "$HOME/.config/brew-reviewed-upgrade/cask/codex.json" ]
+}
+
+@test "apply skips the smoke command when the automatic target fails after upgrade" {
+  prepare_cask_auto_check
+  make_plan codex
+  BREW_STUB_KEEP_OLD_LINK=true apply_plan
+
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"refusing PATH fallback"* ]]
+  [[ "$stderr" == *"Post-upgrade smoke check: not run (target validation failed)"* ]]
+  [[ "$stderr" == *"Overall: incomplete"* ]]
+}
+
+@test "TERM during apply upgrade is forwarded and returns 143" {
+  local output_file="$BATS_TEST_TMPDIR/signal-output"
+  local error_file="$BATS_TEST_TMPDIR/signal-error"
+  local helper_pid status=0
+  make_plan codex -- smoke-command
+  export BREW_STUB_BLOCK_UPGRADE=true
+
+  cask-apply --plan "$PLAN_PATH" --plan-sha256 "$PLAN_SHA" \
+    >"$output_file" 2>"$error_file" &
+  helper_pid=$!
+  for ((i = 0; i < 100; i++)); do
+    [[ -e "$BREW_STUB_SIGNAL_MARKER" ]] && break
+    sleep 0.05
+  done
+  [ -e "$BREW_STUB_SIGNAL_MARKER" ]
+  kill -TERM "$helper_pid"
+  if wait "$helper_pid"; then status=0; else status=$?; fi
+
+  [ "$status" -eq 143 ]
+  [ "$(cat "$BREW_STUB_SIGNAL_RESULT")" = TERM ]
+  [ ! -e "$SMOKE_STUB_LOG" ]
+  grep -Fq 'Upgrade command: interrupted (exit 143)' "$error_file"
+  grep -Fq 'Overall: incomplete (exit 143)' "$error_file"
 }

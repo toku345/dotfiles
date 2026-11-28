@@ -73,6 +73,9 @@ ARG_EXCEPTION_REASON=""
 ARG_COMMAND=()
 PLAN_FILE=""
 PLAN_OUTPUT=""
+# apply sets APPLY_MODE and the kinds the approved exception covers.
+APPLY_MODE=0
+APPROVED_COVERS=()
 
 usage() {
   cat <<'EOF'
@@ -83,6 +86,12 @@ Usage:
 plan runs the checks that need no approval and prints one JSON plan on stdout
 (diagnostics on stderr). It never runs brew update, upgrades, prompts, runs or
 probes a smoke command, or writes settings. Run brew update yourself first.
+  brew-reviewed-cask-upgrade apply --plan PLAN_FILE --plan-sha256 HEX [--cooldown-exception REASON]
+
+apply accepts only a ready plan whose SHA-256 matches HEX, run from the plan's
+working directory without a controlling terminal. It repeats every plan check,
+stops if any compared result differs, probes the approved smoke check, and then
+upgrades. --cooldown-exception is required exactly when the plan used one.
 The bare names "plan" and "apply" are reserved; use homebrew/cask/NAME for a
 Cask with one of those names.
 
@@ -912,6 +921,10 @@ print_cask_review() {
   esac
 }
 
+current_epoch() {
+  "$JQ_BIN" -nr 'now | floor'
+}
+
 # Looks up and classifies the release without printing the review. Sets
 # RELEASE_GATE_STATUS (eligible, blocked, unverified) and RELEASE_BLOCKED_BY.
 # A nonzero status is a processing failure (such as a digest mismatch), never
@@ -941,7 +954,7 @@ cask_evaluate_cooldown() {
     RELEASE_GATE_STATUS="unverified"
   else
     if lookup_github_release; then
-      now_epoch="$("$JQ_BIN" -nr 'now | floor')" || now_epoch=""
+      now_epoch="$(current_epoch)" || now_epoch=""
       if ! evaluate_release_age "$RELEASE_PUBLISHED_AT" "$now_epoch"; then
         RELEASE_GATE_STATUS="unverified"
       elif [[ "$RELEASE_DRAFT" == "true" ]]; then
@@ -1449,6 +1462,17 @@ cask_collect_plan() {
   fi
 
   cask_evaluate_cooldown "$CASK_CANDIDATE_FILE" || return $?
+  if (( APPLY_MODE )) && (( ${#RELEASE_BLOCKED_BY[@]} )); then
+    local kind uncovered=()
+    for kind in "${RELEASE_BLOCKED_BY[@]}"; do
+      if [[ " ${APPROVED_COVERS[*]} " != *" $kind "* ]]; then uncovered+=("$kind"); fi
+    done
+    if (( ${#uncovered[@]} )); then
+      print_cask_review "$CASK_CANONICAL" "$CASK_CANDIDATE_FILE" 0 "" || return $?
+      error "release cooldown is now blocked by ${uncovered[*]}, which the approved plan does not cover; rerun plan"
+      return 1
+    fi
+  fi
   if (( ${#RELEASE_BLOCKED_BY[@]} )); then
     if (( ARG_EXCEPTION_SET )); then
       base_status="$RELEASE_GATE_STATUS"
@@ -1490,6 +1514,160 @@ cask_plan_main() {
   printf 'Plan status: %s\n' "$("$JQ_BIN" -r .status <<<"$PLAN_OUTPUT")" || return 1
 }
 
+sha256_file() {
+  local file="$1" tool output
+  if tool="$(type -P sha256sum)" && [[ -n "$tool" ]]; then
+    output="$("$tool" -- "$file")" || return 1
+  elif tool="$(type -P shasum)" && [[ -n "$tool" ]]; then
+    output="$("$tool" -a 256 -- "$file")" || return 1
+  else
+    error "neither sha256sum nor shasum is available"
+    return 1
+  fi
+  printf '%s\n' "${output%% *}"
+}
+
+# Fields that change with time or only describe a diagnosis are left out;
+# every other plan field must match.
+readonly PLAN_MATCH_VIEW='del(.status, .cooldown.eligible_at, .cooldown.blocked_by,
+  .cooldown.exception_covers, .release.unverified_reason)'
+
+report_plan_difference() {
+  local approved="$1" current="$2" keys
+  keys="$("$JQ_BIN" -rn --slurpfile a "$approved" --slurpfile b "$current" "
+    (\$a[0] | $PLAN_MATCH_VIEW) as \$x | (\$b[0] | $PLAN_MATCH_VIEW) as \$y
+    | [((\$x | keys) + (\$y | keys) | unique[]) | select(\$x[.] != \$y[.])]
+    | join(\", \")
+  ")" || keys="unknown"
+  error "state changed since the approved plan ($keys); rerun plan"
+}
+
+cask_apply_main() {
+  local plan_path="" plan_sha="" reason="" exception_given=0 seen=""
+  local approved actual cwd plan_cwd plan_exception origin
+  local -a smoke_command=()
+
+  while (( $# )); do
+    case "$1" in
+      --plan|--plan-sha256|--cooldown-exception)
+        if (( $# < 2 )) || [[ " $seen " == *" $1 "* ]]; then
+          usage >&2
+          return 2
+        fi
+        seen+=" $1"
+        case "$1" in
+          --plan) plan_path="$2" ;;
+          --plan-sha256) plan_sha="$2" ;;
+          --cooldown-exception) exception_given=1; reason="$2" ;;
+        esac
+        shift 2
+        ;;
+      *)
+        usage >&2
+        return 2
+        ;;
+    esac
+  done
+  if [[ -z "$plan_path" || ! "$plan_sha" =~ ^[[:xdigit:]]{64}$ ]]; then
+    usage >&2
+    return 2
+  fi
+  if br_has_controlling_terminal; then
+    error "apply must run without a controlling terminal; run the helper without a subcommand to upgrade interactively"
+    return 2
+  fi
+  exec </dev/null
+  if (( exception_given )); then
+    valid_exception_reason "$reason" || return $?
+  fi
+  prepare_runtime || return $?
+
+  # Read the plan exactly once; nothing in it is used before the hash matches.
+  approved="$TEMP_DIR/approved-plan.json"
+  if ! cat -- "$plan_path" >"$approved"; then
+    error "could not read the plan: $plan_path"
+    return 1
+  fi
+  actual="$(sha256_file "$approved")" || return 1
+  if [[ "$actual" != "${plan_sha,,}" ]]; then
+    error "plan SHA-256 does not match the approved value"
+    return 1
+  fi
+  if ! "$JQ_BIN" -se '
+      def text: type == "string" and (index("\u0000") == null);
+      length == 1 and (.[0] | type == "object"
+        and .schema_version == 1 and .kind == "cask"
+        and (.cwd | text)
+        and (.input | type == "object"
+          and (.target | text and length > 0)
+          and .no_check == false
+          and (.cooldown_exception | type == "boolean")
+          and (.command == null or (.command | type == "array" and length > 0
+            and all(.[]; text) and (.[0] | length > 0)))))
+    ' "$approved" >/dev/null; then
+    error "plan is malformed or not a schema 1 Cask plan"
+    return 1
+  fi
+  if ! "$JQ_BIN" -e '.status == "ready"' "$approved" >/dev/null; then
+    error "apply accepts only a ready plan"
+    return 1
+  fi
+  cwd="$(pwd -P)" || {
+    error "could not determine the working directory"
+    return 1
+  }
+  plan_cwd="$("$JQ_BIN" -r .cwd "$approved")" || return 1
+  if [[ "$cwd" != "$plan_cwd" ]]; then
+    error "apply must run in the plan's working directory: $plan_cwd"
+    return 1
+  fi
+  plan_exception="$("$JQ_BIN" -r .input.cooldown_exception "$approved")" || return 1
+  if [[ "$plan_exception" == true ]] && (( ! exception_given )); then
+    error "the plan used a cooldown exception; pass --cooldown-exception REASON"
+    return 2
+  fi
+  if [[ "$plan_exception" == false ]] && (( exception_given )); then
+    error "the plan did not use a cooldown exception; --cooldown-exception is not accepted"
+    return 2
+  fi
+
+  ARG_CASK="$("$JQ_BIN" -r .input.target "$approved")" || return 1
+  if [[ "$ARG_CASK" == -* || "$ARG_CASK" == *[[:space:]]* ]] \
+    || [[ "$ARG_CASK" =~ [[:cntrl:]] ]]; then
+    error "invalid Cask name in the plan"
+    return 1
+  fi
+  ARG_EXCEPTION_SET="$exception_given"
+  ARG_EXCEPTION_REASON="$reason"
+  ARG_COMMAND=()
+  "$JQ_BIN" -j '(.input.command // [])[] | ., "\u0000"' "$approved" \
+    >"$TEMP_DIR/plan-command" || return 1
+  mapfile -d '' -t ARG_COMMAND <"$TEMP_DIR/plan-command" || return 1
+  "$JQ_BIN" -j '(.cooldown.exception_covers // [])[] | ., "\u0000"' "$approved" \
+    >"$TEMP_DIR/plan-covers" || return 1
+  mapfile -d '' -t APPROVED_COVERS <"$TEMP_DIR/plan-covers" || return 1
+  APPLY_MODE=1
+
+  cask_collect_plan "$cwd" || return $?
+  if ! "$JQ_BIN" -e '.status == "ready"' "$PLAN_FILE" >/dev/null; then
+    error "state changed since the approved plan (now $("$JQ_BIN" -r .status "$PLAN_FILE")); rerun plan"
+    return 1
+  fi
+  if [[ "$("$JQ_BIN" -S -c "$PLAN_MATCH_VIEW" "$approved")" \
+    != "$("$JQ_BIN" -S -c "$PLAN_MATCH_VIEW" "$PLAN_FILE")" ]]; then
+    report_plan_difference "$approved" "$PLAN_FILE"
+    return 1
+  fi
+  status_printf "the plan match" '%s\n' \
+    '==> Current state matches the approved plan' || return $?
+
+  origin="$BR_PLAN_CHECK_ORIGIN"
+  br_apply_check "$origin" "$CASK_INSTALLED_RECEIPT_SNAPSHOT" \
+    "${BR_PLAN_CHECK_ARGV[@]}" || return $?
+  smoke_command=("${BR_APPLY_CHECK_ARGV[@]}")
+  cask_execute "$CASK_CANONICAL" "${smoke_command[@]}" || return $?
+}
+
 main() {
   local resolved_smoke outdated_status=0
   local -a smoke_command=()
@@ -1502,6 +1680,11 @@ main() {
     plan)
       shift
       cask_plan_main "$@"
+      return $?
+      ;;
+    apply)
+      shift
+      cask_apply_main "$@"
       return $?
       ;;
   esac
