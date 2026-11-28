@@ -4,7 +4,7 @@
 
 Accepted
 
-Note (Issue #275): codex-plugin-cc and the `/codex:*` commands are no longer installed. This ADR records the decision at the time. Adversarial review uses the in-repo `adversarial-reviewer` agents.
+Note (Issue #275): codex-plugin-cc and the `/codex:*` commands were removed from the managed settings. This ADR records the decision at the time. Adversarial review uses the deployed `adversarial-reviewer` agents.
 
 ## Context
 

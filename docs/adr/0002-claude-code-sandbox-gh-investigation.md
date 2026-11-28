@@ -73,7 +73,7 @@ Set `sandbox.excludedCommands` to `[]`: remove the ineffective bare `docker`, `g
 - `docker` needs no blanket exclusion for socket access. Direct credential-file denial remains useful, but Docker daemon/socket reachability is not full isolation and remains a hardening follow-up.
 - `codex *` would not cover the plugin's `node` launcher. Direct CLI and plugin calls retain their ordinary retry/permission paths; no broader `node` exclusion is added.
 
-Note (Issue #275): codex-plugin-cc is no longer installed. The plugin-launcher sentences above are the 2026-10-27 record, not a current dependency.
+Note (Issue #275): codex-plugin-cc was removed from the managed settings. The plugin-launcher sentences above are the 2026-10-27 record, not a current dependency.
 
 ### Accepted trade-offs and boundaries
 

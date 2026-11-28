@@ -2,6 +2,21 @@
 
 `chezmoi apply` では Claude Code のプラグインは自動インストールされません。新しいマシンや環境では手動セットアップが必要です。
 
+## すでに入っているマシンの後始末
+
+`chezmoi apply` は `installed_plugins.json`、`known_marketplaces.json`、プラグインのキャッシュを消しません。`sandbox.filesystem.allowWrite` から `~/.claude/plugins/data/codex-openai-codex` を外したあともプラグインを残すと、状態ファイルへの書き込みは失敗します。
+
+Claude Code で次を実行し、データディレクトリを削除します。
+
+```text
+/plugin uninstall codex@openai-codex
+/plugin marketplace remove openai-codex
+```
+
+```bash
+rm -rf ~/.claude/plugins/data/codex-openai-codex
+```
+
 ## 人が編集する計画レビュー
 
 `/plan-review-handoff` に `prepare` / `review` / `assess` と対象を添え、依頼文の準備・受け取った計画のレビュー・元の作成元での採否判断を行う。[共通手順と依頼文](plan-review-handoff.md)は Codex と共有し、`~/.claude/skills/plan-review-handoff/` へ生成する。
@@ -50,7 +65,3 @@ policy と詳細 runbook は [docs/security.md の Claude Code and Codex
 - after: `claude plugin list --json` を再取得して差分を記録する
 - 対象 plugin 固有の smoke test を実施する (例: `pr-review-toolkit` 更新時は
   trivial branch で小さく `/pr-review` を回す)
-
-### bump PR の検証
-
-- `sh -n` + `shellcheck` (変更した `.chezmoiscripts/*.sh`)
