@@ -14,6 +14,12 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 - クローズ済みの PR・Issue と、既存のコミット履歴は、英語のまま扱う。
 - 進行中の PR・Issue で判断に必要な説明は、次に手を入れるときに日本語で追記する。
 
+## DSH コミットの記録
+
+- DeepSeek Harness (DSH) のエージェントがこのリポジトリでコミットを作成するときは、コミットメッセージ末尾のトレーラーブロックに `Made-with: DeepSeek Harness - <モデル名>` を 1 行付ける。例: `Made-with: DeepSeek Harness - GPT-6.2 Sol`。
+- モデル名はコミットを作成するエージェントが実際に使用しているモデルの、確認できる表示名またはモデル ID を使う。確認できない場合は推測せず `Made-with: DeepSeek Harness` とする。
+- これはコミットを作成したツールの記録であり、差分の著者を示すものではない。Git の著者情報は変更しない。対象は DSH が作成するコミットのみ。Issue と PR は作成者を問わず対象外。
+
 ## Common Commands
 
 ### Chezmoi Operations
