@@ -13,7 +13,7 @@ Claude Code で次を実行します。
 /plugin marketplace remove openai-codex
 ```
 
-uninstall は、最後のスコープから外したときにデータディレクトリも消します。`--keep-data` のとき、別プラグインが同じディレクトリを使うとき、別スコープのインストールが残っていると読めないときは、ディレクトリを残します。残ったと表示された内容を確かめて、他のスコープにインストールが残っていないときだけ、次で消します。
+uninstall は、最後のスコープから外したときにデータディレクトリも消します。[What an uninstall deletes and keeps](https://code.claude.com/docs/en/plugins/cli-reference#what-an-uninstall-deletes-and-keeps) のとおり、別のプラグインが同じディレクトリを使っているときは Claude Code がそのディレクトリを残します。`rm -rf` はそのデータも消すので、uninstall の結果を確かめ、ほかのスコープにインストールが残っておらず、別のプラグインも同じディレクトリを使っていないと確認できたときだけ、次で消します。
 
 ```bash
 rm -rf ~/.claude/plugins/data/codex-openai-codex
