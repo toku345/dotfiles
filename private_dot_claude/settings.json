@@ -120,17 +120,7 @@
     "claude-code-setup@claude-plugins-official": true,
     "hookify@claude-plugins-official": false,
     "skill-creator@claude-plugins-official": false,
-    "codex@openai-codex": true,
     "claude-security@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "openai-codex": {
-      "source": {
-        "source": "github",
-        "repo": "openai/codex-plugin-cc"
-      },
-      "autoUpdate": false
-    }
   },
   "outputStyle": "Concise",
   "viewMode": "verbose",
@@ -146,7 +136,6 @@
     "filesystem": {
       "allowWrite": [
         "/tmp",
-        "~/.claude/plugins/data/codex-openai-codex",
         "~/.ssh/known_hosts"
       ],
       "allowRead": [

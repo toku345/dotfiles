@@ -169,52 +169,160 @@ def main() -> None:
     mutations.append(("wrong update channel", data, 'autoUpdatesChannel must be "stable"'))
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"].pop("openai-codex")
+    data["extraKnownMarketplaces"] = {"openai-codex": {}}
     mutations.append(
         (
-            "missing Codex marketplace",
+            "Codex marketplace reintroduced",
             data,
-            "extraKnownMarketplaces.openai-codex must be present",
+            "extraKnownMarketplaces.openai-codex must be absent",
         )
     )
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"]["openai-codex"]["autoUpdate"] = True
+    data["extraKnownMarketplaces"] = []
     mutations.append(
         (
-            "Codex marketplace auto-update enabled",
+            "marketplaces not an object",
             data,
-            "extraKnownMarketplaces.openai-codex.autoUpdate must be false",
+            "extraKnownMarketplaces must be an object",
         )
     )
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"]["openai-codex"]["source"]["source"] = "local"
+    data["extraKnownMarketplaces"] = {
+        "codex-cc": {
+            "source": {"source": "github", "repo": "openai/codex-plugin-cc"},
+            "autoUpdate": False,
+        }
+    }
     mutations.append(
         (
-            "wrong Codex marketplace source type",
+            "Codex plugin repo registered under another marketplace key",
             data,
-            'extraKnownMarketplaces.openai-codex.source.source must be "github"',
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"',
         )
     )
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"]["openai-codex"]["source"]["repo"] = "example/untrusted"
+    data["extraKnownMarketplaces"] = {
+        "codex-cc": {
+            "source": {
+                "source": "git",
+                "url": "HTTPS://GitHub.com/OpenAI/codex-plugin-cc.git/",
+            }
+        }
+    }
     mutations.append(
         (
-            "wrong Codex marketplace repo",
+            "Codex plugin git url registered",
             data,
-            'extraKnownMarketplaces.openai-codex.source.repo must be "openai/codex-plugin-cc"',
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"',
         )
     )
 
     data = copy.deepcopy(baseline)
-    data["extraKnownMarketplaces"]["openai-codex"]["source"]["ref"] = "main"
+    data["extraKnownMarketplaces"] = {
+        "codex-cc": {
+            "source": {
+                "source": "git",
+                "url": "https://github.com/openai/codex-plugin-cc.git#v1",
+            }
+        }
+    }
     mutations.append(
         (
-            "ambiguous Codex marketplace source",
+            "Codex plugin git url with ref registered",
             data,
-            'extraKnownMarketplaces.openai-codex.source must contain only "source" and "repo"',
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {
+        "codex-cc": {
+            "source": {
+                "source": "url",
+                "url": "https://raw.githubusercontent.com/openai/codex-plugin-cc/main/.claude-plugin/marketplace.json",
+            }
+        }
+    }
+    mutations.append(
+        (
+            "Codex plugin raw marketplace url registered",
+            data,
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {"codex-cc": {"autoUpdate": False}}
+    mutations.append(
+        (
+            "marketplace entry missing source",
+            data,
+            "extraKnownMarketplaces.codex-cc.source must be an object",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["additionalMarketplaces"] = {
+        "codex-cc": {"source": {"source": "github", "repo": "openai/codex-plugin-cc"}}
+    }
+    mutations.append(
+        (
+            "Codex plugin repo registered under additionalMarketplaces",
+            data,
+            'additionalMarketplaces must not register "openai/codex-plugin-cc"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["additionalMarketplaces"] = []
+    mutations.append(
+        (
+            "additionalMarketplaces not an object",
+            data,
+            "additionalMarketplaces must be an object",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {"codex-cc": []}
+    mutations.append(
+        (
+            "marketplace entry not an object",
+            data,
+            "extraKnownMarketplaces.codex-cc must be an object",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {"codex-cc": {"source": "git"}}
+    mutations.append(
+        (
+            "marketplace source not an object",
+            data,
+            "extraKnownMarketplaces.codex-cc.source must be an object",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {"codex-cc": {"source": {"repo": 1}}}
+    mutations.append(
+        (
+            "marketplace repo not a string",
+            data,
+            "extraKnownMarketplaces.codex-cc.source.repo must be a string",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["enabledPlugins"]["codex@openai-codex"] = True
+    mutations.append(
+        (
+            "Codex plugin reintroduced",
+            data,
+            "enabledPlugins must not contain Codex plugins",
         )
     )
 
@@ -222,9 +330,9 @@ def main() -> None:
     data["enabledPlugins"]["codex@openai-codex"] = False
     mutations.append(
         (
-            "Codex plugin disabled",
+            "disabled Codex plugin left in settings",
             data,
-            'enabledPlugins."codex@openai-codex" must be true',
+            "enabledPlugins must not contain Codex plugins",
         )
     )
 
@@ -234,7 +342,64 @@ def main() -> None:
         (
             "untrusted Codex plugin enabled",
             data,
-            'enabledPlugins must not enable Codex plugins outside "codex@openai-codex"',
+            "enabledPlugins must not contain Codex plugins",
+        )
+    )
+
+    for entry in (
+        "~/.claude/plugins/data/codex-openai-codex",
+        "~/.claude/plugins/data/codex-openai-codex/state/**",
+        "//Users/toku345/.claude/plugins/data/codex-openai-codex",
+        "./plugins/data/codex-openai-codex",
+        "/**",
+        "~/.claude/plugins/data//codex-openai-codex",
+        "~/.claude/plugins/data/./codex-openai-codex",
+        "~/.claude/plugins/../plugins/data/codex-openai-codex",
+        "~/.Claude/plugins/data/codex-openai-codex",
+        "/Users/**",
+    ):
+        data = copy.deepcopy(baseline)
+        data["sandbox"]["filesystem"]["allowWrite"].append(entry)
+        mutations.append(
+            (
+                f"allowWrite entry not allowlisted: {entry}",
+                data,
+                (
+                    f'sandbox.filesystem.allowWrite entry "{entry}" is not allowlisted. '
+                    "Update ALLOWED_SANDBOX_ALLOW_WRITE in "
+                    "tests/codex/verify_claude_update_policy.py "
+                    "if the addition is intentional"
+                ),
+            )
+        )
+
+    data = copy.deepcopy(baseline)
+    data["sandbox"]["filesystem"]["allowWrite"] = "~/.claude/plugins/data/codex-openai-codex"
+    mutations.append(
+        (
+            "allowWrite not an array",
+            data,
+            "sandbox.filesystem.allowWrite must be an array",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["sandbox"]["filesystem"]["allowWrite"].append(1)
+    mutations.append(
+        (
+            "allowWrite entry not a string",
+            data,
+            "sandbox.filesystem.allowWrite entries must be strings",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["sandbox"].pop("filesystem")
+    mutations.append(
+        (
+            "sandbox filesystem removed",
+            data,
+            "sandbox.filesystem must be an object",
         )
     )
 

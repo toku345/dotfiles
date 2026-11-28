@@ -73,6 +73,8 @@ Set `sandbox.excludedCommands` to `[]`: remove the ineffective bare `docker`, `g
 - `docker` needs no blanket exclusion for socket access. Direct credential-file denial remains useful, but Docker daemon/socket reachability is not full isolation and remains a hardening follow-up.
 - `codex *` would not cover the plugin's `node` launcher. Direct CLI and plugin calls retain their ordinary retry/permission paths; no broader `node` exclusion is added.
 
+Note (Issue #275): codex-plugin-cc was removed from the managed settings. The plugin-launcher sentences above are the 2026-10-27 record, not a current dependency.
+
 ### Accepted trade-offs and boundaries
 
 - Read-only `gh` calls may still require a per-call retry. We accept that friction rather than automatically widening sandbox access. (Refined by [Follow-up 2026-11-02](#follow-up-2026-11-02-443): the retry of an allow-listed read runs without a prompt.)
