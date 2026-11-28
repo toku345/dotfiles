@@ -100,7 +100,7 @@ apply が受け付けるのは `ready` の plan だけです。
 apply は、plan のファイルにある検査の結果を判断の根拠にしません。承認された内容の記録として受け取り、同じ検査をすべてもう一度実行して、得られた plan と突き合わせます。plan のファイルから取るのは、ユーザーが plan に渡した入力 (下の「plan の入力」) だけです。
 
 1. plan のファイルを一度だけ読み込み、その内容の SHA-256 が `--plan-sha256` と一致することを確かめる。以後は、読み込んだ同じ内容だけを使う。一致する前には、plan の中身を何も使わない。
-2. `schema_version`、`kind` (`formula` / `cask`)、`status` が `ready` であることを確かめる。
+2. `schema_version`、`kind` (`formula` / `cask`)、`status` が `ready` であることを確かめる。あわせて、今の作業ディレクトリが plan の `cwd` と同じことを確かめる (下の「作業ディレクトリ」)。
 3. plan と同じ関数で、plan と同じ段 (`brew update` を除く) をもう一度実行し、新しい plan を作る。入力は、plan を作ったときのものを plan のファイルから取る (下の「plan の入力」)。
 4. 2 つの plan の「突き合わせる項目」が 1 つでも違えば止まる。
 5. 一致すれば、smoke command を試し (下の 5 を参照)、段 10〜12 を今と同じに実行する。
@@ -118,6 +118,14 @@ apply の引数には、`-- COMMAND`、`--no-check`、対象の名前があり�
 
 設定ファイル (保存済みの check、待機時間) は入力に含めません。apply は今の設定を読み直し、plan と突き合わせます。
 
+#### 作業ディレクトリ
+
+plan は、実行したときの作業ディレクトリの絶対パス (`pwd -P`) を `cwd` に記録します。ユーザーが渡したものではないので、`input` とは分けます。apply は、今の作業ディレクトリが `cwd` と違えば、検査をやり直す前に止まります。
+
+smoke command の引数に相対パスがあると (`-- sh check.sh` など)、argv が同じでも、作業ディレクトリによって別のスクリプトが動くためです。コマンド名そのものが相対パスなら解決した結果で気づけますが、引数の中までは気づけません。
+
+記録した場所に移って smoke command を実行する方法もありますが、呼び出した場所と違う場所で動くと挙動を予想しにくいので、一致を求めて止める方にします。
+
 突き合わせる項目は、時間で変わらないものに限ります。
 
 | 項目 | Formula | Cask |
@@ -133,6 +141,7 @@ apply の引数には、`-- COMMAND`、`--no-check`、対象の名前があり�
 | dry-run の出力 | ○ (正規化の要否は「未確定の点」) | ○ |
 | attestation を確かめる Formula の一覧 | ○ | — |
 | smoke command (argv、出どころ、自動検出の候補) | ○ | ○ |
+| 作業ディレクトリ (`cwd`) | ○ | ○ |
 
 `--no-check` と `--cooldown-exception` を渡したかは、apply が plan の `input` から取るので、作り直した plan とは必ず一致します。
 
@@ -203,6 +212,7 @@ plan も apply も、1 回の実行で 1 つのパッケージだけを扱いま
   "status": "ready",
   "token": "codex",
   "input": {"target": "codex", "no_check": false, "cooldown_exception": false, "command": null},
+  "cwd": "/Users/me",
   "tap": "homebrew/cask",
   "installed_version": "1.2.3",
   "candidate_version": "1.2.4",
@@ -231,7 +241,7 @@ plan のファイルは、呼び出す側が権限 0600 の一時ファイルに
 
 ## helper では防げないこと
 
-- **承認の内容と plan の対応。** helper が確かめるのは、apply に渡された plan が SHA-256 で指定されたものであり、今の状態と一致することです。その plan がユーザーの承認したパッケージのものかどうかは確かめられません。これは skill で守ります。skill は、ユーザーに見せた plan のファイルと SHA-256 をそのまま apply に渡し、plan の名前と version を承認の内容と照らし合わせます。apply は `input` の `no_check`、`cooldown_exception`、`command` に従うので、skill はこれらも承認のときにユーザーに見せます。
+- **承認の内容と plan の対応。** helper が確かめるのは、apply に渡された plan が SHA-256 で指定されたものであり、今の状態と一致することです。その plan がユーザーの承認したパッケージのものかどうかは確かめられません。これは skill で守ります。skill は、ユーザーに見せた plan のファイルと SHA-256 をそのまま apply に渡し、plan の名前と version を承認の内容と照らし合わせます。apply は `input` の `no_check`、`cooldown_exception`、`command` に従うので、skill はこれらも承認のときにユーザーに見せます。また、plan と apply を別の呼び出しで実行すると作業ディレクトリが変わることがあるので (Claude Code の Bash など)、skill は両方を同じディレクトリで (`cd` を明示して) 実行します。
 - **同じ version のまま中身が差し替わること (Formula)。** 突き合わせは version で行うので、同じ version のまま bottle が差し替わっても気づきません。更新する bottle は、今と同じく attestation の検証で確かめます。
 - **検査から `brew upgrade` までの間の変化。** `brew upgrade` は名前で候補を決め直すので、検査が済んでから更新が始まるまでに metadata が変われば、検査していない候補が入りえます。これは今の helper にもある隙間で、plan と apply に分けて新しく生まれたものではありません。`HOMEBREW_NO_AUTO_UPDATE=1` があるので、変わるのは誰かが並行して `brew update` を実行したときに限られ、その操作は防ぐ範囲の外です。
 
