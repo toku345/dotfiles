@@ -20,7 +20,7 @@ COMMON_DIR="${BASH_SOURCE[0]%/*}"
 [[ "$COMMON_DIR" != "${BASH_SOURCE[0]}" ]] || COMMON_DIR=.
 COMMON_FILE="$COMMON_DIR/../lib/brew-reviewed-upgrade/common.sh"
 if [[ ! -f "$COMMON_FILE" ]] \
-  || ! grep -Fxq '# BREW_REVIEWED_COMMON_V2' "$COMMON_FILE" \
+  || ! grep -Fxq '# BREW_REVIEWED_COMMON_V3' "$COMMON_FILE" \
   || ! grep -Fxq '# BREW_REVIEWED_PROBE_V1' "${COMMON_FILE%/*}/probe.sh"; then
   printf '%s: incompatible shared library; deploy both helpers and .local/lib/brew-reviewed-upgrade with chezmoi apply -v.\n' "$PROGRAM_NAME" >&2
   exit 1

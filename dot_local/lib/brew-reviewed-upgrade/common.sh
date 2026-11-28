@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# BREW_REVIEWED_COMMON_V2
+# BREW_REVIEWED_COMMON_V3
 # shellcheck disable=SC2034
 # Exported globals and nameref outputs are consumed by the two callers.
 # Shared settings and smoke selection; Homebrew mutation stays in the callers.
@@ -17,6 +17,14 @@ BR_TARGET=""
 BR_AUTO_PATH=""
 BR_AUTO_ROOT=""
 BR_WORDS=()
+BR_SAVED_ORIGIN=""
+BR_SAVED_ARGV=()
+# Plan-mode check decision: an origin with argv, or a problem.
+BR_PLAN_CHECK_ORIGIN=""
+BR_PLAN_CHECK_ARGV=()
+BR_PLAN_CHECK_PROBLEM=""
+BR_APPLY_CHECK_ARGV=()
+BR_AUTO_CHECK_OPTIONS=(--version version)
 
 # Result state belongs to the parent shell, not the managed command's process.
 BR_RESULT_ENABLED=0
@@ -371,19 +379,123 @@ br_save_check() {
 
 br_has_terminal() { [[ -t 0 ]]; }
 
+# apply refuses to run while a controlling terminal can be opened.
+br_has_controlling_terminal() { { : </dev/tty; } 2>/dev/null; }
+
+# Sets BR_SAVED_ORIGIN (auto, manual, or empty when none) and BR_SAVED_ARGV.
+br_saved_check_load() {
+  local saved
+  BR_SAVED_ORIGIN=""
+  BR_SAVED_ARGV=()
+  saved="$("$JQ_BIN" -c '.check // null' <<<"$BR_SETTINGS_JSON")" || return 1
+  if [[ "$saved" == null ]]; then return 0; fi
+  BR_SAVED_ORIGIN="$("$JQ_BIN" -r .origin <<<"$saved")" || return 1
+  # NUL separators preserve empty arguments and whitespace. The schema
+  # rejects embedded NULs before decoding.
+  "$JQ_BIN" -j '.argv[] | ., "\u0000"' <<<"$saved" >"$TEMP_DIR/check-argv" || return 1
+  mapfile -d '' -t BR_SAVED_ARGV <"$TEMP_DIR/check-argv" || return 1
+}
+
+# Decides the smoke check without probing, prompting, or saving. Explicit
+# argv (already split from the target) is resolved here, after outdated.
+br_plan_check() {
+  local receipt="$1" resolved
+  shift
+  BR_PLAN_CHECK_ORIGIN=""
+  BR_PLAN_CHECK_ARGV=()
+  BR_PLAN_CHECK_PROBLEM=""
+  if (( $# )); then
+    resolved="$(resolve_command "$1")" || return $?
+    BR_PLAN_CHECK_ORIGIN=argument
+    BR_PLAN_CHECK_ARGV=("$resolved" "${@:2}")
+    return 0
+  fi
+  br_saved_check_load || return 1
+  case "$BR_SAVED_ORIGIN" in
+    auto)
+      if br_auto_path "$receipt" && [[ "${BR_SAVED_ARGV[0]}" == "$BR_AUTO_PATH" ]]; then
+        BR_PLAN_CHECK_ORIGIN=saved_auto
+        BR_PLAN_CHECK_ARGV=("${BR_SAVED_ARGV[@]}")
+      else
+        BR_PLAN_CHECK_PROBLEM=saved_auto_mismatch
+      fi
+      ;;
+    manual)
+      if resolved="$(resolve_command "${BR_SAVED_ARGV[0]}")"; then
+        BR_PLAN_CHECK_ORIGIN=saved_manual
+        BR_PLAN_CHECK_ARGV=("$resolved" "${BR_SAVED_ARGV[@]:1}")
+      else
+        BR_PLAN_CHECK_PROBLEM=saved_manual_unresolved
+      fi
+      ;;
+    '')
+      if br_auto_path "$receipt"; then
+        # Candidates are BR_AUTO_PATH followed by each BR_AUTO_CHECK_OPTIONS entry.
+        BR_PLAN_CHECK_ORIGIN=auto
+        BR_PLAN_CHECK_ARGV=("$BR_AUTO_PATH")
+      else
+        BR_PLAN_CHECK_PROBLEM=none
+      fi
+      ;;
+    *) error 'saved check has an unknown origin'; return 1 ;;
+  esac
+}
+
+br_require_auto_target() {
+  local receipt="$1" expected="$2"
+  if ! br_auto_path "$receipt" || [[ "$BR_AUTO_PATH" != "$expected" ]]; then
+    error 'automatic check no longer belongs to the target; rerun plan'
+    return 1
+  fi
+}
+
+# Probes the approved check before upgrade. Sets BR_APPLY_CHECK_ARGV and
+# BR_CHECK_AUTO. Only a passing automatic candidate is saved.
+br_apply_check() {
+  local origin="$1" receipt="$2" option
+  shift 2
+  BR_CHECK_AUTO=0
+  BR_APPLY_CHECK_ARGV=("$@")
+  case "$origin" in
+    argument) return 0 ;;
+    saved_manual|saved_auto)
+      if [[ "$origin" == saved_auto ]]; then
+        br_require_auto_target "$receipt" "$1" || return 1
+      fi
+      if ! br_probe "$@"; then
+        error 'saved check failed; use -- COMMAND [ARG...], --forget-check, or the interactive flow, then rerun plan'
+        return 1
+      fi
+      if [[ "$origin" == saved_auto ]]; then BR_CHECK_AUTO=1; fi
+      ;;
+    auto)
+      (( $# == 1 )) || { error 'automatic check plan must name exactly one path'; return 1; }
+      for option in "${BR_AUTO_CHECK_OPTIONS[@]}"; do
+        # Recheck before every candidate: an earlier probe may relink the target.
+        br_require_auto_target "$receipt" "$1" || return 1
+        if br_probe "$1" "$option"; then
+          br_save_check auto "$1" "$option" || return 1
+          BR_APPLY_CHECK_ARGV=("$1" "$option")
+          BR_CHECK_AUTO=1
+          return 0
+        fi
+      done
+      error 'no automatic check passed; use -- COMMAND [ARG...] or the interactive flow, then rerun plan'
+      return 1
+      ;;
+    *) error "unknown check origin: $origin"; return 1 ;;
+  esac
+}
+
 br_select_check() {
   local -n selected_check="$1"
-  local receipt="$2" origin saved input resolved option
+  local receipt="$2" origin input resolved option
   local -a proposed=() stored=()
   BR_CHECK_AUTO=0
-  saved="$("$JQ_BIN" -c '.check // null' <<<"$BR_SETTINGS_JSON")" || return 1
-  if [[ "$saved" != null ]]; then
-    origin="$("$JQ_BIN" -r .origin <<<"$saved")" || return 1
-    # NUL separators preserve empty arguments and whitespace. The schema
-    # rejects embedded NULs before decoding.
-    "$JQ_BIN" -j '.argv[] | ., "\u0000"' <<<"$saved" >"$TEMP_DIR/check-argv" || return 1
-    mapfile -d '' -t stored <"$TEMP_DIR/check-argv" || return 1
-    proposed=("${stored[@]}")
+  br_saved_check_load || return 1
+  if [[ -n "$BR_SAVED_ORIGIN" ]]; then
+    origin="$BR_SAVED_ORIGIN"
+    proposed=("${BR_SAVED_ARGV[@]}")
     if [[ "$origin" == auto ]]; then
       if br_auto_path "$receipt" && [[ "${proposed[0]}" == "$BR_AUTO_PATH" ]]; then
         if br_probe "${proposed[@]}"; then selected_check=("${proposed[@]}"); BR_CHECK_AUTO=1; return 0; fi
@@ -394,7 +506,7 @@ br_select_check() {
     fi
     error 'saved check failed; use -- COMMAND [ARG...] for a one-time post-upgrade check'
   elif br_auto_path "$receipt"; then
-    for option in --version version; do
+    for option in "${BR_AUTO_CHECK_OPTIONS[@]}"; do
       proposed=("$BR_AUTO_PATH" "$option")
       if br_probe "${proposed[@]}"; then
         br_save_check auto "${proposed[@]}" || return 1

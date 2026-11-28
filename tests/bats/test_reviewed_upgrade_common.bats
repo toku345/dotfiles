@@ -130,6 +130,108 @@ common() {
   [ "$status" -eq 0 ]
 }
 
+@test "plan check decides every origin without probing or saving" {
+  common '
+    TEMP_DIR="$HOME"
+    br_probe() { exit 8; }
+    br_auto_path() { return 1; }
+    br_plan_check ""
+    [[ $BR_PLAN_CHECK_PROBLEM == none && -z $BR_PLAN_CHECK_ORIGIN && ! -e $BR_SETTINGS_FILE ]]
+    br_auto_path() { BR_AUTO_PATH="$HOME/tool"; }
+    br_plan_check ""
+    [[ $BR_PLAN_CHECK_ORIGIN == auto && ${#BR_PLAN_CHECK_ARGV[@]} == 1 ]]
+    [[ ${BR_PLAN_CHECK_ARGV[0]} == "$HOME/tool" && ! -e $BR_SETTINGS_FILE ]]
+
+    br_save_check auto "$HOME/tool" --version >/dev/null
+    br_settings_init formula tool
+    before="$(cat "$BR_SETTINGS_FILE")"
+    br_plan_check ""
+    [[ $BR_PLAN_CHECK_ORIGIN == saved_auto && ${BR_PLAN_CHECK_ARGV[*]} == "$HOME/tool --version" ]]
+    [[ "$(cat "$BR_SETTINGS_FILE")" == "$before" ]]
+    br_auto_path() { BR_AUTO_PATH="$HOME/other"; }
+    br_plan_check ""
+    [[ $BR_PLAN_CHECK_PROBLEM == saved_auto_mismatch && -z $BR_PLAN_CHECK_ORIGIN ]]
+
+    br_save_check manual true "" "two words" >/dev/null
+    br_settings_init formula tool
+    br_plan_check ""
+    [[ $BR_PLAN_CHECK_ORIGIN == saved_manual && ${#BR_PLAN_CHECK_ARGV[@]} == 3 ]]
+    [[ ${BR_PLAN_CHECK_ARGV[0]} == "$(type -P true)" && -z ${BR_PLAN_CHECK_ARGV[1]} ]]
+    [[ ${BR_PLAN_CHECK_ARGV[2]} == "two words" ]]
+    br_save_check manual no-such-reviewed-check >/dev/null
+    br_settings_init formula tool
+    br_plan_check ""
+    [[ $BR_PLAN_CHECK_PROBLEM == saved_manual_unresolved ]]
+
+    br_plan_check "" true "a b"
+    [[ $BR_PLAN_CHECK_ORIGIN == argument && ${BR_PLAN_CHECK_ARGV[0]} == "$(type -P true)" ]]
+    [[ ${BR_PLAN_CHECK_ARGV[1]} == "a b" ]]
+    if br_plan_check "" no-such-reviewed-check; then exit 9; fi
+  '
+  [ "$status" -eq 0 ]
+}
+
+@test "apply check probes approved checks and saves only a passing automatic candidate" {
+  common '
+    TEMP_DIR="$HOME"
+    br_auto_path() { BR_AUTO_PATH="$HOME/tool"; }
+    br_probe() { printf "%s\n" "$*" >>"$HOME/probes"; [[ $2 == version ]]; }
+    br_apply_check auto "" "$HOME/tool" >/dev/null
+    [[ ${BR_APPLY_CHECK_ARGV[*]} == "$HOME/tool version" && $BR_CHECK_AUTO == 1 ]]
+    [[ $(wc -l <"$HOME/probes") == 2 ]]
+    jq -e --arg tool "$HOME/tool" '\''.check == {origin: "auto", argv: [$tool, "version"]}'\'' "$BR_SETTINGS_FILE"
+
+    : >"$HOME/probes"
+    br_apply_check argument "" /bin/true "a b"
+    [[ ! -s $HOME/probes && $BR_CHECK_AUTO == 0 && ${BR_APPLY_CHECK_ARGV[1]} == "a b" ]]
+    br_apply_check saved_manual "" /bin/true version
+    [[ $BR_CHECK_AUTO == 0 ]]
+    br_apply_check saved_auto "" "$HOME/tool" version
+    [[ $BR_CHECK_AUTO == 1 ]]
+    br_probe() { return 3; }
+    if br_apply_check saved_manual "" /bin/true; then exit 9; fi
+    if br_apply_check auto "" "$HOME/tool"; then exit 9; fi
+    br_auto_path() { BR_AUTO_PATH="$HOME/other"; }
+    br_probe() { exit 8; }
+    if br_apply_check saved_auto "" "$HOME/tool" version; then exit 9; fi
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"saved check failed"* ]]
+  [[ "$output" == *"no automatic check passed"* ]]
+  [[ "$output" == *"no longer belongs to the target"* ]]
+}
+
+@test "automatic candidates recheck the target before every probe" {
+  common '
+    TEMP_DIR="$HOME"
+    printf %s "$HOME/tool" >"$HOME/target"
+    br_auto_path() { BR_AUTO_PATH="$(cat "$HOME/target")"; }
+    br_probe() {
+      printf "%s\n" "$*" >>"$HOME/probes"
+      printf %s "$HOME/elsewhere" >"$HOME/target"
+      return 1
+    }
+    if br_apply_check auto "" "$HOME/tool"; then exit 9; fi
+    [[ $(wc -l <"$HOME/probes") == 1 && ! -e $BR_SETTINGS_FILE ]]
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no longer belongs to the target"* ]]
+}
+
+@test "saved check loader preserves empty and spaced arguments" {
+  common '
+    TEMP_DIR="$HOME"
+    br_saved_check_load
+    [[ -z $BR_SAVED_ORIGIN && ${#BR_SAVED_ARGV[@]} == 0 ]]
+    br_save_check manual tool "" "two words" "*" >/dev/null
+    br_settings_init formula tool
+    br_saved_check_load
+    [[ $BR_SAVED_ORIGIN == manual && ${#BR_SAVED_ARGV[@]} == 4 ]]
+    [[ -z ${BR_SAVED_ARGV[1]} && ${BR_SAVED_ARGV[2]} == "two words" && ${BR_SAVED_ARGV[3]} == "*" ]]
+  '
+  [ "$status" -eq 0 ]
+}
+
 @test "probe preserves command failure and does not consume input" {
   run "$BASH5_BIN" "$PROBE" "$BASH5_BIN" -c 'if read -r line; then exit 9; fi; exit 7' <<<"keep"
   [ "$status" -eq 7 ]
