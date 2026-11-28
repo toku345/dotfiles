@@ -60,6 +60,11 @@ RELEASE_GATE_STATUS=""
 RELEASE_GATE_REASON=""
 RELEASE_DRAFT=""
 RELEASE_PRERELEASE=""
+CASK_CANONICAL=""
+CASK_CANDIDATE_FILE=""
+CASK_INSTALLED_STATE_SNAPSHOT=""
+CASK_INSTALLED_RECEIPT_SNAPSHOT=""
+CASK_CANDIDATE_SNAPSHOT=""
 
 usage() {
   cat <<'EOF'
@@ -1115,13 +1120,86 @@ verify_smoke_target() {
   br_verify_auto_check "$selected" "$TEMP_DIR/check-post-receipt.json"
 }
 
+cask_preflight() {
+  validate_policy_file || return $?
+  validate_effective_policy || return $?
+  validate_developer_mode || return $?
+}
+
+# Sets CASK_CANONICAL, INSTALLED_VERSION, and the installed snapshots.
+cask_load_target() {
+  local requested="$1"
+  local initial_file="$TEMP_DIR/info-initial.json"
+  local installed_state_file="$TEMP_DIR/info-installed-state.json"
+
+  load_named_metadata "$requested" "$initial_file" "initial" || return $?
+  CASK_CANONICAL="$(metadata_value "$initial_file" '.casks[0].token')" || return $?
+
+  load_installed_state "$CASK_CANONICAL" "$installed_state_file" || return $?
+  INSTALLED_VERSION="$(metadata_value "$installed_state_file" '.casks[0].installed')" || return $?
+  CASK_INSTALLED_STATE_SNAPSHOT="$TEMP_DIR/installed-state-snapshot.json"
+  write_installed_state_snapshot "$installed_state_file" \
+    "$CASK_INSTALLED_STATE_SNAPSHOT" || return $?
+  CASK_INSTALLED_RECEIPT_SNAPSHOT="$TEMP_DIR/installed-receipt-snapshot.json"
+  load_installed_receipt_snapshot "$CASK_CANONICAL" "$INSTALLED_VERSION" \
+    "$CASK_INSTALLED_RECEIPT_SNAPSHOT" || return $?
+  br_settings_init cask "$CASK_CANONICAL" || return $?
+}
+
+cask_update_metadata() {
+  status_printf "the Homebrew update stage" '%s\n' \
+    '==> Updating Homebrew metadata' || return $?
+  if ! "$BREW_BIN" update; then
+    error "brew update failed"
+    return 1
+  fi
+}
+
+# Sets CASK_CANDIDATE_FILE, CANDIDATE_*, and the candidate snapshot.
+cask_load_candidate() {
+  local canonical="$1"
+  local candidate_canonical
+
+  CASK_CANDIDATE_FILE="$TEMP_DIR/info-candidate.json"
+  load_named_metadata "$canonical" "$CASK_CANDIDATE_FILE" "candidate" || return $?
+  candidate_canonical="$(metadata_value "$CASK_CANDIDATE_FILE" '.casks[0].token')" || return $?
+  if [[ "$candidate_canonical" != "$canonical" ]]; then
+    error "Cask identity changed after brew update: $canonical -> $candidate_canonical"
+    return 1
+  fi
+  CANDIDATE_VERSION="$(metadata_value "$CASK_CANDIDATE_FILE" '.casks[0].version')" || return $?
+  CANDIDATE_SHA256="$(metadata_value "$CASK_CANDIDATE_FILE" '.casks[0].sha256')" || return $?
+  CANDIDATE_URL="$(metadata_value "$CASK_CANDIDATE_FILE" '.casks[0].url')" || return $?
+  CANDIDATE_HOMEPAGE="$("$JQ_BIN" -r '.casks[0].homepage // ""' "$CASK_CANDIDATE_FILE")" || return $?
+  CASK_CANDIDATE_SNAPSHOT="$TEMP_DIR/candidate-reviewed-snapshot.json"
+  write_candidate_snapshot "$CASK_CANDIDATE_FILE" "$CASK_CANDIDATE_SNAPSHOT" || return $?
+}
+
+# Stages 10-12: pre-upgrade validation, upgrade, and post-upgrade checks.
+cask_execute() {
+  local canonical="$1"
+  shift
+  local -a smoke_command=("$@")
+
+  br_result_start cask "$canonical" 0 "$BR_CHECK_AUTO"
+  br_result_run pre verify_pre_upgrade "$canonical" "$CASK_INSTALLED_STATE_SNAPSHOT" \
+    "$CASK_INSTALLED_RECEIPT_SNAPSHOT" "$CASK_CANDIDATE_SNAPSHOT" || return $?
+
+  HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1 \
+    run_stage upgrade "Upgrading $canonical" "$BREW_BIN" upgrade --cask --no-ask \
+      --require-sha --no-quit --skip-cask-deps "$canonical" || return $?
+  br_result_run post verify_post_upgrade "$canonical" "$CASK_CANDIDATE_SNAPSHOT" || return $?
+  if (( BR_CHECK_AUTO )); then
+    br_result_check_target verify_smoke_target "$canonical" "${smoke_command[0]}" || return $?
+  fi
+  run_stage smoke "Running smoke command" "${smoke_command[@]}" || return $?
+}
+
 main() {
   local cask=""
   local cooldown_exception_set=0
   local cooldown_exception_reason=""
-  local resolved_smoke canonical post_update_canonical outdated_status=0
-  local initial_file installed_state_file installed_state_snapshot installed_receipt_snapshot
-  local candidate_file candidate_snapshot
+  local resolved_smoke outdated_status=0
   local -a smoke_command=()
 
   case "${1:-}" in
@@ -1186,49 +1264,16 @@ main() {
   }
   install_lifecycle_traps
 
-  validate_policy_file || return $?
-  validate_effective_policy || return $?
-  validate_developer_mode || return $?
-
-  initial_file="$TEMP_DIR/info-initial.json"
-  load_named_metadata "$cask" "$initial_file" "initial" || return $?
-  canonical="$(metadata_value "$initial_file" '.casks[0].token')" || return $?
-
-  installed_state_file="$TEMP_DIR/info-installed-state.json"
-  load_installed_state "$canonical" "$installed_state_file" || return $?
-  INSTALLED_VERSION="$(metadata_value "$installed_state_file" '.casks[0].installed')" || return $?
-  installed_state_snapshot="$TEMP_DIR/installed-state-snapshot.json"
-  write_installed_state_snapshot "$installed_state_file" "$installed_state_snapshot" || return $?
-  installed_receipt_snapshot="$TEMP_DIR/installed-receipt-snapshot.json"
-  load_installed_receipt_snapshot "$canonical" "$INSTALLED_VERSION" \
-    "$installed_receipt_snapshot" || return $?
-  br_settings_init cask "$canonical" || return $?
+  cask_preflight || return $?
+  cask_load_target "$cask" || return $?
   if (( ${#smoke_command[@]} == 0 )); then
-    br_select_check smoke_command "$installed_receipt_snapshot" || return $?
+    br_select_check smoke_command "$CASK_INSTALLED_RECEIPT_SNAPSHOT" || return $?
   fi
 
-  status_printf "the Homebrew update stage" '%s\n' \
-    '==> Updating Homebrew metadata' || return $?
-  if ! "$BREW_BIN" update; then
-    error "brew update failed"
-    return 1
-  fi
+  cask_update_metadata || return $?
+  cask_load_candidate "$CASK_CANONICAL" || return $?
 
-  candidate_file="$TEMP_DIR/info-candidate.json"
-  load_named_metadata "$canonical" "$candidate_file" "candidate" || return $?
-  post_update_canonical="$(metadata_value "$candidate_file" '.casks[0].token')" || return $?
-  if [[ "$post_update_canonical" != "$canonical" ]]; then
-    error "Cask identity changed after brew update: $canonical -> $post_update_canonical"
-    return 1
-  fi
-  CANDIDATE_VERSION="$(metadata_value "$candidate_file" '.casks[0].version')" || return $?
-  CANDIDATE_SHA256="$(metadata_value "$candidate_file" '.casks[0].sha256')" || return $?
-  CANDIDATE_URL="$(metadata_value "$candidate_file" '.casks[0].url')" || return $?
-  CANDIDATE_HOMEPAGE="$("$JQ_BIN" -r '.casks[0].homepage // ""' "$candidate_file")" || return $?
-  candidate_snapshot="$TEMP_DIR/candidate-reviewed-snapshot.json"
-  write_candidate_snapshot "$candidate_file" "$candidate_snapshot" || return $?
-
-  if classify_outdated "$canonical"; then
+  if classify_outdated "$CASK_CANONICAL"; then
     outdated_status=0
   else
     outdated_status=$?
@@ -1240,23 +1285,12 @@ main() {
     return "$outdated_status"
   fi
 
-  review_release_cooldown "$candidate_file" "$canonical" \
+  review_release_cooldown "$CASK_CANDIDATE_FILE" "$CASK_CANONICAL" \
     "$cooldown_exception_set" "$cooldown_exception_reason" || return $?
-  show_dry_run "$canonical" || return $?
-  confirm_review "$canonical" || return $?
+  show_dry_run "$CASK_CANONICAL" || return $?
+  confirm_review "$CASK_CANONICAL" || return $?
 
-  br_result_start cask "$canonical" 0 "$BR_CHECK_AUTO"
-  br_result_run pre verify_pre_upgrade "$canonical" "$installed_state_snapshot" \
-    "$installed_receipt_snapshot" "$candidate_snapshot" || return $?
-
-  HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1 \
-    run_stage upgrade "Upgrading $canonical" "$BREW_BIN" upgrade --cask --no-ask \
-      --require-sha --no-quit --skip-cask-deps "$canonical" || return $?
-  br_result_run post verify_post_upgrade "$canonical" "$candidate_snapshot" || return $?
-  if (( BR_CHECK_AUTO )); then
-    br_result_check_target verify_smoke_target "$canonical" "${smoke_command[0]}" || return $?
-  fi
-  run_stage smoke "Running smoke command" "${smoke_command[@]}" || return $?
+  cask_execute "$CASK_CANONICAL" "${smoke_command[@]}" || return $?
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
