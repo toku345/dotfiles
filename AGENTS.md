@@ -14,6 +14,12 @@ This file provides guidance to coding agents (including Codex and Claude Code) w
 - クローズ済みの PR・Issue と、既存のコミット履歴は、英語のまま扱う。
 - 進行中の PR・Issue で判断に必要な説明は、次に手を入れるときに日本語で追記する。
 
+## DSH コミットの記録
+
+- DeepSeek Harness (DSH) のエージェントがこのリポジトリでコミットを作成するときは、コミットメッセージ末尾のトレーラーブロックに `Made-with: DeepSeek Harness - <モデル名>` を 1 行付ける。例: `Made-with: DeepSeek Harness - GPT-6.2 Sol`。
+- モデル名はコミットを作成するエージェントが実際に使用しているモデルの、確認できる表示名またはモデル ID を使う。確認できない場合は推測せず `Made-with: DeepSeek Harness` とする。
+- これはコミットを作成したツールの記録であり、差分の著者を示すものではない。Git の著者情報は変更しない。対象は DSH が作成するコミットのみ。Issue と PR は作成者を問わず対象外。
+
 ## Common Commands
 
 ### Chezmoi Operations
@@ -53,7 +59,7 @@ Cursor の `/pr-review` は `.cursor/skills/pr-review/SKILL.md` の薄い入口�
 - `private_dot_claude/` → `~/.claude/`（Claude Code 設定）
   - `skills/` ⚠️ Global scope: changes affect ALL projects. Avoid hardcoded paths; keep default behaviors opt-in.
   - `CLAUDE.md` は user-global Claude 指示（root の `CLAUDE.md` symlink とは別物）
-- `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`hooks/`、`settings.local.json` は machine-local・gitignore
+- `.claude/` - このリポジトリの project スコープ Claude 設定（chezmoi 非管理）。`rules/` = path-scoped rules、`skills/` = この repo 専用の skill（`tool-update`: mise 管理ツールの更新）、`hooks/`、`settings.local.json` は machine-local・gitignore
 - `.cursor/skills/pr-review/SKILL.md` は Cursor 向け pr-review の入口。source 名が `.` で始まるので chezmoi は管理しない。`dot_cursor/skills/pr-review/SKILL.md.tmpl` がそれを include し、`~/.cursor/skills/pr-review/SKILL.md` へ出す
 - `.chezmoiscripts/` - one-time setup scripts run by chezmoi
 
@@ -71,10 +77,7 @@ Cursor の `/pr-review` は `.cursor/skills/pr-review/SKILL.md` の薄い入口�
 
 ### Git Worktree Commands (`gw`, `gb`, `gbd`)
 
-- `git gtr` flags are long-form only (`--delete-branch`, `--track none`); short flags like `-D` do not exist. Always verify with `git gtr help <cmd>` or the source at `/opt/homebrew/Cellar/git-gtr/*/lib/commands/`
-- `git gtr rm` returns exit 0 even when worktree removal fails (uses `continue` internally). Check worktree existence after removal to detect actual failure
 - `%(worktreepath)` in `git for-each-ref` is set for both main and linked worktrees. To target only linked worktrees, explicitly exclude the main worktree's branch
-- **git-gtr vs coreutils `gtr` collision**: both formulae ship a `gtr` binary (git-gtr's worktree shortcut vs coreutils' GNU `tr`). When coreutils relinks (`brew upgrade`/`reinstall coreutils`) it can grab `gtr` and unlink the **`git-gtr` binary too**, making `git gtr ...` fail with `'gtr' is not a git command` (git resolves subcommands via the `git-<name>` binary on PATH). Recover with `brew link --overwrite git-gtr` — we don't use GNU `tr`, so letting git-gtr own `gtr` is harmless
 
 ### Ghostty
 

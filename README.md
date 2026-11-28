@@ -112,6 +112,7 @@ verified Codex version unless upstream ships configs for a newer one.
 - Recovery needs GitHub access, 1Password access, and the `key.txt.age`
   password: [docs/backup-restore.md](docs/backup-restore.md).
 - Update policy for Codex and Fugu: [docs/codex.md](docs/codex.md).
+- DSH を新規環境で使う: [時雨堂 fork のビルドと初回セットアップ](docs/dsh.md)。
 
 ## Additional Setup
 
@@ -162,6 +163,22 @@ App's built-in `moss` theme and `main` layout
 ([herdrdev/herdr-app](https://github.com/herdrdev/herdr-app), Apache
 License 2.0).
 
+### Herdr App shortcuts (macOS)
+
+タブの誤閉じを防ぐため `Cmd+W` を解除し、New Space を `Cmd+N` から `Cmd+Shift+N` に移します。タブを閉じるときは File → Close Tab を使います。キーマップは chezmoi では配布しません。Herdr はカスタマイズ済みのキーマップをアップデート後も保持するため、新しい既定の割り当ては更新後に確認します。
+
+このリポジトリを開いた Claude Code や Codex CLI への依頼例：
+
+> README の「Herdr App shortcuts」に従って、Herdr の初回キー設定を確認して。書き込む前に差分を見せて。
+
+> README の「Herdr App shortcuts」に従って、更新後の既定ショートカットを確認して。衝突した箇所は聞いて、書き込む前に差分を見せて。
+
+1. **対象を確認する。** `herdr-app --version` と、実際に動いている Herdr App が読む `keys.json` の絶対パスを確認する。通常は `~/.config/herdr-app/keys.json`。`HERDR_APP_HOME` や `XDG_CONFIG_HOME` の影響を受ける場合は、端末とアプリで同じ環境変数が見えると仮定しない。版やパスを特定できない、または設定を解釈できない場合は書き込まない。
+2. **初回設定：** Herdr が生成したキーマップを起点に上記の3キーだけ変更する案を作る。まだファイルがなければ先に Herdr に生成させる。対象キーに想定外の割り当てがあればユーザーに確認する。現行版を比較元に記録できるのは、その版で生成した設定だと確認できるか、同版の公式既定値と照合して既存の差分をすべてユーザーが把握・了承した場合に限る。既存ファイルを版不明のまま現行版の既定値由来とみなさない。
+3. **アップデート後：** 各 Mac の `~/.local/state/herdr-keymap/reviewed-version` を読む。1行目が対象キーマップの絶対パス、2行目が確認済みの版。パスが違う、版が不明、または旧版・現行版いずれかの公式既定値を取得できない場合は、推測でマージしない。[公式リポジトリ](https://github.com/herdrdev/herdr-app) の各リリースタグ `v<版>` にある `defaults/keys.macos.json` をデータとして読む。通常の割り当てはセクションとキーの組で比較する。旧既定値と手元が一致する場合だけ新版の追加・変更・削除を取り込む。上流が変わっていない場合や、手元がすでに新版と一致する場合は変更しない。上流と手元が異なる形で変わった場合はユーザーに判断を求める。3キーはこの規則の対象外とし、上記の意図を明示的に維持する。New Space の移動は一組で確認し、上流や手元で対象キーに別用途の割り当てが見つかったら勝手に上書きしない。
+4. **承認を得て適用・確認する。** 対象パス、差分、バックアップ先と復元方法、確認済みの版を更新するかどうかを提示し、書き込み前に明示承認を得る。承認後、Herdr の版と対象ファイルがレビュー時点から変わっていないことを確認する。変わっていたら差分を作り直して再承認を得る。変更がある場合は内容と権限を保ったバックアップを取り、候補の JSON を検証してから書き込む。復元先は最初に確認した実際の設定パスを使う。書き込み結果と再読み込み結果は分けて報告し、`herdr-app status` の `keys.error` を確認する。ユーザーは使い捨てのスペースで `Cmd+W`、`Cmd+N`、`Cmd+Shift+N` を試す。
+5. **比較元を更新する。** 確認が完了したら、承認された版を上記の Git 管理外の記録先へ保存する。「変更なし」や「現状維持で合意」の場合、キーマップ自体は書き換えない。未解決の衝突や確認失敗があれば比較元は据え置く。
+
 ### Starship
 
 A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal.
@@ -172,6 +189,6 @@ A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal
 
 `~/.claude/settings.json` contains only environment-agnostic plugins shared across all machines. Language-specific plugins (e.g., `typescript-lsp`, `pyright-lsp`) should be added per-project in each repository's `.claude/settings.json`.
 
-Setup and usage notes for Claude Code plugins and agmsg are documented in [docs/claude-code-plugins.md](docs/claude-code-plugins.md).
+Setup and usage notes for Claude Code plugins are documented in [docs/claude-code-plugins.md](docs/claude-code-plugins.md).
 
 Note: `outputStyle` (persona) is an exception — set as a personal preference at user scope. Per-repo overrides via `<repo>/.claude/settings.local.json` still take precedence over the user-scope default. See [docs/adr/0015-multi-persona-output-styles.md](docs/adr/0015-multi-persona-output-styles.md) for rationale.

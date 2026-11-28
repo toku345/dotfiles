@@ -223,8 +223,8 @@ isolated_chezmoi() {
 
 @test "existing installer state is preserved and only Bash setup runs once" {
   local old="$REPO_ROOT/.chezmoiscripts/run_once_before_install-minimum-packages.sh"
-  local old_hash=84b06eba03998bcc27aaeaa2e586a4a8de2fafabec56c80e2286321d778ea279
-  # This content hash is the pre-#401 installer. Changing it requires an
+  local old_hash=71813762e711bc3211b0877a587494b0581f0101ffb864aab1a07a3e080cc660
+  # This content hash is the current installer. Changing it requires an
   # explicit replay/migration decision, not a silent package-list edit.
   [[ "$(shasum -a 256 "$old" | cut -d ' ' -f 1)" == "$old_hash" ]]
   CM_ROOT="$BATS_TEST_TMPDIR/cm"

@@ -2,7 +2,7 @@
 
 この手順書は、未確認の更新を普段使いの環境へ偶然取り込まず、通常更新を確認後に個別適用するためのものです。方針の根拠は [ADR 0026](adr/0026-development-update-policy.md)、開発環境全体のセキュリティ方針は [security.md](security.md) を参照してください。
 
-言語ランタイムと、lock に provenance が記録される CLI は mise で管理します ([mise.md](mise.md)、[ADR 0041](adr/0041-mise-for-cli-and-runtime-management.md))。Homebrew にはライブラリ・基盤・Cask・checksum のみの CLI、言語ツールチェーンのマネージャ (rustup, ghcup, opam, uv) が残ります。
+言語ランタイムと、lock に provenance が記録される CLI は mise で管理します ([mise.md](mise.md)、[ADR 0041](adr/0041-mise-for-cli-and-runtime-management.md))。Homebrew にはライブラリ・基盤・Cask・checksum のみの CLI、言語ツールチェーンのマネージャ (rustup, ghcup, opam, uv) が残ります。仕事でだけ使うツール (terraform、tflint など) はこの repo では配らず、会社プロジェクトの `mise.toml`、または仕事用のマシンで個別に管理します。
 
 ## 管理設定
 
@@ -206,6 +206,24 @@ cask_json="$(brew info --cask --json=v2 <cask>)" &&
 - `sha256: no_check`: download内容を固定checksumで検証できない
 
 版を管理したいCaskはアプリ側の自動更新も無効にします。`--require-sha`で拒否されたCaskは設定を一時解除してinstallせず、vendor配布物として署名主体、配布URL、release notesを別途レビューします。helperの通常対象へ入れるためにCask定義やmanaged policyを一時的に緩和しません。
+
+### Cask の扱いの決め方
+
+エージェントが Cask の更新を手伝うときの規則です。helper で更新できるかの最終判断は `brew-reviewed-cask-upgrade` が行います。この文書には、個別の Cask の扱いや、改名と削除の判定は書きません。
+
+- エージェントは、Cask の更新、削除、入れ直し、`brew update` を自分では実行しません。コマンドはユーザーに示して、実行してもらいます。
+- `HOMEBREW_NO_AUTO_UPDATE=1` のため、metadata を新しくするには `brew update` が必要です。`brew update` は、改名された Cask を移行するなど、インストール済みの Cask を変えることがあります。ユーザーにそれを伝えてから実行してもらいます。
+- Cask の名前は `find "$(brew --prefix)/Caskroom" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;` で取ります。metadata は `brew info --cask --installed --json=v2` で、更新の有無は `brew outdated --cask --json=v2` で取ります。どちらのコマンドも、定義を読めない Cask を黙って省くことがあるため、名前の一覧には使いません。
+
+各 Cask に次の規則を上から順に当てはめ、最初に当たった扱いにします。
+
+1. **Caskroom にあるのに JSON に出ない、または tap が空** → 見た出力を添えて「要確認」と報告し、どう扱うかを尋ねます。原因は断定せず、削除や入れ直しを前提にした選択肢は示しません。
+2. **`deprecated` または `disabled` が true** → 記録された後継 (`deprecation_replacement_formula` / `deprecation_replacement_cask`、`disable_replacement_formula` / `disable_replacement_cask`) があればそれを示し、後継に移すか削除するかを尋ねます。
+3. **`auto_updates: true`** → アプリ自身の更新に任せ、そう扱ったことだけを報告します。
+4. **tap が `homebrew/cask` で、`brew outdated --cask --json=v2` に出る** → release notes と公開日時を添えて、`brew-reviewed-cask-upgrade <名前>` を提案します。helper が止まったら、そのメッセージを添えて報告します。cooldown で止まったときは、[Cask の Quick Start](#quick-start-1) の cooldown の扱いに従います (待つか、理由を付けて例外を指定します)。ユーザーが確認で見送ったときは、そこで終わります。それ以外の理由で拒否されたときは、上の「手動レビュー対象」に従って手動でのレビューに回します。
+5. **それ以外** (third-party Tap、`brew outdated` に出ない、など) → 見た出力をそのまま添えて報告します。
+
+`brew info` か `brew outdated` が失敗したときは、分類せずに「確認できなかった」と報告します。ユーザーが `brew update` を実行していない、または失敗したときは、metadata が古いかもしれないことを報告に書きます。
 
 ## third-party Tap
 
