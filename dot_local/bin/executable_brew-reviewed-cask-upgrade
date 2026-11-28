@@ -20,7 +20,7 @@ COMMON_DIR="${BASH_SOURCE[0]%/*}"
 [[ "$COMMON_DIR" != "${BASH_SOURCE[0]}" ]] || COMMON_DIR=.
 COMMON_FILE="$COMMON_DIR/../lib/brew-reviewed-upgrade/common.sh"
 if [[ ! -f "$COMMON_FILE" ]] \
-  || ! grep -Fxq '# BREW_REVIEWED_COMMON_V2' "$COMMON_FILE" \
+  || ! grep -Fxq '# BREW_REVIEWED_COMMON_V3' "$COMMON_FILE" \
   || ! grep -Fxq '# BREW_REVIEWED_PROBE_V1' "${COMMON_FILE%/*}/probe.sh"; then
   printf '%s: incompatible shared library; deploy both helpers and .local/lib/brew-reviewed-upgrade with chezmoi apply -v.\n' "$PROGRAM_NAME" >&2
   exit 1
@@ -60,11 +60,40 @@ RELEASE_GATE_STATUS=""
 RELEASE_GATE_REASON=""
 RELEASE_DRAFT=""
 RELEASE_PRERELEASE=""
+CASK_CANONICAL=""
+CASK_CANDIDATE_FILE=""
+CASK_INSTALLED_STATE_SNAPSHOT=""
+CASK_INSTALLED_RECEIPT_SNAPSHOT=""
+CASK_CANDIDATE_SNAPSHOT=""
+RELEASE_DIGEST_MATCHED=""
+RELEASE_BLOCKED_BY=()
+ARG_CASK=""
+ARG_EXCEPTION_SET=0
+ARG_EXCEPTION_REASON=""
+ARG_COMMAND=()
+PLAN_FILE=""
+PLAN_OUTPUT=""
+# apply sets APPLY_MODE and the kinds the approved exception covers.
+APPLY_MODE=0
+APPROVED_COVERS=()
 
 usage() {
   cat <<'EOF'
 Usage:
   brew-reviewed-cask-upgrade [--cooldown-exception REASON] CASK [-- COMMAND [ARG...]]
+  brew-reviewed-cask-upgrade plan [--cooldown-exception REASON] CASK [-- COMMAND [ARG...]]
+
+plan runs the checks that need no approval and prints one JSON plan on stdout
+(diagnostics on stderr). It never runs brew update, upgrades, prompts, runs or
+probes a smoke command, or writes settings. Run brew update yourself first.
+  brew-reviewed-cask-upgrade apply --plan PLAN_FILE --plan-sha256 HEX [--cooldown-exception REASON]
+
+apply accepts only a ready plan whose SHA-256 matches HEX, run from the plan's
+working directory without a controlling terminal. It repeats every plan check,
+stops if any compared result differs, probes the approved smoke check, and then
+upgrades. --cooldown-exception is required exactly when the plan used one.
+The bare names "plan" and "apply" are reserved; use homebrew/cask/NAME for a
+Cask with one of those names.
 
 Settings only (no update or check execution):
   brew-reviewed-cask-upgrade --set-cooldown-hours HOURS|default CASK
@@ -193,6 +222,14 @@ cleanup_on_exit() {
     br_result_record temporary "$cleanup_status"
   elif (( BR_RESULT_ENABLED )); then
     br_result_skip temporary 'not needed'
+  fi
+
+  # A plan is published only after a fully successful run and cleanup.
+  if (( operation_status == 0 && cleanup_status == 0 )) && [[ -n "$PLAN_OUTPUT" ]]; then
+    if ! printf '%s\n' "$PLAN_OUTPUT" >&3; then
+      error "could not write the plan"
+      operation_status=1
+    fi
   fi
 
   if (( operation_status != 0 && cleanup_status != 0 )); then
@@ -740,6 +777,7 @@ lookup_github_release() {
     RELEASE_GATE_REASON="GitHub Release asset freshness metadata could not be evaluated"
     return 1
   fi
+  RELEASE_DIGEST_MATCHED=true
 }
 
 evaluate_release_age() {
@@ -805,6 +843,7 @@ print_cask_review() {
   local metadata_file="$2"
   local exception_set="$3"
   local exception_reason="$4"
+  local exception_covers="${5:-}"
   local artifacts_file="$TEMP_DIR/artifact-review"
   local age="" remaining="" artifact
 
@@ -875,16 +914,24 @@ print_cask_review() {
       review_printf '%s\n' 'Cooldown: exception' || return $?
       review_printf 'Reason: %s\n' "$RELEASE_GATE_REASON" || return $?
       review_printf 'Exception reason: %s\n' "$exception_reason" || return $?
+      if [[ -n "$exception_covers" ]]; then
+        review_printf 'Exception covers: %s\n' "$exception_covers" || return $?
+      fi
       ;;
   esac
 }
 
-review_release_cooldown() {
+current_epoch() {
+  "$JQ_BIN" -nr 'now | floor'
+}
+
+# Looks up and classifies the release without printing the review. Sets
+# RELEASE_GATE_STATUS (eligible, blocked, unverified) and RELEASE_BLOCKED_BY.
+# A nonzero status is a processing failure (such as a digest mismatch), never
+# a condition that an exception can cover.
+cask_evaluate_cooldown() {
   local info_file="$1"
-  local canonical="$2"
-  local exception_set="$3"
-  local exception_reason="$4"
-  local now_epoch base_status lookup_status=0
+  local now_epoch lookup_status=0
 
   RELEASE_NOTES_URL=""
   RELEASE_RECORD_PUBLISHED_AT=""
@@ -898,6 +945,8 @@ review_release_cooldown() {
   RELEASE_GATE_REASON=""
   RELEASE_DRAFT=""
   RELEASE_PRERELEASE=""
+  RELEASE_DIGEST_MATCHED=""
+  RELEASE_BLOCKED_BY=()
 
   if ! extract_github_release_coordinates "$info_file"; then
     RELEASE_GATE_STATUS="unverified"
@@ -905,7 +954,7 @@ review_release_cooldown() {
     RELEASE_GATE_STATUS="unverified"
   else
     if lookup_github_release; then
-      now_epoch="$("$JQ_BIN" -nr 'now | floor')" || now_epoch=""
+      now_epoch="$(current_epoch)" || now_epoch=""
       if ! evaluate_release_age "$RELEASE_PUBLISHED_AT" "$now_epoch"; then
         RELEASE_GATE_STATUS="unverified"
       elif [[ "$RELEASE_DRAFT" == "true" ]]; then
@@ -930,6 +979,24 @@ review_release_cooldown() {
     fi
   fi
 
+  # Collect every applicable kind; the displayed reason stays first-match.
+  if [[ "$RELEASE_GATE_STATUS" == "unverified" ]]; then
+    RELEASE_BLOCKED_BY=(unverified)
+  else
+    if [[ "$RELEASE_DRAFT" == "true" ]]; then RELEASE_BLOCKED_BY+=(draft); fi
+    if [[ "$RELEASE_PRERELEASE" == "true" ]]; then RELEASE_BLOCKED_BY+=(prerelease); fi
+    if (( RELEASE_AGE_SECONDS < COOLDOWN_SECONDS )); then RELEASE_BLOCKED_BY+=(age); fi
+  fi
+}
+
+review_release_cooldown() {
+  local info_file="$1"
+  local canonical="$2"
+  local exception_set="$3"
+  local exception_reason="$4"
+  local base_status
+
+  cask_evaluate_cooldown "$info_file" || return $?
   base_status="$RELEASE_GATE_STATUS"
   if (( exception_set )) && [[ "$base_status" != "eligible" ]]; then
     RELEASE_GATE_STATUS="exception"
@@ -1115,18 +1182,509 @@ verify_smoke_target() {
   br_verify_auto_check "$selected" "$TEMP_DIR/check-post-receipt.json"
 }
 
+cask_preflight() {
+  validate_policy_file || return $?
+  validate_effective_policy || return $?
+  validate_developer_mode || return $?
+}
+
+# Sets CASK_CANONICAL, INSTALLED_VERSION, and the installed snapshots.
+cask_load_target() {
+  local requested="$1"
+  local initial_file="$TEMP_DIR/info-initial.json"
+  local installed_state_file="$TEMP_DIR/info-installed-state.json"
+
+  load_named_metadata "$requested" "$initial_file" "initial" || return $?
+  CASK_CANONICAL="$(metadata_value "$initial_file" '.casks[0].token')" || return $?
+
+  load_installed_state "$CASK_CANONICAL" "$installed_state_file" || return $?
+  INSTALLED_VERSION="$(metadata_value "$installed_state_file" '.casks[0].installed')" || return $?
+  CASK_INSTALLED_STATE_SNAPSHOT="$TEMP_DIR/installed-state-snapshot.json"
+  write_installed_state_snapshot "$installed_state_file" \
+    "$CASK_INSTALLED_STATE_SNAPSHOT" || return $?
+  CASK_INSTALLED_RECEIPT_SNAPSHOT="$TEMP_DIR/installed-receipt-snapshot.json"
+  load_installed_receipt_snapshot "$CASK_CANONICAL" "$INSTALLED_VERSION" \
+    "$CASK_INSTALLED_RECEIPT_SNAPSHOT" || return $?
+  br_settings_init cask "$CASK_CANONICAL" || return $?
+}
+
+cask_update_metadata() {
+  status_printf "the Homebrew update stage" '%s\n' \
+    '==> Updating Homebrew metadata' || return $?
+  if ! "$BREW_BIN" update; then
+    error "brew update failed"
+    return 1
+  fi
+}
+
+# Sets CASK_CANDIDATE_FILE, CANDIDATE_*, and the candidate snapshot.
+cask_load_candidate() {
+  local canonical="$1"
+  local candidate_canonical
+
+  CASK_CANDIDATE_FILE="$TEMP_DIR/info-candidate.json"
+  load_named_metadata "$canonical" "$CASK_CANDIDATE_FILE" "candidate" || return $?
+  candidate_canonical="$(metadata_value "$CASK_CANDIDATE_FILE" '.casks[0].token')" || return $?
+  if [[ "$candidate_canonical" != "$canonical" ]]; then
+    error "Cask identity changed after brew update: $canonical -> $candidate_canonical"
+    return 1
+  fi
+  CANDIDATE_VERSION="$(metadata_value "$CASK_CANDIDATE_FILE" '.casks[0].version')" || return $?
+  CANDIDATE_SHA256="$(metadata_value "$CASK_CANDIDATE_FILE" '.casks[0].sha256')" || return $?
+  CANDIDATE_URL="$(metadata_value "$CASK_CANDIDATE_FILE" '.casks[0].url')" || return $?
+  CANDIDATE_HOMEPAGE="$("$JQ_BIN" -r '.casks[0].homepage // ""' "$CASK_CANDIDATE_FILE")" || return $?
+  CASK_CANDIDATE_SNAPSHOT="$TEMP_DIR/candidate-reviewed-snapshot.json"
+  write_candidate_snapshot "$CASK_CANDIDATE_FILE" "$CASK_CANDIDATE_SNAPSHOT" || return $?
+}
+
+# Stages 10-12: pre-upgrade validation, upgrade, and post-upgrade checks.
+cask_execute() {
+  local canonical="$1"
+  shift
+  local -a smoke_command=("$@")
+
+  br_result_start cask "$canonical" 0 "$BR_CHECK_AUTO"
+  br_result_run pre verify_pre_upgrade "$canonical" "$CASK_INSTALLED_STATE_SNAPSHOT" \
+    "$CASK_INSTALLED_RECEIPT_SNAPSHOT" "$CASK_CANDIDATE_SNAPSHOT" || return $?
+
+  HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1 \
+    run_stage upgrade "Upgrading $canonical" "$BREW_BIN" upgrade --cask --no-ask \
+      --require-sha --no-quit --skip-cask-deps "$canonical" || return $?
+  br_result_run post verify_post_upgrade "$canonical" "$CASK_CANDIDATE_SNAPSHOT" || return $?
+  if (( BR_CHECK_AUTO )); then
+    br_result_check_target verify_smoke_target "$canonical" "${smoke_command[0]}" || return $?
+  fi
+  run_stage smoke "Running smoke command" "${smoke_command[@]}" || return $?
+}
+
+valid_exception_reason() {
+  if [[ "$1" =~ ^[[:space:]]*$ ]] || [[ "$1" =~ [[:cntrl:]] ]]; then
+    error "cooldown exception reason must be non-empty and single-line"
+    return 2
+  fi
+}
+
+# Parses [--cooldown-exception REASON] CASK [-- COMMAND [ARG...]] into ARG_*.
+# The command stays unresolved; callers decide when to resolve it.
+cask_parse_target_args() {
+  ARG_CASK=""
+  ARG_EXCEPTION_SET=0
+  ARG_EXCEPTION_REASON=""
+  ARG_COMMAND=()
+  if [[ "${1:-}" == "--cooldown-exception" ]]; then
+    ARG_EXCEPTION_SET=1
+    if (( $# < 2 )); then
+      usage >&2
+      return 2
+    fi
+    ARG_EXCEPTION_REASON="$2"
+    shift 2
+  fi
+  if [[ -z "${1:-}" ]]; then
+    usage >&2
+    return 2
+  fi
+  ARG_CASK="$1"
+  shift
+  if (( $# == 0 )); then
+    : # Automatic or remembered check.
+  elif [[ "${1:-}" != "--" ]] || (( $# < 2 )); then
+    usage >&2
+    return 2
+  else
+    shift
+    ARG_COMMAND=("$@")
+  fi
+
+  if (( ARG_EXCEPTION_SET )); then
+    valid_exception_reason "$ARG_EXCEPTION_REASON" || return $?
+  fi
+  if [[ -z "$ARG_CASK" || "$ARG_CASK" == -* || "$ARG_CASK" == *[[:space:]]* ]] \
+    || [[ "$ARG_CASK" =~ [[:cntrl:]] ]]; then
+    error "invalid Cask name"
+    return 2
+  fi
+}
+
+prepare_runtime() {
+  BREW_BIN="$(resolve_command brew)" || return $?
+  JQ_BIN="$(resolve_command jq)" || return $?
+  TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-cask-upgrade.XXXXXX")" || {
+    error "could not create temporary directory"
+    return 1
+  }
+  install_lifecycle_traps
+}
+
+json_array() {
+  "$JQ_BIN" -cn '$ARGS.positional' --args -- "$@"
+}
+
+# Writes the plan for status $1 to PLAN_FILE. Each status carries only the
+# fields of the stages that decided it.
+cask_write_plan() {
+  local status="$1"
+  local cwd="$2"
+  local command_json=null check_json=null release_json=null cooldown_json=null
+  local ready_json=null blocked_json covers_json eligible="" unverified=false option
+  local -a candidates=()
+
+  if (( ${#ARG_COMMAND[@]} )); then
+    command_json="$(json_array "${ARG_COMMAND[@]}")" || return 1
+  fi
+
+  if [[ "$status" != no_update ]]; then
+    if [[ -n "$BR_PLAN_CHECK_PROBLEM" ]]; then
+      check_json="$("$JQ_BIN" -cn --arg problem "$BR_PLAN_CHECK_PROBLEM" \
+        '{problem: $problem}')" || return 1
+    elif [[ "$BR_PLAN_CHECK_ORIGIN" == auto ]]; then
+      for option in "${BR_AUTO_CHECK_OPTIONS[@]}"; do
+        candidates+=("$(json_array "${BR_PLAN_CHECK_ARGV[0]}" "$option")") || return 1
+      done
+      check_json="$("$JQ_BIN" -cn '{origin: "auto", candidates: [inputs]}' \
+        < <(printf '%s\n' "${candidates[@]}"))" || return 1
+    else
+      check_json="$("$JQ_BIN" -cn --arg origin "$BR_PLAN_CHECK_ORIGIN" \
+        --argjson argv "$(json_array "${BR_PLAN_CHECK_ARGV[@]}")" \
+        '{origin: $origin, argv: $argv}')" || return 1
+    fi
+  fi
+
+  if [[ "$status" == needs_exception || "$status" == ready ]]; then
+    if [[ "$RELEASE_GATE_STATUS" == unverified ]]; then unverified=true; fi
+    release_json="$("$JQ_BIN" -cn \
+      --arg notes "$RELEASE_NOTES_URL" \
+      --arg published "$RELEASE_RECORD_PUBLISHED_AT" \
+      --arg draft "$RELEASE_DRAFT" \
+      --arg prerelease "$RELEASE_PRERELEASE" \
+      --arg created "$RELEASE_ASSET_CREATED_AT" \
+      --arg updated "$RELEASE_ASSET_UPDATED_AT" \
+      --arg matched "$RELEASE_DIGEST_MATCHED" \
+      --arg reason "$RELEASE_GATE_REASON" \
+      --argjson unverified "$unverified" '
+        def opt: if . == "" then null else . end;
+        def optbool: if . == "" then null else . == "true" end;
+        {notes_url: ($notes | opt), published_at: ($published | opt),
+         draft: ($draft | optbool), prerelease: ($prerelease | optbool),
+         asset: {created_at: ($created | opt), updated_at: ($updated | opt),
+                 digest_matched: ($matched | optbool)},
+         unverified_reason: (if $unverified then ($reason | opt) else null end)}
+      ')" || return 1
+
+    blocked_json="$(json_array "${RELEASE_BLOCKED_BY[@]}")" || return 1
+    covers_json='[]'
+    if (( ARG_EXCEPTION_SET )); then covers_json="$blocked_json"; fi
+    if (( RELEASE_AGE_VERIFIED )); then eligible="$RELEASE_ELIGIBLE_AT"; fi
+    if [[ "$status" == needs_exception && " ${RELEASE_BLOCKED_BY[*]} " != *" age "* ]]; then
+      eligible=""
+    fi
+    cooldown_json="$("$JQ_BIN" -cn \
+      --argjson hours "$((COOLDOWN_SECONDS / 3600))" \
+      --argjson blocked "$blocked_json" \
+      --argjson covers "$covers_json" \
+      --arg eligible "$eligible" '
+        {hours: $hours, blocked_by: $blocked, exception_covers: $covers}
+        + (if $eligible == "" then {} else {eligible_at: $eligible} end)
+      ')" || return 1
+  fi
+
+  if [[ "$status" == ready ]]; then
+    ready_json="$("$JQ_BIN" -cn \
+      --rawfile dry_run "$TEMP_DIR/dry-run" \
+      --slurpfile installed_state "$CASK_INSTALLED_STATE_SNAPSHOT" \
+      --slurpfile installed_receipt "$CASK_INSTALLED_RECEIPT_SNAPSHOT" \
+      --slurpfile candidate "$CASK_CANDIDATE_SNAPSHOT" '
+        {dry_run: $dry_run, verification: {attested_formulae: []},
+         snapshots: {installed_state: $installed_state[0],
+                     installed_receipt: $installed_receipt[0],
+                     candidate: $candidate[0]}}
+      ')" || return 1
+  fi
+
+  "$JQ_BIN" -S -c -n \
+    --arg status "$status" \
+    --arg token "$CASK_CANONICAL" \
+    --arg target "$ARG_CASK" \
+    --argjson exception "$( (( ARG_EXCEPTION_SET )) && printf true || printf false)" \
+    --argjson command "$command_json" \
+    --arg cwd "$cwd" \
+    --arg installed "$INSTALLED_VERSION" \
+    --arg candidate_version "$CANDIDATE_VERSION" \
+    --argjson check "$check_json" \
+    --argjson release "$release_json" \
+    --argjson cooldown "$cooldown_json" \
+    --argjson ready "$ready_json" '
+      {schema_version: 1, kind: "cask", status: $status, token: $token,
+       tap: "homebrew/cask",
+       input: {target: $target, no_check: false,
+               cooldown_exception: $exception, command: $command},
+       cwd: $cwd, installed_version: $installed,
+       candidate_version: $candidate_version}
+      + (if $check == null then {} else {check: $check} end)
+      + (if $release == null then {} else {release: $release} end)
+      + (if $cooldown == null then {} else {cooldown: $cooldown} end)
+      + (if $ready == null then {} else $ready end)
+    ' >"$PLAN_FILE" || {
+    error "could not encode the plan"
+    return 1
+  }
+}
+
+# Stages 1, 2, part of 4, 5, check, 6, 7 without brew update. Sets
+# PLAN_FILE to the encoded plan.
+cask_collect_plan() {
+  local cwd="$1"
+  local outdated_status=0 base_status=""
+
+  PLAN_FILE="$TEMP_DIR/plan.json"
+  cask_preflight || return $?
+  cask_load_target "$ARG_CASK" || return $?
+  cask_load_candidate "$CASK_CANONICAL" || return $?
+
+  if classify_outdated "$CASK_CANONICAL"; then
+    outdated_status=0
+  else
+    outdated_status=$?
+  fi
+  if (( outdated_status == 10 )); then
+    cask_write_plan no_update "$cwd"
+    return $?
+  fi
+  if (( outdated_status != 0 )); then
+    return "$outdated_status"
+  fi
+
+  br_plan_check "$CASK_INSTALLED_RECEIPT_SNAPSHOT" "${ARG_COMMAND[@]}" || return $?
+  if [[ -n "$BR_PLAN_CHECK_PROBLEM" ]]; then
+    error "a check command is needed ($BR_PLAN_CHECK_PROBLEM); use CASK -- COMMAND [ARG...], --forget-check, or the interactive flow"
+    cask_write_plan needs_check "$cwd"
+    return $?
+  fi
+
+  cask_evaluate_cooldown "$CASK_CANDIDATE_FILE" || return $?
+  if (( APPLY_MODE )) && (( ${#RELEASE_BLOCKED_BY[@]} )); then
+    local kind uncovered=()
+    for kind in "${RELEASE_BLOCKED_BY[@]}"; do
+      if [[ " ${APPROVED_COVERS[*]} " != *" $kind "* ]]; then uncovered+=("$kind"); fi
+    done
+    if (( ${#uncovered[@]} )); then
+      print_cask_review "$CASK_CANONICAL" "$CASK_CANDIDATE_FILE" 0 "" || return $?
+      error "release cooldown is now blocked by ${uncovered[*]}, which the approved plan does not cover; rerun plan"
+      return 1
+    fi
+  fi
+  if (( ${#RELEASE_BLOCKED_BY[@]} )); then
+    if (( ARG_EXCEPTION_SET )); then
+      base_status="$RELEASE_GATE_STATUS"
+      RELEASE_GATE_STATUS=exception
+      print_cask_review "$CASK_CANONICAL" "$CASK_CANDIDATE_FILE" 1 \
+        "$ARG_EXCEPTION_REASON" "${RELEASE_BLOCKED_BY[*]}" || return $?
+      RELEASE_GATE_STATUS="$base_status"
+    else
+      print_cask_review "$CASK_CANONICAL" "$CASK_CANDIDATE_FILE" 0 "" || return $?
+      error "release cooldown requires manual review (${RELEASE_BLOCKED_BY[*]}); rerun plan with --cooldown-exception REASON to continue"
+      cask_write_plan needs_exception "$cwd"
+      return $?
+    fi
+  else
+    print_cask_review "$CASK_CANONICAL" "$CASK_CANDIDATE_FILE" \
+      "$ARG_EXCEPTION_SET" "$ARG_EXCEPTION_REASON" || return $?
+  fi
+
+  show_dry_run "$CASK_CANONICAL" || return $?
+  cask_write_plan ready "$cwd"
+}
+
+cask_plan_main() {
+  local cwd
+
+  cask_parse_target_args "$@" || return $?
+  # Human-readable output goes to stderr; fd 3 receives only the plan.
+  exec 3>&1 1>&2 </dev/null
+  prepare_runtime || return $?
+  cwd="$(pwd -P)" || {
+    error "could not determine the working directory"
+    return 1
+  }
+  cask_collect_plan "$cwd" || return $?
+  PLAN_OUTPUT="$(cat "$PLAN_FILE")" || {
+    error "could not read the encoded plan"
+    return 1
+  }
+  printf 'Plan status: %s\n' "$("$JQ_BIN" -r .status <<<"$PLAN_OUTPUT")" || return 1
+}
+
+sha256_file() {
+  local file="$1" tool output
+  if tool="$(type -P sha256sum)" && [[ -n "$tool" ]]; then
+    output="$("$tool" -- "$file")" || return 1
+  elif tool="$(type -P shasum)" && [[ -n "$tool" ]]; then
+    output="$("$tool" -a 256 -- "$file")" || return 1
+  else
+    error "neither sha256sum nor shasum is available"
+    return 1
+  fi
+  printf '%s\n' "${output%% *}"
+}
+
+# Fields that change with time or only describe a diagnosis are left out;
+# every other plan field must match.
+readonly PLAN_MATCH_VIEW='del(.status, .cooldown.eligible_at, .cooldown.blocked_by,
+  .cooldown.exception_covers, .release.unverified_reason)'
+
+report_plan_difference() {
+  local approved="$1" current="$2" keys
+  keys="$("$JQ_BIN" -rn --slurpfile a "$approved" --slurpfile b "$current" "
+    (\$a[0] | $PLAN_MATCH_VIEW) as \$x | (\$b[0] | $PLAN_MATCH_VIEW) as \$y
+    | [((\$x | keys) + (\$y | keys) | unique[]) | select(\$x[.] != \$y[.])]
+    | join(\", \")
+  ")" || keys="unknown"
+  error "state changed since the approved plan ($keys); rerun plan"
+}
+
+cask_apply_main() {
+  local plan_path="" plan_sha="" reason="" exception_given=0 seen=""
+  local approved actual cwd plan_cwd plan_exception origin
+  local -a smoke_command=()
+
+  while (( $# )); do
+    case "$1" in
+      --plan|--plan-sha256|--cooldown-exception)
+        if (( $# < 2 )) || [[ " $seen " == *" $1 "* ]]; then
+          usage >&2
+          return 2
+        fi
+        seen+=" $1"
+        case "$1" in
+          --plan) plan_path="$2" ;;
+          --plan-sha256) plan_sha="$2" ;;
+          --cooldown-exception) exception_given=1; reason="$2" ;;
+        esac
+        shift 2
+        ;;
+      *)
+        usage >&2
+        return 2
+        ;;
+    esac
+  done
+  if [[ -z "$plan_path" || ! "$plan_sha" =~ ^[[:xdigit:]]{64}$ ]]; then
+    usage >&2
+    return 2
+  fi
+  if br_has_controlling_terminal; then
+    error "apply must run without a controlling terminal; run the helper without a subcommand to upgrade interactively"
+    return 2
+  fi
+  exec </dev/null
+  if (( exception_given )); then
+    valid_exception_reason "$reason" || return $?
+  fi
+  prepare_runtime || return $?
+
+  # Read the plan exactly once; nothing in it is used before the hash matches.
+  approved="$TEMP_DIR/approved-plan.json"
+  if ! cat -- "$plan_path" >"$approved"; then
+    error "could not read the plan: $plan_path"
+    return 1
+  fi
+  actual="$(sha256_file "$approved")" || return 1
+  if [[ "$actual" != "${plan_sha,,}" ]]; then
+    error "plan SHA-256 does not match the approved value"
+    return 1
+  fi
+  if ! "$JQ_BIN" -se '
+      def text: type == "string" and (index("\u0000") == null);
+      length == 1 and (.[0] | type == "object"
+        and .schema_version == 1 and .kind == "cask"
+        and (.cwd | text)
+        and (.input | type == "object"
+          and (.target | text and length > 0)
+          and .no_check == false
+          and (.cooldown_exception | type == "boolean")
+          and (.command == null or (.command | type == "array" and length > 0
+            and all(.[]; text) and (.[0] | length > 0)))))
+    ' "$approved" >/dev/null; then
+    error "plan is malformed or not a schema 1 Cask plan"
+    return 1
+  fi
+  if ! "$JQ_BIN" -e '.status == "ready"' "$approved" >/dev/null; then
+    error "apply accepts only a ready plan"
+    return 1
+  fi
+  cwd="$(pwd -P)" || {
+    error "could not determine the working directory"
+    return 1
+  }
+  plan_cwd="$("$JQ_BIN" -r .cwd "$approved")" || return 1
+  if [[ "$cwd" != "$plan_cwd" ]]; then
+    error "apply must run in the plan's working directory: $plan_cwd"
+    return 1
+  fi
+  plan_exception="$("$JQ_BIN" -r .input.cooldown_exception "$approved")" || return 1
+  if [[ "$plan_exception" == true ]] && (( ! exception_given )); then
+    error "the plan used a cooldown exception; pass --cooldown-exception REASON"
+    return 2
+  fi
+  if [[ "$plan_exception" == false ]] && (( exception_given )); then
+    error "the plan did not use a cooldown exception; --cooldown-exception is not accepted"
+    return 2
+  fi
+
+  ARG_CASK="$("$JQ_BIN" -r .input.target "$approved")" || return 1
+  if [[ "$ARG_CASK" == -* || "$ARG_CASK" == *[[:space:]]* ]] \
+    || [[ "$ARG_CASK" =~ [[:cntrl:]] ]]; then
+    error "invalid Cask name in the plan"
+    return 1
+  fi
+  ARG_EXCEPTION_SET="$exception_given"
+  ARG_EXCEPTION_REASON="$reason"
+  ARG_COMMAND=()
+  "$JQ_BIN" -j '(.input.command // [])[] | ., "\u0000"' "$approved" \
+    >"$TEMP_DIR/plan-command" || return 1
+  mapfile -d '' -t ARG_COMMAND <"$TEMP_DIR/plan-command" || return 1
+  "$JQ_BIN" -j '(.cooldown.exception_covers // [])[] | ., "\u0000"' "$approved" \
+    >"$TEMP_DIR/plan-covers" || return 1
+  mapfile -d '' -t APPROVED_COVERS <"$TEMP_DIR/plan-covers" || return 1
+  APPLY_MODE=1
+
+  cask_collect_plan "$cwd" || return $?
+  if ! "$JQ_BIN" -e '.status == "ready"' "$PLAN_FILE" >/dev/null; then
+    error "state changed since the approved plan (now $("$JQ_BIN" -r .status "$PLAN_FILE")); rerun plan"
+    return 1
+  fi
+  if [[ "$("$JQ_BIN" -S -c "$PLAN_MATCH_VIEW" "$approved")" \
+    != "$("$JQ_BIN" -S -c "$PLAN_MATCH_VIEW" "$PLAN_FILE")" ]]; then
+    report_plan_difference "$approved" "$PLAN_FILE"
+    return 1
+  fi
+  status_printf "the plan match" '%s\n' \
+    '==> Current state matches the approved plan' || return $?
+
+  origin="$BR_PLAN_CHECK_ORIGIN"
+  br_apply_check "$origin" "$CASK_INSTALLED_RECEIPT_SNAPSHOT" \
+    "${BR_PLAN_CHECK_ARGV[@]}" || return $?
+  smoke_command=("${BR_APPLY_CHECK_ARGV[@]}")
+  cask_execute "$CASK_CANONICAL" "${smoke_command[@]}" || return $?
+}
+
 main() {
-  local cask=""
-  local cooldown_exception_set=0
-  local cooldown_exception_reason=""
-  local resolved_smoke canonical post_update_canonical outdated_status=0
-  local initial_file installed_state_file installed_state_snapshot installed_receipt_snapshot
-  local candidate_file candidate_snapshot
+  local resolved_smoke outdated_status=0
   local -a smoke_command=()
 
   case "${1:-}" in
     --set-cooldown-hours|--forget-check)
       br_config_command cask "$@"
+      return $?
+      ;;
+    plan)
+      shift
+      cask_plan_main "$@"
+      return $?
+      ;;
+    apply)
+      shift
+      cask_apply_main "$@"
       return $?
       ;;
   esac
@@ -1137,98 +1695,28 @@ main() {
       return 0
       ;;
   esac
-  if [[ "${1:-}" == "--cooldown-exception" ]]; then
-    cooldown_exception_set=1
-    if (( $# < 2 )); then
-      usage >&2
-      return 2
-    fi
-    cooldown_exception_reason="$2"
-    shift 2
-  fi
-  if [[ -z "${1:-}" ]]; then
-    usage >&2
-    return 2
-  fi
-  cask="$1"
-  shift
-  if (( $# == 0 )); then
-    : # Automatic or remembered check.
-  elif [[ "${1:-}" != "--" ]] || (( $# < 2 )); then
-    usage >&2
-    return 2
-  else
-    shift
-    smoke_command=("$@")
-  fi
-
-  if (( cooldown_exception_set )) \
-    && { [[ "$cooldown_exception_reason" =~ ^[[:space:]]*$ ]] \
-      || [[ "$cooldown_exception_reason" =~ [[:cntrl:]] ]]; }; then
-    error "cooldown exception reason must be non-empty and single-line"
-    return 2
-  fi
-  if [[ -z "$cask" || "$cask" == -* || "$cask" == *[[:space:]]* ]] \
-    || [[ "$cask" =~ [[:cntrl:]] ]]; then
-    error "invalid Cask name"
-    return 2
-  fi
+  cask_parse_target_args "$@" || return $?
+  local cask="$ARG_CASK"
+  local cooldown_exception_set="$ARG_EXCEPTION_SET"
+  local cooldown_exception_reason="$ARG_EXCEPTION_REASON"
+  smoke_command=("${ARG_COMMAND[@]}")
 
   if (( ${#smoke_command[@]} )); then
     resolved_smoke="$(resolve_command "${smoke_command[0]}")" || return $?
     smoke_command[0]="$resolved_smoke"
   fi
-  BREW_BIN="$(resolve_command brew)" || return $?
-  JQ_BIN="$(resolve_command jq)" || return $?
-  TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/brew-reviewed-cask-upgrade.XXXXXX")" || {
-    error "could not create temporary directory"
-    return 1
-  }
-  install_lifecycle_traps
+  prepare_runtime || return $?
 
-  validate_policy_file || return $?
-  validate_effective_policy || return $?
-  validate_developer_mode || return $?
-
-  initial_file="$TEMP_DIR/info-initial.json"
-  load_named_metadata "$cask" "$initial_file" "initial" || return $?
-  canonical="$(metadata_value "$initial_file" '.casks[0].token')" || return $?
-
-  installed_state_file="$TEMP_DIR/info-installed-state.json"
-  load_installed_state "$canonical" "$installed_state_file" || return $?
-  INSTALLED_VERSION="$(metadata_value "$installed_state_file" '.casks[0].installed')" || return $?
-  installed_state_snapshot="$TEMP_DIR/installed-state-snapshot.json"
-  write_installed_state_snapshot "$installed_state_file" "$installed_state_snapshot" || return $?
-  installed_receipt_snapshot="$TEMP_DIR/installed-receipt-snapshot.json"
-  load_installed_receipt_snapshot "$canonical" "$INSTALLED_VERSION" \
-    "$installed_receipt_snapshot" || return $?
-  br_settings_init cask "$canonical" || return $?
+  cask_preflight || return $?
+  cask_load_target "$cask" || return $?
   if (( ${#smoke_command[@]} == 0 )); then
-    br_select_check smoke_command "$installed_receipt_snapshot" || return $?
+    br_select_check smoke_command "$CASK_INSTALLED_RECEIPT_SNAPSHOT" || return $?
   fi
 
-  status_printf "the Homebrew update stage" '%s\n' \
-    '==> Updating Homebrew metadata' || return $?
-  if ! "$BREW_BIN" update; then
-    error "brew update failed"
-    return 1
-  fi
+  cask_update_metadata || return $?
+  cask_load_candidate "$CASK_CANONICAL" || return $?
 
-  candidate_file="$TEMP_DIR/info-candidate.json"
-  load_named_metadata "$canonical" "$candidate_file" "candidate" || return $?
-  post_update_canonical="$(metadata_value "$candidate_file" '.casks[0].token')" || return $?
-  if [[ "$post_update_canonical" != "$canonical" ]]; then
-    error "Cask identity changed after brew update: $canonical -> $post_update_canonical"
-    return 1
-  fi
-  CANDIDATE_VERSION="$(metadata_value "$candidate_file" '.casks[0].version')" || return $?
-  CANDIDATE_SHA256="$(metadata_value "$candidate_file" '.casks[0].sha256')" || return $?
-  CANDIDATE_URL="$(metadata_value "$candidate_file" '.casks[0].url')" || return $?
-  CANDIDATE_HOMEPAGE="$("$JQ_BIN" -r '.casks[0].homepage // ""' "$candidate_file")" || return $?
-  candidate_snapshot="$TEMP_DIR/candidate-reviewed-snapshot.json"
-  write_candidate_snapshot "$candidate_file" "$candidate_snapshot" || return $?
-
-  if classify_outdated "$canonical"; then
+  if classify_outdated "$CASK_CANONICAL"; then
     outdated_status=0
   else
     outdated_status=$?
@@ -1240,23 +1728,12 @@ main() {
     return "$outdated_status"
   fi
 
-  review_release_cooldown "$candidate_file" "$canonical" \
+  review_release_cooldown "$CASK_CANDIDATE_FILE" "$CASK_CANONICAL" \
     "$cooldown_exception_set" "$cooldown_exception_reason" || return $?
-  show_dry_run "$canonical" || return $?
-  confirm_review "$canonical" || return $?
+  show_dry_run "$CASK_CANONICAL" || return $?
+  confirm_review "$CASK_CANONICAL" || return $?
 
-  br_result_start cask "$canonical" 0 "$BR_CHECK_AUTO"
-  br_result_run pre verify_pre_upgrade "$canonical" "$installed_state_snapshot" \
-    "$installed_receipt_snapshot" "$candidate_snapshot" || return $?
-
-  HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1 \
-    run_stage upgrade "Upgrading $canonical" "$BREW_BIN" upgrade --cask --no-ask \
-      --require-sha --no-quit --skip-cask-deps "$canonical" || return $?
-  br_result_run post verify_post_upgrade "$canonical" "$candidate_snapshot" || return $?
-  if (( BR_CHECK_AUTO )); then
-    br_result_check_target verify_smoke_target "$canonical" "${smoke_command[0]}" || return $?
-  fi
-  run_stage smoke "Running smoke command" "${smoke_command[@]}" || return $?
+  cask_execute "$CASK_CANONICAL" "${smoke_command[@]}" || return $?
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

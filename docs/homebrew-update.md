@@ -190,6 +190,31 @@ helperはchecksum、download URL、homepage、artifactとtarget、release asset 
 
 `generate_completions_from_executable`を持つCaskでは、Homebrewがinstall中に候補binaryをcompletion生成引数で実行します。このartifactは`codex`などのCLI Caskを扱うため許可しますが、必須smoke commandの代替にはしません。upgrade後のmetadataまたはsmoke検査が失敗した時点ではCaskが変更済みの可能性があります。helper独自のrollbackは行わず、Homebrewの出力を確認して手動で復旧します。
 
+### plan と apply
+
+エージェントが候補を集めて提案し、ユーザーが承認した更新だけを実行するための呼び方です。設計は [brew-reviewed-plan-apply.md](design/brew-reviewed-plan-apply.md) にあります。サブコマンドを付けない呼び方は、上の対話の流れのまま使えます。
+
+```sh
+brew update   # plan と apply は brew update を実行しない。先に済ませる
+brew-reviewed-cask-upgrade plan codex >"$plan_file"
+brew-reviewed-cask-upgrade apply --plan "$plan_file" --plan-sha256 "$approved_sha256"
+```
+
+- `brew update` は、plan と apply から独立した操作です。改名された Cask の移行など、インストール済みの Cask を変えることがあるので、ユーザーが承認してから実行します。
+- plan は、承認の要らない検査だけを行い、JSON を 1 つ stdout に出します。人向けの表示と診断は stderr に出ます。Cask を変更せず、端末の入力を求めず、smoke command を実行せず、設定ファイルにも書きません。
+- plan の `status` は `no_update` (更新がない)、`needs_check` (smoke command が決まらない。理由は `check.problem`)、`needs_exception` (cooldown を通らない。理由は `cooldown.blocked_by`)、`ready` のどれかで、どれも終了コード 0 です。検査の失敗 (digest と checksum の不一致を含む) は、JSON を出さずに 0 以外で止まります。
+- apply が受け付けるのは、SHA-256 が `--plan-sha256` と一致する `ready` の plan だけです。plan の検査結果は信用せず、同じ検査をすべてやり直して plan と突き合わせ、1 項目でも違えば更新の前に止まります。
+- apply は、plan と同じ作業ディレクトリで、制御端末のない環境 (エージェントの Bash など) から実行します。制御端末があれば止まります。端末から自分で更新するときは、サブコマンドを付けない呼び方を使います。apply は stdin を `/dev/null` につなぎ替えるので、入力を求める Cask (管理者のパスワードなど) は失敗します。
+- plan で `--cooldown-exception` を使ったときは、apply にも理由を渡します。使っていないときは渡せません。apply で新しく当てはまった阻害理由 (plan の `cooldown.exception_covers` にない種類) は、例外があっても止まります。理由の文面は plan に記録しません。
+- smoke command は plan で決め、apply が更新の前に試します。自動検出した check を保存するのは、apply で試して通ったときだけです。
+
+plan のファイルは権限 0600 の一時ファイルに保存します。`-- COMMAND` の argv は plan にそのまま記録されるので、secret を含めません。名前が `plan` または `apply` の Cask は、`homebrew/cask/plan` のように tap を付けて指定します。
+
+次の 2 点は、macOS でまだ確かめていません。
+
+- dry-run の出力が毎回同じか。違えば、apply は突き合わせで止まり、更新しません。
+- 端末なしで `brew upgrade` が最後まで進むか。途中で失敗した場合は、対話の流れと同じく、Cask が変更済みの可能性があるとして結果に表示します。
+
 ### 手動レビュー対象
 
 `latest`、`sha256: no_check`、`auto_updates: true`、third-party Tap、または厳格helperが拒否したartifact/dependencyを持つCaskは、次のmetadataを確認して手動経路へ残します。

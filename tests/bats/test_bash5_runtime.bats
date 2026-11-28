@@ -86,7 +86,7 @@ setup() {
 }
 
 @test "reviewed helpers reject a missing or incompatible shared library" {
-  local tool
+  local tool version
   mkdir -p "$BATS_TEST_TMPDIR/bin" "$BATS_TEST_TMPDIR/lib/brew-reviewed-upgrade"
   for tool in executable_brew-reviewed-upgrade executable_brew-reviewed-cask-upgrade; do
     cp "$REPO_ROOT/dot_local/bin/$tool" "$BATS_TEST_TMPDIR/bin/$tool"
@@ -94,11 +94,13 @@ setup() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"incompatible shared library"* ]]
   done
-  printf '# BREW_REVIEWED_COMMON_V1\n' >"$BATS_TEST_TMPDIR/lib/brew-reviewed-upgrade/common.sh"
   printf '# BREW_REVIEWED_PROBE_V1\n' >"$BATS_TEST_TMPDIR/lib/brew-reviewed-upgrade/probe.sh"
-  for tool in executable_brew-reviewed-upgrade executable_brew-reviewed-cask-upgrade; do
-    run "$BASH5_BIN" "$BATS_TEST_TMPDIR/bin/$tool" --help
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"incompatible shared library"* ]]
+  for version in V1 V2; do
+    printf '# BREW_REVIEWED_COMMON_%s\n' "$version" >"$BATS_TEST_TMPDIR/lib/brew-reviewed-upgrade/common.sh"
+    for tool in executable_brew-reviewed-upgrade executable_brew-reviewed-cask-upgrade; do
+      run "$BASH5_BIN" "$BATS_TEST_TMPDIR/bin/$tool" --help
+      [ "$status" -eq 1 ]
+      [[ "$output" == *"incompatible shared library"* ]]
+    done
   done
 }
