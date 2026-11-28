@@ -178,20 +178,31 @@ def deny_path_rule_failures(entry: object) -> list[str]:
 
 
 CODEX_PLUGIN_REPO = "openai/codex-plugin-cc"
-CODEX_PLUGIN_DATA = "~/.claude/plugins/data/codex-openai-codex"
-CODEX_PLUGIN_DATA_PARENT = "~/.claude/plugins/data"
 # additionalMarketplaces is the v2.1.232 alias of extraKnownMarketplaces.
 # strictKnownMarketplaces / allowedMarketplaces allow or block sources and do not register one.
 MARKETPLACE_KEYS = ("extraKnownMarketplaces", "additionalMarketplaces")
+# Exact strings from private_dot_claude/settings.json sandbox.filesystem.allowWrite.
+# Claude Code accepts several spellings of one path, so new entries are reviewed here
+# instead of matched by normalization.
+ALLOWED_SANDBOX_ALLOW_WRITE = (
+    "/tmp",
+    "~/.ssh/known_hosts",
+)
 
 
 def _names_codex_plugin_repo(value: object) -> bool:
     if not isinstance(value, str):
         return False
-    text = value.strip().rstrip("/")
-    if text.lower().endswith(".git"):
+    raw = value.strip().lower()
+    without_suffix = raw.split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    if (
+        "raw.githubusercontent.com/openai/codex-plugin-cc/" in raw
+        and without_suffix.endswith("marketplace.json")
+    ):
+        return True
+    text = without_suffix
+    if text.endswith(".git"):
         text = text[:-4].rstrip("/")
-    text = text.lower()
     needle = CODEX_PLUGIN_REPO
     return text == needle or text.endswith("/" + needle) or text.endswith(":" + needle)
 
@@ -207,6 +218,7 @@ def _marketplace_failures(key: str, marketplaces: object) -> list[str]:
             failures.append(f"{key}.{name} must be an object")
             continue
         if "source" not in marketplace:
+            failures.append(f"{key}.{name}.source must be an object")
             continue
         source = marketplace.get("source")
         if not isinstance(source, dict):
@@ -223,70 +235,12 @@ def _marketplace_failures(key: str, marketplaces: object) -> list[str]:
     return failures
 
 
-def _normalize_allow_write(entry: str) -> str:
-    text = entry.strip()
-    for prefix in ("${HOME}/", "$HOME/", "~/"):
-        if text.startswith(prefix):
-            return "~/" + text[len(prefix) :]
-    for root in ("/Users/", "/home/"):
-        if text.startswith(root):
-            rest = text[len(root) :]
-            slash = rest.find("/")
-            if slash > 0:
-                return "~/" + rest[slash + 1 :]
-    return text
-
-
-def _strip_trailing_dot_slash(path: str) -> str:
-    path = path.rstrip("/")
-    if path.endswith("/."):
-        path = path[: -len("/.")].rstrip("/")
-    return path
-
-
-def _glob_matches(pattern: str, candidate: str) -> bool:
-    parts: list[str] = []
-    index = 0
-    while index < len(pattern):
-        if pattern.startswith("**", index):
-            parts.append(".*")
-            index += 2
-        elif pattern[index] == "*":
-            parts.append("[^/]*")
-            index += 1
-        elif pattern[index] == "?":
-            parts.append("[^/]")
-            index += 1
-        else:
-            parts.append(re.escape(pattern[index]))
-            index += 1
-    return re.fullmatch("".join(parts), candidate) is not None
-
-
-def _wildcard_covers_plugin(pattern: str) -> bool:
-    if _glob_matches(pattern, CODEX_PLUGIN_DATA):
-        return True
-    if _glob_matches(pattern, CODEX_PLUGIN_DATA + "/x") or _glob_matches(
-        pattern, CODEX_PLUGIN_DATA + "/x/y"
-    ):
-        return True
-    ancestor = CODEX_PLUGIN_DATA
-    while "/" in ancestor:
-        ancestor = ancestor.rsplit("/", 1)[0]
-        if ancestor in {"~", ""}:
-            break
-        if _glob_matches(pattern, ancestor):
-            return True
-    return False
-
-
-def _grants_codex_plugin_data(entry: str) -> bool:
-    path = _strip_trailing_dot_slash(_normalize_allow_write(entry))
-    if path == CODEX_PLUGIN_DATA_PARENT:
-        return False
-    if "*" in path or "?" in path:
-        return _wildcard_covers_plugin(path)
-    return path == CODEX_PLUGIN_DATA or path.startswith(CODEX_PLUGIN_DATA + "/")
+def _unlisted_allow_write(entry: str) -> str:
+    return (
+        f'sandbox.filesystem.allowWrite entry "{entry}" is not allowlisted. '
+        "Update ALLOWED_SANDBOX_ALLOW_WRITE in tests/codex/verify_claude_update_policy.py "
+        "if the addition is intentional"
+    )
 
 
 def _allow_write_failures(sandbox: object) -> list[str]:
@@ -298,16 +252,14 @@ def _allow_write_failures(sandbox: object) -> list[str]:
     allow_write = filesystem.get("allowWrite")
     if not isinstance(allow_write, list):
         return ["sandbox.filesystem.allowWrite must be an array"]
+    allowed = set(ALLOWED_SANDBOX_ALLOW_WRITE)
     failures: list[str] = []
     for entry in allow_write:
         if not isinstance(entry, str):
             failures.append("sandbox.filesystem.allowWrite entries must be strings")
             continue
-        if _grants_codex_plugin_data(entry):
-            failures.append(
-                "sandbox.filesystem.allowWrite must not contain "
-                f'"{CODEX_PLUGIN_DATA}"'
-            )
+        if entry not in allowed:
+            failures.append(_unlisted_allow_write(entry))
     return failures
 
 

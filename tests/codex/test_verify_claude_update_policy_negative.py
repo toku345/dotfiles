@@ -221,6 +221,50 @@ def main() -> None:
     )
 
     data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {
+        "codex-cc": {
+            "source": {
+                "source": "git",
+                "url": "https://github.com/openai/codex-plugin-cc.git#v1",
+            }
+        }
+    }
+    mutations.append(
+        (
+            "Codex plugin git url with ref registered",
+            data,
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {
+        "codex-cc": {
+            "source": {
+                "source": "url",
+                "url": "https://raw.githubusercontent.com/openai/codex-plugin-cc/main/.claude-plugin/marketplace.json",
+            }
+        }
+    }
+    mutations.append(
+        (
+            "Codex plugin raw marketplace url registered",
+            data,
+            'extraKnownMarketplaces must not register "openai/codex-plugin-cc"',
+        )
+    )
+
+    data = copy.deepcopy(baseline)
+    data["extraKnownMarketplaces"] = {"codex-cc": {"autoUpdate": False}}
+    mutations.append(
+        (
+            "marketplace entry missing source",
+            data,
+            "extraKnownMarketplaces.codex-cc.source must be an object",
+        )
+    )
+
+    data = copy.deepcopy(baseline)
     data["additionalMarketplaces"] = {
         "codex-cc": {"source": {"source": "github", "repo": "openai/codex-plugin-cc"}}
     }
@@ -304,41 +348,25 @@ def main() -> None:
 
     for entry in (
         "~/.claude/plugins/data/codex-openai-codex",
-        "~/.claude/plugins/data/codex-openai-codex/",
-        "~/.claude/plugins/data/codex-openai-codex/.",
-        "~/.claude/plugins/data/codex-openai-codex/**",
-        "~/.claude/plugins/data/codex-openai-codex/*",
-        "~/.claude/plugins/data/codex-openai-codex/state",
-        "~/.claude/plugins/data/*",
-        "~/.claude/plugins/data/**",
-        "~/.claude/plugins/*",
-        "$HOME/.claude/plugins/data/codex-openai-codex",
-        "${HOME}/.claude/plugins/data/codex-openai-codex",
-        "/home/toku345/.claude/plugins/data/codex-openai-codex",
-        "/Users/toku345/.claude/plugins/data/codex-openai-codex/",
+        "~/.claude/plugins/data/codex-openai-codex/state/**",
+        "//Users/toku345/.claude/plugins/data/codex-openai-codex",
+        "./plugins/data/codex-openai-codex",
+        "/**",
     ):
         data = copy.deepcopy(baseline)
         data["sandbox"]["filesystem"]["allowWrite"].append(entry)
         mutations.append(
             (
-                f"Codex plugin data dir reintroduced: {entry}",
+                f"allowWrite entry not allowlisted: {entry}",
                 data,
-                'sandbox.filesystem.allowWrite must not contain '
-                '"~/.claude/plugins/data/codex-openai-codex"',
+                (
+                    f'sandbox.filesystem.allowWrite entry "{entry}" is not allowlisted. '
+                    "Update ALLOWED_SANDBOX_ALLOW_WRITE in "
+                    "tests/codex/verify_claude_update_policy.py "
+                    "if the addition is intentional"
+                ),
             )
         )
-
-    for entry in (
-        "~/.claude/plugins/data",
-        "/home/toku345/.claude/plugins/data",
-        "$HOME/.claude/plugins/data",
-        "~/.claude/plugins",
-    ):
-        data = copy.deepcopy(baseline)
-        data["sandbox"]["filesystem"]["allowWrite"].append(entry)
-        parent_failures = all_failures(data, verifier)
-        if any("codex-openai-codex" in failure for failure in parent_failures):
-            raise AssertionError(f"allowWrite entry {entry!r} rejected: {parent_failures!r}")
 
     data = copy.deepcopy(baseline)
     data["sandbox"]["filesystem"]["allowWrite"] = "~/.claude/plugins/data/codex-openai-codex"
