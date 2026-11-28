@@ -352,6 +352,11 @@ def main() -> None:
         "//Users/toku345/.claude/plugins/data/codex-openai-codex",
         "./plugins/data/codex-openai-codex",
         "/**",
+        "~/.claude/plugins/data//codex-openai-codex",
+        "~/.claude/plugins/data/./codex-openai-codex",
+        "~/.claude/plugins/../plugins/data/codex-openai-codex",
+        "~/.Claude/plugins/data/codex-openai-codex",
+        "/Users/**",
     ):
         data = copy.deepcopy(baseline)
         data["sandbox"]["filesystem"]["allowWrite"].append(entry)
