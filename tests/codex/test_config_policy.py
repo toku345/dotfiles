@@ -247,6 +247,62 @@ class RootInsertionTests(unittest.TestCase):
         self.assertEqual(tomllib.loads(output)["service_tier"], "fast")
 
 
+class MissingPinTests(unittest.TestCase):
+    BLOCK = (
+        "# >>> owner >>>\n"
+        "[owner.payload]\n"
+        'name = "kept"\n'
+        "# <<< owner <<<\n"
+    )
+
+    def test_missing_pin_is_applied_outside_the_installer_block(self):
+        for name in ("policy.toml", "policy-fugu.toml"):
+            policy = load_policy(PROJECT / name)
+            for path, value in policy["pin"].items():
+                with self.subTest(policy=name, key=".".join(path)):
+                    source = self._source_without(policy, path)
+                    self.assertIsNone(self._lookup(tomllib.loads(source), path))
+                    output, warnings = merge.merge(source, policy)
+                    self.assertFalse(warnings)
+                    self.assertTrue(
+                        merge.equal(self._lookup(tomllib.loads(output), path), value)
+                    )
+                    self.assertEqual(merge.marker_blocks(output), [self.BLOCK])
+                    again, again_warnings = merge.merge(output, policy)
+                    self.assertEqual(again, output)
+                    self.assertFalse(again_warnings)
+
+    def _source_without(self, policy, missing):
+        import tomlkit
+
+        def assignment(key, value):
+            document = tomlkit.document()
+            document[key] = value
+            return tomlkit.dumps(document).strip()
+
+        parent = missing[:-1]
+        rows = []
+        for path, value in policy["pin"].items():
+            if path[:-1] == parent and path != missing:
+                rows.append(assignment(path[-1], value))
+        if parent and not rows:
+            rows.append(assignment("kept", True))
+        parts = []
+        if parent:
+            parts.append("[" + ".".join(parent) + "]\n" + "\n".join(rows))
+        parts.append(self.BLOCK.rstrip("\n"))
+        return "\n\n".join(parts) + "\n"
+
+    @staticmethod
+    def _lookup(data, path):
+        current = data
+        for key in path:
+            if not isinstance(current, dict) or key not in current:
+                return None
+            current = current[key]
+        return current
+
+
 class FuguPolicyTests(unittest.TestCase):
     def setUp(self):
         self.policy = load_policy(PROJECT / "policy-fugu.toml")

@@ -38,7 +38,6 @@ writable_roots = ["/w"]
 network_access = true
 
 [features]
-apps = true
 multi_agent = true
 prevent_idle_sleep = true
 
@@ -49,27 +48,12 @@ enabled = true
 trust_level = "trusted"
 
 [tui]
-status_line = [
-  "model-with-reasoning",
-  "current-dir",
-  "git-branch",
-  "context-remaining",
-  "five-hour-limit",
-  "codex-version",
-  "pull-request-number",
-  "branch-changes",
-  "run-state",
-  "task-progress",
-]
 status_line_use_colors = false
 
 # >>> fugu:model_providers.sakana >>>
 [model_providers.sakana]
 name = "Sakana API"
 # <<< fugu:model_providers.sakana <<<
-
-[features.context_management]
-experimental_mode = true
 EOF
 }
 
@@ -121,7 +105,22 @@ assert data["plan_mode_reasoning_effort"] == "xhigh"
 }
 
 @test "does not rewrite an array pin that Codex reformatted" {
-  merge <"$FIXTURE"
+  cat <<'EOF' | merge
+model = "gpt-6.1-sol"
+[tui]
+status_line = [
+  "model-with-reasoning",
+  "current-dir",
+  "git-branch",
+  "context-remaining",
+  "five-hour-limit",
+  "codex-version",
+  "pull-request-number",
+  "branch-changes",
+  "run-state",
+  "task-progress",
+]
+EOF
   grep -qxF 'status_line = [' "$OUT"
   grep -qxF '  "task-progress",' "$OUT"
 }
