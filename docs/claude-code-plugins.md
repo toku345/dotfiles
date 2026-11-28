@@ -6,12 +6,14 @@
 
 `chezmoi apply` は `installed_plugins.json`、`known_marketplaces.json`、プラグインのキャッシュを消しません。`sandbox.filesystem.allowWrite` から `~/.claude/plugins/data/codex-openai-codex` を外したあともプラグインを残すと、状態ファイルへの書き込みは失敗します。
 
-Claude Code で次を実行し、データディレクトリを削除します。
+Claude Code で次を実行します。
 
 ```text
 /plugin uninstall codex@openai-codex
 /plugin marketplace remove openai-codex
 ```
+
+uninstall は、最後のスコープから外したときにデータディレクトリも消します。`--keep-data` のとき、別プラグインが同じディレクトリを使うとき、別スコープのインストールが残っていると読めないときは、ディレクトリを残します。残ったと表示された内容を確かめて、他のスコープにインストールが残っていないときだけ、次で消します。
 
 ```bash
 rm -rf ~/.claude/plugins/data/codex-openai-codex

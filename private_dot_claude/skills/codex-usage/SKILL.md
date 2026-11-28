@@ -1,11 +1,11 @@
 ---
 name: codex-usage
-description: Codex CLI (`codex exec`) による実装計画レビューの条件と手順。厚い変更の計画完成時や、調査委譲・別案試行を検討するときに参照する。adversarial レビューは ~/.claude/agents/adversarial-reviewer と ~/.codex/agents/adversarial-reviewer を使う。
+description: Codex CLI (`codex exec`) による実装計画レビューの条件と手順。厚い変更の計画完成時や、調査委譲・別案試行を検討するときに参照する。adversarial レビューは ~/.claude/agents/adversarial-reviewer.md と ~/.codex/agents/adversarial-reviewer.toml を使う。
 ---
 
 # codex-usage
 
-Codex は実装プランの第二意見と長時間調査に使う外部レビュアー兼補助実行系。adversarial コードレビューは chezmoi が配る `~/.claude/agents/adversarial-reviewer` と `~/.codex/agents/adversarial-reviewer` を使う。Claude Code の判断を補強するが、最終採用判断はユーザーが保持する。
+Codex は実装プランの第二意見と長時間調査に使う外部レビュアー兼補助実行系。adversarial コードレビューは chezmoi が配る `~/.claude/agents/adversarial-reviewer.md` と `~/.codex/agents/adversarial-reviewer.toml` を使う。Claude Code の判断を補強するが、最終採用判断はユーザーが保持する。
 
 別 Codex セッションへの通信は、ユーザーが明示的に頼んだときだけ行う。宛先や自分の agent 名を推測しない。レビュー gate の base pinning / fail-closed aggregation は既存の `$pr-review` / `/pr-review` が担う。
 
@@ -16,7 +16,7 @@ Codex は実装プランの第二意見と長時間調査に使う外部レビ�
 | 用途 | 手段 | 起動者 |
 |------|------|--------|
 | 実装計画レビュー | `codex exec` via Bash | AI (自動) |
-| adversarial コードレビュー | `~/.claude/agents/adversarial-reviewer` と `~/.codex/agents/adversarial-reviewer` | ユーザー (手動) |
+| adversarial コードレビュー | `~/.claude/agents/adversarial-reviewer.md` と `~/.codex/agents/adversarial-reviewer.toml` | ユーザー (手動) |
 | 調査委譲・長時間タスク・別案の試行 | Codex CLI | ユーザー (手動) |
 
 ## 実装計画立案時の自動 Codex レビュー
